@@ -871,8 +871,10 @@ export function LectureStudyFlow({
       atoms,
       examples: selectClinicalExamplesForBlock(schoolExemplars, blockId),
       analyses: readClinicalAnalysesForBlock(userId, blockId),
+      lecture,
+      lectureTitle: renamedTitle || title,
     }),
-    [atoms, schoolExemplars, userId, blockId]
+    [atoms, schoolExemplars, userId, blockId, lecture, renamedTitle, title]
   );
   const schoolExamplesLoading = questionBanksRes.loading || questionBankMetaRes.loading;
 
@@ -2541,14 +2543,15 @@ export function LectureStudyFlow({
           {clinicalCorrelateLibrary.length > 0 && (
             <details className="rounded-lg border border-border bg-bg-elevated p-3">
               <summary className="cursor-pointer text-sm font-semibold text-text-1">
-                Recurring clinical correlates ({clinicalCorrelateLibrary.length})
+                Quiz and exam clinical correlates ({clinicalCorrelateLibrary.length})
               </summary>
-              <p className="mt-2 text-xs text-text-3">Signals repeated in this lecture and/or its uploaded question sets. They are available as optional clue patterns during question generation.</p>
+              <p className="mt-2 text-xs text-text-3">Lecture-matched correlates are deliberately sampled for recognition, mechanism, and discrimination practice. Repeated signals from uploaded questions supplement them.</p>
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 {clinicalCorrelateLibrary.map((entry) => (
                   <div key={`${entry.label}-${entry.sourceKinds?.join("-")}`} className="rounded border border-border p-2 text-sm">
                     <div className="font-medium text-text-1">{entry.label}</div>
-                    <div className="mt-1 text-xs text-text-3">{entry.sourceKinds?.join(" · ")} · {entry.frequency} references</div>
+                    <div className="mt-1 text-xs text-text-3">{entry.curated ? `Priority ${entry.priority} · ${entry.sourcePage}` : `${entry.sourceKinds?.join(" · ")} · ${entry.frequency} references`}</div>
+                    {entry.recognitionCue && <div className="mt-1 text-xs text-text-2">Recognize: {entry.recognitionCue}</div>}
                   </div>
                 ))}
               </div>

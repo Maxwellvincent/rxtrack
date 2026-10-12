@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { vi } from "vitest";
 import { explanationOnlyReplacement, questionMatchesObjectiveDomain, normalizeQuestions, buildMcqPrompt, generateMcqs, buildExemplarParsePrompt, parseExemplarsFromMd, buildAtomQuestionsPrompt, generateFromAtoms, selectStyleExemplars, exemplarSourceTier, buildQuestionAuditPrompt, auditGeneratedQuestions, locallyValidClinicalQuestions, locallyUsableQuestions, buildStyleFingerprint, questionEndingTask, diversifyQuestionEndings, buildQuestionSourceBlueprint, styleProfilePrompt } from "./mcq.js";
+import { buildClinicalCorrelateLibrary } from "./clinicalCorrelates.js";
 
 describe("normalizeQuestions", () => {
   const good = {
@@ -105,6 +106,22 @@ describe("buildMcqPrompt", () => {
     expect(compact).toContain('"targetOrder":"third-order"');
     expect(compact).toContain('"targetCount":2');
     expect(compact).toContain("one unambiguous best answer");
+  });
+
+  it("turns lecture-matched correlates into a required recognition-to-discrimination quiz plan", () => {
+    const prompt = buildMcqPrompt({
+      subject: "Meninges and arteries",
+      count: 5,
+      lectureText: "The middle meningeal artery can be injured with an epidural hemorrhage. ".repeat(20),
+      objectives: [{ id: "o1", objective: "Differentiate intracranial hemorrhages" }],
+      atoms: [{ term: "Epidural hemorrhage", content: "A biconvex collection can follow middle meningeal artery injury.", objectiveIds: ["o1"] }],
+      clinicalCorrelateLibrary: buildClinicalCorrelateLibrary({ lectureTitle: "Lecture 04 - Meninges and Arteries" }),
+      promptProfile: "compact",
+    });
+    expect(prompt).toContain("REQUIRED CLINICAL PRACTICE PLAN");
+    expect(prompt).toContain("At least 2 of this 5-item batch");
+    expect(prompt).toContain("nb1-04-epidural-hemorrhage");
+    expect(prompt).toContain("clinicalReasoningStage");
   });
   const prompt = buildMcqPrompt({
     subject: "Endocrine hormones",

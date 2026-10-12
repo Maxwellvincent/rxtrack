@@ -339,6 +339,8 @@ export function buildQuizConfig({
     atoms,
     examples: selectClinicalExamplesForBlock(exemplars, blockId),
     analyses: readClinicalAnalysesForBlock(userId, blockId),
+    lecture,
+    lectureTitle,
   });
 
   if (!selected.length && !atoms.length && !lectureText.trim()) {

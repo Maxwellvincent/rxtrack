@@ -8,7 +8,7 @@ import { normAtomKey } from "./atomNorm.js";
 import { canonicalObjectiveIds } from "./objectiveLinks.js";
 import { alignSchoolQuestions, schoolEvidencePrompt, retrieveLectureEvidence } from "./schoolAlignment.js";
 import { uniqueQuestions } from "./questionSimilarity.js";
-import { renderClinicalCorrelateLibrary } from "./clinicalCorrelates.js";
+import { buildClinicalCorrelatePlan, renderClinicalCorrelateLibrary } from "./clinicalCorrelates.js";
 import { buildOrderBlueprint, normalizeQuestionOrder, stampQuestionOrders, questionOrderDescription, verifyReasoningReview, hasCurrentReasoningAudit } from "./questionOrder.js";
 import { objectiveFacetCoveragePrompt } from "./objectiveFacets.js";
 import { buildReasoningDepthPlan } from "./questionReasoning.js";
@@ -22,6 +22,34 @@ export function withQuestionAIRouting(call) {
     system, prompt, fallback, maxTokens, provider, temperature,
     { ...options, bridgeBackend: options.bridgeBackend || "ollama" }
   );
+}
+
+function clinicalCorrelatePracticePrompt(library = [], count = 0, offset = 0) {
+  const entries = Array.isArray(library) ? library : [];
+  if (!entries.length) return "";
+  const plan = buildClinicalCorrelatePlan(entries, count, offset);
+  if (!plan.targetCount) {
+    return `RECURRENT CLINICAL CORRELATES (supporting patterns only):\n${renderClinicalCorrelateLibrary(entries)}\nUse a signal only when the lecture facts and selected objective support it. Do not add outside facts.\n`;
+  }
+  return `LECTURE-MATCHED CLINICAL-CORRELATE INVENTORY:\n${renderClinicalCorrelateLibrary(entries)}\n` +
+    `REQUIRED CLINICAL PRACTICE PLAN: ${JSON.stringify(plan.targets)}\n` +
+    `At least ${plan.targetCount} of this ${count}-item batch must use the listed correlate IDs when the matched lecture evidence supports the selected objective. Practice the assigned stage: recognition hides the diagnosis and asks the learner to identify/localize it; mechanism asks for the affected structure or causal process after recognition; discrimination contrasts the closest lecture-supported look-alike using the decisive clue. Preserve objective allocation and source truth—if a planned correlate cannot test an allocated objective, use another lecture-matched correlate that can. Do not import any inferred-only condition. For every correlate item return clinicalCorrelateId as the exact bracketed ID, clinicalCorrelate as the label, clinicalCueUsed as the decisive cue, and clinicalReasoningStage as recognition|mechanism|discrimination. Return those fields as null for other items.\n`;
+}
+
+function ensureClinicalCorrelateAttribution(questions = [], library = []) {
+  const byId = new Map((Array.isArray(library) ? library : []).filter(entry => entry?.id).map(entry => [String(entry.id), entry]));
+  return questions.map((question) => {
+    const entry = byId.get(String(question?.clinicalCorrelateId || ""));
+    if (!entry) return { ...question, clinicalCorrelateId: null, clinicalReasoningStage: null };
+    return {
+      ...question,
+      clinicalCorrelateId: entry.id,
+      clinicalCorrelate: entry.label,
+      clinicalReasoningStage: ["recognition", "mechanism", "discrimination"].includes(question.clinicalReasoningStage)
+        ? question.clinicalReasoningStage
+        : "recognition",
+    };
+  });
 }
 
 const LETTERS = ["A", "B", "C", "D", "E", "F", "G", "H"];
@@ -295,7 +323,7 @@ export async function generateMcqs(cfg = {}, deps = {}) {
     });
     if (result?.error) return { error: String(result.error), questions: [] };
     const candidates = questionCandidates(result);
-    const generated = withSchoolContext(stampQuestionOrders(ensureObjectiveAttribution(normalizeQuestions(result), cfg.objectives || []), cfg.objectives || []), cfg).map((question) => ({ ...question, generationVersion: "v2" }));
+    const generated = withSchoolContext(ensureClinicalCorrelateAttribution(stampQuestionOrders(ensureObjectiveAttribution(normalizeQuestions(result), cfg.objectives || []), cfg.objectives || []), cfg.clinicalCorrelateLibrary), cfg).map((question) => ({ ...question, generationVersion: "v2" }));
     if (!generated.length) {
       const fields = result && typeof result === "object" && !Array.isArray(result) ? Object.keys(result).slice(0, 8).join(", ") : typeof result;
       const detail = candidates.length
@@ -467,6 +495,8 @@ export function normalizeQuestions(raw) {
       bloomLevel: Number.isFinite(Number(q.bloomLevel)) ? Math.max(1, Math.min(6, Number(q.bloomLevel))) : null,
       clinicalCorrelate: q.clinicalCorrelate ? String(q.clinicalCorrelate).trim() : null,
       clinicalCueUsed: q.clinicalCueUsed ? String(q.clinicalCueUsed).trim() : null,
+      clinicalCorrelateId: q.clinicalCorrelateId ? String(q.clinicalCorrelateId).trim() : null,
+      clinicalReasoningStage: ["recognition", "mechanism", "discrimination"].includes(q.clinicalReasoningStage) ? q.clinicalReasoningStage : null,
     };
     out.push(shuffleChoices(validated));
     if (out.length >= 100) break;
@@ -635,7 +665,7 @@ export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficul
     ? `\n\nLEARNED FEEDBACK FROM PRIOR QUESTIONS (${feedback.sampleSize} ratings for this lecture/version):\n- Fairness issues: ${feedback.fairNo}\n- Exam-style mismatches: ${feedback.examStyleNo}\n- Recurring issue codes: ${JSON.stringify(feedback.issueCounts || {})}\nActively correct these recurring issues in every new item; do not repeat the same failure patterns.\n`
     : "";
   const clinicalSection = clinicalCorrelateLibrary?.length
-    ? `\n\nRECURRENT CLINICAL CORRELATES FROM THE LECTURE AND UPLOADED QUESTIONS:\n${renderClinicalCorrelateLibrary(clinicalCorrelateLibrary)}\nUse these recurring signals as optional clue-to-mechanism practice when the numbered atom supports them. Do not force a signal into every item, do not make the signal itself the answer unless the atom supports that relationship, and do not add facts that are absent from the supplied atoms/objectives.\n`
+    ? `\n\n${clinicalCorrelatePracticePrompt(clinicalCorrelateLibrary, atoms.length, avoidStems.length)}`
     : "";
   const focusSection = String(focusNotes || "").trim()
     ? `\n\nINSTRUCTOR/LEARNER EMPHASIS (high-priority targeting guidance, not a substitute for lecture evidence):\n${String(focusNotes).trim()}\nDistribute questions across these requested topics when the supplied lecture facts/objectives support them. Give extra attention to stated blockers, rate-limiting steps, cofactors, enzyme reactions, and regulatory consequences. Do not invent unsupported facts.\n`
@@ -665,7 +695,7 @@ export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficul
     examplesSection + schoolEvidencePrompt(styleExamples, objectives, atoms) + homeworkEvidencePrompt(examples) + clickerEvidencePrompt(examples) + clinicalSection + focusSection + feedbackSection + avoidSection +
     `\n\nBefore returning JSON, reject and rewrite any draft whose stem is shorter or less clinically dense than the school examples, reveals its keyed answer, uses a generic recall template, or can be answered without applying the numbered fact. ` +
     depthSection + `\nReturn ONLY valid JSON:\n` +
-    `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"A","explanation":"...",${WHY_WRONG_JSON},"topic":"the fact's term","objectiveIds":["primary objective id"],"objectiveFacet":"specific clause tested","taskType":"recognition|mechanism|clinical-application|fresh-retest","reasoningDepth":"state-recognition|pathway-process|mechanism|enzyme-structure|regulation-cofactor|clinical-consequence","orderLevel":"first-order|second-order|third-order","reasoningSteps":["interpret clue","apply supplied relationship","integrate a second relationship only when needed"],"difficulty":"${diff}"}]}`
+    `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"A","explanation":"...",${WHY_WRONG_JSON},"topic":"the fact's term","objectiveIds":["primary objective id"],"objectiveFacet":"specific clause tested","taskType":"recognition|mechanism|clinical-application|fresh-retest","reasoningDepth":"state-recognition|pathway-process|mechanism|enzyme-structure|regulation-cofactor|clinical-consequence","orderLevel":"first-order|second-order|third-order","reasoningSteps":["interpret clue","apply supplied relationship","integrate a second relationship only when needed"],"clinicalCorrelateId":null,"clinicalCorrelate":null,"clinicalCueUsed":null,"clinicalReasoningStage":null,"difficulty":"${diff}"}]}`
   );
 }
 
@@ -708,7 +738,7 @@ export async function generateFromAtoms(cfg = {}, deps = {}) {
   try {
     const prompt = buildAtomQuestionsPrompt(cfg);
     const result = await callAIJSON(MCQ_V2_SYSTEM, prompt, { questions: [] }, maxTokens);
-    const questions = stampQuestionOrders(ensureObjectiveAttribution(normalizeQuestions(backfillTopicsFromAtoms(result, atoms, cfg.objectives || [])), cfg.objectives || []), cfg.objectives || []).map(q => ({
+    const questions = ensureClinicalCorrelateAttribution(stampQuestionOrders(ensureObjectiveAttribution(normalizeQuestions(backfillTopicsFromAtoms(result, atoms, cfg.objectives || [])), cfg.objectives || []), cfg.objectives || []), cfg.clinicalCorrelateLibrary).map(q => ({
       ...q,
       generationVersion: "v2",
       objectiveTexts: (cfg.objectives || []).filter(o => q.objectiveIds?.includes(o.id)).map(o => ({ id: o.id, code: o.code || "", text: o.objective || o.text || "" })),
@@ -737,6 +767,8 @@ function auditQuestionPayload(question, index) {
     bloomLevel: question.bloomLevel,
     clinicalCorrelate: question.clinicalCorrelate,
     clinicalCueUsed: question.clinicalCueUsed,
+    clinicalCorrelateId: question.clinicalCorrelateId,
+    clinicalReasoningStage: question.clinicalReasoningStage,
   };
 }
 
@@ -780,7 +812,7 @@ export function buildQuestionAuditPrompt(questions, cfg = {}) {
     objectiveModalitySection(cfg.objectives || []) +
     `LECTURE FACTS:\n${JSON.stringify(atoms)}\n` +
     `RETRIEVED LECTURE EVIDENCE:\n${evidence || "No lecture text supplied; use only objectives and lecture facts."}\n\n` +
-    `RECURRENT CLINICAL CORRELATES (optional; use only when supported by the lecture facts):\n${clinicalCorrelates || "none"}\n\n` +
+    `LECTURE-MATCHED CLINICAL CORRELATES (verify any claimed ID, clue, structure, mechanism, and discriminator against the lecture evidence):\n${clinicalCorrelates || "none"}\n\n` +
     `QUESTIONS:\n${JSON.stringify(questions.map(auditQuestionPayload))}\n\n` +
     `Return exactly one review for every question index. When approved is false, also return a corrected replacement that fixes every issue while testing the same supplied objective. The replacement must be a complete question with 4-6 choices, one valid key, explanation, whyWrong for every option, objectiveIds, objectiveFacet, topic, taskType, and orderLevel. Do not return a replacement when the supplied evidence cannot support one.\n` +
     `{"reviews":[{"index":0,"approved":true,"objectiveAligned":true,"issues":[],"reasoning":{"orderLevel":"second-order","steps":["interpret a discriminating clue","apply the supplied relationship to choose the key"],"sourceQuotes":["exact supporting quote from lecture facts or text"],"allStepsRequired":true,"connectedChain":true,"singleEndpoint":true,"choiceShortcut":false},"replacement":null},{"index":1,"approved":false,"issues":["weak_explanation"],"replacement":{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"A","explanation":"...","whyWrong":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"objectiveIds":["exact objective id"],"objectiveFacet":"...","topic":"...","taskType":"mechanism","orderLevel":"second-order"}}]}\n` +
@@ -1248,19 +1280,19 @@ When the lecture supports physiology but no named clinical condition, use a lect
 For synthesis/transport interventions, distinguish newly synthesized or newly labeled products from pre-existing stored pools. Never infer that one transmitter pool is depleted while another is unchanged without lecture evidence for enzyme lifetime, storage and the stated time interval. If the source places both small-molecule enzymes and peptide precursors in the soma, a general protein-synthesis block is NOT a selective peptide intervention. Prefer tracing a newly labeled precursor through the taught compartments or an explicitly selective precursor/transport intervention, and ask a downstream transport, processing, accumulation or release prediction. Do not merely ask where a transmitter is synthesized: identifying its class and recalling its synthesis compartment alone is still first-order. Conceal the intermediate, use a selective interruption of a taught step, and require its consequence. State necessary experimental controls in the setup; do not invent biological selectivity.
 Before returning, check the explanation and EACH whyWrong against your source excerpts. Explain a distractor using the same supported relationship and the conflicting clue, not additional textbook facts about that distractor. A correct key is insufficient if the explanation imports unsupported enzyme lifetimes, recycling rules, receptor kinetics or assumed unchanged functions.
 Vary supported task families and objective facets; do not repeat one clue-to-answer route. An independent reviewer must verify the actual shortest reasoning route against exact source quotations.
-OBJECTIVES:\n${JSON.stringify(compactObjectives(cfg))}
+LEARNING OBJECTIVES TO COVER:\n${JSON.stringify(compactObjectives(cfg))}
 ORDER TARGETS:\n${JSON.stringify(order)}
 ${objectiveFacetCoveragePrompt(cfg.objectives || [], count)}
 ${objectiveModalitySection(cfg.objectives || [])}
 ${compactStyle(cfg)}
 ${styleProfilePrompt(cfg.styleProfile, count)}
 ${questionWritingBenchmarkPrompt(cfg)}
-OPTIONAL CLINICAL PATTERNS (not factual authority; use only when the lecture supports them):\n${renderClinicalCorrelateLibrary((cfg.clinicalCorrelateLibrary || []).slice(0, 6))}
+${clinicalCorrelatePracticePrompt(cfg.clinicalCorrelateLibrary || [], count, (cfg.avoidStems || []).length)}
 LEARNER EMPHASIS:\n${cfg.focusNotes || "none"}
 PRIOR FEEDBACK:\n${JSON.stringify(cfg.feedback || {})}
 AVOID REPEATING THESE PRIOR STEMS:\n${JSON.stringify((cfg.avoidStems || []).slice(-10).map(s => String(s).slice(0, 180)))}
 ${compactSource(cfg)}
-Return ONLY JSON: {"questions":[{${QUESTION_PLAN_JSON},"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"B","explanation":"...",${WHY_WRONG_JSON},"objectiveIds":["exact id"],"objectiveFacet":"specific clause tested","topic":"specific concept","taskType":"recognition|mechanism|clinical-application|fresh-retest","reasoningDepth":"state-recognition|pathway-process|mechanism|enzyme-structure|regulation-cofactor|clinical-consequence","orderLevel":"first-order|second-order|third-order","reasoningSteps":["clue interpretation","required relationship","second relationship only if required"],"difficulty":"${cfg.difficulty || "medium"}"}]}`;
+Return ONLY JSON: {"questions":[{${QUESTION_PLAN_JSON},"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"B","explanation":"...",${WHY_WRONG_JSON},"objectiveIds":["exact id"],"objectiveFacet":"specific clause tested","topic":"specific concept","taskType":"recognition|mechanism|clinical-application|fresh-retest","reasoningDepth":"state-recognition|pathway-process|mechanism|enzyme-structure|regulation-cofactor|clinical-consequence","orderLevel":"first-order|second-order|third-order","reasoningSteps":["clue interpretation","required relationship","second relationship only if required"],"clinicalCorrelateId":null,"clinicalCorrelate":null,"clinicalCueUsed":null,"clinicalReasoningStage":null,"difficulty":"${cfg.difficulty || "medium"}"}]}`;
 }
 
 function buildCompactAuditPrompt(questions, cfg) {
@@ -1289,7 +1321,7 @@ export function buildMcqPrompt(cfg = {}) {
   return cfg.promptProfile === "compact" ? buildCompactMcqPrompt(cfg) : buildFullMcqPrompt(cfg);
 }
 
-function buildFullMcqPrompt({ subject = "this lecture", lectureText = "", examples = [], styleProfile = null, objectives = [], atoms = [], difficulty = "medium", count = 10, studyMode = "balanced", generationVersion = "v2", feedback = null, clinicalCorrelateLibrary = [], orderBlueprint = null, focusNotes = "", reasoningDepthPlan = null, requireReasoningAudit = false } = {}) {
+function buildFullMcqPrompt({ subject = "this lecture", lectureText = "", examples = [], styleProfile = null, objectives = [], atoms = [], difficulty = "medium", count = 10, studyMode = "balanced", generationVersion = "v2", feedback = null, clinicalCorrelateLibrary = [], orderBlueprint = null, focusNotes = "", reasoningDepthPlan = null, requireReasoningAudit = false, avoidStems = [] } = {}) {
   const diff = String(difficulty).toLowerCase();
 
   const styleExamples = selectStyleExemplars(examples, STYLE_PROMPT_EXEMPLAR_LIMIT, diff, { objectives, atoms });
@@ -1326,7 +1358,7 @@ function buildFullMcqPrompt({ subject = "this lecture", lectureText = "", exampl
     ? "\n\nLECTURE CONTENT (retrieved across the lecture for these targets):\n" + retrieveLectureEvidence(lectureText, objectives, atoms)
     : "";
   const clinicalSection = clinicalCorrelateLibrary?.length
-    ? `\n\nRECURRENT CLINICAL CORRELATES FROM THE LECTURE AND UPLOADED QUESTIONS:\n${renderClinicalCorrelateLibrary(clinicalCorrelateLibrary)}\nUse these as optional, curriculum-grounded clue patterns. Distribute them across the batch only when the supplied lecture facts support the relationship; never force one into an item, turn a cue into an unsupported diagnosis, or import outside facts. If a correlate conflicts with the lecture evidence, ignore it.\n`
+    ? `\n\n${clinicalCorrelatePracticePrompt(clinicalCorrelateLibrary, count, avoidStems.length)}`
     : "";
   const focusSection = String(focusNotes || "").trim()
     ? `\n\nINSTRUCTOR/LEARNER EMPHASIS (high-priority targeting guidance, not a substitute for lecture evidence):\n${String(focusNotes).trim()}\nDistribute questions across these requested topics when the supplied lecture facts/objectives support them. Give extra attention to stated blockers, rate-limiting steps, cofactors, enzyme reactions, and regulatory consequences. Do not invent unsupported facts.\n`
@@ -1361,6 +1393,6 @@ function buildFullMcqPrompt({ subject = "this lecture", lectureText = "", exampl
     `\n\nDRAFT QUALITY CHECK: rewrite any item with a repeated sentence, repeated answer choice, answer wording revealed in the stem, ambiguous best answer, physiology that is only partly true, an unsupported named diagnosis/syndrome/finding, or an explanation that does not name the mechanism and connect it to the objective. Match the typical stem length and clue density of the school examples. A separate independent reviewer will decide whether each completed item may be used.\n` +
     `RULES: every question UNIQUE; vary format/demographics and final task family; base strictly on the lecture content; set objectiveIds to the exact ID/code of the ONE primary objective tested; distribute correct answers evenly across A/B/C/D/E — no single letter should be correct more than 30% of the time.\n` + depthSection + `\n` +
     `Return ONLY valid JSON:\n` +
-    `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"B","explanation":"...",${WHY_WRONG_JSON},"choiceLayout":null,"choiceColumns":null,"topic":"<3-6 word specific medical concept tested, e.g. zona glomerulosa aldosterone control>","objectiveIds":["exact objective id"],"objectiveFacet":"specific clause tested","taskType":"recognition|mechanism|clinical-application|fresh-retest","reasoningDepth":"state-recognition|pathway-process|mechanism|enzyme-structure|regulation-cofactor|clinical-consequence","orderLevel":"first-order|second-order|third-order","reasoningSteps":["interpret clue","apply supplied relationship","integrate a second relationship only when needed"],"difficulty":"${diff}"}]}`
+    `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"B","explanation":"...",${WHY_WRONG_JSON},"choiceLayout":null,"choiceColumns":null,"topic":"<3-6 word specific medical concept tested, e.g. zona glomerulosa aldosterone control>","objectiveIds":["exact objective id"],"objectiveFacet":"specific clause tested","taskType":"recognition|mechanism|clinical-application|fresh-retest","reasoningDepth":"state-recognition|pathway-process|mechanism|enzyme-structure|regulation-cofactor|clinical-consequence","orderLevel":"first-order|second-order|third-order","reasoningSteps":["interpret clue","apply supplied relationship","integrate a second relationship only when needed"],"clinicalCorrelateId":null,"clinicalCorrelate":null,"clinicalCueUsed":null,"clinicalReasoningStage":null,"difficulty":"${diff}"}]}`
   );
 }

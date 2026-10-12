@@ -57,13 +57,7 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
   blockId, lectures, weakConceptAccuracyByLecture, userId, generationId, focusNotes = "", difficultyOverride = null, preparedGenerationId = null, preparedQuestionIds = [] }, deps = {}) {
   const questions = [], errors = [], accepted = [];
   const exemplars = readExemplarsForBlock(userId, blockId);
-  const clinicalCorrelateLibrary = buildClinicalCorrelateLibrary({
-    atoms: Object.values(atomsByLecture || {}).flat(),
-    examples: exemplars,
-    analyses: readClinicalAnalysesForBlock(userId, blockId),
-    // Supplying the lecture-wide library makes a block exam share recurring signals across
-    // lectures while retaining the analyzed homework evidence for this block.
-  });
+  const clinicalAnalyses = readClinicalAnalysesForBlock(userId, blockId);
   const lectureIds = Object.keys(allocation || {}).filter(id => allocation[id] > 0);
   const total = lectureIds.reduce((n, id) => n + allocation[id], 0);
   const history = deps.pool ? await deps.pool.history() : [];
@@ -77,11 +71,18 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
     const atoms = atomsByLecture?.[lectureId] || [];
     const lecture = lecturesById?.[lectureId];
     const lectureTitle = lecture?.lectureTitle || lecture?.fileName || lectureId;
+    const clinicalCorrelateLibrary = buildClinicalCorrelateLibrary({
+      atoms,
+      examples: exemplars,
+      analyses: clinicalAnalyses,
+      lecture,
+      lectureTitle,
+    });
     const difficulty = ["medium", "hard", "expert"].includes(difficultyOverride)
       ? difficultyOverride
       : resolveDefaultDifficulty(weakConceptAccuracyByLecture?.[lectureId]);
     const studyMode = objectives.some((objective) => objective.repairPriority > 0) ? "repair" : "balanced";
-    const bucket = deps.pool ? await questionPoolKey({ blockId, lectureId, difficulty, lecture, objectives, atoms, exemplars, studyMode }) : null;
+    const bucket = deps.pool ? await questionPoolKey({ blockId, lectureId, difficulty, lecture, objectives, atoms, exemplars, studyMode, clinicalCorrelateLibrary }) : null;
     let obtained = 0, attempt = 0, errorMessage = null;
     const enforceQuality = deps.skipQuestionAudit !== true;
     if (deps.pool) {

@@ -28,6 +28,23 @@ const lectures = [
 ];
 
 describe("quiz launch decisions", () => {
+  it("adds the matching NB1 clinical inventory to lecture quiz configuration", () => {
+    const lecture = { id: "nb1-l04", blockId: "nb1", lectureTitle: "Lecture 04 - Meninges and Arteries", chunks: [{ markdown: "Intracranial hemorrhage patterns. ".repeat(10) }] };
+    const built = buildQuizConfig({
+      objectives: [{ id: "o1", linkedLecId: lecture.id, objective: "Differentiate intracranial hemorrhages" }],
+      lectureTitle: lecture.lectureTitle,
+      lectureIdHint: lecture.id,
+      blockId: "nb1",
+      lectures: [lecture],
+      questionCount: 5,
+    });
+    expect(built.config.clinicalCorrelateLibrary.map((entry) => entry.label)).toEqual(expect.arrayContaining([
+      "Epidural hemorrhage",
+      "Subdural hemorrhage",
+      "Subarachnoid hemorrhage",
+    ]));
+  });
+
   it("orders the weakest objectives first", () => {
     expect(
       sortWeakestFirst([
