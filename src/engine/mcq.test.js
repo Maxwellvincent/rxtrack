@@ -215,8 +215,8 @@ describe("buildMcqPrompt", () => {
       objectives: [{ id: "o1", bloom_level: 4, objective: "Analyze pathway regulation" }],
       examples: [{ sourceKind: "supplemental", sourceFile: "Homework Week 2.pdf", stem: "A patient has a pathway defect. What downstream laboratory finding is expected?", choices: { A: "a", B: "b", C: "c", D: "d" }, correct: "A" }],
     });
-    expect(prompt).toContain("HOMEWORK TASK EVIDENCE");
-    expect(prompt).toContain("not official style or answer authority");
+    expect(prompt).toContain("HOMEWORK PRACTICE REFERENCE");
+    expect(prompt).toContain("not official exam calibration or answer authority");
     expect(prompt).toContain("ORDER-OF-REASONING BLUEPRINT");
   });
   it("asks for strict JSON with the questions shape", () => {
@@ -339,12 +339,23 @@ describe("selectStyleExemplars", () => {
     expect(buildMcqPrompt({ examples: [imcq], difficulty: "expert" })).toContain("not calibrated");
   });
 
-  it("uses homework only as content evidence, never as a style exemplar", () => {
+  it("uses homework as a requested practice style reference alongside official school examples", () => {
     const homework = q("Assigned practice", 5, { correct: "A", sourceFile: "ER Week 2 Practice Questions.pdf" });
     const examsoft = q("ExamSoft", 5, { correct: "A", sourceFile: "ExamsoftPractice Questions.pdf" });
     expect(exemplarSourceTier(homework)).toBe("homework");
     expect(exemplarSourceTier(examsoft)).toBe("examsoft");
-    expect(selectStyleExemplars([homework, examsoft], 5)).toEqual([examsoft]);
+    expect(selectStyleExemplars([homework, examsoft], 5)).toEqual([homework, examsoft]);
+  });
+
+  it("ranks lecture-section homework ahead of unrelated examples and includes its choices", () => {
+    const unrelated = q("Unrelated question", 5, { correct: "A", sourceFile: "ExamSoft.pdf" });
+    const assigned = q("A patient has facial weakness. Which site is affected?", 5, { correct: "B", sourceFile: "Week 10 Practice Questions.pdf", sourceSection: "NB 13", sourceSectionTitle: "Facial nerve motor branches" });
+    const objectives = [{ id: "o1", objective: "Explain facial nerve motor branches" }];
+    expect(selectStyleExemplars([unrelated, assigned], 1, "medium", { objectives })[0]).toBe(assigned);
+    const prompt = buildMcqPrompt({ promptProfile: "compact", examples: [assigned], objectives });
+    expect(prompt).toContain(assigned.stem);
+    expect(prompt).toContain('"choices"');
+    expect(prompt).toContain('"sourceKind":"homework"');
   });
 
   it("represents the school's different option counts and excludes unusable image-only examples", () => {

@@ -10,7 +10,7 @@ export function alignSchoolQuestions(examples = [], objectives = [], atoms = [])
     .map(t=>({...t,words:tokens(t.text),codes:codes(`${t.code || ''} ${t.id || ''} ${t.text}`)}));
   return examples.filter(q => q?.stem && q?.choices && q.answerKeyVerified !== false).map(q => {
     const sourceCodes = new Set(codes([q.schoolObjectiveCode, ...(q.schoolObjectiveCodes || []), q.schoolObjective].join(' ')));
-    const sourceTokens = tokens(`${q.schoolObjective || ''} ${q.stem} ${Object.values(q.choices).join(' ')}`);
+    const sourceTokens = tokens(`${q.schoolObjective || ''} ${q.sourceSectionTitle || ''} ${q.stem} ${Object.values(q.choices).join(' ')}`);
     const links = targets.flatMap(t => {
       const matchedCodes = t.codes.filter(c => sourceCodes.has(c));
       const shared = [...t.words].filter(w => sourceTokens.has(w));

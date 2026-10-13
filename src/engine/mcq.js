@@ -259,16 +259,15 @@ function objectiveModalitySection(objectives = []) {
 }
 
 /**
- * Keep source roles explicit: official ExamSoft/IMCQ questions teach wording and
- * option conventions; Homework teaches the kinds of relationships and traps the
- * learner is assigned to practice. Neither source silently becomes lecture truth.
+ * Keep source roles explicit: ExamSoft/IMCQ and Homework teach wording, difficulty,
+ * option conventions, and assigned task patterns while retaining source labels. Neither source silently becomes lecture truth.
  */
 export function buildQuestionSourceBlueprint(examples = [], objectives = [], count = 10) {
   const homework = examples.filter((question) => exemplarSourceTier(question) === "homework" && question?.stem && question?.choices && question.answerKeyVerified !== false);
   const clicker = examples.filter((question) => exemplarSourceTier(question) === "clicker" && question?.stem && question?.choices);
   const homeworkFingerprint = buildStyleFingerprint(homework.slice(0, STYLE_FINGERPRINT_LIMIT));
   const clickerFingerprint = buildStyleFingerprint(clicker.slice(0, STYLE_FINGERPRINT_LIMIT));
-  const official = selectStyleExemplars(examples, STYLE_FINGERPRINT_LIMIT, "medium", { objectives, atoms: [] });
+  const official = selectStyleExemplars(examples.filter(q => exemplarSourceTier(q) !== "homework"), STYLE_FINGERPRINT_LIMIT, "medium", { objectives, atoms: [] });
   return {
     officialStyle: buildStyleFingerprint(official),
     homeworkTypes: homeworkFingerprint,
@@ -277,14 +276,14 @@ export function buildQuestionSourceBlueprint(examples = [], objectives = [], cou
   };
 }
 
-function homeworkEvidencePrompt(examples = []) {
-  const homework = examples.filter((question) => exemplarSourceTier(question) === "homework" && question?.stem && question?.choices && question.answerKeyVerified !== false).slice(0, 6);
+function homeworkEvidencePrompt(examples = [], targets = {}) {
+  const homework = selectStyleExemplars(examples.filter(question => exemplarSourceTier(question) === "homework"), 6, "medium", targets);
   if (!homework.length) return "";
   const blueprint = buildStyleFingerprint(homework);
-  return `\n\nHOMEWORK TASK EVIDENCE (assigned-practice signal, not official style or answer authority):\n` +
+  return `\n\nHOMEWORK PRACTICE REFERENCE (requested structure and difficulty, not official exam calibration or answer authority):\n` +
     `Observed task families: ${JSON.stringify(blueprint.endingFamilies || [])}; observed second-order signal: ${Math.round((blueprint.secondOrderRate || 0) * 100)}%.\n` +
-    homework.map((question, index) => `HOMEWORK ${index + 1}: ${question.stem}`).join("\n") +
-    `\nUse Homework to include the relationships, misconception patterns, and problem types your assignments actually practice. Rewrite them as NEW questions in the verified ExamSoft/IMCQ structure; do not copy wording, import unsupported facts, or treat a homework key as an independent medical audit. Objectives still determine what may be tested.\n`;
+    homework.map((question, index) => `HOMEWORK ${index + 1} [${question.sourceSection || ""} ${question.sourceSectionTitle || ""}]: ${question.stem}\n${renderChoices(question.choices)}`).join("\n") +
+    `\nUse Homework to include the relationships, misconception patterns, and problem types your assignments actually practice. Preserve their focused lead-in, clue density, plausible distractor structure, and causal difficulty in NEW questions; do not copy wording, import unsupported facts, or treat a homework key as an independent medical audit. Objectives still determine what may be tested.\n`;
 }
 
 function clickerEvidencePrompt(examples = []) {
@@ -595,12 +594,12 @@ function renderChoices(choices) {
 export function selectStyleExemplars(examples = [], limit = 5, _difficulty = "medium", targets = {}) {
   if (limit <= 0) return [];
   const relevance = new Map(alignSchoolQuestions(examples, targets.objectives, targets.atoms).map(x => [x.question,x.score]));
-  // Homework/student-authored and in-class clicker banks are useful task evidence,
-  // but ExamSoft and IMCQ remain the primary writing-style references.
+  // Homework is an explicit practice-style reference alongside school exams.
+  // Rank relevant lecture/objective examples before broader style references.
   const candidates = examples.filter((q) => {
     const tier = exemplarSourceTier(q);
     return q?.stem && q?.choices && !q.hasImage && q.answerKeyVerified !== false &&
-      tier !== "homework" && tier !== "clicker";
+      tier !== "clicker";
   });
   // Keep the entire uploaded bank in the candidate pool. Previously, the
   // presence of one objective-linked example discarded every unrelated example,
@@ -609,11 +608,12 @@ export function selectStyleExemplars(examples = [], limit = 5, _difficulty = "me
   const valid = candidates.sort((a, b) => {
       const sourceRank = (q) => {
         const tier = exemplarSourceTier(q);
+        if (tier === "homework") return 0; // assigned practice is a requested difficulty/style reference
         if (tier === "examsoft") return 0;
         if (tier === "school") return 1;
         return 2; // IMCQ challenge reference
       };
-      return sourceRank(a) - sourceRank(b) || (relevance.get(b) || 0) - (relevance.get(a) || 0);
+      return (relevance.get(b) || 0) - (relevance.get(a) || 0) || sourceRank(a) - sourceRank(b);
     });
   const selected = [];
   const seenCounts = new Set();
@@ -693,7 +693,7 @@ export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficul
     `FACTS TO TEST (from "${subject}"):\n${factList}` +
     `\n\nLECTURE OBJECTIVES (source data):\n${objectives.map(o => `[${o.id}] ${o.code || ""} ${o.objective || o.text || ""}`).join("\n") || "No objectives available; do not claim objective coverage."}\n` +
     `Test the atom in the context of the relevant objective's task (explain, compare, predict, identify). Return objectiveIds containing ONLY the one primary objective ID actually tested. Use [] when no supplied objective fits. Never attach every objective just because it shares terminology. Cover different relevant objectives across the set.\n` +
-    examplesSection + schoolEvidencePrompt(styleExamples, objectives, atoms) + homeworkEvidencePrompt(examples) + clickerEvidencePrompt(examples) + clinicalSection + focusSection + feedbackSection + avoidSection +
+    examplesSection + schoolEvidencePrompt(styleExamples, objectives, atoms) + homeworkEvidencePrompt(examples, { objectives, atoms }) + clickerEvidencePrompt(examples) + clinicalSection + focusSection + feedbackSection + avoidSection +
     `\n\nBefore returning JSON, reject and rewrite any draft whose stem is shorter or less clinically dense than the school examples, reveals its keyed answer, uses a generic recall template, or can be answered without applying the numbered fact. ` +
     depthSection + `\nReturn ONLY valid JSON:\n` +
     `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"A","explanation":"...",${WHY_WRONG_JSON},"topic":"the fact's term","objectiveIds":["primary objective id"],"objectiveFacet":"specific clause tested","taskType":"recognition|mechanism|clinical-application|fresh-retest","reasoningDepth":"state-recognition|pathway-process|mechanism|enzyme-structure|regulation-cofactor|clinical-consequence","orderLevel":"first-order|second-order|third-order","reasoningSteps":["interpret clue","apply supplied relationship","integrate a second relationship only when needed"],"clinicalCorrelateId":null,"clinicalCorrelate":null,"clinicalCueUsed":null,"clinicalReasoningStage":null,"difficulty":"${diff}"}]}`
@@ -791,7 +791,7 @@ export function buildQuestionAuditPrompt(questions, cfg = {}) {
   return (
     `Independently audit every generated question. Approve it only when ALL checks pass:\n` +
     CONNECTED_REASONING_CONTRACT + questionWritingBenchmarkPrompt(cfg) +
-    `SCHOOL COMPARISON EXAMPLES (style only; never factual authority):\n${JSON.stringify(selectStyleExemplars(cfg.examples || [], 6, cfg.difficulty, { objectives: cfg.objectives, atoms: cfg.atoms }).map(q => ({ sourceFile: q.sourceFile || q.filename, sourceKind: exemplarSourceTier(q), stem: q.stem, choices: q.choices })))}\nCompare clue density, focused lead-in, and plausible distractor distinctions to these actual uploads. Reject material departures as school_style_mismatch. Homework informs task patterns, not official exam style.\n` +
+    `SCHOOL COMPARISON EXAMPLES (style only; never factual authority):\n${JSON.stringify(selectStyleExemplars(cfg.examples || [], 6, cfg.difficulty, { objectives: cfg.objectives, atoms: cfg.atoms }).map(q => ({ sourceFile: q.sourceFile || q.filename, sourceKind: exemplarSourceTier(q), stem: q.stem, choices: q.choices })))}\nCompare clue density, focused lead-in, and plausible distractor distinctions to these actual uploads. Reject material departures as school_style_mismatch. Homework is also a requested practice difficulty and structure reference; retain its source label and never equate it with official exam calibration.\n` +
     `1. The keyed answer is medically correct and is the single best answer.\n` +
     `2. The stem, key, and explanation are supported by the supplied lecture facts or objective.\n` +
     `3. Its one objectiveIds value genuinely tests that objective's requested task; [] is acceptable only when no objective was supplied. Reject gross domain mismatches even if the item is otherwise medically correct (for example, an isolated peripheral nerve lesion question is not evidence for an amino-acid metabolism objective). Return objectiveAligned true only when the specific medical relationship actually tests the mapped objective; judge meaning, not exact keyword overlap. objectiveFacet must name the specific clause/task actually tested. For broad objectives, compare the batch against every independently assessable clause; when the requested count and evidence permit, distinct clauses must be represented by distinct questions before a facet is repeated.\n` +
@@ -805,7 +805,7 @@ export function buildQuestionAuditPrompt(questions, cfg = {}) {
     `11. Treat orderLevel as a reasoning claim, not a synonym for difficulty: first-order recognizes one supplied fact; second-order applies one supplied relationship; third-order integrates at least two supplied relationships before selecting a downstream result. The stated order must be supported by the item's objective and lecture facts. Flag order_level_mismatch when it is overstated or the item is mislabeled.\n` +
     `12. If the mapped objective explicitly names multiple imaging modalities or clinical settings (for example CT, MRI, and radiologic images), preserve that scope across the batch when the requested count permits. Reject an item only when it claims modality-specific findings absent from the supplied evidence; do not treat a single modality as complete coverage of a multi-modality objective.\n` +
     (cfg.requireReasoningAudit ? `REASONING VERIFICATION: In each review return reasoning: {"orderLevel":"first-order|second-order|third-order","steps":["cue interpretation","apply the supplied relationship","integrate another relationship if required"],"sourceQuotes":["exact lecture excerpt"],"allStepsRequired":true,"connectedChain":true,"singleEndpoint":true,"choiceShortcut":false}. Evaluate the ACTUAL shortest route to the key. Second-order needs cue interpretation plus one relationship; third-order needs at least two distinct relationships after interpreting the clues. Set connectedChain true only when each relationship depends on the preceding inference, singleEndpoint true only for one focused requested result, and choiceShortcut false only after checking that the options do not reveal the answer through a one-fact shortcut. These fields are explicit judgments, not defaults. Each step must depend on the preceding inference. Explicitly test whether the choices allow a one-fact shortcut. All steps must be necessary: a padded stem or an answer obtainable by one recalled label is first-order. Copy short, verbatim, contiguous excerpts from the supplied lecture facts/text supporting the relationship(s), at least two distinct quotes for third-order. Prefer 20-160 character prose excerpts; never paraphrase or merge separate table columns into a quotation. Never use the objective wording as factual evidence. If you cannot verify the order, omit reasoning and reject as order_level_mismatch.\n` : "") +
-    homeworkEvidencePrompt(cfg.examples || []) +
+    homeworkEvidencePrompt(cfg.examples || [], cfg) +
     `OBJECTIVE ALIGNMENT: An objective's action verb is a guide to scope, not a ban on applying its supporting lecture relationships. For example, an objective identifying causes of brain edema can be tested by inferring the cause from the source's barrier, composition, and distribution relationships. An objective correlating CSF composition with disease can require linking cellular content to impaired absorption and downstream findings. Flag objective_mismatch only for a different curricular target, not because an application question goes beyond repeating the verbatim objective. For every rejection include a brief rationale naming the unsupported fact or mismatched target.\n` +
     `Fail uncertain items. Never infer approval from writing quality alone.\n\n` +
     `SUBJECT: ${cfg.subject || "this lecture"}\nDIFFICULTY: ${cfg.difficulty || "medium"}\n` +
@@ -1257,7 +1257,7 @@ function compactStyle(cfg) {
   const examples = selectStyleExemplars(cfg.examples || [], 2, cfg.difficulty, { objectives: cfg.objectives, atoms: cfg.atoms });
   const fingerprint = buildStyleFingerprint(selectStyleExemplars(cfg.examples || [], STYLE_FINGERPRINT_LIMIT, cfg.difficulty, { objectives: cfg.objectives, atoms: cfg.atoms }));
   const blueprint = buildQuestionSourceBlueprint(cfg.examples || [], cfg.objectives || [], cfg.count || 5);
-  return `OFFICIAL SCHOOL STYLE (style only, never factual authority):\n${JSON.stringify(examples.map(q => ({ sourceKind: exemplarSourceTier(q), stem: q.stem, choices: q.choices })))}\nSOURCE TASK PATTERNS (homework/clickers are task evidence only):\n${JSON.stringify({ homework: blueprint.homeworkTypes, clickers: blueprint.clickerTypes })}\nSTYLE FINGERPRINT:\n${JSON.stringify(fingerprint)}`;
+  return `SCHOOL AND HOMEWORK STYLE (structure and practice difficulty only, never factual authority):\n${JSON.stringify(examples.map(q => ({ sourceKind: exemplarSourceTier(q), stem: q.stem, choices: q.choices })))}\nSOURCE TASK PATTERNS (homework also guides practice difficulty; clickers are task evidence only):\n${JSON.stringify({ homework: blueprint.homeworkTypes, clickers: blueprint.clickerTypes })}\nSTYLE FINGERPRINT:\n${JSON.stringify(fingerprint)}`;
 }
 
 const QUESTION_PLAN_CONTRACT = `Before drafting EACH item, build its questionPlan from the supplied lecture evidence in the same response (no separate request). Identify: relationship (the taught causal rule), perturbation (what changes or is observed), inference (the required hidden intermediate and its downstream effect), endpoint (ONE thing the lead-in asks), nearestDistractor (a plausible competing explanation), discriminator (the observation that separates it from the key), and sourceQuotes (short exact contiguous lecture/fact excerpts supporting the relationships). First choose a causal prediction endpoint, then work backward to the hidden intermediate and discriminating observation. Only then write the stem and choices from that plan. Do not select a definition and decorate it with a patient or experiment.
@@ -1302,7 +1302,7 @@ function buildCompactAuditPrompt(questions, cfg) {
   return `Independently audit every generated question. If the ONLY defect is weak_explanation, return a complete replacement with the identical stem, choices, correct key and objectiveIds, changing only explanation and whyWrong. Other defects must remain rejected. Fail uncertain items; never infer approval from writing quality. Return compact JSON without indentation. Keep approved-item rationale to one concise sentence; rejected-item rationale must name the specific defect and repair needed. Use short causal clauses for reasoning steps, preserving every necessary relationship.
 ${CONNECTED_REASONING_CONTRACT}
 A new hypothetical scenario is allowed: source-supported rules may be applied to a novel intervention or observation. Require evidence for the causal relationships, not a literal matching patient age, invented protocol label or logically derived observation. Do not reject a counterfactual wrong answer simply because that wrong outcome is absent from the lecture; verify the source-supported explanation for why it is wrong. Reject added medical mechanisms, diagnostic claims or quantitative thresholds not established by the source.
-Check every item for a medically correct single best key, factual support for ALL relationships, meaningful primary-objective alignment and facet, plausible same-category distinct choices, sufficient discriminating clues, consistent scenario, no leaked answer, and a mechanistic explanation. Reject unsupported named diseases, drugs, findings or image dependencies. Compare items for duplicate clue-to-answer routes and repetitive asks. Match the supplied official school style; homework/clickers establish task patterns only. Objective verbs define scope but do not prohibit applying lecture-supported relationships.
+Check every item for a medically correct single best key, factual support for ALL relationships, meaningful primary-objective alignment and facet, plausible same-category distinct choices, sufficient discriminating clues, consistent scenario, no leaked answer, and a mechanistic explanation. Reject unsupported named diseases, drugs, findings or image dependencies. Compare items for duplicate clue-to-answer routes and repetitive asks. Match the supplied school and homework structure. Homework is a requested practice difficulty reference; clickers establish task patterns only. Neither establishes medical truth. Objective verbs define scope but do not prohibit applying lecture-supported relationships.
 Treat questionPlan as an untrusted hypothesis: verify its quoted relationships against the actual lecture source, and check that its hidden inference and discriminator are required in the FINAL stem and choices. Reject fabricated plans or plans that describe reasoning the question itself gives away. Do not reject causal application merely because one taught rule supplies the relationship: interpreting a novel perturbation then predicting its consequence can be second-order. Reject direct definition lookup or a keyed option identifiable solely by category mismatch. A shared word such as "calcium" is NOT by itself an answer leak: distinguish a valid clue-to-cause inference from a meaningless repeated label. To report answer_choice_shortcut, state which required causal inference can be skipped and show the specific stem/option cue that replaces it. If alternative mechanisms are plausible until the discriminating observations are interpreted, recognize the causal application as second-order. Do not demand two causal relationships for second-order or three for third-order; count interpreting the clue separately from applying the relationship(s). A correct prediction after an unfamiliar intervention is application, even when only one taught causal rule is needed.
 Verify the ACTUAL shortest route to the answer with choices visible. First-order needs one fact; second-order needs clue interpretation plus one relationship; third-order needs clue interpretation plus TWO distinct connected relationships and a downstream prediction. Every step must be required, connected and have one endpoint; reject one-fact choice shortcuts. Cite supporting evidenceIds from the numbered source catalog. Never cite objective text as factual evidence. Third-order requires two distinct supporting excerpts. Do not retype or paraphrase source quotations. Unsupported/mislabeled depth must be rejected, not credited.
 Reject an item below its objective's explicit targetOrder even when the recalled fact is correct. Do not certify a researcher/patient story as application if the final ask simply repeats a named fact.
@@ -1388,7 +1388,7 @@ function buildFullMcqPrompt({ subject = "this lecture", lectureText = "", exampl
     `Match the option count and lettering of the exam-bank examples below, if given (real exams often run 4-6 options, A-F); otherwise exactly 5 options A-E, each a complete answer. When the references use laboratory/data tables, generate some items with a compact table-valued answer set: set choiceLayout to "table", set choiceColumns to ordered headers (for example ["Finding","Patient 1","Patient 2"]), and make each choice an object mapping every header to its row value. Preserve ↑/↓ (increased/decreased) arrows and units exactly; never flatten table rows into prose.\n` +
     WHY_WRONG_RULE +
     (studyMode === "repair" ? `\nFOCUSED REPAIR: prioritize the weakest objectives in their supplied order. Cycle item types: recognition, mechanism, clinical-application, fresh-retest, then repeat. Fresh-retest items must use a new clinical presentation and clue-to-answer route. Return taskType on every item.\n` : "") +
-    examplesSection + homeworkEvidencePrompt(examples) + clickerEvidencePrompt(examples) +
+    examplesSection + homeworkEvidencePrompt(examples, { objectives, atoms }) + clickerEvidencePrompt(examples) +
     schoolEvidencePrompt(styleExamples, objectives, atoms) + objectivesSection + objectiveModalitySection(objectives) + comparisonSection + focusSection +
     atomsSection + clinicalSection + feedbackSection +
     contentSection +
