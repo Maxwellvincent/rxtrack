@@ -622,7 +622,6 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
   const attempts = Math.max(1, Number(deps.maxPrepareAttempts) || (plannedBatches * 3 + 2));
   let lastError = "";
   const rejectionFeedback = [];
-  let consecutiveEmptyRounds = 0;
   const isProviderFailure = (message = "") => {
     // A malformed model response is retryable; the word "bridge" in a JSON
     // parser error must not discard the remaining preparation budget.
@@ -703,6 +702,9 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
     pendingJobs.delete(attempt);
     {
       lastError = result.error ? preparationErrorMessage(result.error) : lastError;
+      if (result.error && !result.questions?.length && !result.rejections?.length) {
+        reject(/json|response|usable|question list/i.test(lastError) ? "draft_response_unusable" : "generation_or_review_failure");
+      }
       for (const rejection of result.rejections || []) {
         for (const issue of rejection.issues || []) reject(issue);
         rejectionFeedback.push({ objectiveIds: rejection.objectiveIds || [], text: `Previous candidate rejected: ${String(rejection.rationale || "").slice(0, 600)}; issues: ${(rejection.issues || []).join(", ")}. Address this in a NEW causal problem; do not repeat the rejected route.` });
@@ -728,7 +730,6 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
       }
       diagnostics.accepted = accepted.length;
       if (newlyAccepted.length) deps.onAccepted?.(newlyAccepted);
-      consecutiveEmptyRounds = newlyAccepted.length ? 0 : consecutiveEmptyRounds + 1;
       reportProgress({ requested, ready: accepted.length, attempt, phase: accepted.length >= requested ? "ready" : "reviewing" });
       // A fully rejected batch is a quality outcome, not a provider failure: use the remaining
       // attempts to generate fresh candidates. Transport, quota, and reviewer availability errors
@@ -742,7 +743,9 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
       // Stop instead of making the learner wait through several more minute-long
       // generation and review calls.
     }
-    if (consecutiveEmptyRounds >= Math.max(3, Math.ceil(allocationPlan.length / batchSize))) stopPreparation = true;
+    // An empty wave may only represent a difficult group of objectives.
+    // The existing attempt ceiling and shared deadline bound cost; allow fresh
+    // replacements instead of stopping before the requested slots are filled.
   }
 
   if (accepted.length < requested) {

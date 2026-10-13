@@ -18,9 +18,9 @@ describe("question preparation routing", () => {
     await deps.callAIJSON("system", "draft", {}, 8000, undefined, undefined, { timeoutMs: 1234 });
     await deps.reviewAIJSON("system", "review", {}, 8000, undefined, undefined, { timeoutMs: 987 });
     expect(call.mock.calls.every(args => args[6].bridgeBackend === "codex" && args[6].bridgeOnly && args[6].bridgeBackendOnly)).toBe(true);
-    expect(deps.reviewBatchSize).toBe(5);
+    expect(deps.reviewBatchSize).toBe(3);
     expect(deps.maxPreparationMs).toBe(QUESTION_PREPARATION_BUDGET_MS);
-    expect(QUESTION_PREPARATION_BUDGET_MS).toBe(180000);
+    expect(QUESTION_PREPARATION_BUDGET_MS).toBe(600000);
   });
   it("switches drafts and subsequent reviews after a real usage limit", async () => {
     const call = vi.fn().mockRejectedValueOnce(new Error("You've hit your usage limit. Try again in 2 hours")).mockResolvedValue({ ready: true });

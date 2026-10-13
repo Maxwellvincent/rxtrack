@@ -1,6 +1,6 @@
 import { questionPreparationCapabilities } from "./llmBridge.js";
 
-export const QUESTION_PREPARATION_BUDGET_MS = 180_000;
+export const QUESTION_PREPARATION_BUDGET_MS = 600_000;
 
 const LIMIT_KEY = "rxt_codex_lecture_limit_until";
 const RECHECK_MS = 15 * 60_000;
@@ -67,9 +67,10 @@ export async function questionPreparationDeps(callAIJSON) {
   };
   return {
     callAIJSON: routed, reviewAIJSON: routed,
-    prepareConcurrency: 3, prepareBatchSize: 5, reviewBatchSize: 5,
+    prepareConcurrency: 3, prepareBatchSize: 3, reviewBatchSize: 3,
     prepareSpareCandidates: 2,
-    // Permit one reviewed refill wave after the parallel initial drafts.
+    // Allow reviewed replacement waves to finish in the background. Smaller
+    // batches reduce per-call output and release verified questions sooner.
     // This is a shared ceiling, not a fresh timeout for each request.
     maxPreparationMs: QUESTION_PREPARATION_BUDGET_MS,
   };
