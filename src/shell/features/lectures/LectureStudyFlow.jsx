@@ -1,3 +1,4 @@
+import { preparationJobKey, getPreparationJob, startPreparationJob, subscribePreparationJob, cancelOtherAccountJobs } from "../../../questionPreparationJobs.js";
 import { preparationErrorMessage } from "../../../preparationError.js";
 import { readQuestionDiagnostics, saveQuestionDiagnostics } from "../../../questionDiagnostics.js";
 import { QuestionPreparationDetails } from "./QuestionPreparationDetails.jsx";
@@ -1304,9 +1305,30 @@ export function LectureStudyFlow({
   const preparationControllerRef = useRef(null);
   const [activeRequestedCount, setActiveRequestedCount] = useState(null);
   const [backgroundReserveEnabled, setBackgroundReserveEnabled] = useState(false);
-  useEffect(() => () => { preparationRunRef.current += 1; preparationControllerRef.current?.abort(); }, [lecture?.id, userId]);
+  useEffect(() => {
+    cancelOtherAccountJobs(userId);
+    const job = getPreparationJob(preparationJobKey(userId, lecture?.id));
+    const detach = job ? subscribePreparationJob(job, current => {
+      preparationControllerRef.current = current.controller;
+      if (current.latestProgress?.diagnostics) setPreparationDetails(current.latestProgress.diagnostics);
+      if (current.status === "running") {
+        setBusy("Preparing quiz…");
+        setQuizPreparation(current.latestProgress || { requested: current.count, ready: current.questions.length, phase: "generating" });
+      } else {
+        setBusy(""); setQuizPreparation(null);
+        const saved = new Map(generatedQuestionsStore.questionsForLecture(userId, lecture?.id).map(q => [q.stem, q]));
+        const unseen = current.questions.filter(q => generatedQuestionsStore.isQuestionUnseen(saved.get(q.stem) || q));
+        if (unseen.length) setPendingQuiz({ questions: unseen, count: current.count, difficulty: current.difficulty,
+          reason: current.result?.reason || current.result?.error || "Your background questions are ready." });
+        else if (current.result?.error) setError(preparationErrorMessage(current.result.error));
+      }
+    }) : () => {};
+    return () => { detach(); preparationRunRef.current += 1; };
+  }, [lecture?.id, userId]);
 
   const runQuiz = useCallback(async (count, difficulty) => {
+    const jobKey = preparationJobKey(userId, lecture?.id);
+    if (getPreparationJob(jobKey)?.status === "running") return;
     preparationControllerRef.current?.abort();
     const controller = new AbortController();
     preparationControllerRef.current = controller;
@@ -1402,7 +1424,7 @@ export function LectureStudyFlow({
     };
     if (reserve.length) appendPrepared([]);
 
-    const result = await withDeadline(async (signal) => prepareObjectiveQuiz(
+    const job = startPreparationJob(jobKey, { userId, controller, count, difficulty, initialQuestions: reserve }, currentJob => withDeadline(async (signal) => prepareObjectiveQuiz(
       {
         objectives: orderedObjectives,
         evidenceModel: learnerEvidence.data,
@@ -1428,16 +1450,20 @@ export function LectureStudyFlow({
         ...await questionPreparationDeps(callAIJSON),
         signal,
         onAccepted: (questions) => {
-          if (preparationRunRef.current !== runId) return;
           if (lecture?.id) generatedQuestionsStore.addQuestions(userId, lecture.id, questions);
-          appendPrepared(questions);
+          currentJob.accept(questions);
+          if (preparationRunRef.current === runId) appendPrepared(questions);
         },
       },
-      (progress) => { if (preparationRunRef.current === runId) {
+      (progress) => {
+        currentJob.progress({ ...progress, requested: count, ready: reserve.length + progress.ready });
+        if (progress.diagnostics) saveQuestionDiagnostics(userId, lecture?.id, { ...progress.diagnostics, requested: count, accepted: reserve.length + progress.diagnostics.accepted });
+        if (preparationRunRef.current === runId) {
         setQuizPreparation({ ...progress, requested: count, ready: reserve.length + progress.ready });
         if (progress.diagnostics) { const report = { ...progress.diagnostics, requested: count, accepted: reserve.length + progress.diagnostics.accepted }; setPreparationDetails(report); saveQuestionDiagnostics(userId, lecture?.id, report); }
       } }
-    ), QUESTION_PREPARATION_BUDGET_MS, controller.signal, "Quiz preparation").catch(error => ({ questions: [], error: error?.message || "Question preparation stopped.", reason: error?.message }));
+    ), QUESTION_PREPARATION_BUDGET_MS, controller.signal, "Quiz preparation").catch(error => ({ questions: [], error: error?.message || "Question preparation stopped.", reason: error?.message })));
+    const result = await job.promise;
     if (preparationRunRef.current !== runId) return;
     // The outer deadline can finish before cancelled jobs deliver their last
     // progress callback. Invalidate this run before clearing the UI so a late
@@ -1713,7 +1739,7 @@ export function LectureStudyFlow({
           expectedCount={activeRequestedCount || questions.length}
           preparing={!!quizPreparation && quizPreparation.ready < quizPreparation.requested}
           onCheckpoint={checkpointLectureQuiz}
-          onExit={() => { preparationRunRef.current += 1; preparationControllerRef.current?.abort(); setBusy(""); setQuizPreparation(null); setActiveRequestedCount(null); setQuestions(null); setQuizResumeState(null); }}
+          onExit={() => { preparationRunRef.current += 1; setBusy(""); setQuizPreparation(null); setActiveRequestedCount(null); setQuestions(null); setQuizResumeState(null); }}
           onAnswer={() => {
             // Opening or abandoning a quiz is not study activity. Record the
             // lecture only after the learner actually submits an answer, once
@@ -1722,7 +1748,7 @@ export function LectureStudyFlow({
             loggedQuizActivityRef.current = quizSessionId;
             logActivity?.({ lectureId: lecture?.id, activityType: "deep_learn", confidenceRating: null });
           }}
-          onReviewAtom={(atomKey) => { preparationRunRef.current += 1; preparationControllerRef.current?.abort(); setBusy(""); setQuizPreparation(null); setActiveRequestedCount(null); setQuestions(null); setQuizResumeState(null); setReviewAtomKey(atomKey); }}
+          onReviewAtom={(atomKey) => { preparationRunRef.current += 1; setBusy(""); setQuizPreparation(null); setActiveRequestedCount(null); setQuestions(null); setQuizResumeState(null); setReviewAtomKey(atomKey); }}
           onDone={({ correct = 0, total = 0, avgConfidence = 0, hasLandmines = false, records = [] } = {}) => {
             setCompletedQuizSessionId(quizSessionId);
             lectureQuizSessionsStore.remove(userId, quizMetaRef.current?.id);
