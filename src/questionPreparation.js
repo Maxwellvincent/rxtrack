@@ -68,7 +68,7 @@ export async function questionPreparationDeps(callAIJSON) {
   return {
     callAIJSON: routed, reviewAIJSON: routed,
     prepareConcurrency: 3, prepareBatchSize: 3, reviewBatchSize: 3,
-    prepareSpareCandidates: 2,
+    prepareSpareCandidates: 2, continueAfterEmptyRounds: true,
     // Allow reviewed replacement waves to finish in the background. Smaller
     // batches reduce per-call output and release verified questions sooner.
     // This is a shared ceiling, not a fresh timeout for each request.

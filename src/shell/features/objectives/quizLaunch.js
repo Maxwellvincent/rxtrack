@@ -621,6 +621,7 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
   const plannedBatches = Math.max(1, Math.ceil(requested / batchSize));
   const attempts = Math.max(1, Number(deps.maxPrepareAttempts) || (plannedBatches * 3 + 2));
   let lastError = "";
+  let consecutiveEmptyRounds = 0;
   const rejectionFeedback = [];
   const isProviderFailure = (message = "") => {
     // A malformed model response is retryable; the word "bridge" in a JSON
@@ -728,6 +729,7 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
         newlyAccepted.push(question);
         if (accepted.length >= requested) break;
       }
+      consecutiveEmptyRounds = newlyAccepted.length ? 0 : consecutiveEmptyRounds + 1;
       diagnostics.accepted = accepted.length;
       if (newlyAccepted.length) deps.onAccepted?.(newlyAccepted);
       reportProgress({ requested, ready: accepted.length, attempt, phase: accepted.length >= requested ? "ready" : "reviewing" });
@@ -743,6 +745,7 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
       // Stop instead of making the learner wait through several more minute-long
       // generation and review calls.
     }
+    if (!deps.continueAfterEmptyRounds && consecutiveEmptyRounds >= Math.max(3, Math.ceil(allocationPlan.length / batchSize))) stopPreparation = true;
     // An empty wave may only represent a difficult group of objectives.
     // The existing attempt ceiling and shared deadline bound cost; allow fresh
     // replacements instead of stopping before the requested slots are filled.
