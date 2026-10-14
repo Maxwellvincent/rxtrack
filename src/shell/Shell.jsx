@@ -1,3 +1,5 @@
+import { canViewQuestionDiagnostics } from "../diagnosticsAccess.js";
+import { QuestionDiagnosticsAdmin } from "./QuestionDiagnosticsAdmin.jsx";
 import "../theme/tokens.css";
 import "../theme/tailwind.css";
 import "../theme/readability.css";
@@ -11,7 +13,7 @@ import { touchBlock } from "../stores/blockObjectives.js";
 import { defaultBlockId, readCollapsedTerms, readLastView, writeLastView } from "./navPrefs.js";
 
 const VALID_TABS = ["today", "lectures", "objectives", "exam", "guide", "more"];
-const VALID_MORE_VIEWS = ["weak", "deeplearn", "struggle"];
+const VALID_MORE_VIEWS = ["weak", "deeplearn", "struggle", "diagnostics"];
 import { Sidebar } from "./Sidebar.jsx";
 import { Header } from "./Header.jsx";
 import { TabBar } from "./TabBar.jsx";
@@ -495,7 +497,9 @@ function ShellMain({ theme, toggle, userId }) {
               onReExtractAll={() => setShowReExtractAll(true)}
             />
           ) : tab === "more" && activeBlockId ? (
-            moreView === "weak" ? (
+            moreView === "diagnostics" && canViewQuestionDiagnostics(userId) ? (
+              <QuestionDiagnosticsAdmin userId={userId} lectures={allLectures.data || []} onBack={() => setMoreView(null)} />
+            ) : moreView === "weak" ? (
               <WeakConcepts blockId={activeBlockId} userId={userId} onBack={() => setMoreView(null)} />
             ) : moreView === "struggle" ? (
               <StruggleTasks
@@ -513,6 +517,7 @@ function ShellMain({ theme, toggle, userId }) {
               />
             ) : (
               <MoreTab
+                onDiagnostics={canViewQuestionDiagnostics(userId) ? () => setMoreView("diagnostics") : null}
                 onContinue={onContinue}
                 onCalibrate={onCalibrate}
                 onWeak={() => setMoreView("weak")}
@@ -633,7 +638,7 @@ function ShellMain({ theme, toggle, userId }) {
   );
 }
 
-function MoreTab({ onContinue, onCalibrate, onWeak, onDeepLearn, onStruggle }) {
+function MoreTab({ onContinue, onCalibrate, onWeak, onDeepLearn, onStruggle, onDiagnostics }) {
   const items = [
     { label: "▸ Continue learning", desc: "adaptive session — teaches, shows a case, then checks you", action: onContinue },
     { label: "◎ Calibrate", desc: "rate confidence before each answer — surfaces sure-but-wrong gaps", action: onCalibrate },
@@ -641,6 +646,7 @@ function MoreTab({ onContinue, onCalibrate, onWeak, onDeepLearn, onStruggle }) {
     { label: "⚠ Weak concepts", desc: "what you keep missing, landmines first", action: onWeak },
     { label: "🔴 Struggle Tracker", desc: "deep/persistent + buried cards synced in from Anki", action: onStruggle },
   ];
+  if (onDiagnostics) items.push({ label: "Admin diagnostics", desc: "Question preparation reports", action: onDiagnostics });
   return (
     <div className="mx-auto grid w-full max-w-5xl grid-cols-1 gap-3 p-4 sm:grid-cols-2 sm:p-5">
       {items.map((item) => (

@@ -1,7 +1,6 @@
 import { preparationJobKey, getPreparationJob, startPreparationJob, subscribePreparationJob, cancelOtherAccountJobs } from "../../../questionPreparationJobs.js";
 import { preparationErrorMessage } from "../../../preparationError.js";
 import { readQuestionDiagnostics, saveQuestionDiagnostics } from "../../../questionDiagnostics.js";
-import { QuestionPreparationDetails } from "./QuestionPreparationDetails.jsx";
 import { questionWritingBenchmarkPrompt } from "../../../engine/questionWritingStandard.js";
 import { hasCurrentReasoningAudit } from "../../../engine/questionOrder.js";
 import { TutorMessage } from "../../../ui/TutorMessage.jsx";
@@ -1299,7 +1298,7 @@ export function LectureStudyFlow({
       .sort((a, b) => rank(a) - rank(b));
   }, [lectureObjectives, focusObjectiveIds, learnerEvidence.data]);
 
-  const [preparationDetails, setPreparationDetails] = useState(null);
+  const [, setPreparationDetails] = useState(null);
   useEffect(() => { setPreparationDetails(readQuestionDiagnostics(userId, lecture?.id)); }, [userId, lecture?.id]);
   const preparationRunRef = useRef(0);
   const preparationControllerRef = useRef(null);
@@ -1717,7 +1716,6 @@ export function LectureStudyFlow({
             )}
           </div>
         )}
-        <QuestionPreparationDetails report={preparationDetails} />
         {quizPreparation && <button type="button" className="mb-2 text-sm underline" onClick={() => preparationControllerRef.current?.abort(new Error("Question preparation stopped. Reviewed questions are saved."))}>Stop preparing more · keep ready questions</button>}
         {objectiveNotice && <p role="status" className="mb-3 text-sm text-text-2">{objectiveNotice}</p>}
 
@@ -2411,11 +2409,7 @@ export function LectureStudyFlow({
               </Button>
               <span className="text-[12px] text-text-3">
                 {lecture?.id ? `${generatedQuestionsStore.questionsForLecture(userId, lecture.id).filter(question => generatedQuestionsStore.isQuestionUnseen(question) && hasCurrentReasoningAudit(question)).length} unseen questions ready` : "Questions are saved for reuse"}
-                {schoolExamplesLoading
-                  ? " · loading school examples…"
-                  : schoolExemplars.length
-                    ? ` · ${schoolExemplars.length} school-style examples`
-                    : " · no school examples loaded"}
+
               </span>
               {done > 0 && (
                 <button
@@ -2508,8 +2502,7 @@ export function LectureStudyFlow({
             </div>
           )}
 
-          <QuestionPreparationDetails report={preparationDetails} />
-          {quizPreparation && (
+            {quizPreparation && (
             <div role="status" aria-live="polite" className="rounded-xl border border-accent/40 bg-bg-elevated p-4">
               <div className="flex items-center justify-between gap-3 text-sm font-semibold text-text-1">
                 <span className="flex items-center gap-2">
