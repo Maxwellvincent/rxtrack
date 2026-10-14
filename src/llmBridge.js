@@ -235,3 +235,42 @@ export function parseBridgeJSON(text) {
     }
   }
 }
+
+/** Stream a persistent local Codex tutor. Failure is explicit; no silent paid fallback. */
+export async function bridgeTutor({ system, prompt, sessionKey, onDelta, signal }) {
+  if (!(await bridgeAvailable())) throw new Error("Start your local Codex bridge to connect the tutor.");
+  return withDeadline(async requestSignal => {
+    const response = await fetch(`${BRIDGE_URL}/tutor/stream`, {
+      method: "POST", signal: requestSignal, headers: { "content-type": "application/json" },
+      body: JSON.stringify({ system, prompt, sessionKey }),
+    });
+    if (!response.ok || !response.body) throw new Error(`Tutor connection failed (${response.status}).`);
+    const reader = response.body.getReader(); const decoder = new TextDecoder();
+    let buffer = ""; let result;
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        buffer += decoder.decode(value, { stream: !done });
+        const lines = buffer.split("\n"); buffer = lines.pop();
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          const event = JSON.parse(line);
+          if (event.type === "error") throw new Error(event.message || "Tutor failed.");
+          if (event.type === "delta") onDelta?.(event.text);
+          if (event.type === "complete") result = event.text;
+        }
+        if (done) break;
+      }
+      if (!result) throw new Error("Tutor disconnected before completing its reply. Your response is preserved; retry.");
+      return parseBridgeJSON(result);
+    } finally { await reader.cancel().catch(() => {}); }
+  }, 180000, signal, "Tutor response");
+}
+
+// Decode only the public feedback JSON string, never private diagnostic fields.
+export function streamedTutorFeedback(raw) {
+  const match = String(raw || "").match(/"feedback"\s*:\s*"((?:[^"\\]|\\.)*)/);
+  if (!match) return "";
+  let value = match[1].replace(/\\$/, "");
+  try { return JSON.parse('"' + value + '"'); } catch { return ""; }
+}

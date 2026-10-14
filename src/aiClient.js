@@ -7,7 +7,7 @@
 
 import { getFunctions, httpsCallable } from "firebase/functions";
 import { app } from "./firebase.js";
-import { bridgeComplete, parseBridgeJSON } from "./llmBridge.js";
+import { bridgeComplete, parseBridgeJSON, bridgeTutor } from "./llmBridge.js";
 import { withDeadline } from "./asyncDeadline.js";
 
 // ── User-provided key helpers ─────────────────────────────────────────────────
@@ -311,6 +311,7 @@ export async function callAIJSON(
     return withDeadline(signal => callAIJSON(systemPrompt, userPrompt, fallback, maxTokens, explicitProvider, temperature,
       { ...options, timeoutMs: null, bridgeTimeoutMs: Math.min(Number(options.bridgeTimeoutMs) || options.timeoutMs, options.timeoutMs), signal }), options.timeoutMs, options.signal);
   }
+  if (options.tutorSessionKey) return bridgeTutor({ system: systemPrompt, prompt: userPrompt, sessionKey: options.tutorSessionKey, onDelta: options.onDelta, signal: options.signal });
   options.signal?.throwIfAborted();
   const safeFallback = fallback !== undefined && fallback !== null ? fallback : {};
   const provider =
