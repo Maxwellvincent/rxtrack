@@ -3,9 +3,21 @@ export function cranialNerveScope(text = '') {
   const value = String(text).toLowerCase();
   const names = [[5, /\btrigeminal\b/], [7, /\bfacial nerve\b/], [9, /\bglossopharyngeal\b/], [10, /\bvagus\b/]];
   const found = names.filter(([, pattern]) => pattern.test(value)).map(([number]) => number);
-  const heading = value.match(/\b(?:cranial\s+nerves?|cn)\s+((?:viii|xii|iii|vii|xi|iv|vi|ix|ii|v|x|i)(?:\s*(?:,|&|and|\/)\s*(?:viii|xii|iii|vii|xi|iv|vi|ix|ii|v|x|i))*)\b/i)?.[1];
   const roman = { i:1, ii:2, iii:3, iv:4, v:5, vi:6, vii:7, viii:8, ix:9, x:10, xi:11, xii:12 };
-  return [...new Set([...found, ...(heading?.match(/[ivx]+/g) || []).map(token => roman[token]).filter(Boolean)])].sort((a,b)=>a-b);
+  const numeral = '(?:xii|viii|vii|iii|xi|ix|vi|iv|ii|x|v|i|1[0-2]|[1-9])\\b';
+  const pattern = new RegExp('\\b(?:cranial\\s+nerves?|cns?)\\s*(' + numeral + '(?:\\s*(?:,|&|and|/|[-–—])\\s*' + numeral + ')*)', 'gi');
+  const numberOf = token => roman[token] || Number(token);
+  const numbers = [...found];
+  for (const match of value.matchAll(pattern)) {
+    const parts = match[1].match(/[ivx]+|\d+|[-–—]/g) || [];
+    for (let index = 0; index < parts.length; index++) {
+      if (/^[-–—]$/.test(parts[index])) {
+        const start = numberOf(parts[index - 1]); const end = numberOf(parts[index + 1]);
+        if (start && end && start <= end) for (let n = start; n <= end; n++) numbers.push(n);
+      } else numbers.push(numberOf(parts[index]));
+    }
+  }
+  return [...new Set(numbers.filter(number => number >= 1 && number <= 12))].sort((a,b)=>a-b);
 }
 
 export function repairCranialLectureLinks(objectives, lecture, sourceObjectives, lectures = []) {

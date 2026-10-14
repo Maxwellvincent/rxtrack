@@ -32,3 +32,24 @@ it('detaches absent coded objectives even when their wording is generic',()=>{
  const result=repairCranialLectureLinks([old],lecture,incoming,[lecture,other]);
  expect(result.find(o=>o.id==='wrong-generic')).toMatchObject({linkedLecId:null,attempts:2});
 });
+
+it.each([
+ ['Cranial Nerves 9 and 10', [9,10]],
+ ['Cranial Nerves IX & 10', [9,10]],
+ ['CN9/CNX', [9,10]],
+ ['CN IX, X', [9,10]],
+ ['Cranial nerves 5 and 7', [5,7]],
+ ['Cranial nerves IX–XII', [9,10,11,12]],
+ ['Cranial nerves 9-12', [9,10,11,12]],
+ ['NB 17 Introduction', []],
+ ['Cranial nerve 19', []],
+])('normalizes scoped nerve numbers: %s', (title, expected)=>{
+ expect(cranialNerveScope(title)).toEqual(expected);
+});
+it('matches Arabic, Roman and abbreviated titles without mixing nerve groups',()=>{
+ expect(matchLectureToSection({activity:'LEC',title:'Cranial Nerves 9 and 10'},[other,lecture])).toBe(lecture);
+ expect(matchLectureToSection({activity:'LEC',title:'CN IX / X'},[other,lecture])).toBe(lecture);
+ const numeric={...lecture,lectureTitle:'Cranial Nerves 9 and 10'};
+ expect(matchLectureToSection({activity:'LEC',title:'Cranial Nerves IX and X'},[other,numeric])).toBe(numeric);
+ expect(matchLectureToSection({activity:'LEC',title:'CN 5 and 7'},[numeric])).toBeNull();
+});

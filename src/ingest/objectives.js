@@ -1082,7 +1082,7 @@ export function matchLectureToSection(section, blockLectures) {
     .replace(/[^a-z0-9\s]/g, " ")
     .split(/\s+/)
     .filter((t) => t.length > 3);
-  if (!tokens.length) return null;
+  if (!tokens.length && !nerveScope.length) return null;
 
   let best = null;
   let bestScore = 0;
@@ -1090,7 +1090,7 @@ export function matchLectureToSection(section, blockLectures) {
     const lecTitle = String(lec.lectureTitle || "").toLowerCase();
     const candidateScope = cranialNerveScope(lecTitle);
     if (nerveScope.length && (nerveScope.length !== candidateScope.length || nerveScope.some(number => !candidateScope.includes(number)))) continue;
-    const score = tokens.filter((t) => lecTitle.includes(t)).length;
+    const score = (nerveScope.length ? 100 : 0) + tokens.filter((t) => lecTitle.includes(t)).length;
     if (score > bestScore) { bestScore = score; best = lec; }
   }
   return bestScore > 0 ? best : null;
