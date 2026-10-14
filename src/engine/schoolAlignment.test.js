@@ -70,3 +70,18 @@ it("preserves explanatory text when the extraction has no page separators", () =
    expect(result).not.toContain('Fabricated lecture evidence about dopamine');
    expect(result.length).toBeLessThanOrEqual(1600);
  });
+
+it('prioritizes selected trigeminal objectives over unrelated glossopharyngeal atoms', () => {
+  const trigeminal = 'Trigeminal nerve sensory divisions: the maxillary division exits through the foramen rotundum. The mandibular division supplies muscles of mastication.';
+  const glossopharyngeal = 'Glossopharyngeal nerve pharynx stylopharyngeus parotid carotid sinus posterior tongue taste sensory motor ganglion. '.repeat(8);
+  const source = Array(8).fill(glossopharyngeal).concat(trigeminal).join('\f');
+  const evidence = retrieveLectureEvidence(source, [{text:'Describe the trigeminal nerve divisions and muscles of mastication'}], [{term:'Glossopharyngeal nerve',content:glossopharyngeal}], 1000);
+  expect(evidence).toContain('foramen rotundum');
+  expect(evidence).not.toContain('stylopharyngeus');
+});
+it('reserves excerpts across different selected objective targets', () => {
+  const source = ['Trigeminal maxillary division passes through foramen rotundum.', 'The vagus internal laryngeal branch conveys sensation above the vocal folds.'].join('\f');
+  const evidence = retrieveLectureEvidence(source, [{text:'Trigeminal maxillary division'}, {text:'Vagus internal laryngeal sensation'}], [], 2500);
+  expect(evidence).toContain('foramen rotundum');
+  expect(evidence).toContain('above the vocal folds');
+});

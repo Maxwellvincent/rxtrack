@@ -65,7 +65,29 @@ export function retrieveLectureEvidence(text, objectives = [], atoms = [], budge
   // unrelated verified quotes into one non-contiguous evidence claim.
   const pinnedText = pinned.map(text => `[Source-verified quote context]\n${text}\n`).join('');
   const remaining = Math.max(0, budget - pinnedText.length);
-  const ranked = chunks.map((text,index) => ({ text,index,score:[...tokens(text)].filter(w=>wanted.has(w)).length }))
-    .sort((a,b)=>b.score-a.score || a.index-b.index).slice(0, Math.max(1,Math.floor(remaining/930))).sort((a,b)=>a.index-b.index);
+  const objectiveQueries = objectives.map(o => tokens(textOf(o))).filter(query => query.size);
+  const candidates = chunks.map((text, index) => {
+    const words = tokens(text);
+    const matches = query => [...query].filter(word => words.has(word)).length;
+    return { text, index, score: matches(wanted), objectiveScores: objectiveQueries.map(matches) };
+  });
+  const capacity = Math.max(1, Math.floor(remaining / 930));
+  const chosen = new Map();
+  // Reserve evidence for each allocated objective before broad atom vocabulary
+  // can consume the budget. Repeated winners do not spend another slot.
+  for (let round = 0; chosen.size < capacity && round < capacity; round++) {
+    let added = false;
+    for (let target = 0; target < objectiveQueries.length && chosen.size < capacity; target++) {
+      const best = candidates.filter(c => !chosen.has(c.index) && c.objectiveScores[target] > 0)
+        .sort((a, b) => b.objectiveScores[target] - a.objectiveScores[target] || a.index - b.index)[0];
+      if (best) { chosen.set(best.index, best); added = true; }
+    }
+    if (!added || !objectiveQueries.length) break;
+  }
+  for (const candidate of [...candidates].sort((a, b) => b.score - a.score || a.index - b.index)) {
+    if (chosen.size >= capacity) break;
+    chosen.set(candidate.index, candidate);
+  }
+  const ranked = [...chosen.values()].sort((a, b) => a.index - b.index);
   return (pinnedText + ranked.map(c=>`[Lecture excerpt ${c.index+1}]\n${c.text}`).join('\n').slice(0, remaining)).slice(0,budget);
 }

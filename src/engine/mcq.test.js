@@ -118,8 +118,8 @@ describe("buildMcqPrompt", () => {
       clinicalCorrelateLibrary: buildClinicalCorrelateLibrary({ lectureTitle: "Lecture 04 - Meninges and Arteries" }),
       promptProfile: "compact",
     });
-    expect(prompt).toContain("REQUIRED CLINICAL PRACTICE PLAN");
-    expect(prompt).toContain("At least 2 of this 5-item batch");
+    expect(prompt).toContain("CONDITIONAL CLINICAL PRACTICE CANDIDATES");
+    expect(prompt).toContain("Aim for up to 2 of this 5-item batch");
     expect(prompt).toContain("nb1-04-epidural-hemorrhage");
     expect(prompt).toContain("clinicalReasoningStage");
   });
