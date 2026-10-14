@@ -30,7 +30,14 @@ export function areNearDuplicateQuestions(left, right, threshold = 0.9) {
     left.objectiveIds.some((id) => right.objectiveIds.includes(id));
   // Reworded options must not disguise an almost identical clinical/task stem.
   const stemSimilarity = questionSimilarity({ stem: left.stem }, { stem: right.stem });
-  return objectiveOverlap && (questionSimilarity(left, right) >= threshold || stemSimilarity >= threshold);
+  const answer = q => String(q.choices?.[q.correct] || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const routeOverlap = ["perturbation", "endpoint"].every(field => {
+    const a = { stem: left.questionPlan?.[field] };
+    const b = { stem: right.questionPlan?.[field] };
+    return comparableQuestionTokens(a).size >= 3 && comparableQuestionTokens(b).size >= 3 && questionSimilarity(a, b) >= 0.85;
+  });
+  return objectiveOverlap && (questionSimilarity(left, right) >= threshold || stemSimilarity >= threshold ||
+    (routeOverlap && answer(left) && answer(left) === answer(right)));
 }
 
 export function uniqueQuestions(questions = [], existing = []) {

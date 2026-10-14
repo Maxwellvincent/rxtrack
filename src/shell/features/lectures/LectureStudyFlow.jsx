@@ -1,3 +1,4 @@
+import { ObjectiveProgressChart } from "./ObjectiveProgressChart.jsx";
 import { preparationJobKey, getPreparationJob, startPreparationJob, subscribePreparationJob, cancelOtherAccountJobs } from "../../../questionPreparationJobs.js";
 import { preparationErrorMessage } from "../../../preparationError.js";
 import { readQuestionDiagnostics, saveQuestionDiagnostics } from "../../../questionDiagnostics.js";
@@ -1717,7 +1718,6 @@ export function LectureStudyFlow({
           </div>
         )}
         {quizPreparation && <button type="button" className="mb-2 text-sm underline" onClick={() => preparationControllerRef.current?.abort(new Error("Question preparation stopped. Reviewed questions are saved."))}>Stop preparing more · keep ready questions</button>}
-        {objectiveNotice && <p role="status" className="mb-3 text-sm text-text-2">{objectiveNotice}</p>}
 
         <AtomQuiz
           key={quizSessionId}
@@ -1932,7 +1932,7 @@ export function LectureStudyFlow({
         )}
       </div>
       <p className="mb-1 font-condensed text-xs font-semibold uppercase tracking-[0.16em] text-accent">Lecture</p>
-      <h2 className="max-w-4xl text-2xl font-bold leading-tight text-text-1 sm:text-3xl">{renamedTitle || title}</h2>
+      <RenameLecture inline userId={userId} lectureId={lecture?.id} title={renamedTitle || title} onRenamed={(name) => { setRenamedTitle(name); onLectureRenamed?.(name); }} />
       <LectureReviewLog key={`${userId}:${lecture?.id}`} userId={userId} lectureId={lecture?.id} blockId={blockId} logActivity={logActivity} />
       {lecture?.sourceFiles?.length > 0 && (
         <details className="mt-3 max-w-4xl rounded-lg border border-border bg-panel px-3 py-2">
@@ -2216,10 +2216,7 @@ export function LectureStudyFlow({
         </section>
       )}
       </details>
-      <details className="mt-2 w-fit text-sm text-text-3">
-        <summary className="cursor-pointer py-1 hover:text-text-1">Lecture settings</summary>
-        <div className="mt-2 min-w-72 rounded-lg border border-border bg-bg-elevated p-3"><RenameLecture userId={userId} lectureId={lecture?.id} title={renamedTitle || title} onRenamed={(name) => { setRenamedTitle(name); onLectureRenamed?.(name); }} /></div>
-      </details>
+
       </header>
 
       {pendingQuiz && <div role="status" className="my-3 rounded-lg border border-border bg-panel p-3 text-sm">
@@ -2338,24 +2335,7 @@ export function LectureStudyFlow({
               <p className="mt-1 text-[12px] leading-relaxed text-text-3">
                 This is an estimate, not a completion promise. It assumes fresh correct answers across sessions and question types. Lecture quizzes and submitted generated Exam Mode questions both count when linked to an objective.
               </p>
-              <ol className="mt-2 divide-y divide-border/60">
-                {objectivePractice.rows.map((row) => (
-                  <li key={row.id} className="flex items-start gap-3 py-2">
-                    <div className="min-w-0 flex-1">
-                      <div className="font-mono text-[11px] font-semibold text-accent-text">{row.code}</div>
-                      {row.text && <div className="mt-0.5 line-clamp-2 text-[12px] leading-snug text-text-2">{row.text}</div>}
-                      <div className="mt-1 font-mono text-[11px] text-text-3">
-                        {row.attempts} distinct questions · {row.correct} correct
-                        <div className="mt-1">{row.missingRequirements.length ? row.missingRequirements.join(" · ") : "Readiness floor met · spaced maintenance"}</div>
-                        <div className="mt-1">Verified reasoning: {row.demonstrated.length ? row.demonstrated.map(order => order.replace("-order", " order")).join(", ") : "not established yet"} · Next: {row.targetOrder.replace("-order", " order")}</div>
-                      </div>
-                    </div>
-                    <span className={`shrink-0 rounded-full border px-2 py-1 font-mono text-[11px] ${row.ready ? "border-good/40 text-good" : row.state === "struggling" ? "border-bad/40 text-bad" : "border-border text-text-2"}`}>
-                      {row.ready ? "ready" : `${row.remaining} more if correct`}
-                    </span>
-                  </li>
-                ))}
-              </ol>
+              <ObjectiveProgressChart rows={objectivePractice.rows} />
             </details>
           )}
           {/* Supporting evidence stays visible, but deliberately secondary to objective progress. */}

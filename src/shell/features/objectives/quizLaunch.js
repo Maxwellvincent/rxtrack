@@ -20,7 +20,7 @@ import * as questionBankAnalysisStore from "../../../stores/questionBankAnalysis
 import * as questionStyleProfileStore from "../../../stores/questionStyleProfile.js";
 import { getLecText } from "../../../lectureText.js";
 import { selectAtomsForQuiz } from "../lectures/lectureStudy.js";
-import { areNearDuplicateQuestions, questionSimilarity } from "../../../engine/questionSimilarity.js";
+import { areNearDuplicateQuestions } from "../../../engine/questionSimilarity.js";
 import { buildClinicalCorrelateLibrary } from "../../../engine/clinicalCorrelates.js";
 import { objectivesWithPracticeEvidence } from "../../../engine/objectivePractice.js";
 import { read as readLearnerEvidence } from "../../../stores/learnerEvidence.js";
@@ -688,6 +688,7 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
         questionCount: candidateCount,
         focusNotes: [args.focusNotes || "", currentScaffolds.length ? `VERIFIED OBJECTIVE RELATIONSHIPS: ${JSON.stringify(currentScaffolds.filter(plan => batchAllocation.some(objective => String(objective.id || objective.code) === plan.objectiveId)))}. Build a fresh causal intervention and endpoint from these relationships; never reuse an old scenario or assume that a previous approval validates this new question. All new questions require independent review.` : "", ...rejectionFeedback.filter(feedback => !enforceAllocation || !feedback.objectiveIds.length || batchAllocation.some(objective => feedback.objectiveIds.includes(objective.id || objective.code))).slice(-6).map(feedback => feedback.text),
           candidateCount > batchCount ? `Generate ${candidateCount} distinct candidate routes for ${batchCount} missing slots. Use different source-supported perturbations or discriminating observations, not paraphrases of the same problem. Only independently approved questions can fill the slots.` : "",
+          ...avoidedQuestions.filter(q => q.questionPlan && q.objectiveIds?.some(id => batchAllocation.some(objective => id === (objective.id || objective.code)))).slice(-6).map(q => `Previously presented route (use a different source-supported intervention or endpoint, not a demographic paraphrase): ${JSON.stringify({ objectiveIds: q.objectiveIds, perturbation: q.questionPlan.perturbation, endpoint: q.questionPlan.endpoint })}`),
           ...accepted.slice(-10).filter(q => q.questionPlan).map(q => `Already accepted task (do not reuse its perturbation-to-endpoint route): ${JSON.stringify({ objectiveIds: q.objectiveIds, perturbation: q.questionPlan.perturbation, endpoint: q.questionPlan.endpoint })}`),
         ].filter(Boolean).join("\n"),
         avoidStems: [...(args.avoidStems || []), ...accepted.map(question => question.stem)],
@@ -719,7 +720,7 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
           const levels = ["first-order", "second-order", "third-order"];
           if (!target || !hasCurrentReasoningAudit(question) || levels.indexOf(question.orderLevel) < levels.indexOf(target._targetOrder || "second-order")) { reject("allocation_or_reasoning_depth"); continue; }
         }
-        const repeatsPriorQuestion = avoidedQuestions.some((other) => questionSimilarity(question, other) >= 0.9);
+        const repeatsPriorQuestion = avoidedQuestions.some((other) => areNearDuplicateQuestions(question, other));
         // Repeated practice of one topic/objective is valid: a quiz count is a hard
         // request. Reject duplicate or near-duplicate questions, not distinct tasks
         // solely because they share an atom/topic label.

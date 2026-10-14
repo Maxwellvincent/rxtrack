@@ -33,3 +33,9 @@ describe("semantic question deduplication", () => {
     expect(areNearDuplicateQuestions(first, different)).toBe(false);
   });
 });
+it("rejects paraphrased questions testing the same intervention and endpoint but keeps different endpoints", () => {
+  const left = { stem: "Following an operation a patient cannot produce tears.", objectiveIds: ["o"], choices: { A: "Reduced gland secretion" }, correct: "A", questionPlan: { perturbation: "Interrupt parasympathetic preganglionic nerve fibers", endpoint: "Predict reduced lacrimal gland secretion" } };
+  const right = { ...left, stem: "An investigator examines an isolated autonomic pathway in the face." };
+  expect(areNearDuplicateQuestions(left, right)).toBe(true);
+  expect(areNearDuplicateQuestions(left, { ...right, questionPlan: { ...right.questionPlan, endpoint: "Identify skeletal muscle motor weakness" } })).toBe(false);
+});

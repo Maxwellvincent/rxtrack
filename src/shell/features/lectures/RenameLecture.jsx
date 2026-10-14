@@ -21,12 +21,12 @@ export async function renameLecture(userId, lectureId, title, deps = {}) {
   return name;
 }
 
-export function RenameLecture({ userId, lectureId, title, onRenamed }) {
+export function RenameLecture({ userId, lectureId, title, onRenamed, inline = false }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(title || "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  if (!editing) return <button className="min-h-11 rounded px-2 text-sm text-text-2 hover:bg-panel" onClick={() => { setDraft(title || ""); setEditing(true); }}>Rename lecture…</button>;
+  if (!editing) return <button title="Click to rename lecture" aria-label={inline ? `Rename ${title}` : "Rename lecture"} className={inline ? "max-w-4xl text-left text-2xl font-bold leading-tight text-text-1 hover:text-accent-text sm:text-3xl" : "min-h-11 rounded px-2 text-sm text-text-2 hover:bg-panel"} onClick={() => { setDraft(title || ""); setEditing(true); }}>{inline ? title : "Rename lecture…"}</button>;
   return <form className="flex max-w-xl flex-wrap items-center gap-2" onSubmit={async (e) => {
     e.preventDefault(); setBusy(true); setError("");
     try { const name = await renameLecture(userId, lectureId, draft); onRenamed?.(name); setEditing(false); }
