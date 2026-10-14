@@ -111,6 +111,7 @@ function DateEdit({ row, onUpdateDate }) {
 }
 
 function Row({ row, userId, stats, onStudy, onQuiz, onLog, onUpdateDate, onPreRead, onDelete, busy, deleting, focused, rowRef, selectable = false, selected = false, onToggleSelected }) {
+  const practiced = Math.max(0, (row.total || 0) - (row.untested || 0));
   const answered = stats?.answered || 0;
   const accuracy = answered > 0 ? Math.round(((stats?.correct || 0) / answered) * 100) : null;
   const [logging, setLogging] = useState(null);
@@ -148,12 +149,22 @@ function Row({ row, userId, stats, onStudy, onQuiz, onLog, onUpdateDate, onPreRe
           <div className="mt-1 flex flex-wrap items-center gap-1.5 font-mono text-[12px] text-text-3">
             {row.scheduledToday && <span className="rounded bg-accent/15 px-1.5 py-0.5 font-bold text-accent-text">scheduled today</span>}
             {row.completedToday && <span className="rounded bg-good/10 px-1.5 py-0.5 font-bold text-good">studied today</span>}
-            <span className="desk-lecture-stat">{row.total > 0 ? `${row.mastered}/${row.total} objectives` : "No objectives linked"}</span>
-            {row.struggling > 0 && <span className="desk-lecture-stat desk-lecture-stat--warn">{row.struggling} struggling</span>}
-            {stats?.slideReviews > 0 && <span className="desk-lecture-stat">{stats.slideReviews} slide reviews</span>}
-            {answered > 0 && <span className="desk-lecture-stat" title={`${stats.correct} of ${answered} correct`}>{answered} questions · <span className={accuracy >= 85 ? "text-good" : accuracy >= 70 ? "text-accent" : "text-bad"}>{accuracy}%</span></span>}
-            {!answered && <span className="desk-lecture-stat">{row.sessions > 0 ? `${row.sessions} sessions` : row.hasPreRead ? "Pre-read only" : "Not started"}</span>}
+            {row.total === 0 && <span>No objectives linked</span>}
           </div>
+          <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-text-2">
+            {row.total > 0 && <div className="min-w-44 flex-1 max-w-xs">
+              <div className="mb-1 flex justify-between gap-3"><span><strong>{practiced}/{row.total}</strong> objectives practiced</span><span>{Math.round(100 * practiced / row.total)}%</span></div>
+              <div role="img" aria-label={`${practiced} of ${row.total} objectives practiced`} className="h-1.5 overflow-hidden rounded-full bg-border"><div className="h-full bg-accent" style={{ width: `${100 * practiced / row.total}%` }} /></div>
+            </div>}
+            <span>{answered ? <><strong>{answered}</strong> questions · <strong>{accuracy}%</strong> correct</> : "No questions answered yet"}</span>
+            {stats?.slideReviews > 0 && <span>{stats.slideReviews} slide {stats.slideReviews === 1 ? "review" : "reviews"}</span>}
+          </div>
+          {row.total > 0 && <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-3">
+            {row.struggling > 0 && <span className="text-bad">{row.struggling} need attention</span>}
+            {row.inprogress > 0 && <span>{row.inprogress} developing</span>}
+            {row.untested > 0 && <span>{row.untested} not yet practiced</span>}
+            <span title="Readiness requires at least 3 distinct questions, 80% accuracy, a correct latest answer, 2 sessions and 2 question types.">{row.mastered > 0 ? `${row.mastered} ready` : "Readiness still building"}</span>
+          </div>}
           {showDetails && <div className="desk-lecture-details">
             <DateEdit row={row} onUpdateDate={onUpdateDate} />
             {row.lastActivityDate && <span>Last studied {row.lastActivityDate}</span>}
