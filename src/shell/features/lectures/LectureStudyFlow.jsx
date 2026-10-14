@@ -782,7 +782,10 @@ export function LectureStudyFlow({
           tutorSessionKey: JSON.stringify([userId || "local", lecture?.id, current.sessionId]),
           onDelta: raw => {
             if (tutorSessionRef.current?.sessionId === current.sessionId) {
-              setPendingTutorTurn(previous => previous ? { ...previous, feedback: streamedTutorFeedback(raw) } : previous);
+              setPendingTutorTurn(previous => {
+                const feedback = streamedTutorFeedback(raw);
+                return previous && previous.feedback !== feedback ? { ...previous, feedback } : previous;
+              });
             }
           },
         }
@@ -840,7 +843,7 @@ export function LectureStudyFlow({
       setTutorReviewing(false);
       setPendingTutorTurn(null);
     }
-  }, [activeTutorAtoms, activeTutorObjective, saveTutorSession, startFreshTutor, text, title, tutorPrompt.nextStep, tutorReviewing, mentalModel?.bigPicture, tutorConfidence]);
+  }, [activeTutorAtoms, activeTutorObjective, saveTutorSession, startFreshTutor, text, title, tutorPrompt.nextStep, tutorReviewing, mentalModel?.bigPicture, tutorConfidence, userId, lecture?.id]);
 
   // Advance the clock in a ref so typing does not rerender this large study view every second.
   // The isolated countdown renders seconds; session state is persisted every 30 seconds/boundary.
