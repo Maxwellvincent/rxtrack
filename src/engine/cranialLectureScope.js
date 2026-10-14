@@ -23,8 +23,10 @@ export function repairCranialLectureLinks(objectives, lecture, sourceObjectives,
     }
     if (objective.linkedLecId !== lecture.id) return objective;
     const target = cranialNerveScope(objective.objective || objective.text);
-    if (!target.length || target.some(number => scope.includes(number))) return objective;
-    const matches = lectures.filter(other => other.id !== lecture.id && other.blockId === lecture.blockId && target.every(number => cranialNerveScope(other.lectureTitle || other.title).includes(number)));
+    // An explicit source objective table is authoritative for coded links.
+    // Keep uncoded personal/supporting objectives unless the nerve conflicts.
+    if (!code(objective) && (!target.length || target.some(number => scope.includes(number)))) return objective;
+    const matches = target.length ? lectures.filter(other => other.id !== lecture.id && other.blockId === lecture.blockId && target.every(number => cranialNerveScope(other.lectureTitle || other.title).includes(number))) : [];
     const nextId = matches.length === 1 ? matches[0].id : null;
     changed = true;
     return { ...objective, linkedLecId: nextId, sourceFile: nextId,

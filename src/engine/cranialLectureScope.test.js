@@ -13,7 +13,7 @@ describe('cranial lecture identity',()=>{
   expect(matchLectureToSection({activity:'LEC',title:'Cranial Nerves V and VII'},[lecture])).toBeNull();
  });
  it('repairs wrong links while preserving objective identity, notes, and results',()=>{
-  const original=[{id:'old-facial',objective:'Describe the facial nerve',linkedLecId:'17',attempts:9,personalNotes:'keep'}, {...incoming[0],id:'old-175',attempts:4}];
+  const original=[{id:'old-facial',code:'SOM.ANAT.0169',objective:'Describe the facial nerve',linkedLecId:'17',attempts:9,personalNotes:'keep'}, {...incoming[0],id:'old-175',attempts:4}];
   const result=repairCranialLectureLinks(original,lecture,incoming,[lecture,other]);
   expect(result.find(o=>o.id==='old-facial')).toMatchObject({linkedLecId:'13',attempts:9,personalNotes:'keep'});
   expect(result.find(o=>o.code===incoming[0].code)).toMatchObject({id:'old-175',attempts:4});
@@ -25,4 +25,10 @@ describe('cranial lecture identity',()=>{
   expect(repairCranialLectureLinks([wrong],lecture,incoming,[])[0]).toMatchObject({id:'wrong',linkedLecId:null,attempts:5});
   expect(repairCranialLectureLinks([{...wrong,manuallyAligned:true}],lecture,incoming,[])[0].linkedLecId).toBe('17');
  });
+});
+
+it('detaches absent coded objectives even when their wording is generic',()=>{
+ const old={id:'wrong-generic',code:'SOM.ANAT.0155',linkedLecId:'17',objective:'List names of cranial nerves',attempts:2};
+ const result=repairCranialLectureLinks([old],lecture,incoming,[lecture,other]);
+ expect(result.find(o=>o.id==='wrong-generic')).toMatchObject({linkedLecId:null,attempts:2});
 });
