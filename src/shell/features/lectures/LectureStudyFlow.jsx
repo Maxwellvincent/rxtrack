@@ -1304,7 +1304,6 @@ export function LectureStudyFlow({
   const preparationRunRef = useRef(0);
   const preparationControllerRef = useRef(null);
   const [activeRequestedCount, setActiveRequestedCount] = useState(null);
-  const [backgroundReserveEnabled, setBackgroundReserveEnabled] = useState(false);
   useEffect(() => {
     cancelOtherAccountJobs(userId);
     const job = getPreparationJob(preparationJobKey(userId, lecture?.id));
@@ -1559,7 +1558,7 @@ export function LectureStudyFlow({
   const prefetchQuizRef = useRef(null);
   const prefetchInFlightRef = useRef(false);
   useEffect(() => {
-    if (!backgroundReserveEnabled || quizPreparation || busy || !questions?.length || !lecture?.id || !userId || schoolExamplesLoading || prefetchInFlightRef.current) return;
+    if (quizPreparation || busy || !questions?.length || !lecture?.id || !userId || schoolExamplesLoading || prefetchInFlightRef.current) return;
     const key = `${userId}:${lecture.id}:${quizSessionId}`;
     if (prefetchQuizRef.current === key) return;
     prefetchQuizRef.current = key;
@@ -1581,7 +1580,7 @@ export function LectureStudyFlow({
       ...await questionPreparationDeps(callAIJSON), maxPrepareAttempts: 1, maxPreparationMs: 90000, prepareConcurrency: 1,
       onAccepted: batch => generatedQuestionsStore.addQuestions(userId, lecture.id, batch),
     }))().catch(() => {}).finally(() => { prefetchInFlightRef.current = false; });
-  }, [backgroundReserveEnabled, quizPreparation, busy, questions, lecture?.id, userId, quizSessionId, schoolExamplesLoading, orderedObjectives,
+  }, [quizPreparation, busy, questions, lecture?.id, userId, quizSessionId, schoolExamplesLoading, orderedObjectives,
     learnerEvidence.data, title, text, blockId, atoms, schoolExemplars, clinicalCorrelateLibrary, qStats.accuracy]);
 
   const reviewableQuizQuestions = lecture?.id
@@ -1721,11 +1720,7 @@ export function LectureStudyFlow({
         <QuestionPreparationDetails report={preparationDetails} />
         {quizPreparation && <button type="button" className="mb-2 text-sm underline" onClick={() => preparationControllerRef.current?.abort(new Error("Question preparation stopped. Reviewed questions are saved."))}>Stop preparing more · keep ready questions</button>}
         {objectiveNotice && <p role="status" className="mb-3 text-sm text-text-2">{objectiveNotice}</p>}
-        <details className="mb-3 text-sm text-text-2"><summary>Practice options</summary>
-        <label className="mt-2 flex items-center gap-2">
-          <input type="checkbox" checked={backgroundReserveEnabled} onChange={event => setBackgroundReserveEnabled(event.target.checked)} />
-          Prepare up to 3 fresh reserve questions while I practice (90-second budget)
-        </label></details>
+
         <AtomQuiz
           key={quizSessionId}
           questions={questions}
