@@ -1,3 +1,4 @@
+import { objectivePracticePlan } from "../../../engine/objectivePractice.js";
 /**
  * SP1 T4.4 — the block's full lecture list.
  *
@@ -64,6 +65,7 @@ export function scoreLectures(context) {
     // Use the same evidence projection as Today so a question attempt cannot
     // make one queue say "developing" while the other still says "untested".
     const tally = statusTally(evidenceAwareObjectives(lecObjs, context?.learnerEvidence));
+    const practiced = objectivePracticePlan(lecObjs, context?.learnerEvidence).worked;
     const perf = lecturePerformance[lec.id] ?? null;
     const sessions = perf?.sessions?.length || 0;
     const lastScore = perf?.lastScore ?? null;
@@ -81,6 +83,7 @@ export function scoreLectures(context) {
     return {
       lec,
       ...tally,
+      practiced,
       avgBloom,
       sessions,
       lastScore,
@@ -133,6 +136,7 @@ export function lectureRow(score, { completion = {}, blockId } = {}) {
     number: lecture.lectureNumber ?? null,
     urgency: score.urgency,
     mastered: score.mastered,
+    practiced: score.practiced ?? 0,
     inprogress: score.inprogress ?? 0,
     struggling: score.struggling,
     untested: score.untested,

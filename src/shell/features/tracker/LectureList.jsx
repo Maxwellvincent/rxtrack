@@ -111,7 +111,7 @@ function DateEdit({ row, onUpdateDate }) {
 }
 
 function Row({ row, userId, stats, onStudy, onQuiz, onLog, onUpdateDate, onPreRead, onDelete, busy, deleting, focused, rowRef, selectable = false, selected = false, onToggleSelected }) {
-  const practiced = Math.max(0, (row.total || 0) - (row.untested || 0));
+  const practiced = Math.min(row.total || 0, Math.max(0, row.practiced || 0));
   const answered = stats?.answered || 0;
   const accuracy = answered > 0 ? Math.round(((stats?.correct || 0) / answered) * 100) : null;
   const [logging, setLogging] = useState(null);
@@ -162,7 +162,7 @@ function Row({ row, userId, stats, onStudy, onQuiz, onLog, onUpdateDate, onPreRe
           {row.total > 0 && <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-3">
             {row.struggling > 0 && <span className="text-bad">{row.struggling} need attention</span>}
             {row.inprogress > 0 && <span>{row.inprogress} developing</span>}
-            {row.untested > 0 && <span>{row.untested} not yet practiced</span>}
+            {row.total > practiced && <span>{row.total - practiced} not yet practiced</span>}
             <span title="Readiness requires at least 3 distinct questions, 80% accuracy, a correct latest answer, 2 sessions and 2 question types.">{row.mastered > 0 ? `${row.mastered} ready` : "Readiness still building"}</span>
           </div>}
           {showDetails && <div className="desk-lecture-details">
