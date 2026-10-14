@@ -1,3 +1,4 @@
+import { cranialNerveScope } from "../engine/cranialLectureScope.js";
 /**
  * SP1 T6.1 — extracting learning objectives from a lecture, lifted out of App.jsx.
  *
@@ -1075,6 +1076,7 @@ export function matchLectureToSection(section, blockLectures) {
   if (!pool.length) return null;
 
   const title = String(section?.title || "");
+  const nerveScope = cranialNerveScope(title);
   const tokens = title
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, " ")
@@ -1086,6 +1088,8 @@ export function matchLectureToSection(section, blockLectures) {
   let bestScore = 0;
   for (const lec of pool) {
     const lecTitle = String(lec.lectureTitle || "").toLowerCase();
+    const candidateScope = cranialNerveScope(lecTitle);
+    if (nerveScope.length && (nerveScope.length !== candidateScope.length || nerveScope.some(number => !candidateScope.includes(number)))) continue;
     const score = tokens.filter((t) => lecTitle.includes(t)).length;
     if (score > bestScore) { bestScore = score; best = lec; }
   }

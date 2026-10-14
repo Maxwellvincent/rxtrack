@@ -1,3 +1,4 @@
+import * as lectureMetadataStore from "../../../stores/lectures.js";
 import { streamedTutorFeedback } from "../../../llmBridge.js";
 import { ObjectiveProgressChart } from "./ObjectiveProgressChart.jsx";
 import { preparationJobKey, getPreparationJob, startPreparationJob, subscribePreparationJob, cancelOtherAccountJobs } from "../../../questionPreparationJobs.js";
@@ -34,7 +35,7 @@ import { normalizeMissDiagnostic, reasoningGuidance } from "../../../engine/ques
 import { buildClinicalCorrelateLibrary } from "../../../engine/clinicalCorrelates.js";
 import { tagAtomsWithObjectives } from "../../../engine/tagAtoms.js";
 import { createObjectiveCommands, selectBlockObjectives, setStatus, storageKeyFor, toEntry } from "../../logic/objectives.js";
-import { extractObjectivesFromLecture } from "../../../ingest/objectives.js";
+import { extractCodeDelimited, extractObjectivesFromLecture } from "../../../ingest/objectives.js";
 import { useObjectives } from "../../hooks/useObjectives.js";
 import { resolveObjectiveTarget } from "../../logic/graduationGate.js";
 import * as objectivesStore from "../../../stores/blockObjectives.js";
@@ -1048,6 +1049,19 @@ export function LectureStudyFlow({
     });
     return () => { alive = false; };
   }, [lecture, userId]);
+
+  useEffect(() => {
+    if (objectiveResource.loading || !text || !lecture?.id) return;
+    const sourceObjectives = extractCodeDelimited(text, lecture, blockId);
+    if (sourceObjectives.length < 3) return;
+    const commands = createObjectiveCommands({
+      read: () => objectivesStore.read(userId) || {},
+      write: next => objectivesStore.write(userId, next),
+      notify: () => window.dispatchEvent(new CustomEvent("rxt-objectives-updated")),
+    });
+    const repaired = commands.repairCranialLinks(blockId, lecture, sourceObjectives, lectureMetadataStore.read(userId));
+    if (repaired) setObjectiveNotice("Lecture objective links repaired from the source codes. Your notes and practice history were preserved.");
+  }, [text, lecture, blockId, userId, objectiveResource.loading, objectiveResource.data]);
 
   const recoverObjectives = useCallback(async (sourceText) => {
     if (objectiveResource.loading) throw new Error("Objectives are still syncing. Try again in a moment.");

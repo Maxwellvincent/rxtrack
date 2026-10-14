@@ -1,3 +1,4 @@
+import { repairCranialLectureLinks } from "../../engine/cranialLectureScope.js";
 /**
  * SP1 T1.1 — objectives logic, extracted from App.jsx.
  *
@@ -404,6 +405,8 @@ export function createObjectiveCommands({ read, write, now = () => new Date().to
       apply(blockId, (objs) => deleteObjectives(objs, objIds)),
     deleteUnlinked: (blockId, blockLectures) =>
       apply(blockId, (objs) => deleteUnlinked(objs, blockLectures)),
+    repairCranialLinks: (blockId, lecture, incoming, lectures) =>
+      apply(blockId, objs => repairCranialLectureLinks(objs, lecture, incoming, lectures)),
     replaceLectureObjectives: (blockId, lecId, incoming) =>
       apply(blockId, (objs) => replaceLectureObjectives(objs, lecId, incoming)),
   };
