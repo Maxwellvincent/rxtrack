@@ -647,16 +647,20 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
       const reservationStart = reserved.length;
       const remaining = requested - accepted.length - reserved.length;
       if (remaining <= 0) break;
+      const focusedRefill = deps.focusedRefill === true && enforceAllocation
+        && accepted.length + (args.initialQuestions || []).length > 0
+        && requested - accepted.length <= batchSize;
+      const draftSize = focusedRefill ? 1 : batchSize;
       const allocationOffset = ((attempt - 1) * batchSize) % Math.max(1, allocationPlan.length);
       const rotatedPlan = [...allocationPlan.slice(allocationOffset), ...allocationPlan.slice(0, allocationOffset)];
-      const batchAllocation = remainingObjectiveAllocation(rotatedPlan, [...(args.initialQuestions || []), ...accepted, ...reserved], Math.min(remaining, batchSize));
+      const batchAllocation = remainingObjectiveAllocation(rotatedPlan, [...(args.initialQuestions || []), ...accepted, ...reserved], Math.min(remaining, draftSize));
       const batchCount = enforceAllocation
         ? batchAllocation.reduce((sum, objective) => sum + objective._targetQuestionCount, 0)
-        : Math.min(remaining, batchSize, ATOM_QUIZ_CAP);
+        : Math.min(remaining, draftSize, ATOM_QUIZ_CAP);
       if (!batchCount) break;
       // A capable batched reviewer can compare a few alternatives for the last
       // slots in one startup. Reserve only real slots, never the spare drafts.
-      const spareCandidates = Math.min(2, Math.max(0, Math.floor(Number(deps.prepareSpareCandidates) || 0)));
+      const spareCandidates = focusedRefill ? 0 : Math.min(2, Math.max(0, Math.floor(Number(deps.prepareSpareCandidates) || 0)));
       const candidateCount = Number(deps.reviewBatchSize) > 1 && attempt > 1
         ? Math.min(batchSize, batchCount + spareCandidates) : batchCount;
       const candidateAllocation = batchAllocation.map(objective => ({ ...objective }));
@@ -680,19 +684,24 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
         return [...items.slice(offset), ...items.slice(0, offset)];
       };
       reportProgress({ requested, ready: accepted.length, attempt, phase: attempt <= concurrency ? "generating" : "refilling" });
+      const targetIds = new Set(candidateAllocation.map(objective => String(objective.id || objective.code)));
+      const sourceAtoms = focusedRefill ? (args.atoms || []).filter(atom => {
+        const ids = atom.objectiveIds || [];
+        return !ids.length || ids.some(id => targetIds.has(String(id)));
+      }) : args.atoms || [];
       const promise = startObjectiveQuiz({
         ...args,
-        atoms: rotate(args.atoms || []),
+        atoms: rotate(sourceAtoms),
         objectives: enforceAllocation ? candidateAllocation : rotate(args.objectives || []),
         objectiveAllocation: enforceAllocation ? candidateAllocation : null,
         questionCount: candidateCount,
-        focusNotes: [args.focusNotes || "", currentScaffolds.length ? `VERIFIED OBJECTIVE RELATIONSHIPS: ${JSON.stringify(currentScaffolds.filter(plan => batchAllocation.some(objective => String(objective.id || objective.code) === plan.objectiveId)))}. Build a fresh causal intervention and endpoint from these relationships; never reuse an old scenario or assume that a previous approval validates this new question. All new questions require independent review.` : "", ...rejectionFeedback.filter(feedback => !enforceAllocation || !feedback.objectiveIds.length || batchAllocation.some(objective => feedback.objectiveIds.includes(objective.id || objective.code))).slice(-6).map(feedback => feedback.text),
+        focusNotes: [args.focusNotes || "", focusedRefill ? "FOCUSED FINAL-SLOT REFILL: Write one independently verifiable item for the allocated objective. Use only supplied source relationships. Build one unambiguous key and same-category distractors that require the intended inference. Address the prior rejection feedback without adding unsupported facts or weakening the requested order." : "", currentScaffolds.length ? `VERIFIED OBJECTIVE RELATIONSHIPS: ${JSON.stringify(currentScaffolds.filter(plan => batchAllocation.some(objective => String(objective.id || objective.code) === plan.objectiveId)))}. Build a fresh causal intervention and endpoint from these relationships; never reuse an old scenario or assume that a previous approval validates this new question. All new questions require independent review.` : "", ...rejectionFeedback.filter(feedback => !enforceAllocation || !feedback.objectiveIds.length || batchAllocation.some(objective => feedback.objectiveIds.includes(objective.id || objective.code))).slice(-6).map(feedback => feedback.text),
           candidateCount > batchCount ? `Generate ${candidateCount} distinct candidate routes for ${batchCount} missing slots. Use different source-supported perturbations or discriminating observations, not paraphrases of the same problem. Only independently approved questions can fill the slots.` : "",
           ...avoidedQuestions.filter(q => q.questionPlan && q.objectiveIds?.some(id => batchAllocation.some(objective => id === (objective.id || objective.code)))).slice(-6).map(q => `Previously presented route (use a different source-supported intervention or endpoint, not a demographic paraphrase): ${JSON.stringify({ objectiveIds: q.objectiveIds, perturbation: q.questionPlan.perturbation, endpoint: q.questionPlan.endpoint })}`),
           ...accepted.slice(-10).filter(q => q.questionPlan).map(q => `Already accepted task (do not reuse its perturbation-to-endpoint route): ${JSON.stringify({ objectiveIds: q.objectiveIds, perturbation: q.questionPlan.perturbation, endpoint: q.questionPlan.endpoint })}`),
         ].filter(Boolean).join("\n"),
         avoidStems: [...(args.avoidStems || []), ...accepted.map(question => question.stem)],
-      }, boundedDeps).then(result => ({ attempt, result }), error => ({ attempt, result: { questions: [], error: error?.message || String(error) } }));
+      }, focusedRefill ? { ...boundedDeps, skipRepair: false } : boundedDeps).then(result => ({ attempt, result }), error => ({ attempt, result: { questions: [], error: error?.message || String(error) } }));
       pendingJobs.set(attempt, { promise, reserved: reserved.slice(reservationStart) });
     }
     if (!pendingJobs.size) break;

@@ -917,3 +917,19 @@ it('reports provider timings and rejection categories without retaining source o
   expect(result.diagnostics.elapsedMs).toBeGreaterThanOrEqual(0);
   expect(JSON.stringify(result.diagnostics)).not.toContain('Private source text');
 });
+
+it('targets one objective per draft when retrying the last saved slots', async()=>{
+ const objectives=['a','b','c'].map(id=>({id,objective:`Explain source pathway ${id}.`}));
+ const initialQuestions=objectives.flatMap(o=>Array.from({length:4},()=>({objectiveIds:[o.id]})));
+ const callAIJSON=vi.fn(async()=>({questions:[]}));
+ const result=await prepareObjectiveQuiz({objectives,initialQuestions,plannedCount:15,questionCount:3,generationVersion:'v2',lectureText:'Source pathway relationships. '.repeat(30),atoms:[]},
+  {callAIJSON,focusedRefill:true,prepareBatchSize:3,prepareSpareCandidates:2,reviewBatchSize:3,maxPrepareAttempts:3,prepareConcurrency:1});
+ expect(callAIJSON).toHaveBeenCalledTimes(3);
+ for(const call of callAIJSON.mock.calls){
+  expect(call[1]).toContain('FOCUSED FINAL-SLOT REFILL');
+  expect(call[1]).toContain('"targetCount":1');
+  expect(call[1]).not.toContain('distinct candidate routes for');
+ }
+ expect(result.questions).toEqual([]); // Empty or unaudited items never fill slots.
+ expect(result.incomplete).toBe(true);
+});
