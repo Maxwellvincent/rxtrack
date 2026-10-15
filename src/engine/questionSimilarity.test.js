@@ -39,3 +39,14 @@ it("rejects paraphrased questions testing the same intervention and endpoint but
   expect(areNearDuplicateQuestions(left, right)).toBe(true);
   expect(areNearDuplicateQuestions(left, { ...right, questionPlan: { ...right.questionPlan, endpoint: "Identify skeletal muscle motor weakness" } })).toBe(false);
 });
+
+it("recognizes substituted tracer labels without collapsing distinct experimental endpoints", () => {
+  const make = label => ({
+    stem: `An investigator injects a ${label} into the peripheral nerve ending and observes its accumulation in the cell body after transport. Which motor carries this material?`,
+    objectiveIds: ["axonal-transport"],
+    choices: { A: "Dynein", B: "Kinesin", C: "Myosin", D: "Actin" }, correct: "A",
+  });
+  expect(uniqueQuestions([make("tracer"), make("fluorescent marker"), make("tagged molecule")])).toHaveLength(1);
+  const different = { stem: "After selective inhibition of anterograde movement, newly made vesicles accumulate near the soma. What happens to delivery of secretory cargo at the terminal?", objectiveIds: ["axonal-transport"], choices: { A: "Decreased delivery", B: "Increased delivery", C: "Unchanged delivery" }, correct: "A" };
+  expect(areNearDuplicateQuestions(make("tracer"), different)).toBe(false);
+});

@@ -92,6 +92,14 @@ describe("styleProfilePrompt", () => {
 });
 
 describe("buildMcqPrompt", () => {
+  it("does not prescribe tracer experiments as the default application format", () => {
+    const prompt = buildMcqPrompt({ promptProfile: "compact", count: 3, subject: "Cranial nerves" });
+    expect(prompt).not.toContain("Prefer tracing a newly labeled precursor");
+    expect(prompt).not.toContain("prefer an intervention-and-prediction task");
+    expect(prompt).toContain("clinical localization, lesion consequences");
+    expect(prompt).toContain("Changing the tracer name");
+  });
+
   it("compacts repeated school examples while retaining objective and factual contracts", () => {
     const cfg = { subject: "Synapses", count: 5, lectureText: "Synapses release neurotransmitter after calcium entry. ".repeat(100),
       objectives: [{ id: "synapse", code: "SOM.NB.8", objective: "Explain release of neurotransmitter", _targetOrder: "third-order", _targetQuestionCount: 2 }],

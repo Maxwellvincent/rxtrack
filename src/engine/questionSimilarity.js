@@ -10,6 +10,9 @@ export function comparableQuestionTokens(question) {
     .map((value) => typeof value === "string" ? value : JSON.stringify(value || ""))
     .join(" ")
     .toLowerCase()
+    // Normalize interchangeable experimental labels only for duplicate comparison.
+    // Keep the intervention, anatomical route and endpoint tokens intact.
+    .replace(/\b(?:(?:fluorescent|radioactive|radiolabeled|radio-labelled|radiolabelled|labeled|labelled|tagged)\s+(?:tracer|marker|molecule|substance|compound|precursor)|tracer|dye)\b/g, "tracer")
     .replace(/\b\d+(?:\.\d+)?\b/g, " ")
     .replace(/[^a-z0-9]+/g, " ");
   return new Set(text.split(/\s+/).filter((word) => word.length > 2 && !STOP_WORDS.has(word)));
