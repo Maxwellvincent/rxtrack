@@ -928,3 +928,18 @@ it("reports actual reviewer defects when strict preparation skips whole-batch re
   expect(result.error).toContain("unsupported_fact");
   expect(result.rejections[0].rationale).toContain("discriminator");
 });
+
+describe('writer shortfall responses',()=>{
+ it.each(['The allocated targets lack supporting lecture evidence.', {reason:'No supported distinct route remains.'}, [{message:'More source context is needed.'}]])('preserves a structured empty-list explanation',async shortfall=>{
+  const result=await generateMcqs({lectureText:'Source material. '.repeat(30),objectives:[{id:'target',text:'Explain a pathway'}]}, {callAIJSON:vi.fn(async()=>({questions:[],shortfall}))});
+  expect(result.failureKind).toBe('source_shortfall');
+  expect(result.rejections[0]).toMatchObject({objectiveIds:['target'],issues:['writer_reported_shortfall']});
+  expect(result.error).not.toContain('No question list');
+  expect(result.error).not.toContain('[object Object]');
+ });
+ it('distinguishes an unexplained empty array from a missing list',async()=>{
+  const result=await generateMcqs({lectureText:'Source material. '.repeat(30)}, {callAIJSON:vi.fn(async()=>({questions:[]}))});
+  expect(result.error).toContain('empty question list');
+  expect(result.error).not.toContain('No question list was found');
+ });
+});

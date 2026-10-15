@@ -325,10 +325,21 @@ export async function generateMcqs(cfg = {}, deps = {}) {
     const candidates = questionCandidates(result);
     const generated = withSchoolContext(ensureClinicalCorrelateAttribution(stampQuestionOrders(ensureObjectiveAttribution(normalizeQuestions(result), cfg.objectives || []), cfg.objectives || []), cfg.clinicalCorrelateLibrary), cfg).map((question) => ({ ...question, generationVersion: "v2" }));
     if (!generated.length) {
+      if (Array.isArray(result?.questions) && result.questions.length === 0 && result.shortfall) {
+        const reasons = (Array.isArray(result.shortfall) ? result.shortfall : [result.shortfall])
+          .map(entry => preparationErrorMessage(entry, "")).filter(Boolean);
+        const reason = reasons.join("; ").slice(0, 1200) || "The writer reported a shortfall but did not explain which source-supported relationships were missing.";
+        return {
+          questions: [], failureKind: "source_shortfall",
+          error: `No candidates were produced for this batch. ${reason}`,
+          rejections: [{ objectiveIds: (cfg.objectives || []).map(o => o.id || o.code).filter(Boolean),
+            issues: ["writer_reported_shortfall"], rationale: reason }],
+        };
+      }
       const fields = result && typeof result === "object" && !Array.isArray(result) ? Object.keys(result).slice(0, 8).join(", ") : typeof result;
       const detail = candidates.length
         ? `The response contained ${candidates.length} candidate question${candidates.length === 1 ? "" : "s"}, but none had a usable stem, choices, and answer key.`
-        : `No question list was found (response fields: ${fields || "none"}; expected { questions: [...] }).`;
+        : (Array.isArray(result?.questions) ? "The response contained an empty question list with no shortfall explanation." : `No question list was found (response fields: ${fields || "none"}; expected { questions: [...] }).`);
       return { error: `Question generation returned no usable items. ${detail} Retry once; if it repeats, check the selected provider/model output format.`, questions: [] };
     }
     return await auditGeneratedQuestions(generated, cfg, deps);

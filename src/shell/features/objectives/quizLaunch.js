@@ -740,7 +740,7 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
       // An empty/rejected batch is recoverable: the next round rotates objective and atom evidence
       // and gives the model a fresh chance. Stop immediately only for transport/provider failures;
       // otherwise a single over-strict audit response used to strand the whole quiz at 0/N.
-      if (!result.questions?.length && result.error && isProviderFailure(result.error)) stopPreparation = true;
+      if (!result.questions?.length && result.error && result.failureKind !== "source_shortfall" && isProviderFailure(result.error)) stopPreparation = true;
       // Allow a complete rotation through the objective plan before concluding that
       // empty batches cannot recover; one difficult group must not starve the rest.
       // Stop instead of making the learner wait through several more minute-long
