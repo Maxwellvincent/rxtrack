@@ -1962,6 +1962,7 @@ export function LectureStudyFlow({
       <p className="mb-1 font-condensed text-xs font-semibold uppercase tracking-[0.16em] text-accent">Lecture</p>
       <RenameLecture inline userId={userId} lectureId={lecture?.id} title={renamedTitle || title} onRenamed={(name) => { setRenamedTitle(name); onLectureRenamed?.(name); }} />
       <LectureReviewLog key={`${userId}:${lecture?.id}`} userId={userId} lectureId={lecture?.id} blockId={blockId} logActivity={logActivity} />
+      <LectureRetrievalEnrollment key={`${userId}:${blockId}:${lecture?.id}`} userId={userId} blockId={blockId} lectureId={lecture?.id} title={renamedTitle || title} reference={mentalModel?.bigPicture || ""} rows={objectivePractice.rows} evidenceModel={learnerEvidence.data} />
       {lecture?.sourceFiles?.length > 0 && (
         <details className="mt-3 max-w-4xl rounded-lg border border-border bg-panel px-3 py-2">
           <summary className="cursor-pointer text-sm font-semibold text-text-2">
@@ -2570,7 +2571,6 @@ export function LectureStudyFlow({
         </summary>
         <div className="space-y-4 border-t border-border p-4">
           <div className="grid items-start gap-4 lg:grid-cols-2">
-            <LectureRetrievalEnrollment key={`${userId}:${blockId}:${lecture?.id}`} userId={userId} blockId={blockId} lectureId={lecture?.id} title={renamedTitle || title} reference={mentalModel?.bigPicture || ''} />
             <ModelRepairs userId={userId} lectureId={lecture?.id} title={renamedTitle || title} atoms={atoms} objectives={lectureObjectives} chunks={lecture?.chunks || []} />
           </div>
           <ObjectiveCoverage atoms={atoms} objectives={lectureObjectives} examples={schoolExemplars} />

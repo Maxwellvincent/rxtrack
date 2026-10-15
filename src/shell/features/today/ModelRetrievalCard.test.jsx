@@ -9,7 +9,7 @@ vi.mock('../../../stores/modelRetrieval.js',()=>({retrievalStore:{read:()=>state
 import {ModelRetrievalCard} from './ModelRetrievalCard.jsx';
 globalThis.IS_REACT_ACT_ENVIRONMENT=true;
 beforeEach(()=>{installDomStorage();state.fail=false;state.writes=0;state.data={settings:{sameDay:true},models:{m:createRetrievalModel({id:'m',title:'Test model',prompt:'Reconstruct the pathway',reference:'SECRET REFERENCE',blockId:'b'},Date.now()-1000,{sameDay:true})}};});
-function mount(){const host=document.createElement('div');document.body.append(host);const root=createRoot(host);act(()=>root.render(<ModelRetrievalCard userId="u" blockId="b"/>));return {host,close:()=>act(()=>root.unmount())};}
+function mount(props={}){const host=document.createElement('div');document.body.append(host);const root=createRoot(host);act(()=>root.render(<ModelRetrievalCard userId="u" blockId="b" {...props}/>));return {host,close:()=>act(()=>root.unmount())};}
 const button=(host,text)=>[...host.querySelectorAll('button')].find(b=>b.textContent.includes(text));
 async function click(b){await act(async()=>{b.click();await Promise.resolve();});}
 async function reachGrade(host){const checks=host.querySelectorAll('input[type="checkbox"]');await click(checks[0]);await click(checks[1]);await click(button(host,'Check model'));await click(host.querySelector('input[type="checkbox"]'));}
@@ -18,3 +18,16 @@ it('keeps the review open after a failed save',async()=>{const {host,close}=moun
 it('moves to the next model after grading',async()=>{state.data.models.n=createRetrievalModel({id:'n',title:'Second model',prompt:'Reconstruct another framework',blockId:'b'},Date.now(),{sameDay:true});const {host,close}=mount();await click(button(host,'Start review'));await reachGrade(host);await click(button(host,'Shaky'));expect(host.textContent).toContain('Here is the next model');expect(host.querySelector('h3').textContent).toBe('Second model');expect(button(host,'Check model').disabled).toBe(true);close();});
 it('closes without recording a grade',async()=>{const {host,close}=mount();await click(button(host,'Start review'));await click(button(host,'Close without grading'));expect(state.writes).toBe(0);close();});
 it('disables starting more reviews when today’s budget is exhausted',()=>{state.data.settings={minutes:5,sameDay:true};state.data.models.m.minutes=5;state.data.models.m=gradeModel(state.data.models.m,'solid',Date.now(),'done');state.data.models.n=createRetrievalModel({id:'n',title:'Next',prompt:'Reconstruct it',blockId:'b'},Date.now(),{sameDay:true});const {host,close}=mount();expect(button(host,'Start review').disabled).toBe(true);expect(button(host,'Review now').disabled).toBe(true);close();});
+
+it('surfaces a lecture notes review after a new low-scoring linked result',async()=>{
+ state.data.models.m={...state.data.models.m,lectureId:'l',nextReviewAt:Date.now()+86400000};
+ const evidenceModel={objectives:{o:{attempts:3,correct:1,lastSeen:Date.now(),recent:[true,false,false]}}};
+ const {host,close}=mount({objectivesForLecture:()=>[{id:'o',objective:'Describe the course of a nerve pathway'}],evidenceModel});
+ expect(button(host,'Start review').disabled).toBe(false);
+ expect(host.textContent).toContain('Redraw one weak pathway');
+ expect(host.textContent).toContain('1 low-scoring');
+ await click(button(host,'Start review'));
+ expect(host.textContent).toContain('Describe the course of a nerve pathway');
+ expect(host.textContent).not.toContain('SECRET REFERENCE');
+ close();
+});

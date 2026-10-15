@@ -1,3 +1,5 @@
+import { objectivePracticePlan } from "../../../engine/objectivePractice.js";
+import { modelWithNotesEvidence } from "../../../engine/lectureNotesReview.js";
 import { useEffect, useState } from 'react';
 import { Button } from '../../../ui/Button.jsx';
 import { useStoreResource } from '../../hooks/useStoreResource.js';
@@ -9,7 +11,7 @@ const grades=[['broken','Broken','Could not reconstruct the major relationships.
 const date = at => at == null ? 'No routine review' : new Date(at).toLocaleDateString();
 const newId = () => crypto.randomUUID();
 
-export function ModelRetrievalCard({userId,blockId,examDate}) {
+export function ModelRetrievalCard({userId,blockId,examDate,objectivesForLecture=null,evidenceModel={}}) {
   const resource=useStoreResource(retrievalStore,userId);
   const data=resource.data || {models:{},settings:{}};
   const [now,setNow]=useState(Date.now);
@@ -23,9 +25,12 @@ export function ModelRetrievalCard({userId,blockId,examDate}) {
   const [creating,setCreating]=useState(false);
   const [draft,setDraft]=useState({title:'',prompt:'',reference:'',lecture:'',subject:'',tags:'',minutes:3,priority:1});
   const prefs=settingsFor(data.settings);
-  const models=Object.values(data.models || {});
+  const project=model=>model.lectureId && objectivesForLecture && model.blockId===blockId
+    ? modelWithNotesEvidence(model,objectivePracticePlan(objectivesForLecture(model.lectureId),evidenceModel).rows,evidenceModel,now,prefs.questionEvidence)
+    : model;
+  const models=Object.values(data.models || {}).map(project);
   const plan=selectDailyModels(models,prefs,now,blockId,examDate);
-  const active=data.models?.[activeId];
+  const active=models.find(model=>model.id===activeId);
   const blockModels=models.filter(m=>m.blockId===blockId);
   const canReview=model=>plan.slotsLeft>0 && model.minutes<=plan.minutesLeft && !(model.history||[]).some(h=>h.day===dayKey(now));
   const start=model=>{setActiveId(model.id);setRevealed(false);setSteps({framework:false,objectives:false,repair:false});setScratch('');setNotice('');};
@@ -44,13 +49,14 @@ export function ModelRetrievalCard({userId,blockId,examDate}) {
     let saved;
     const ok=await save(current=>{
       const model=current.models[activeId];
-      const budget=selectDailyModels(Object.values(current.models),current.settings,at,blockId,examDate);
+      const budget=selectDailyModels(Object.values(current.models).map(project),current.settings,at,blockId,examDate);
       if(!model || budget.slotsLeft<1 || model.minutes>budget.minutesLeft || model.history.some(h=>h.day===dayKey(at))) throw new Error('Today’s retrieval budget is complete. No extra review is needed.');
-      saved={...current,models:{...current.models,[activeId]:gradeModel(model,value,at,eventId)}};
+      const {notesAdvice:_notesAdvice,...projected}=project(model);
+      saved={...current,models:{...current.models,[activeId]:gradeModel(projected,value,at,eventId)}};
       return saved;
     });
     if(ok){
-      const next=selectDailyModels(Object.values(saved.models),saved.settings,at,blockId,examDate).selected[0];
+      const next=selectDailyModels(Object.values(saved.models).map(project),saved.settings,at,blockId,examDate).selected[0];
       setNow(at);
       if(next) start(next); else setActiveId(null);
       setNotice(next?'Review saved. Here is the next model.':'Review saved. Done for today.');
@@ -70,7 +76,8 @@ export function ModelRetrievalCard({userId,blockId,examDate}) {
     {notice && <p role="status" className="my-3 text-sm font-semibold">{notice}</p>}
     {active ? <div className="my-4 max-w-3xl space-y-3 rounded-xl border-2 border-accent p-4">
       <div className="flex items-start justify-between gap-2"><h3 className="text-lg font-semibold">{active.title}</h3><span className="text-sm">~{active.minutes} min</span></div>
-      <p className="text-base">{active.prompt}</p>
+      <p className="text-base">{active.notesAdvice?.task || active.prompt}</p>
+      {active.notesAdvice && <><p className="text-sm text-text-2">{active.notesAdvice.instruction}</p><p className="text-xs text-text-3">{active.notesAdvice.summary}</p><ul className="list-disc pl-5 text-sm">{active.notesAdvice.targets.map(row=><li key={row.id}>{row.text || row.code}</li>)}</ul></>}
       <p className="text-sm text-text-2">Keep the reference closed. This should take a few minutes, not become a lecture rewrite.</p>
       <textarea aria-label="Retrieval scratchpad" value={scratch} onChange={e=>setScratch(e.target.value)} placeholder="Optional scratchpad: A → B because…" className={`${field} min-h-28`} />
       {!revealed ? <>
@@ -85,7 +92,7 @@ export function ModelRetrievalCard({userId,blockId,examDate}) {
         <p className="text-xs text-text-3">Grades schedule this model only. Retest questions to clear atom/objective flags.</p>
       </>}
       <Button variant="ghost" disabled={busy} onClick={()=>setActiveId(null)}>Close without grading</Button>
-    </div> : plan.selected.length>0 && <ul className="my-3 space-y-1 text-sm">{plan.selected.map(m=><li key={m.id}>{m.title} · {m.minutes} min</li>)}</ul>}
+    </div> : plan.selected.length>0 && <ul className="my-3 space-y-1 text-sm">{plan.selected.map(m=><li key={m.id}>{m.title} · {m.minutes} min{m.notesAdvice && <span className="block text-xs text-text-2">{m.notesAdvice.task} · {m.notesAdvice.summary}</span>}</li>)}</ul>}
 
     {!active && <details className="mt-4 border-t border-border pt-3">
       <summary className="cursor-pointer font-semibold">Model library · {blockModels.length}</summary>

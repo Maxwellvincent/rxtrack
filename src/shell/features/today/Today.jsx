@@ -1284,7 +1284,7 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
           <DailyQuestionScore userId={userId} blockId={blockId} />
           <CompactQuestionProgress userId={userId} blockId={blockId} />
           <SchoolReviewCard blockId={blockId} userId={userId} examDate={examDate} onOpenExam={onOpenExam} />
-          <ModelRetrievalCard key={`${userId}:${blockId}`} userId={userId} blockId={blockId} examDate={examDate} />
+          <ModelRetrievalCard key={`${userId}:${blockId}`} userId={userId} blockId={blockId} examDate={examDate} objectivesForLecture={objectivesForTask} evidenceModel={context?.learnerEvidence} />
           {effectiveMode && <RoutineSchedulePanel mode={effectiveMode} wakeTime={wakeTime} lecConfig={lecConfig} />}
         </aside>
       </div>
