@@ -141,6 +141,7 @@ describe("toLocalRow", () => {
       lectureTitle: "Thyroid",
       chunks: [{ markdown: "a".repeat(5000) }],
       fullText: "b".repeat(5000),
+      extractedText: "legacy text", content: "legacy body",
       lectureDate: "2026-09-01",
     });
 

@@ -22,3 +22,9 @@ export function merge(userId, incoming) {
 export function subscribe(cb) {
   return subscribeToStore(key, cb);
 }
+
+/** Cache a list after the uploaded lecture has been confirmed saved in Firestore. */
+export function writeCloudSaved(userId, value) {
+  if (!userId) return write(userId, value);
+  return writeJson(userId, key, value, { cloudSaved: true });
+}

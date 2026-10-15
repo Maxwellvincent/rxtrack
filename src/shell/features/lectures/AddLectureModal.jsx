@@ -13,6 +13,7 @@
  */
 import { useCallback, useState } from "react";
 import { Button } from "../../../ui/Button.jsx";
+import { isLocalStorageQuotaError } from "../../../stores/base.js";
 import * as lecturesStore from "../../../stores/lectures.js";
 import {
   overwriteObjectivesInCloud,
@@ -343,7 +344,7 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
       // The full text is already durable in the lecture document. Keeping a
       // second copy in localStorage is what made dense single uploads fail at
       // the button press, before any enrichment could begin.
-      lecturesStore.write(
+      (userId ? lecturesStore.writeCloudSaved : lecturesStore.write)(
         userId,
         lectures.map((row) => row.id === lecture.id && userId ? toLocalRow({ ...row, sourceStoragePath: lecture.sourceStoragePath, sourceFiles: lecture.sourceFiles }) : row)
       );
@@ -378,15 +379,15 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
     } catch (e) {
       const msg = e?.message || String(e);
       setError(
-        /quota/i.test(msg)
-          ? "Out of local storage — this lecture's text does not fit. Run the storage compaction, then try again."
+        isLocalStorageQuotaError(e)
+          ? "Browser storage is full. This local save could not finish. Sign in to save the lecture to the cloud, or free browser storage before retrying."
           : "Save failed: " + msg
       );
     } finally {
       setBusy(false);
       setProgress("");
     }
-  }, [preview, lectureDate, userId, onAdded, extractObjectives, extractAtomsStep, buildStudyAssets, targetLecture]);
+  }, [preview, lectureDate, userId, onAdded, onClose, extractObjectives, extractAtomsStep, buildStudyAssets, targetLecture]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => { if (!busy) onClose?.(); }}>

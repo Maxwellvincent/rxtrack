@@ -1,3 +1,4 @@
+import { stripLectureBodyForLocalCache } from "./lectureMetaCache.js";
 /**
  * SP1 — importing a folder of lectures in one pass.
  *
@@ -116,10 +117,7 @@ export function summarizePlan(plan) {
  * exactly what a chunk-light row means.
  */
 export function toLocalRow(lecture) {
-  const { chunks, fullText, ...rest } = lecture;
-  void chunks;
-  void fullText;
-  return { ...rest, chunks: [] };
+  return { ...stripLectureBodyForLocalCache(lecture), chunks: [] };
 }
 
 /** Add or replace in the local list, reusing the one upsert rule. */

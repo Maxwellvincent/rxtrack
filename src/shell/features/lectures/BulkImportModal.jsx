@@ -129,7 +129,7 @@ export function BulkImportModal({ blockId, termId = null, userId = null, onClose
         if (!saved?.saved) throw new Error(`Lecture cloud save failed (${saved?.reason || "unknown reason"}).`);
       }
       // Cloud is authoritative; only a chunk-light lecture row is cached locally.
-      lecturesStore.write(userId, lectures.map((l) => (l.id === lecture.id ? toLocalRow({ ...l, sourceStoragePath: lecture.sourceStoragePath }) : l)));
+      (userId ? lecturesStore.writeCloudSaved : lecturesStore.write)(userId, lectures.map((l) => (l.id === lecture.id ? toLocalRow({ ...l, sourceStoragePath: lecture.sourceStoragePath }) : l)));
       setRow(entry.filename, { note: action === "filled" ? "filled the scheduled lecture" : "" });
 
       const commands = createObjectiveCommands({
