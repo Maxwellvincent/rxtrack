@@ -604,7 +604,7 @@ export async function pushAllLocalDataToSupabase(userId) {
   // Tombstoned ids are the ONE thing that gets deleted up here: without this a
   // locally-replaced lecture is resurrected by the next pull, and re-uploading
   // a lecture leaves a permanent duplicate behind.
-  const lecs = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
+  const lecs = storeForKey("rxt-lec-meta").read(userId) || [];
   const tombstoned = readLectureTombstoneIds();
   const liveIds = new Set(lecs.map((l) => l?.id));
   for (const deadId of tombstoned) {
@@ -742,10 +742,10 @@ export async function pullAllDataFromSupabase(userId) {
       // localStorage for large blocks and prevented the following objective pull.
       return lec;
     });
-    const local = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
+    const local = storeForKey("rxt-lec-meta").read(userId) || [];
     const cloudIds = new Set(fromCloud.map((l) => l.id));
     const localOnly = local.filter((l) => !cloudIds.has(l.id));
-    persistLocal("rxt-lec-meta", [...fromCloud, ...localOnly]);
+    storeForKey("rxt-lec-meta").writeCloudSaved(userId, [...fromCloud, ...localOnly]);
   }
 
   // Objectives: merge per block using same merge function as push

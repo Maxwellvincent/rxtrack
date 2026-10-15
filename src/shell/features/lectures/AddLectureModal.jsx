@@ -206,14 +206,17 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
         const teachingMapDate = new Date().toISOString();
         // Body to Firestore, stub to the local row — DeepLearn fetches the body
         // when it opens the lecture.
+        if (userId) {
+          const result = await saveLectureToCloud(userId, { ...lec, teachingMap: map, teachingMapDate });
+          if (!result?.saved) throw new Error(`Lecture analysis could not save (${result?.reason || "unknown reason"}).`);
+        }
         const current = lecturesStore.read(userId) || [];
-        lecturesStore.write(
+        (userId ? lecturesStore.writeCloudSaved : lecturesStore.write)(
           userId,
           current.map((l) =>
             l.id === lec.id ? stripTeachingMap({ ...l, teachingMap: map, teachingMapDate }) : l
           )
         );
-        if (userId) await saveLectureToCloud(userId, { ...lec, teachingMap: map, teachingMapDate });
         setSaved((prev) => (prev ? { ...prev, teachingMap: map, teachingMapDate } : prev));
         setMapResult(
           `${sections} section${sections === 1 ? "" : "s"} mapped${map.clinicalHook ? " · clinical hook ready" : ""}.`

@@ -30,7 +30,7 @@ export async function updateLectureDate(userId, lectureId, date, deps = {}) {
     if (!result?.saved) throw new Error("Could not save the lecture date. Please retry.");
   }
 
-  store.write(userId, (store.read(userId) || []).map((item) =>
+  (userId && store.writeCloudSaved ? store.writeCloudSaved : store.write)(userId, (store.read(userId) || []).map((item) =>
     item?.id === lectureId ? updated : item
   ));
   return updated;

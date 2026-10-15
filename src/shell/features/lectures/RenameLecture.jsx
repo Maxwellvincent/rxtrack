@@ -16,7 +16,7 @@ export async function renameLecture(userId, lectureId, title, deps = {}) {
     });
     if (!result?.saved) throw new Error("Could not save the new name. Please retry.");
   }
-  store.write(userId, (store.read(userId) || []).map((l) => l.id === lectureId
+  (userId && store.writeCloudSaved ? store.writeCloudSaved : store.write)(userId, (store.read(userId) || []).map((l) => l.id === lectureId
     ? { ...l, lectureTitle: name, title: name } : l));
   return name;
 }

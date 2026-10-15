@@ -13,7 +13,7 @@ export async function deleteLectureFully({ userId, lectureId, blockId }, deps = 
 
   if (userId) await removeCloud(userId, lectureId);
   tombstone(lectureId);
-  lectures.write(userId, (lectures.read(userId) || []).filter((lecture) => lecture.id !== lectureId));
+  (userId && lectures.writeCloudSaved ? lectures.writeCloudSaved : lectures.write)(userId, (lectures.read(userId) || []).filter((lecture) => lecture.id !== lectureId));
 
   const objectiveMap = objectives.read(userId) || {};
   const entry = objectiveMap[blockId];
@@ -58,7 +58,7 @@ export async function deleteLecturesFully({ userId, lectures = [], blockId, onPr
   if (!deletedIds.length) return { deletedIds, failures, objectivesSaved: true };
   deletedIds.forEach((id) => tombstone(id));
   const deleted = new Set(deletedIds);
-  lectureStore.write(userId, (lectureStore.read(userId) || []).filter((lecture) => !deleted.has(lecture.id)));
+  (userId && lectureStore.writeCloudSaved ? lectureStore.writeCloudSaved : lectureStore.write)(userId, (lectureStore.read(userId) || []).filter((lecture) => !deleted.has(lecture.id)));
 
   const objectiveMap = objectiveStore.read(userId) || {};
   const entry = objectiveMap[blockId];
