@@ -665,7 +665,7 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
       // slots in one startup. Reserve only real slots, never the spare drafts.
       const spareCandidates = focusedRefill ? 0 : Math.min(2, Math.max(0, Math.floor(Number(deps.prepareSpareCandidates) || 0)));
       const candidateCount = Number(deps.reviewBatchSize) > 1 && attempt > 1
-        ? Math.min(batchSize, batchCount + spareCandidates) : batchCount;
+        ? Math.min(ATOM_QUIZ_CAP, batchCount + spareCandidates) : batchCount;
       const candidateAllocation = batchAllocation.map(objective => ({ ...objective }));
       for (let extra = batchCount; enforceAllocation && extra < candidateCount; extra += 1) {
         candidateAllocation[(extra - batchCount) % candidateAllocation.length]._targetQuestionCount += 1;
