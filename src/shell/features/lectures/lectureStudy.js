@@ -46,26 +46,31 @@ export function flowStage({ atoms, text }) {
 export async function loadLecture(lecture, { fetchContent, userId }) {
   const local = lectureTextFrom(lecture);
   let atoms = Array.isArray(lecture?.atoms) ? lecture.atoms : [];
+  let chunks = Array.isArray(lecture?.chunks) ? lecture.chunks : [];
   let text = local;
   // Labelled figures live with the lecture content, not on the list record, so they usually
   // arrive with the same fetch that brings the text.
   let images = Array.isArray(lecture?.images) ? lecture.images : [];
 
   // Images ride along with a fetch we already needed — never worth a round trip on their own.
-  if ((!atoms.length || !text) && fetchContent) {
+  if ((!atoms.length || !text || !chunks.length) && fetchContent) {
     try {
       const remote = await fetchContent(userId, lecture?.id);
       if (remote) {
         if (!atoms.length) atoms = remote.atoms || [];
+        if (!chunks.length) chunks = Array.isArray(remote.chunks) ? remote.chunks : [];
         if (!text) text = lectureTextFrom(remote);
         if (!images.length) images = Array.isArray(remote.images) ? remote.images : [];
       }
     } catch (e) {
-      return { atoms, text, images, stage: flowStage({ atoms, text }), error: e?.message || String(e) };
+      return {
+        atoms, chunks, text, images, stage: flowStage({ atoms, text }),
+        error: !atoms.length && !text ? (e?.message || String(e)) : null,
+      };
     }
   }
 
-  return { atoms, text, images, stage: flowStage({ atoms, text }), error: null };
+  return { atoms, chunks, text, images, stage: flowStage({ atoms, text }), error: null };
 }
 
 /**

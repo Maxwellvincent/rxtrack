@@ -41,6 +41,34 @@ export function slideTargetsForObjectiveIds(objectiveIds = [], objectives = [], 
   return targets;
 }
 
+/**
+ * Audit coded objectives against this lecture's uploaded slide/chunk text.
+ * Missing codes are evidence gaps, not proof of a bad link: OCR may omit a
+ * footer, the school may list objectives not repeated on slides, or source
+ * chunks may be incomplete. Callers should warn, never silently discard.
+ */
+export function auditObjectiveSlideCoverage(objectives = [], chunks = [], sourceText = "") {
+  const hasChunks = (chunks || []).length > 0;
+  const hasText = String(sourceText || "").trim().length > 0;
+  const hasSource = hasChunks || hasText;
+  const index = indexObjectiveSlides(chunks);
+  const codesInText = new Set((String(sourceText || "").match(SOM_CODE) || []).map(normalizeSomCode));
+  return (objectives || []).map((objective) => {
+    const code = normalizeSomCode(objective?.code || objective?.objectiveCode);
+    if (!code.startsWith("SOM.")) {
+      return { objective, code: "", status: hasSource ? "uncoded" : "source-unavailable", slides: [] };
+    }
+    const slides = index.get(code) || [];
+    const foundInText = codesInText.has(code);
+    return {
+      objective,
+      code,
+      status: !hasSource ? "source-unavailable" : slides.length ? "found" : foundInText ? "found-unlocated" : "not-found",
+      slides,
+    };
+  });
+}
+
 export function formatSlideTargets(targets = []) {
   const slides = [...new Set(targets.flatMap((target) => target.slides || []))].sort((a, b) => a - b);
   return slides.length ? `slide${slides.length === 1 ? "" : "s"} ${slides.join(", ")}` : "";

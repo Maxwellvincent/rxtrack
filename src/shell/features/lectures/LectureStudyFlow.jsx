@@ -32,6 +32,7 @@ import {
 import { HY_TYPES } from "../../../engine/highYield.js";
 import { locallyValidClinicalQuestions } from "../../../engine/mcq.js";
 import { objectiveLectureNumberConflict } from "../../../engine/lectureIdentity.js";
+import { auditObjectiveSlideCoverage } from "../../../engine/objectiveSlideTargets.js";
 import { normalizeMissDiagnostic, reasoningGuidance } from "../../../engine/questionReasoning.js";
 import { buildClinicalCorrelateLibrary } from "../../../engine/clinicalCorrelates.js";
 import { tagAtomsWithObjectives } from "../../../engine/tagAtoms.js";
@@ -373,6 +374,7 @@ export function LectureStudyFlow({
   examRepairContext = null,
 }) {
   const [atoms, setAtoms] = useState([]);
+  const [lectureChunks, setLectureChunks] = useState(() => Array.isArray(lecture?.chunks) ? lecture.chunks : []);
   const [text, setText] = useState("");
   const [images, setImages] = useState([]);
   const [figures, setFigures] = useState(null); // in-review, not yet uploaded
@@ -401,6 +403,18 @@ export function LectureStudyFlow({
     const mismatched = new Set(mismatchedLectureObjectives);
     return linkedObjectives.filter((objective) => !mismatched.has(objective));
   }, [linkedObjectives, mismatchedLectureObjectives]);
+  const objectiveSlideAudit = useMemo(
+    () => auditObjectiveSlideCoverage(lectureObjectives, lectureChunks, text),
+    [lectureObjectives, lectureChunks, text]
+  );
+  const codedObjectiveSlideAudit = useMemo(
+    () => objectiveSlideAudit.filter((entry) => entry.code), [objectiveSlideAudit]
+  );
+  const verifiedObjectiveSlides = useMemo(
+    () => codedObjectiveSlideAudit.filter((entry) => entry.status === "found" || entry.status === "found-unlocated").length,
+    [codedObjectiveSlideAudit]
+  );
+  const hasLectureSource = lectureChunks.length > 0 || Boolean(text.trim());
   const title = lecture?.lectureTitle || lecture?.title || lecture?.fileName || "Lecture";
   const learnerEvidence = useStoreResource(learnerEvidenceStore, userId);
   const objectivePractice = useMemo(
@@ -1052,7 +1066,7 @@ export function LectureStudyFlow({
     let alive = true;
     loadLecture(lecture, { fetchContent: fetchLectureContent, userId }).then((r) => {
       if (!alive) return;
-      setAtoms(r.atoms); setText(r.text); setImages(r.images || []); setStage(r.stage);
+      setAtoms(r.atoms); setLectureChunks(r.chunks || []); setText(r.text); setImages(r.images || []); setStage(r.stage);
       if (r.error) setError(r.error);
     });
     return () => { alive = false; };
@@ -1073,7 +1087,7 @@ export function LectureStudyFlow({
 
   const recoverObjectives = useCallback(async (sourceText) => {
     if (objectiveResource.loading) throw new Error("Objectives are still syncing. Try again in a moment.");
-    const found = await extractObjectivesFromLecture(sourceText, { ...lecture, chunks: [] }, blockId);
+    const found = await extractObjectivesFromLecture(sourceText, { ...lecture, chunks: lectureChunks }, blockId);
     if (!found.length) throw new Error("No explicit objectives recovered from the stored text. The atoms have been preserved.");
     const commands = createObjectiveCommands({
       read: () => objectivesStore.read(userId) || {},
@@ -1083,7 +1097,7 @@ export function LectureStudyFlow({
     commands.replaceLectureObjectives(blockId, lecture?.id, found);
     setObjectiveNotice(`${found.length} lecture objectives recovered and linked; cloud sync is queued.`);
     return found;
-  }, [lecture, blockId, userId, objectiveResource.loading]);
+  }, [lecture, lectureChunks, blockId, userId, objectiveResource.loading]);
 
   const runExtract = useCallback(async (sourceText) => {
     setBusy("Reading the lecture…"); setError("");
@@ -1096,7 +1110,7 @@ export function LectureStudyFlow({
       }
       // Defer persistence until after objective tagging so this extraction
       // writes the lecture's atom document only once.
-      const r = await extractAtoms(lecture, sourceText, {
+      const r = await extractAtoms({ ...lecture, chunks: lectureChunks }, sourceText, {
         callAIJSON, userId, objectives: objectivesForTagging, onProgress: setBusy,
       });
       if (r.error) {
@@ -1115,7 +1129,7 @@ export function LectureStudyFlow({
       }
       // Save once, after tagging. If it fails, keep the in-session atoms but
       // make the persistence failure visible so this can be retried.
-      try { await saveLectureAtoms(userId, lecture?.id, finalAtoms, lecture); }
+      try { await saveLectureAtoms(userId, lecture?.id, finalAtoms, { ...lecture, chunks: lectureChunks }); }
       catch (e) { setError(`Atoms extracted, but their objective links did not save: ${e?.message || String(e)}`); }
       setAtoms(finalAtoms);
       setStage("quiz");
@@ -1129,11 +1143,14 @@ export function LectureStudyFlow({
       // the page interactive again.
       setBusy("");
     }
-  }, [lecture, userId, blockId, recoverObjectives, lectureObjectives.length]);
+  }, [lecture, lectureChunks, userId, blockId, recoverObjectives, lectureObjectives.length]);
 
   const onFile = useCallback(async (file) => {
     if (!file) return;
     const uploaded = await file.text();
+    // This one-file path has no per-slide metadata; never audit it against
+    // chunks from a previously loaded source revision.
+    setLectureChunks([]);
     setText(uploaded);
     if (uploaded.trim().length < 200) { setError("That file has almost no text in it."); return; }
     await runExtract(uploaded);
@@ -2310,6 +2327,22 @@ export function LectureStudyFlow({
       {mismatchedLectureObjectives.length > 0 && <p role="status" className="my-2 rounded border border-warn/40 p-3 text-sm text-text-2">
         {mismatchedLectureObjectives.length} linked {mismatchedLectureObjectives.length === 1 ? "objective has" : "objectives have"} a different stored lecture number, so {mismatchedLectureObjectives.length === 1 ? "it is" : "they are"} excluded from this lecture’s study and question generation. Review the objective links; no records were changed.
       </p>}
+      {codedObjectiveSlideAudit.length > 0 && <details className="my-2 rounded border border-border bg-bg-elevated p-3 text-sm">
+        <summary className="cursor-pointer font-medium">Slide-code check · {hasLectureSource
+          ? `${verifiedObjectiveSlides}/${codedObjectiveSlideAudit.length} coded objectives found in this lecture’s uploaded source`
+          : "uploaded lecture source unavailable for verification"}</summary>
+        {hasLectureSource && verifiedObjectiveSlides < codedObjectiveSlideAudit.length && <p className="mt-2 text-text-2">
+          Missing code matches are warnings only: OCR may drop codes, and some curriculum objectives are not repeated on slides. They remain available for study and question generation.
+        </p>}
+        <ul className="mt-2 max-h-56 space-y-1 overflow-auto text-xs text-text-2">
+          {codedObjectiveSlideAudit.map(({ objective, code, status, slides }) => <li key={objective.id || code}>
+            <span className="font-mono">{code}</span> — {status === "found"
+              ? `found on source slide/page ${slides.join(", ")}`
+              : status === "found-unlocated" ? "found in source text; slide/page location unavailable"
+                : status === "not-found" ? "not found in uploaded slide text (not excluded)" : "source slide text unavailable"}
+          </li>)}
+        </ul>
+      </details>}
       {stage !== "loading" && !lectureObjectives.length && text.trim().length >= 200 && (
         <div className="my-3 flex flex-wrap items-center gap-3 rounded border border-warn/40 p-3">
           <span className="text-sm text-text-2">{objectiveResource.loading ? "Syncing lecture objectives…" : "No objectives linked yet. Recover them from the saved lecture without replacing your atoms."}</span>
@@ -2623,7 +2656,7 @@ export function LectureStudyFlow({
         </summary>
         <div className="space-y-4 border-t border-border p-4">
           <div className="grid items-start gap-4 lg:grid-cols-2">
-            <ModelRepairs userId={userId} lectureId={lecture?.id} title={renamedTitle || title} atoms={atoms} objectives={lectureObjectives} chunks={lecture?.chunks || []} />
+            <ModelRepairs userId={userId} lectureId={lecture?.id} title={renamedTitle || title} atoms={atoms} objectives={lectureObjectives} chunks={lectureChunks} />
           </div>
           <ObjectiveCoverage atoms={atoms} objectives={lectureObjectives} examples={schoolExemplars} />
           {clinicalCorrelateLibrary.length > 0 && (
