@@ -1,5 +1,5 @@
 import { releaseConfirmedCloudCopy } from "../browserStorage.js";
-import { SKIP_ON_PULL } from "./capped.js";
+import { applyLocalCap, SKIP_ON_PULL } from "./capped.js";
 /**
  * Firestore-backed store primitives — the same read/write/subscribe contract
  * `base.js` exposes, with Firestore as the source of truth instead of a
@@ -152,7 +152,9 @@ function mirrorLocally(userId, logicalKey, value) {
   try {
     // silent: the caller announces this change itself, and notifying here too
     // would run every subscriber twice per write.
-    writeJson(userId, logicalKey, value, { silent: true });
+    // Mirror only the bounded working set for stores whose cloud history can
+    // grow indefinitely; Firestore still receives the complete value below.
+    writeJson(userId, logicalKey, applyLocalCap(logicalKey, value), { silent: true });
   } catch (e) {
     // A full quota must not break the cloud write that already succeeded, and
     // should not produce one console error for every hydrated store.
@@ -160,7 +162,7 @@ function mirrorLocally(userId, logicalKey, value) {
       localMirrorQuotaFull = true;
       if (!localMirrorQuotaWarned) {
         localMirrorQuotaWarned = true;
-        console.warn("local cache is full; Firestore remains authoritative and local mirroring is paused");
+        console.warn(`local cache is full while mirroring ${logicalKey}; Firestore remains authoritative and local mirroring is paused`);
       }
       return;
     }

@@ -233,6 +233,21 @@ describe("the localStorage mirror for keys App still reads", () => {
       .toEqual([{ id: "from-other-device" }]);
   });
 
+  it("bounds the local weak-concept mirror without trimming Firestore history", () => {
+    const concepts = { b1: [{
+      id: "weak-1",
+      sourceQuestions: [{ id: 1 }, { id: 2 }, { id: 3 }, { id: 4 }],
+      lectureLabels: ["L1", "L2", "L3", "L4"],
+      linkedLecIds: ["l1", "l2", "l3", "l4"],
+    }] };
+    writeCloud("u1", "rxt-weak-concepts", concepts);
+
+    const local = JSON.parse(localStorage.getItem("rxt:u1:rxt-weak-concepts") || localStorage.getItem("rxt-weak-concepts"));
+    expect(local.b1[0].sourceQuestions).toHaveLength(2);
+    expect(local.b1[0].lectureLabels).toHaveLength(3);
+    expect(backend.writes.at(-1).value.data.b1[0].sourceQuestions).toHaveLength(4);
+  });
+
   it("does not shadow a key App does not read", () => {
     localStorage.removeItem("rxt-exam-dates");
     localStorage.removeItem("rxt:u1:rxt-exam-dates");
