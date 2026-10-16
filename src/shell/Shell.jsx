@@ -1,3 +1,6 @@
+import { CBSE_BLOCK_ID, ensureCbseTerms } from "./features/cbse/cbsePrep.js";
+import { useTerms } from "./hooks/useTerms.js";
+import * as termsStore from "../stores/terms.js";
 import { canViewQuestionDiagnostics } from "../diagnosticsAccess.js";
 import { QuestionDiagnosticsAdmin } from "./QuestionDiagnosticsAdmin.jsx";
 import "../theme/tokens.css";
@@ -56,6 +59,7 @@ const LectureStudyFlow = lazy(() => import("./features/lectures/LectureStudyFlow
 const QuestionBankModal = lazy(() => import("./features/lectures/QuestionBankModal.jsx").then((m) => ({ default: m.QuestionBankModal })));
 const MasterGuide = lazy(() => import("./features/guide/MasterGuide.jsx").then((m) => ({ default: m.MasterGuide })));
 const DeepLearnContainer = lazy(() => import("./features/deeplearn/DeepLearnContainer.jsx").then((m) => ({ default: m.DeepLearnContainer })));
+const CbseDashboard = lazy(() => import("./features/cbse/CbseDashboard.jsx").then(m => ({ default: m.CbseDashboard })));
 const ExamContainer = lazy(() => import("./features/exam/ExamContainer.jsx").then((m) => ({ default: m.ExamContainer })));
 
 class StudyViewErrorBoundary extends Component {
@@ -194,6 +198,13 @@ function ShellMain({ theme, toggle, userId }) {
   // Reactive via the store hooks — no longer a one-shot read that goes stale
   // the moment a schedule is imported or a lecture uploaded.
   const blocks = useBlocks(userId);
+  const termsResource = useTerms(userId);
+  const [cbseSetupError, setCbseSetupError] = useState(null);
+  useEffect(() => {
+    if (termsResource.loading || termsResource.error || cbseSetupError || !termsResource.data?.length) return;
+    const next = ensureCbseTerms(termsResource.data, userId);
+    if (next !== termsResource.data) termsStore.writeAwait(userId, next).catch(error => setCbseSetupError(error.message || "Could not save CBSE Prep."));
+  }, [termsResource.loading, termsResource.error, termsResource.data, userId, cbseSetupError]);
   // Derived, not synced in an effect: the selection is what the user picked,
   // and it falls back to the first block until they pick — or if the block they
   // were on disappears (a deleted term used to leave the shell pointing at
@@ -332,6 +343,7 @@ function ShellMain({ theme, toggle, userId }) {
   const onStudyLecture = useCallback((lectureId, opts = {}) => {
     const lecture = (lecturesStore.read(userId) || []).find((l) => l?.id === lectureId);
     if (!lecture) return;
+    setSelectedBlockId(lecture.blockId);
     setStudyLecture(lecture);
     setStudyFocusObjectiveIds(opts.focusObjectiveIds || null);
     setExamRepairContext(opts.repairContext || null);
@@ -382,7 +394,10 @@ function ShellMain({ theme, toggle, userId }) {
           onImportSchedule={() => setShowImport(true)}
           onAddLecture={activeBlockId ? () => setShowAddLecture(true) : null}
           onBulkImport={activeBlockId ? () => setShowBulkImport(true) : null}
-          onQuestionBanks={() => setShowQuestionBanks(true)}
+          onQuestionBanks={() => {
+            if (activeBlockId === CBSE_BLOCK_ID) { const node = document.getElementById("cbse-sources"); if (node) { node.open = true; node.scrollIntoView({ behavior: "smooth" }); } }
+            else setShowQuestionBanks(true);
+          }}
           onRoutine={() => setShowRoutine(true)}
           onDailyPlanSettings={activeBlockId ? () => setShowDailyPlanSettings(true) : null}
           onApiKeySettings={() => setShowApiKeyModal(true)}
@@ -390,10 +405,11 @@ function ShellMain({ theme, toggle, userId }) {
           onSignOut={() => signOut().then(() => window.location.reload())}
         />
         {/* Tab bar — hidden while a full-screen overlay is active */}
-        {blocks.length > 0 && !sessionMode && !studyLecture && (
+        {blocks.length > 0 && !sessionMode && !studyLecture && activeBlockId !== CBSE_BLOCK_ID && (
           <TabBar active={tab} onChange={switchTab} />
         )}
         <main id="study-content" tabIndex={-1} ref={mainRef} onScroll={onMainScroll} className="desk-content flex-1 overflow-y-auto">
+          {cbseSetupError && <div role="alert" className="m-4 rounded border border-bad p-3">CBSE Prep setup: {cbseSetupError}<button className="ml-3 underline" onClick={() => termsStore.writeAwait(userId, termsStore.read(userId)).then(() => setCbseSetupError(null)).catch(error => setCbseSetupError(error.message))}>Retry</button></div>}
           <StudyViewErrorBoundary
             resetKey={`${tab}|${activeBlockId || ""}|${studyLecture?.id || ""}|${sessionMode || ""}|${moreView || ""}`}
             onReset={() => {
@@ -458,6 +474,8 @@ function ShellMain({ theme, toggle, userId }) {
                 }}
               />
             </div>
+          ) : activeBlockId === CBSE_BLOCK_ID ? (
+            <CbseDashboard userId={userId} block={active} onReviewLecture={id => { switchTab("lectures"); onStudyLecture(id); }} onManageSources={id => { setSelectedBlockId(id); setShowQuestionBanks(true); }} />
           ) : tab === "lectures" && activeBlockId ? (
             <LectureList
               blockId={activeBlockId}

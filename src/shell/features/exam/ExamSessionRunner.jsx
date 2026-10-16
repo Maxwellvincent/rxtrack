@@ -604,13 +604,17 @@ export function ExamSessionRunner({
   onNavigateToLecture,
   objectivesById = {},
   onExit,
+  onSubmitted = null,
   tutorModeEnabled = false,
   callAI,
 }) {
   const controller = useExamSessionController(sessionId, userId);
   const { session: storedSession, loading, error, submit, abandon, submitResult, submitting, syncStatus } = controller;
+  useEffect(() => {
+    if (storedSession?.status === "submitted") onSubmitted?.(storedSession);
+  }, [storedSession, onSubmitted]);
 
-  const session = useMemo(() => storedSession ? { ...storedSession, questions: (storedSession.questions || []).map(q => q.sourceType === "question-bank" ? linkSourceLecture(q, lectures, storedSession.blockId) : q) } : null, [storedSession, lectures]);
+  const session = useMemo(() => storedSession ? { ...storedSession, questions: (storedSession.questions || []).map(q => q.sourceType === "question-bank" ? linkSourceLecture(q, lectures, q.sourceBlockId || q.blockId || storedSession.blockId) : q) } : null, [storedSession, lectures]);
 
   // I6 fix — `finalizeExamSession`'s `blockName`/`lectureLabelsByLectureId`
   // options were threaded correctly through finalize.js/finalizeLogic.js,

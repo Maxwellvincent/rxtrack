@@ -18,6 +18,7 @@ export function flattenBlocks(terms, lectures) {
       name: b.name,
       groupTitle: b.groupTitle || null,
       status: b.status,
+      ...(b.kind ? { kind: b.kind, examDate: b.examDate, examWindowEnd: b.examWindowEnd } : {}),
       startDate: b.startDate ?? null,
       termId: t.id,
       termName: t.name,

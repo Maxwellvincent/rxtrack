@@ -15,6 +15,7 @@ import {
   readError as cloudReadError,
   subscribeToCloudStore,
   writeCloud,
+  writeCloudAwait,
 } from "./cloudBase.js";
 import { readJson } from "./base.js";
 import { mergeTerms } from "./merge.js";
@@ -48,3 +49,5 @@ export function isHydrated(userId) {
 export function readError(userId) {
   return cloudReadError(userId, key);
 }
+
+export function writeAwait(userId, value) { return writeCloudAwait(userId, key, value); }

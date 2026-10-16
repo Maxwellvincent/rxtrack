@@ -1,0 +1,33 @@
+// @vitest-environment jsdom
+import React, { act } from "react";
+import { createRoot } from "react-dom/client";
+import { afterEach, expect, it, vi } from "vitest";
+import { writeFileSync } from "node:fs";
+const fixture = vi.hoisted(() => ({ banks: {}, meta: {}, sessions: [], terms: [], reads: {}, created: null }));
+vi.mock("../../hooks/useQuestionBanks.js", () => ({ useQuestionBanks: () => ({ data: fixture.banks, loading: false }) }));
+vi.mock("../../hooks/useTerms.js", () => ({ useTerms: () => ({ data: fixture.terms, loading: false }) }));
+vi.mock("../../hooks/useLectures.js", () => ({ useLectures: () => ({ data: [], loading: false }) }));
+vi.mock("../../hooks/useObjectives.js", () => ({ useObjectives: () => ({ data: {}, loading: false }) }));
+vi.mock("../../hooks/useStoreResource.js", () => ({ useStoreResource: store => ({ data: fixture.reads[store.key] || {}, loading: false }) }));
+vi.mock("../../../supabase.js", () => ({ listExamSessions: vi.fn(async () => fixture.sessions), createExamSession: vi.fn(async (_user, session) => { fixture.created=session; return { ok: true }; }) }));
+vi.mock("../exam/ExamSessionRunner.jsx", () => ({ ExamSessionRunner: props => <div>Saved session: {props.sessionId}<button onClick={() => props.onSubmitted?.()}>Complete test session</button></div> }));
+import { CbseDashboard } from "./CbseDashboard.jsx";
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+let root;
+afterEach(() => { if(root) act(() => root.unmount()); document.body.innerHTML=""; });
+it("renders a dashboard with vertical concept bars and launches saved original questions", async () => {
+  const questions=Array.from({length:15},(_,i)=>({ id:`q${i}`, stem:`Original medical question ${i}`, choices:{ A:"Correct", B:"Distractor" }, correct:"A", sourceType:"question-bank", questionId:`q${i}`, topic:`Concept ${i%6+1}` }));
+  fixture.banks={"ExamSoft.pdf":questions}; fixture.reads={"rxt-question-bank-meta":{bank:{filename:"ExamSoft.pdf",blockId:"b1",sourceKind:"examsoft"}}};
+  fixture.terms=[{id:"t1",name:"Term 1",blocks:[{id:"b1",name:"Foundations"}]}];
+  fixture.sessions=[{sessionId:"old",status:"submitted",blockId:"b1",submittedAt:1,questions,answers:questions.slice(0,6).map((q,i)=>({questionId:q.questionId,value:i%2 ? "A":"B"}))}];
+  const host=document.createElement("div");document.body.append(host);root=createRoot(host);
+  await act(async()=>root.render(<CbseDashboard userId="test" block={{examDate:"2026-12-09",examWindowEnd:"2026-12-10"}} onReviewLecture={()=>{}} onManageSources={()=>{}} />));
+  expect(host.textContent).toContain("CBSE Prep"); expect(host.textContent).toContain("6");
+  expect(host.querySelectorAll('[style*="height: 180px"]').length).toBeGreaterThan(0);
+  writeFileSync('/tmp/rxt-cbse-dashboard-preview.html', host.innerHTML);
+  await act(async()=>[...host.querySelectorAll('button')].find(button=>button.textContent==='Practice quiz').click());
+  expect(fixture.created).toMatchObject({blockId:"cbse-prep",contentScope:"cbse:all-terms",sourceType:"question-bank"});
+  expect(fixture.created.questions).toHaveLength(15);
+  expect(fixture.created.questions.every(q=>q.blockId==='b1' && q.sourceFile==='ExamSoft.pdf')).toBe(true);
+  expect(host.textContent).toContain("Saved session:");
+});

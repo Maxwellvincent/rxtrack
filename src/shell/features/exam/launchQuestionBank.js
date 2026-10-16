@@ -10,7 +10,7 @@ function makeSessionId() {
   return `bank_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
-function validBankQuestion(question) {
+export function validBankQuestion(question) {
   const letters = Object.keys(question?.choices || {});
   const choiceLetters = letters.filter((letter) => /^[A-H]$/i.test(letter)).map((letter) => letter.toUpperCase()).sort();
   const choicesContiguous = !choiceLetters.length || choiceLetters.every((letter, index) => letter === String.fromCharCode(65 + index));

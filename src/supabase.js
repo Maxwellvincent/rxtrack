@@ -964,7 +964,8 @@ export async function getExamSession(userId, sessionId) {
 
 /** List exam sessions for a block, optionally filtered further by status. */
 export async function listExamSessions(userId, blockId, { status } = {}) {
-  const constraints = [where("blockId", "==", blockId)];
+  if (!userId) return [];
+  const constraints = blockId == null ? [] : [where("blockId", "==", blockId)];
   if (status) constraints.push(where("status", "==", status));
   const snap = await getDocs(
     query(collection(db, "users", userId, "examSessions"), ...constraints)

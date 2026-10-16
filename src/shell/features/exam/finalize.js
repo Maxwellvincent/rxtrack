@@ -35,7 +35,7 @@ export async function finalizeExamSession(
   // Step 1: lock via CAS transition in_progress -> finalizing.
   const lockResult = await updateExamSessionTransaction(userId, sessionId, (current) => {
     if (!current || current.status !== "in_progress") return null;
-    return { ...current, questions: (current.questions || []).map(q => q.sourceType === "question-bank" ? linkSourceLecture(q, lectures, current.blockId) : q), status: "finalizing", submittedAt: Date.now() };
+    return { ...current, questions: (current.questions || []).map(q => q.sourceType === "question-bank" ? linkSourceLecture(q, lectures, q.sourceBlockId || q.blockId || current.blockId) : q), status: "finalizing", submittedAt: Date.now() };
   });
 
   if (lockResult === null) {
@@ -84,10 +84,10 @@ export async function finalizeExamSession(
         await recordEvidenceAwait(userId, {
           source: "integrated-exam",
           sessionKey: session.sessionId,
-          blockId: session.blockId,
+          blockId: question.sourceBlockId || question.blockId || session.blockId,
           lectureId: question.lectureId || null,
           objectiveIds: question?.objectiveIds || [],
-          questionKey: question?.poolId || question?.id || question?.questionId || `stem:${String(question?.stem || "").toLowerCase().replace(/\s+/g, " ").trim()}`,
+          questionKey: question?.questionKey || question?.poolId || question?.id || question?.questionId || `stem:${String(question?.stem || "").toLowerCase().replace(/\s+/g, " ").trim()}`,
           atomKey: question?.atomKey || null,
           correct: wasCorrect,
           difficulty: question?.difficulty || null,
@@ -133,23 +133,26 @@ export async function finalizeExamSession(
 
   if (!latest.sideEffectsCompleted.weakConceptsRecorded) {
     const lectureIds = [...new Set(latest.questions.map((q) => q.lectureId).filter(Boolean))];
-    const allSubmitted = await listExamSessions(userId, latest.blockId, { status: "submitted" });
+    const allSubmitted = await listExamSessions(userId, null, { status: "submitted" });
     const sessionsForCalc = [
       ...allSubmitted.filter((s) => s.sessionId !== latest.sessionId),
       latest,
     ];
 
     const store = (await readWeakConcepts(userId)) || {};
-    let blockConcepts = store[latest.blockId] || [];
+    const nextStore = { ...store };
 
     for (const lectureId of lectureIds) {
+      const sourceQuestion = latest.questions.find(q => q.lectureId === lectureId);
+      const sourceBlockId = sourceQuestion?.sourceBlockId || sourceQuestion?.blockId || latest.blockId;
+      let blockConcepts = nextStore[sourceBlockId] || [];
       const existingEntry = blockConcepts.find(
-        (c) => c.id === `exam:${latest.blockId}:${lectureId}`
+        (c) => c.id === `exam:${sourceBlockId}:${lectureId}`
       );
       const entry = computeWeakConceptEntry({
         sessions: sessionsForCalc,
-        blockId: latest.blockId,
-        blockName,
+        blockId: sourceBlockId,
+        blockName: sourceQuestion?.sourceBlockName || blockName,
         lectureId,
         lectureLabel: lectureLabelsByLectureId[lectureId],
         existingEntry,
@@ -158,10 +161,11 @@ export async function finalizeExamSession(
       if (entry) {
         blockConcepts = mergeExamReportConcepts(blockConcepts, [entry]);
       }
+      nextStore[sourceBlockId] = blockConcepts;
     }
 
     try {
-      await writeWeakConceptsAwait(userId, { ...store, [latest.blockId]: blockConcepts });
+      await writeWeakConceptsAwait(userId, nextStore);
     } catch (e) {
       return { ok: false, error: e?.message || String(e), resumable: true };
     }
