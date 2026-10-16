@@ -247,7 +247,7 @@ function ChoiceList({ questionId, choices, picked, revealed, correct, onPick, lo
   );
 }
 
-function MissDiagnosis({ question, selectedChoice, initialResult = null, onComplete, onSkip }) {
+function MissDiagnosis({ question, selectedChoice, initialResult = null, onComplete, onSkip, onNavigateToLecture }) {
   const [patient, setPatient] = useState("");
   const [ask, setAsk] = useState("");
   const [prediction, setPrediction] = useState("");
@@ -272,6 +272,7 @@ function MissDiagnosis({ question, selectedChoice, initialResult = null, onCompl
     {result.bridge && <p className="mt-1"><b>Missing bridge:</b> {result.bridge}</p>}
     <p className="mt-1"><b>Miss type:</b> {MISS_TYPE_LABELS[result.primaryType] || "Unclassified"}{result.secondaryType ? ` + ${MISS_TYPE_LABELS[result.secondaryType]}` : ""}</p>
     {result.choiceTrap && <p className="mt-1"><b>Why your choice tempted you:</b> {result.choiceTrap}</p>}
+    {(question?.lectureId || question?.lectureIds?.[0]) && onNavigateToLecture && <div className="mt-3 rounded border border-accent/30 bg-accent/5 p-2"><p className="text-xs text-text-2">This miss is linked to a lecture. Open it for a fresh objective-focused repair quiz.</p><Button className="mt-2" variant="outline" onClick={() => onNavigateToLecture(question.lectureId || question.lectureIds[0])}>Open lecture repair</Button></div>}
     {result.anki?.kind !== "none" && result.anki?.front && <details className="mt-2"><summary className="cursor-pointer">Anki idea ({result.anki.kind})</summary><p className="mt-1"><b>Front:</b> {result.anki.front}</p><p><b>Back:</b> {result.anki.back}</p></details>}
   </div>;
   return <div className="mt-3 rounded-lg border border-border bg-bg p-3" data-testid="miss-diagnosis-form">
@@ -402,7 +403,7 @@ function ExamFormat({ controller, submitOpts, objectivesById, lectureLabelsByLec
 // "Finish" button, reachable once the last question is answered/revealed,
 // calls the same `submit()` the controller already exposes for format
 // "exam" — same function, now reachable from practice's UI too.
-function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, userId, objectivesById, lectureLabelsByLectureId }) {
+function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, userId, objectivesById, lectureLabelsByLectureId, onNavigateToLecture }) {
   const { session, currentIndex, setCurrentIndex, answerQuestion, submit, submitting } = controller;
   const questions = session.questions || [];
   const q = questions[currentIndex];
@@ -450,7 +451,7 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
           </div>
         )}
 
-        {revealed && !isCorrect && <details key={`diagnosis-${q.questionId}`} className="text-sm"><summary className="cursor-pointer py-2 text-text-3">Review this miss · optional</summary><MissDiagnosis question={q} selectedChoice={picked} initialResult={diagnostics[q.questionId]} onSkip={() => setDiagnostics(current => ({ ...current, [q.questionId]: { skipped: true } }))} onComplete={(diagnostic) => {
+        {revealed && !isCorrect && <details key={`diagnosis-${q.questionId}`} className="text-sm"><summary className="cursor-pointer py-2 text-text-3">Review this miss · optional</summary><MissDiagnosis question={q} selectedChoice={picked} initialResult={diagnostics[q.questionId]} onSkip={() => setDiagnostics(current => ({ ...current, [q.questionId]: { skipped: true } }))} onNavigateToLecture={onNavigateToLecture} onComplete={(diagnostic) => {
           recordMissType(userId, diagnostic.primaryType, `${session.sessionId}:${q.questionId}`);
           setDiagnostics(current => ({ ...current, [q.questionId]: diagnostic }));
         }} /></details>}
@@ -577,7 +578,7 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, object
             <SchoolQuestionFigure question={q} userId={userId} />
             <ChoiceList questionId={q.questionId} choices={q.choices} choiceColumns={q.choiceColumns} choiceLayout={q.choiceLayout} picked={picked} revealed correct={q.correct} onPick={() => {}} />
             <div className="mt-2"><QuestionQualityRating userId={userId} question={q} /></div>
-            {picked != null && picked !== q.correct && <details><summary className="cursor-pointer py-2 text-sm text-text-3">Review this miss · optional</summary><MissReflection userId={userId} /><MissDiagnosis question={q} selectedChoice={picked} onComplete={(diagnostic) => {
+            {picked != null && picked !== q.correct && <details><summary className="cursor-pointer py-2 text-sm text-text-3">Review this miss · optional</summary><MissReflection userId={userId} /><MissDiagnosis question={q} selectedChoice={picked} onNavigateToLecture={onNavigateToLecture} onComplete={(diagnostic) => {
               recordMissType(userId, diagnostic.primaryType, `${session.sessionId}:${q.questionId}`);
             }} /></details>}
             {tutorModeEnabled && <TutorPanelForQuestion question={q} callAI={callAI} />}
@@ -704,6 +705,7 @@ export function ExamSessionRunner({
           userId={userId}
           objectivesById={objectivesById}
           lectureLabelsByLectureId={lectureLabelsByLectureId}
+          onNavigateToLecture={onNavigateToLecture}
         />
       )}
       <div className="flex items-center justify-between">

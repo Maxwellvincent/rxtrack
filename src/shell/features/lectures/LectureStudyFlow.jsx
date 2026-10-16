@@ -936,6 +936,9 @@ export function LectureStudyFlow({
   const resumeLectureQuiz = useCallback((session) => {
     if (!session?.questions?.length) return;
     quizMetaRef.current = session;
+    if (Number(session.requestedCount) > session.questions.length) {
+      setPendingQuiz({ questions: session.questions, count: Number(session.requestedCount), difficulty: session.questions[0]?.difficulty || "medium", reason: session.preparationShortfall || "The original requested set was only partially prepared." });
+    }
     setQuizResumeState(session.progress || null);
     setActiveRequestedCount(session.requestedCount || session.questions.length);
     setQuestions(session.questions);
@@ -1353,7 +1356,7 @@ export function LectureStudyFlow({
     return () => { detach(); preparationRunRef.current += 1; };
   }, [lecture?.id, userId]);
 
-  const runQuiz = useCallback(async (count, difficulty) => {
+  const runQuiz = useCallback(async (count, difficulty, startingQuestions = []) => {
     const jobKey = preparationJobKey(userId, lecture?.id);
     if (getPreparationJob(jobKey)?.status === "running") return;
     preparationControllerRef.current?.abort();
@@ -1386,7 +1389,11 @@ export function LectureStudyFlow({
     const adaptivePlan = buildAdaptiveObjectivePlan(orderedObjectives, count);
     const adaptiveRank = new Map(adaptivePlan.map((objective, index) => [objective.id || objective.code, index]));
     const reserveCounts = new Map();
-    const reserve = priorQuestions
+    const seedQuestions = (Array.isArray(startingQuestions) ? startingQuestions : [])
+      .filter((question) => question?.stem && hasCurrentReasoningAudit(question))
+      .slice(0, count);
+    const seedStems = new Set(seedQuestions.map((question) => String(question.stem).trim().toLowerCase()));
+    const reserve = [...seedQuestions, ...priorQuestions
       .filter((question) => question.generationMode !== "grounded-fallback")
       .filter((question) => (question.generationVersion || "v2") === generationVersion)
       .filter((question) => validReserve.has(question))
@@ -1403,6 +1410,7 @@ export function LectureStudyFlow({
         return questionRank(a) - questionRank(b)
           || String(a.createdAt || "").localeCompare(String(b.createdAt || ""));
       })
+      .filter(question => !seedStems.has(String(question.stem).trim().toLowerCase()))
       .filter(question => {
         const objective = adaptivePlan.find(item => question.objectiveIds?.includes(item.id || item.code));
         if (!objective || ["first-order", "second-order", "third-order"].indexOf(question.orderLevel) < ["first-order", "second-order", "third-order"].indexOf(objective._targetOrder || "second-order")) return false;
@@ -1411,7 +1419,7 @@ export function LectureStudyFlow({
         if (used >= objective._targetQuestionCount) return false;
         reserveCounts.set(id, used + 1);
         return true;
-      })
+      })]
       .slice(0, count);
     const missing = Math.max(0, count - reserve.length);
     if (!missing) {
@@ -1501,12 +1509,20 @@ export function LectureStudyFlow({
     if (result.diagnostics) { const report = { ...result.diagnostics, requested: count, accepted: reserve.length + result.diagnostics.accepted }; setPreparationDetails(report); saveQuestionDiagnostics(userId, lecture?.id, report); }
     setBusy("");
     if (startedEarly) {
-      setActiveRequestedCount(progressiveQuestions.length);
+      // Preserve the learner's requested target. Previously the progressive
+      // session was silently relabeled to its shorter prepared length here,
+      // which hid the shortfall and discarded the retry path.
+      setActiveRequestedCount(count);
       if (quizMetaRef.current) {
-        quizMetaRef.current = { ...quizMetaRef.current, originalRequestedCount: count, requestedCount: progressiveQuestions.length };
+        const reason = preparationErrorMessage(result.reason || result.error, "Remaining questions did not pass review.");
+        quizMetaRef.current = { ...quizMetaRef.current, originalRequestedCount: count, requestedCount: count, preparationShortfall: reason };
         lectureQuizSessionsStore.save(userId, quizMetaRef.current);
       }
-      if (progressiveQuestions.length < count) setObjectiveNotice(`${progressiveQuestions.length}/${count} ready. Preparation stopped: ${preparationErrorMessage(result.reason || result.error, "Remaining questions did not pass review.")}`);
+      if (progressiveQuestions.length < count) {
+        const reason = preparationErrorMessage(result.reason || result.error, "Remaining questions did not pass review.");
+        setPendingQuiz({ questions: [...progressiveQuestions], count, difficulty, reason });
+        setObjectiveNotice(`${progressiveQuestions.length}/${count} ready. The remaining questions did not pass review; retry the missing slots when ready.`);
+      }
       return;
     }
     const attachObjectiveTexts = (items) => items.map((question) => ({
@@ -1726,7 +1742,9 @@ export function LectureStudyFlow({
               {adHocQuiz
                 ? quizPreparation
                   ? `${questions.length}/${quizPreparation.requested} questions ready · ${questions[0]?.difficulty || "medium"}`
-                  : `${questions.length}-question quiz · ${questions[0]?.difficulty || "medium"}`
+                  : activeRequestedCount > questions.length
+                    ? `${questions.length}/${activeRequestedCount} questions ready · ${questions[0]?.difficulty || "medium"}`
+                    : `${questions.length}-question quiz · ${questions[0]?.difficulty || "medium"}`
                 : `round ${round + 1} of ${rounds.length} · ${roundLabel(round, rounds, atoms.length)} · ${questions[0]?.difficulty || roundDifficulty(resolveDefaultDifficulty(qStats.accuracy), round)}`}
             </div>
           </div>
@@ -1964,7 +1982,7 @@ export function LectureStudyFlow({
       <LectureReviewLog key={`${userId}:${lecture?.id}`} userId={userId} lectureId={lecture?.id} blockId={blockId} logActivity={logActivity} />
       <LectureRetrievalEnrollment key={`${userId}:${blockId}:${lecture?.id}`} userId={userId} blockId={blockId} lectureId={lecture?.id} title={renamedTitle || title} reference={mentalModel?.bigPicture || ""} rows={objectivePractice.rows} evidenceModel={learnerEvidence.data} />
       {lecture?.sourceFiles?.length > 0 && (
-        <details className="mt-3 max-w-4xl rounded-lg border border-border bg-panel px-3 py-2">
+        <details id="lecture-sources" className="mt-3 max-w-4xl rounded-lg border border-border bg-panel px-3 py-2">
           <summary className="cursor-pointer text-sm font-semibold text-text-2">
             Source files · {lecture.sourceFiles.length} part{lecture.sourceFiles.length === 1 ? "" : "s"}
           </summary>
@@ -1985,7 +2003,7 @@ export function LectureStudyFlow({
         </details>
       )}
       {examRepairContext && (examRepairContext.weakObjectives?.length || examRepairContext.missedQuestions?.length) > 0 && (
-        <section aria-label="Exam repair context" className="mt-4 rounded-lg border border-bad/30 bg-bad/5 p-3">
+        <section id="lecture-repair" aria-label="Exam repair context" className="mt-4 rounded-lg border border-bad/30 bg-bad/5 p-3">
           <h3 className="font-semibold text-text-1">Continue from your exam misses</h3>
           {examRepairContext.weakObjectives?.length > 0 && <>
             <p className="mt-1 text-sm text-text-2">Weak objectives are moved to the front when you build a lecture quiz:</p>
@@ -2017,7 +2035,7 @@ export function LectureStudyFlow({
           ))}</ul>
         </section>
       )}
-      <details open={tutorSession?.status === "active"} className="mt-4 rounded-xl border border-border bg-bg-elevated">
+      <details id="lecture-learn" open={tutorSession?.status === "active"} className="mt-4 rounded-xl border border-border bg-bg-elevated">
         <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-text-1">Guided tutor <span className="ml-2 font-normal text-text-3">{tutorSession?.status === "active" ? "In progress" : "Open to learn this lecture"}</span></summary>
       <div className="desk-tutor-launcher rounded-b-xl border-t border-accent/30 bg-accent/5 px-3 py-3 sm:flex sm:items-center sm:justify-between sm:gap-4">
         <div className="min-w-0">
@@ -2246,15 +2264,31 @@ export function LectureStudyFlow({
       )}
       </details>
 
+      <nav aria-label="Lecture learning path" className="mt-4 flex flex-wrap gap-2 rounded-xl border border-border bg-bg-elevated p-2 text-sm">
+        {[
+          { label: "1 · Sources & objectives", target: lecture?.sourceFiles?.length ? "lecture-sources" : "lecture-reference" },
+          { label: "2 · Learn & connect", target: "lecture-learning-plan" },
+          { label: "3 · Practice", target: "lecture-quiz" },
+          { label: "4 · Repair gaps", target: examRepairContext ? "lecture-repair" : "lecture-learning-plan" },
+        ].map(({ label, target }) => <a key={target + label} href={`#${target}`} onClick={(event) => {
+          event.preventDefault();
+          const node = document.getElementById(target);
+          if (!node) return;
+          if (node.tagName === "DETAILS") node.open = true;
+          node.scrollIntoView({ behavior: "smooth", block: "start" });
+        }} className="rounded border border-border px-3 py-2 text-text-2 hover:border-accent">{label}</a>)}
+        <span className="self-center px-1 text-xs text-text-3">Recognition → mechanism → application → fresh retest</span>
+      </nav>
+
       </header>
 
       {pendingQuiz && <div role="status" className="my-3 rounded-lg border border-border bg-panel p-3 text-sm">
         <strong>{pendingQuiz.questions.length}/{pendingQuiz.count} questions ready</strong>
-        <p className="mt-1 text-text-2">Your ready questions are saved. Retry to fill the remaining {pendingQuiz.count - pendingQuiz.questions.length} slots, or choose a shorter quiz.</p>
+        <p className="mt-1 text-text-2">Your ready questions are saved. Finish or exit the current quiz before retrying the remaining {pendingQuiz.count - pendingQuiz.questions.length} slots, or choose a shorter quiz.</p>
         <details className="mt-2 text-xs text-text-3"><summary className="cursor-pointer">Why preparation stopped</summary><p className="mt-1">{pendingQuiz.reason}</p></details>
         <div className="mt-3 flex flex-wrap gap-2">
-          <Button onClick={() => runQuiz(pendingQuiz.count, pendingQuiz.difficulty)} disabled={!!busy}>Retry missing questions</Button>
-          <Button onClick={() => { setAdHocQuiz(true); startQuizSession(pendingQuiz.questions); setPendingQuiz(null); }} disabled={!!busy}>Start with {pendingQuiz.questions.length}</Button>
+          <Button onClick={() => runQuiz(pendingQuiz.count, pendingQuiz.difficulty, pendingQuiz.questions)} disabled={!!busy || !!questions}>Retry missing questions</Button>
+          <Button onClick={() => { setAdHocQuiz(true); startQuizSession(pendingQuiz.questions); setPendingQuiz(null); }} disabled={!!busy || !!questions}>Start with {pendingQuiz.questions.length}</Button>
         </div>
       </div>}
       {objectiveNotice && <p role="status" className="my-2 text-sm text-good">{objectiveNotice}</p>}
@@ -2271,7 +2305,7 @@ export function LectureStudyFlow({
       )}
       {/* Status panel — shown once atoms are loaded */}
       {stage === "quiz" && atoms.length > 0 && (
-        <section aria-label="Lecture progress" className="mt-5 overflow-hidden rounded-t-2xl border border-b-0 border-accent/40 bg-bg-elevated divide-y divide-border/50">
+        <section id="lecture-quiz" aria-label="Lecture progress" className="mt-5 overflow-hidden rounded-t-2xl border border-b-0 border-accent/40 bg-bg-elevated divide-y divide-border/50">
           <div className="flex items-center justify-between px-4 py-3">
             <div><p className="font-condensed text-xs font-semibold uppercase tracking-[0.16em] text-accent">Practice</p><h3 className="text-lg font-semibold text-text-1">Test this lecture</h3></div>
             <span className="font-mono text-[12px] text-text-3">Objective-first quiz</span>
@@ -2559,12 +2593,12 @@ export function LectureStudyFlow({
 
       {figuresPrompt}
 
-      <details ref={referenceDetailsRef} className="mt-5 rounded-xl border border-border bg-bg-elevated p-3">
+      <details id="lecture-reference" ref={referenceDetailsRef} className="mt-5 rounded-xl border border-border bg-bg-elevated p-3">
         <summary className="cursor-pointer px-1 py-1 text-sm font-semibold text-text-2">Review &amp; reference <span className="ml-2 font-normal text-text-3">Models, guide &amp; lecture facts</span></summary>
         <div className="mt-3">
 
 
-      <details className="mt-5 rounded-xl border border-border bg-bg-elevated">
+      <details id="lecture-learning-plan" className="mt-5 rounded-xl border border-border bg-bg-elevated">
         <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
           <span><span className="block font-semibold text-text-1">Learning plan</span><span className="text-sm text-text-3">Mental-model setup, repairs, and objective links</span></span>
           <span className="font-mono text-[12px] text-text-3">{lectureObjectives.length} objectives · {atoms.length} facts</span>
