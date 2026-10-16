@@ -31,6 +31,7 @@ import {
 } from "../../../supabase.js";
 import { HY_TYPES } from "../../../engine/highYield.js";
 import { locallyValidClinicalQuestions } from "../../../engine/mcq.js";
+import { objectiveLectureNumberConflict } from "../../../engine/lectureIdentity.js";
 import { normalizeMissDiagnostic, reasoningGuidance } from "../../../engine/questionReasoning.js";
 import { buildClinicalCorrelateLibrary } from "../../../engine/clinicalCorrelates.js";
 import { tagAtomsWithObjectives } from "../../../engine/tagAtoms.js";
@@ -392,10 +393,14 @@ export function LectureStudyFlow({
   const [objectiveNotice, setObjectiveNotice] = useState("");
   const [renamedTitle, setRenamedTitle] = useState("");
   const objectiveResource = useObjectives(null, userId);
+  const linkedObjectives = useMemo(() => selectBlockObjectives(objectiveResource.data, blockId)
+    .filter((o) => o?.linkedLecId === lecture?.id), [objectiveResource.data, blockId, lecture?.id]);
+  const mismatchedLectureObjectives = useMemo(() => linkedObjectives
+    .filter((objective) => objectiveLectureNumberConflict(objective, lecture)), [linkedObjectives, lecture]);
   const lectureObjectives = useMemo(() => {
-    const all = selectBlockObjectives(objectiveResource.data, blockId);
-    return all.filter((o) => o?.linkedLecId === lecture?.id);
-  }, [objectiveResource.data, blockId, lecture?.id]);
+    const mismatched = new Set(mismatchedLectureObjectives);
+    return linkedObjectives.filter((objective) => !mismatched.has(objective));
+  }, [linkedObjectives, mismatchedLectureObjectives]);
   const title = lecture?.lectureTitle || lecture?.title || lecture?.fileName || "Lecture";
   const learnerEvidence = useStoreResource(learnerEvidenceStore, userId);
   const objectivePractice = useMemo(
@@ -1357,6 +1362,10 @@ export function LectureStudyFlow({
   }, [lecture?.id, userId]);
 
   const runQuiz = useCallback(async (count, difficulty, startingQuestions = [], continueSession = false) => {
+    if (!orderedObjectives.length && mismatchedLectureObjectives.length) {
+      setError("Quiz preparation stopped: the linked objectives have lecture numbers that do not match this lecture. Review the objective links before generating questions.");
+      return;
+    }
     const continuing = continueSession && !!quizMetaRef.current;
     const jobKey = preparationJobKey(userId, lecture?.id);
     if (getPreparationJob(jobKey)?.status === "running") return;
@@ -1601,7 +1610,7 @@ export function LectureStudyFlow({
     } catch (error) {
       if (preparationRunRef.current === runId) { setBusy(""); setQuizPreparation(null); setError(error?.message || "Quiz preparation failed. Please retry."); }
     }
-  }, [orderedObjectives, title, text, blockId, atoms, userId, lecture?.id, logActivity, startQuizSession, schoolExemplars, schoolExamplesLoading, clinicalCorrelateLibrary, objectiveById, learnerEvidence.data]);
+  }, [orderedObjectives, title, text, blockId, atoms, userId, lecture?.id, logActivity, startQuizSession, schoolExemplars, schoolExamplesLoading, clinicalCorrelateLibrary, objectiveById, learnerEvidence.data, mismatchedLectureObjectives.length]);
 
   // Prepare at most one small reserve batch per active quiz, never on page load.
   // Background work only saves unseen questions; it does not create a session or grade answers.
@@ -2298,6 +2307,9 @@ export function LectureStudyFlow({
         </div>
       </div>}
       {objectiveNotice && <p role="status" className="my-2 text-sm text-good">{objectiveNotice}</p>}
+      {mismatchedLectureObjectives.length > 0 && <p role="status" className="my-2 rounded border border-warn/40 p-3 text-sm text-text-2">
+        {mismatchedLectureObjectives.length} linked {mismatchedLectureObjectives.length === 1 ? "objective has" : "objectives have"} a different stored lecture number, so {mismatchedLectureObjectives.length === 1 ? "it is" : "they are"} excluded from this lecture’s study and question generation. Review the objective links; no records were changed.
+      </p>}
       {stage !== "loading" && !lectureObjectives.length && text.trim().length >= 200 && (
         <div className="my-3 flex flex-wrap items-center gap-3 rounded border border-warn/40 p-3">
           <span className="text-sm text-text-2">{objectiveResource.loading ? "Syncing lecture objectives…" : "No objectives linked yet. Recover them from the saved lecture without replacing your atoms."}</span>

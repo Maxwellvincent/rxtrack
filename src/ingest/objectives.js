@@ -1,4 +1,5 @@
 import { cranialNerveScope } from "../engine/cranialLectureScope.js";
+import { lectureNumberOf } from "../engine/lectureIdentity.js";
 /**
  * SP1 T6.1 — extracting learning objectives from a lecture, lifted out of App.jsx.
  *
@@ -1038,13 +1039,15 @@ export function parseObjectiveDocSections(text) {
   // pdftotext preserve the original Excel columns as runs of whitespace.
   // Accept both: the official curriculum PDF should not require AI cleanup
   // simply because its table is an Excel export.
-  const headerRe = /^\|?[^\S\n]*((?:Lecture|DLA|TBL|Small group|Lab)\b[^|\n]*?)(?:[^\S\n]*\|[^\S\n]*|\s{2,})([^|\n]+?)[^\S\n]*\|?[^\S\n]*$/gim;
+  const headerRe = /^\|?[^\S\n]*((?:(?:Lecture|LEC|NB|DLA|TBL|Small group|Lab)\b[^|\n]*?|\d{1,3}))(?:[^\S\n]*\|[^\S\n]*|\s{2,})([^|\n]+?)[^|\n]*\|?[^\S\n]*$/gim;
   for (const m of src.matchAll(headerRe)) {
     if (/^SOM\./i.test(m[1].trim())) continue;
     headers.push({
       pos: m.index,
       end: m.index + m[0].length,
-      activity: normalizeSectionActivity(m[1]),
+      activity: /^(?:DLA|TBL|Small group|Lab)\b/i.test(m[1].trim()) ? normalizeSectionActivity(m[1]) : "LEC",
+      activityLabel: m[1].trim(),
+      lectureNumber: lectureNumberOf(m[1], { allowBare: true }),
       // A header cell can carry stray codes when the row wraps; they are not the title.
       title: m[2].replace(/SOM(?:\.\s?[A-Za-z0-9]+)+\.\s?\d{4}/g, "").trim(),
     });
@@ -1055,7 +1058,7 @@ export function parseObjectiveDocSections(text) {
   if (headers[0].pos > 0) sections.push({ activity: null, title: "", body: src.slice(0, headers[0].pos) });
   headers.forEach((h, i) => {
     const stop = i + 1 < headers.length ? headers[i + 1].pos : src.length;
-    sections.push({ activity: h.activity, title: h.title, body: src.slice(h.end, stop) });
+    sections.push({ activity: h.activity, activityLabel: h.activityLabel, lectureNumber: h.lectureNumber, title: h.title, body: src.slice(h.end, stop) });
   });
   return sections;
 }
@@ -1074,6 +1077,27 @@ export function matchLectureToSection(section, blockLectures) {
   const activity = section?.activity || null;
   const pool = activity ? lectures.filter((l) => (l.lectureType || "LEC") === activity) : lectures;
   if (!pool.length) return null;
+
+  // Prefer the explicit curriculum number. This handles `21`, `NB 21`,
+  // `Lec 21`, and `Lecture 21` independently of title wording.
+  const sectionNumber = section?.lectureNumber ?? lectureNumberOf(section?.activityLabel, { allowBare: true })
+    ?? lectureNumberOf(section?.title);
+  if (sectionNumber != null) {
+    const numbered = pool.filter((lec) => lectureNumberOf(lec) === sectionNumber);
+    if (numbered.length === 1) return numbered[0];
+    if (numbered.length > 1) {
+      // Resolve duplicate numbers by title only within the matching-number set.
+      return matchSectionByTitle(section, numbered);
+    }
+    // If this pool has explicit lecture numbers, a different number is a hard
+    // mismatch; do not let a coincidentally similar title mislink objectives.
+    if (pool.some((lec) => lectureNumberOf(lec) != null)) return null;
+  }
+
+  return matchSectionByTitle(section, pool);
+}
+
+function matchSectionByTitle(section, pool) {
 
   const title = String(section?.title || "");
   const nerveScope = cranialNerveScope(title);
