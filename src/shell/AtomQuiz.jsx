@@ -40,7 +40,7 @@ const GAP = {
 // Calibrated quiz over atom-generated questions: pick → rate confidence → reveal
 // gap. Confidence logs to the block's calibration record; session ends with the
 // accuracy-by-confidence curve + landmine list.
-export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "", lectureTitle = "", lectureNumber = null, lectureId = null, userId, onDone, onExit, onReviewAtom, onAnswer, onCheckpoint, initialState = null, expectedCount = null, preparing = false }) {
+export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "", lectureTitle = "", lectureNumber = null, lectureId = null, userId, onDone, onExit, onReviewAtom, onAnswer, onCheckpoint, initialState = null, expectedCount = null, preparing = false, onPrepareMore = null }) {
   const [i, setI] = useState(() => Math.max(0, Number(initialState?.i) || 0));
   const [picked, setPicked] = useState(() => initialState?.picked ?? null);
   const [confidence, setConfidence] = useState(() => initialState?.confidence ?? null);
@@ -100,7 +100,8 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
       </div>
     );
   }
-  const displayedTotal = Math.max(questions.length, Number(expectedCount) || 0);
+  const displayedTotal = preparing ? Math.max(questions.length, Number(expectedCount) || 0) : questions.length;
+  const missingCount = Math.max(0, (Number(expectedCount) || 0) - questions.length);
   const revealed = confidence != null;
   const correct = revealed && picked === q.correct;
   const quadrant = revealed ? classify({ confidence, correct }) : null;
@@ -182,6 +183,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
   };
 
   const next = () => {
+    if (preparing && currentIndex + 1 >= questions.length) return;
     if (currentIndex + 1 >= questions.length) {
       setDone(true);
       const correctCount = records.filter((r) => r.correct).length;
@@ -392,8 +394,14 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
             )}
               </div>
             </details>
+            {!preparing && missingCount > 0 && currentIndex + 1 >= questions.length && (
+              <div role="status" className="rounded-lg border border-border bg-bg-elevated p-3 text-sm text-text-2">
+                <p>You’ve reached the end of the {questions.length} available questions. {missingCount} of your requested questions still need preparation.</p>
+                {onPrepareMore && <Button className="mt-2" onClick={onPrepareMore}>Prepare remaining {missingCount} questions</Button>}
+              </div>
+            )}
             <Button className="quiz-next-button" onClick={next} disabled={preparing && currentIndex + 1 >= questions.length}>
-              {preparing && currentIndex + 1 >= questions.length ? "Preparing next question…" : currentIndex + 1 >= questions.length ? "See results" : "Next →"}
+              {preparing && currentIndex + 1 >= questions.length ? "Preparing next question…" : currentIndex + 1 >= questions.length ? missingCount > 0 ? `Finish ${questions.length} available questions` : "See results" : "Next →"}
             </Button>
           </div>
         )}

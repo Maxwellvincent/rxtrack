@@ -1288,7 +1288,7 @@ export function LectureStudyFlow({
     if (r.error) { setError(r.error); return; }
     if (!r.questions?.length) {
       setError(
-        result.reason || result.error || "No reviewed questions were prepared. Please retry."
+        r.reason || r.error || "No reviewed questions were prepared. Please retry."
       );
       return;
     }
@@ -1356,7 +1356,8 @@ export function LectureStudyFlow({
     return () => { detach(); preparationRunRef.current += 1; };
   }, [lecture?.id, userId]);
 
-  const runQuiz = useCallback(async (count, difficulty, startingQuestions = []) => {
+  const runQuiz = useCallback(async (count, difficulty, startingQuestions = [], continueSession = false) => {
+    const continuing = continueSession && !!quizMetaRef.current;
     const jobKey = preparationJobKey(userId, lecture?.id);
     if (getPreparationJob(jobKey)?.status === "running") return;
     preparationControllerRef.current?.abort();
@@ -1372,7 +1373,8 @@ export function LectureStudyFlow({
     }
     try {
     setPendingQuiz(null);
-    setBusy("Preparing quiz…"); setError(""); setObjectiveNotice(""); setQuestions(null);
+    setBusy("Preparing quiz…"); setError(""); setObjectiveNotice("");
+    if (!continuing) setQuestions(null);
     setQuizPreparation({ requested: count, ready: 0, attempt: 0, phase: "generating" });
 
     const priorQuestions = lecture?.id
@@ -1390,7 +1392,7 @@ export function LectureStudyFlow({
     const adaptiveRank = new Map(adaptivePlan.map((objective, index) => [objective.id || objective.code, index]));
     const reserveCounts = new Map();
     const seedQuestions = (Array.isArray(startingQuestions) ? startingQuestions : [])
-      .filter((question) => question?.stem && hasCurrentReasoningAudit(question))
+      .filter((question) => question?.stem && (continuing || hasCurrentReasoningAudit(question)))
       .slice(0, count);
     const seedStems = new Set(seedQuestions.map((question) => String(question.stem).trim().toLowerCase()));
     const reserve = [...seedQuestions, ...priorQuestions
@@ -1425,14 +1427,18 @@ export function LectureStudyFlow({
     if (!missing) {
       setBusy("");
       setAdHocQuiz(true);
-      startQuizSession(reserve);
+      if (continuing) {
+        setQuestions(reserve);
+        quizMetaRef.current = { ...quizMetaRef.current, questions: reserve };
+        lectureQuizSessionsStore.save(userId, quizMetaRef.current);
+      } else startQuizSession(reserve);
       setQuizPreparation(null);
       return;
     }
 
     // Open after a reviewed starter batch; append without restarting the session.
     // Requested count remains visible even if later preparation stops.
-    let startedEarly = false;
+    let startedEarly = continuing;
     let progressiveQuestions = [...reserve];
     const appendPrepared = (batch = []) => {
       const known = new Set(progressiveQuestions.map((question) => String(question?.stem || "").trim().toLowerCase()));
@@ -1521,7 +1527,7 @@ export function LectureStudyFlow({
       if (progressiveQuestions.length < count) {
         const reason = preparationErrorMessage(result.reason || result.error, "Remaining questions did not pass review.");
         setPendingQuiz({ questions: [...progressiveQuestions], count, difficulty, reason });
-        setObjectiveNotice(`${progressiveQuestions.length}/${count} ready. The remaining questions did not pass review; retry the missing slots when ready.`);
+        setObjectiveNotice("");
       }
       return;
     }
@@ -1720,9 +1726,10 @@ export function LectureStudyFlow({
   if (questions) {
     // An ad-hoc quiz has no "next round" to resume into — it's a one-shot session.
     const hasNext = !adHocQuiz && round + 1 < rounds.length;
+    const stoppedShort = adHocQuiz && !quizPreparation && activeRequestedCount > questions.length;
     return (
       <div className="p-5">
-        {objectiveNotice && <div role="status" className="mb-3 rounded-lg border border-accent bg-bg-elevated p-3 text-sm text-text-2">{objectiveNotice}</div>}
+        {objectiveNotice && !stoppedShort && <div role="status" className="mb-3 rounded-lg border border-accent bg-bg-elevated p-3 text-sm text-text-2">{objectiveNotice}</div>}
         <div className="mb-3 flex items-center justify-between gap-3">
           <button
             onClick={() => {
@@ -1742,9 +1749,7 @@ export function LectureStudyFlow({
               {adHocQuiz
                 ? quizPreparation
                   ? `${questions.length}/${quizPreparation.requested} questions ready · ${questions[0]?.difficulty || "medium"}`
-                  : activeRequestedCount > questions.length
-                    ? `${questions.length}/${activeRequestedCount} questions ready · ${questions[0]?.difficulty || "medium"}`
-                    : `${questions.length}-question quiz · ${questions[0]?.difficulty || "medium"}`
+                  : `${questions.length}-question quiz · ${questions[0]?.difficulty || "medium"}`
                 : `round ${round + 1} of ${rounds.length} · ${roundLabel(round, rounds, atoms.length)} · ${questions[0]?.difficulty || roundDifficulty(resolveDefaultDifficulty(qStats.accuracy), round)}`}
             </div>
           </div>
@@ -1776,6 +1781,7 @@ export function LectureStudyFlow({
           lectureNumber={lecture?.lectureNumber ?? lecture?.number ?? null}
           userId={userId}
           expectedCount={activeRequestedCount || questions.length}
+          onPrepareMore={stoppedShort && !busy ? () => runQuiz(activeRequestedCount, questions[0]?.difficulty || "medium", questions, true) : null}
           preparing={!!quizPreparation && quizPreparation.ready < quizPreparation.requested}
           onCheckpoint={checkpointLectureQuiz}
           onExit={() => { preparationRunRef.current += 1; setBusy(""); setQuizPreparation(null); setActiveRequestedCount(null); setQuestions(null); setQuizResumeState(null); }}
