@@ -664,7 +664,7 @@ function MoreTab({ onContinue, onCalibrate, onWeak, onDeepLearn, onStruggle, onD
     { label: "⚠ Weak concepts", desc: "what you keep missing, landmines first", action: onWeak },
     { label: "🔴 Struggle Tracker", desc: "deep/persistent + buried cards synced in from Anki", action: onStruggle },
   ];
-  if (onDiagnostics) items.push({ label: "Admin diagnostics", desc: "Question preparation reports", action: onDiagnostics });
+  if (onDiagnostics) items.push({ label: "Admin diagnostics", desc: "Question reports and objective/source tools", action: onDiagnostics });
   return (
     <div className="mx-auto grid w-full max-w-5xl grid-cols-1 gap-3 p-4 sm:grid-cols-2 sm:p-5">
       {items.map((item) => (

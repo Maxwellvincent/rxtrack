@@ -32,14 +32,12 @@ import {
 import { HY_TYPES } from "../../../engine/highYield.js";
 import { locallyValidClinicalQuestions } from "../../../engine/mcq.js";
 import { objectiveLectureNumberConflict } from "../../../engine/lectureIdentity.js";
-import { auditObjectiveSlideCoverage } from "../../../engine/objectiveSlideTargets.js";
 import { normalizeMissDiagnostic, reasoningGuidance } from "../../../engine/questionReasoning.js";
 import { buildClinicalCorrelateLibrary } from "../../../engine/clinicalCorrelates.js";
 import { tagAtomsWithObjectives } from "../../../engine/tagAtoms.js";
 import { createObjectiveCommands, selectBlockObjectives, setStatus, storageKeyFor, toEntry } from "../../logic/objectives.js";
 import { extractCodeDelimited, extractObjectivesFromLecture } from "../../../ingest/objectives.js";
 import { useObjectives } from "../../hooks/useObjectives.js";
-import { useLectures } from "../../hooks/useLectures.js";
 import { resolveObjectiveTarget } from "../../logic/graduationGate.js";
 import * as objectivesStore from "../../../stores/blockObjectives.js";
 import * as performanceStore from "../../../stores/performance.js";
@@ -48,7 +46,6 @@ import { normAtomKey, partitionAtomsForRound } from "../../../engine/atomNorm.js
 import { AtomQuiz } from "../../AtomQuiz.jsx";
 import { markTodayLectureComplete } from "../today/todayProgress.js";
 import { FigureReview } from "./FigureReview.jsx";
-import { ObjectiveLinkReview } from "./ObjectiveLinkReview.jsx";
 import { bridgeComplete } from "../../../llmBridge.js";
 import {
   applyStoredLabels,
@@ -395,19 +392,13 @@ export function LectureStudyFlow({
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [objectiveNotice, setObjectiveNotice] = useState("");
-  const [objectiveLinkSavingId, setObjectiveLinkSavingId] = useState(null);
   const [renamedTitle, setRenamedTitle] = useState("");
   const objectiveResource = useObjectives(null, userId);
-  const blockLectureResource = useLectures(blockId, userId);
   const objectiveCommands = useMemo(() => createObjectiveCommands({
     read: () => objectivesStore.read(userId) || {},
     write: (next) => objectivesStore.write(userId, next),
     notify: () => window.dispatchEvent(new CustomEvent("rxt-objectives-updated")),
   }), [userId]);
-  const blockObjectivesForReview = useMemo(
-    () => selectBlockObjectives(objectiveResource.data, blockId),
-    [objectiveResource.data, blockId]
-  );
   const linkedObjectives = useMemo(() => selectBlockObjectives(objectiveResource.data, blockId)
     .filter((o) => o?.linkedLecId === lecture?.id), [objectiveResource.data, blockId, lecture?.id]);
   const mismatchedLectureObjectives = useMemo(() => linkedObjectives
@@ -416,42 +407,6 @@ export function LectureStudyFlow({
     const mismatched = new Set(mismatchedLectureObjectives);
     return linkedObjectives.filter((objective) => !mismatched.has(objective));
   }, [linkedObjectives, mismatchedLectureObjectives]);
-  const objectiveSlideAudit = useMemo(
-    () => auditObjectiveSlideCoverage(lectureObjectives, lectureChunks, text),
-    [lectureObjectives, lectureChunks, text]
-  );
-  const codedObjectiveSlideAudit = useMemo(
-    () => objectiveSlideAudit.filter((entry) => entry.code), [objectiveSlideAudit]
-  );
-  const verifiedObjectiveSlides = useMemo(
-    () => codedObjectiveSlideAudit.filter((entry) => entry.status === "found" || entry.status === "found-unlocated").length,
-    [codedObjectiveSlideAudit]
-  );
-  const hasLectureSource = lectureChunks.length > 0 || Boolean(text.trim());
-  const reviewSlideAudit = useMemo(
-    () => auditObjectiveSlideCoverage(blockObjectivesForReview, lectureChunks, text),
-    [blockObjectivesForReview, lectureChunks, text]
-  );
-  const confirmObjectiveLink = useCallback((objective, targetLecture) => {
-    if (objectiveResource.loading || !objective?.id || !targetLecture?.id) return;
-    setObjectiveLinkSavingId(String(objective.id));
-    setError("");
-    try {
-      objectiveCommands.updateObjective(blockId, objective.id, {
-        linkedLecId: targetLecture.id,
-        sourceFile: targetLecture.id,
-        lectureType: targetLecture.lectureType || "LEC",
-        lectureNumber: targetLecture.lectureNumber ?? null,
-        manuallyAligned: true,
-        alignedAt: new Date().toISOString(),
-      });
-      setObjectiveNotice(`Objective link updated to ${targetLecture.lectureType || "LEC"} ${targetLecture.lectureNumber ?? "—"}; cloud sync is queued. Notes, status, and practice history were preserved.`);
-    } catch (linkError) {
-      setError(`Objective link could not be saved: ${linkError?.message || String(linkError)}`);
-    } finally {
-      setObjectiveLinkSavingId(null);
-    }
-  }, [objectiveCommands, objectiveResource.loading, blockId]);
   const title = lecture?.lectureTitle || lecture?.title || lecture?.fileName || "Lecture";
   const learnerEvidence = useStoreResource(learnerEvidenceStore, userId);
   const objectivePractice = useMemo(
@@ -1417,7 +1372,7 @@ export function LectureStudyFlow({
 
   const runQuiz = useCallback(async (count, difficulty, startingQuestions = [], continueSession = false) => {
     if (!orderedObjectives.length && mismatchedLectureObjectives.length) {
-      setError("Quiz preparation stopped: the linked objectives have lecture numbers that do not match this lecture. Review the objective links before generating questions.");
+      setError("This lecture needs its objective links reviewed before questions can be prepared. Open More → Admin diagnostics → Objective source and lecture links.");
       return;
     }
     const continuing = continueSession && !!quizMetaRef.current;
@@ -2361,43 +2316,17 @@ export function LectureStudyFlow({
         </div>
       </div>}
       {objectiveNotice && <p role="status" className="my-2 text-sm text-good">{objectiveNotice}</p>}
-      <ObjectiveLinkReview
-        objectives={blockObjectivesForReview}
-        lectures={blockLectureResource.data || []}
-        activeLecture={lecture}
-        slideAudit={reviewSlideAudit}
-        onConfirmLink={confirmObjectiveLink}
-        savingId={objectiveLinkSavingId}
-        disabled={objectiveResource.loading}
-      />
-      {mismatchedLectureObjectives.length > 0 && <p role="status" className="my-2 rounded border border-warn/40 p-3 text-sm text-text-2">
-        {mismatchedLectureObjectives.length} linked {mismatchedLectureObjectives.length === 1 ? "objective has" : "objectives have"} a different stored lecture number, so {mismatchedLectureObjectives.length === 1 ? "it is" : "they are"} excluded from this lecture’s study and question generation. Review the objective links; no records were changed.
-      </p>}
-      {codedObjectiveSlideAudit.length > 0 && <details className="my-2 rounded border border-border bg-bg-elevated p-3 text-sm">
-        <summary className="cursor-pointer font-medium">Slide-code check · {hasLectureSource
-          ? `${verifiedObjectiveSlides}/${codedObjectiveSlideAudit.length} coded objectives found in this lecture’s uploaded source`
-          : "uploaded lecture source unavailable for verification"}</summary>
-        {hasLectureSource && verifiedObjectiveSlides < codedObjectiveSlideAudit.length && <p className="mt-2 text-text-2">
-          Missing code matches are warnings only: OCR may drop codes, and some curriculum objectives are not repeated on slides. They remain available for study and question generation.
-        </p>}
-        <ul className="mt-2 max-h-56 space-y-1 overflow-auto text-xs text-text-2">
-          {codedObjectiveSlideAudit.map(({ objective, code, status, slides }) => <li key={objective.id || code}>
-            <span className="font-mono">{code}</span> — {status === "found"
-              ? `found on source slide/page ${slides.join(", ")}`
-              : status === "found-unlocated" ? "found in source text; slide/page location unavailable"
-                : status === "not-found" ? "not found in uploaded slide text (not excluded)" : "source slide text unavailable"}
-          </li>)}
-        </ul>
-      </details>}
       {stage !== "loading" && !lectureObjectives.length && text.trim().length >= 200 && (
         <div className="my-3 flex flex-wrap items-center gap-3 rounded border border-warn/40 p-3">
-          <span className="text-sm text-text-2">{objectiveResource.loading ? "Syncing lecture objectives…" : "No objectives linked yet. Recover them from the saved lecture without replacing your atoms."}</span>
-          <Button variant="outline" disabled={!!busy || objectiveResource.loading} onClick={async () => {
+          <span className="text-sm text-text-2">{objectiveResource.loading ? "Syncing lecture objectives…" : mismatchedLectureObjectives.length
+            ? "Some objective links need review before this lecture can be quizzed. Use More → Admin diagnostics → Objective source and lecture links."
+            : "No objectives linked yet. Recover them from the saved lecture without replacing your atoms."}</span>
+          {!mismatchedLectureObjectives.length && <Button variant="outline" disabled={!!busy || objectiveResource.loading} onClick={async () => {
             setBusy("Recovering lecture objectives…"); setError("");
             try { await recoverObjectives(text); }
             catch (e) { setError(e?.message || String(e)); }
             finally { setBusy(""); }
-          }}>{busy || "Recover lecture objectives"}</Button>
+          }}>{busy || "Recover lecture objectives"}</Button>}
         </div>
       )}
       {/* Status panel — shown once atoms are loaded */}

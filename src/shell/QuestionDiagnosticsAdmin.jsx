@@ -1,6 +1,7 @@
 import { canViewQuestionDiagnostics } from "../diagnosticsAccess.js";
 import { readQuestionDiagnostics } from "../questionDiagnostics.js";
 import { QuestionPreparationDetails } from "./features/lectures/QuestionPreparationDetails.jsx";
+import { ObjectiveIntegrityAdmin } from "./ObjectiveIntegrityAdmin.jsx";
 
 export function QuestionDiagnosticsAdmin({ userId, lectures = [], onBack }) {
   if (!canViewQuestionDiagnostics(userId)) return null;
@@ -14,5 +15,9 @@ export function QuestionDiagnosticsAdmin({ userId, lectures = [], onBack }) {
       <h3 className="mb-2 font-semibold">{lecture.title || lecture.name || "Lecture"}</h3>
       <QuestionPreparationDetails report={report} />
     </div>)}
+    <details className="mt-8 rounded-lg border border-border bg-panel p-4">
+      <summary className="cursor-pointer font-semibold">Objective/source integrity tools <span className="ml-2 text-xs font-normal text-text-3">technical</span></summary>
+      <ObjectiveIntegrityAdmin userId={userId} />
+    </details>
   </section>;
 }
