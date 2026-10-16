@@ -39,6 +39,7 @@ import { tagAtomsWithObjectives } from "../../../engine/tagAtoms.js";
 import { createObjectiveCommands, selectBlockObjectives, setStatus, storageKeyFor, toEntry } from "../../logic/objectives.js";
 import { extractCodeDelimited, extractObjectivesFromLecture } from "../../../ingest/objectives.js";
 import { useObjectives } from "../../hooks/useObjectives.js";
+import { useLectures } from "../../hooks/useLectures.js";
 import { resolveObjectiveTarget } from "../../logic/graduationGate.js";
 import * as objectivesStore from "../../../stores/blockObjectives.js";
 import * as performanceStore from "../../../stores/performance.js";
@@ -47,6 +48,7 @@ import { normAtomKey, partitionAtomsForRound } from "../../../engine/atomNorm.js
 import { AtomQuiz } from "../../AtomQuiz.jsx";
 import { markTodayLectureComplete } from "../today/todayProgress.js";
 import { FigureReview } from "./FigureReview.jsx";
+import { ObjectiveLinkReview } from "./ObjectiveLinkReview.jsx";
 import { bridgeComplete } from "../../../llmBridge.js";
 import {
   applyStoredLabels,
@@ -393,8 +395,19 @@ export function LectureStudyFlow({
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [objectiveNotice, setObjectiveNotice] = useState("");
+  const [objectiveLinkSavingId, setObjectiveLinkSavingId] = useState(null);
   const [renamedTitle, setRenamedTitle] = useState("");
   const objectiveResource = useObjectives(null, userId);
+  const blockLectureResource = useLectures(blockId, userId);
+  const objectiveCommands = useMemo(() => createObjectiveCommands({
+    read: () => objectivesStore.read(userId) || {},
+    write: (next) => objectivesStore.write(userId, next),
+    notify: () => window.dispatchEvent(new CustomEvent("rxt-objectives-updated")),
+  }), [userId]);
+  const blockObjectivesForReview = useMemo(
+    () => selectBlockObjectives(objectiveResource.data, blockId),
+    [objectiveResource.data, blockId]
+  );
   const linkedObjectives = useMemo(() => selectBlockObjectives(objectiveResource.data, blockId)
     .filter((o) => o?.linkedLecId === lecture?.id), [objectiveResource.data, blockId, lecture?.id]);
   const mismatchedLectureObjectives = useMemo(() => linkedObjectives
@@ -415,6 +428,30 @@ export function LectureStudyFlow({
     [codedObjectiveSlideAudit]
   );
   const hasLectureSource = lectureChunks.length > 0 || Boolean(text.trim());
+  const reviewSlideAudit = useMemo(
+    () => auditObjectiveSlideCoverage(blockObjectivesForReview, lectureChunks, text),
+    [blockObjectivesForReview, lectureChunks, text]
+  );
+  const confirmObjectiveLink = useCallback((objective, targetLecture) => {
+    if (objectiveResource.loading || !objective?.id || !targetLecture?.id) return;
+    setObjectiveLinkSavingId(String(objective.id));
+    setError("");
+    try {
+      objectiveCommands.updateObjective(blockId, objective.id, {
+        linkedLecId: targetLecture.id,
+        sourceFile: targetLecture.id,
+        lectureType: targetLecture.lectureType || "LEC",
+        lectureNumber: targetLecture.lectureNumber ?? null,
+        manuallyAligned: true,
+        alignedAt: new Date().toISOString(),
+      });
+      setObjectiveNotice(`Objective link updated to ${targetLecture.lectureType || "LEC"} ${targetLecture.lectureNumber ?? "—"}; cloud sync is queued. Notes, status, and practice history were preserved.`);
+    } catch (linkError) {
+      setError(`Objective link could not be saved: ${linkError?.message || String(linkError)}`);
+    } finally {
+      setObjectiveLinkSavingId(null);
+    }
+  }, [objectiveCommands, objectiveResource.loading, blockId]);
   const title = lecture?.lectureTitle || lecture?.title || lecture?.fileName || "Lecture";
   const learnerEvidence = useStoreResource(learnerEvidenceStore, userId);
   const objectivePractice = useMemo(
@@ -2324,6 +2361,15 @@ export function LectureStudyFlow({
         </div>
       </div>}
       {objectiveNotice && <p role="status" className="my-2 text-sm text-good">{objectiveNotice}</p>}
+      <ObjectiveLinkReview
+        objectives={blockObjectivesForReview}
+        lectures={blockLectureResource.data || []}
+        activeLecture={lecture}
+        slideAudit={reviewSlideAudit}
+        onConfirmLink={confirmObjectiveLink}
+        savingId={objectiveLinkSavingId}
+        disabled={objectiveResource.loading}
+      />
       {mismatchedLectureObjectives.length > 0 && <p role="status" className="my-2 rounded border border-warn/40 p-3 text-sm text-text-2">
         {mismatchedLectureObjectives.length} linked {mismatchedLectureObjectives.length === 1 ? "objective has" : "objectives have"} a different stored lecture number, so {mismatchedLectureObjectives.length === 1 ? "it is" : "they are"} excluded from this lecture’s study and question generation. Review the objective links; no records were changed.
       </p>}
