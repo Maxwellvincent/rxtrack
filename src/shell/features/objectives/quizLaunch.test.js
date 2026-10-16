@@ -276,20 +276,22 @@ describe("startObjectiveQuiz", () => {
 });
 
 describe("prepareObjectiveQuiz", () => {
-  it("reviews spare candidates beyond the three-question preparation batch", async () => {
+  it("retries an empty spare-candidate response at the exact three-slot target", async () => {
     const questions = [
       { stem: "A patient develops reduced gastric acid secretion after receiving a histamine receptor antagonist. Which intracellular change accounts for this response?", choices: { A: "Reduced cyclic AMP", B: "Increased calcium" }, correct: "A" },
       { stem: "A fasting patient receives stimulation of the vagus nerve. Pancreatic fluid secretion rises markedly. Which autonomic pathway accounts for this observation?", choices: { A: "Parasympathetic stimulation", B: "Sympathetic stimulation" }, correct: "A" },
       { stem: "A patient with renal artery narrowing develops hypertension and elevated aldosterone concentrations. Which circulating signal links reduced perfusion to adrenal secretion?", choices: { A: "Angiotensin II", B: "Insulin" }, correct: "A" },
     ];
-    const callAIJSON = vi.fn().mockResolvedValueOnce({ questions: [] }).mockResolvedValue({ questions });
+    const callAIJSON = vi.fn().mockResolvedValueOnce({ questions: [] }).mockResolvedValueOnce({ questions: [] }).mockResolvedValue({ questions });
     const onAccepted = vi.fn();
     const result = await prepareObjectiveQuiz(
       { objectives: [], atoms: [{ term: "Source", content: "Histamine, vagal signaling and angiotensin regulate physiological responses." }], questionCount: 3 },
       { callAIJSON, prepareBatchSize: 3, reviewBatchSize: 3, prepareSpareCandidates: 2, prepareConcurrency: 1, maxPrepareAttempts: 2, skipQuestionAudit: true, onAccepted }
     );
-    expect(callAIJSON).toHaveBeenCalledTimes(2);
+    expect(callAIJSON).toHaveBeenCalledTimes(3);
     expect(callAIJSON.mock.calls[1][1]).toContain("5 distinct candidate routes for 3 missing slots");
+    expect(callAIJSON.mock.calls[2][1]).not.toContain("5 distinct candidate routes");
+    expect(callAIJSON.mock.calls[2][1]).toContain("Generate exactly 3 NEW");
     expect(result.questions).toHaveLength(3);
     expect(result.incomplete).toBe(false);
     expect(onAccepted.mock.calls.flatMap(call => call[0])).toHaveLength(3);

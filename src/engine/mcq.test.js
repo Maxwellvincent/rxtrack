@@ -100,6 +100,12 @@ describe("buildMcqPrompt", () => {
     expect(prompt).toContain("Changing the tracer name");
   });
 
+  it("asks the writer for a supported partial batch instead of an unexplained empty list", () => {
+    const prompt = buildMcqPrompt({ promptProfile: "compact", count: 3, subject: "Cranial nerves" });
+    expect(prompt).toContain("return every complete supported question you can draft rather than returning an empty list");
+    expect(prompt).toContain('"shortfall":["briefly state the missing source relationship"]');
+  });
+
   it("compacts repeated school examples while retaining objective and factual contracts", () => {
     const cfg = { subject: "Synapses", count: 5, lectureText: "Synapses release neurotransmitter after calcium entry. ".repeat(100),
       objectives: [{ id: "synapse", code: "SOM.NB.8", objective: "Explain release of neurotransmitter", _targetOrder: "third-order", _targetQuestionCount: 2 }],

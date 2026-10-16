@@ -692,19 +692,39 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
         const ids = atom.objectiveIds || [];
         return !ids.length || ids.some(id => targetIds.has(String(id)));
       }) : args.atoms || [];
-      const promise = startObjectiveQuiz({
+      const candidateInstruction = candidateCount > batchCount
+        ? `Generate ${candidateCount} distinct candidate routes for ${batchCount} missing slots. Use different source-supported perturbations or discriminating observations, not paraphrases of the same problem. Only independently approved questions can fill the slots.`
+        : "";
+      const draftArgs = {
         ...args,
         atoms: rotate(sourceAtoms),
         objectives: enforceAllocation ? candidateAllocation : rotate(args.objectives || []),
         objectiveAllocation: enforceAllocation ? candidateAllocation : null,
         questionCount: candidateCount,
         focusNotes: [args.focusNotes || "", focusedRefill ? "FOCUSED FINAL-SLOT REFILL: Write one independently verifiable item for the allocated objective. Use only supplied source relationships. Build one unambiguous key and same-category distractors that require the intended inference. Address the prior rejection feedback without adding unsupported facts or weakening the requested order." : "", currentScaffolds.length ? `VERIFIED OBJECTIVE RELATIONSHIPS: ${JSON.stringify(currentScaffolds.filter(plan => batchAllocation.some(objective => String(objective.id || objective.code) === plan.objectiveId)))}. Build a fresh causal intervention and endpoint from these relationships; never reuse an old scenario or assume that a previous approval validates this new question. All new questions require independent review.` : "", ...rejectionFeedback.filter(feedback => !enforceAllocation || !feedback.objectiveIds.length || batchAllocation.some(objective => feedback.objectiveIds.includes(objective.id || objective.code))).slice(-6).map(feedback => feedback.text),
-          candidateCount > batchCount ? `Generate ${candidateCount} distinct candidate routes for ${batchCount} missing slots. Use different source-supported perturbations or discriminating observations, not paraphrases of the same problem. Only independently approved questions can fill the slots.` : "",
+          candidateInstruction,
           ...avoidedQuestions.filter(q => q.questionPlan && q.objectiveIds?.some(id => batchAllocation.some(objective => id === (objective.id || objective.code)))).slice(-6).map(q => `Previously presented route (use a different source-supported intervention or endpoint, not a demographic paraphrase): ${JSON.stringify({ objectiveIds: q.objectiveIds, perturbation: q.questionPlan.perturbation, endpoint: q.questionPlan.endpoint })}`),
           ...accepted.slice(-10).filter(q => q.questionPlan).map(q => `Already accepted task (do not reuse its perturbation-to-endpoint route): ${JSON.stringify({ objectiveIds: q.objectiveIds, perturbation: q.questionPlan.perturbation, endpoint: q.questionPlan.endpoint })}`),
         ].filter(Boolean).join("\n"),
         avoidStems: [...(args.avoidStems || []), ...accepted.map(question => question.stem)],
-      }, focusedRefill ? { ...boundedDeps, skipRepair: false } : boundedDeps).then(result => ({ attempt, result }), error => ({ attempt, result: { questions: [], error: error?.message || String(error) } }));
+      };
+      const draftDeps = focusedRefill ? { ...boundedDeps, skipRepair: false } : boundedDeps;
+      const promise = startObjectiveQuiz(draftArgs, draftDeps).then(async result => {
+        // Some writers return an empty list rather than a smaller usable batch when
+        // asked for spare candidates. Retry once at the exact reserved-slot count;
+        // this changes no source, objective, review, or quality requirement.
+        if (candidateCount > batchCount && /empty question list/i.test(String(result?.error || ""))) {
+          const exactArgs = {
+            ...draftArgs,
+            objectives: enforceAllocation ? batchAllocation : draftArgs.objectives,
+            objectiveAllocation: enforceAllocation ? batchAllocation : null,
+            questionCount: batchCount,
+            focusNotes: draftArgs.focusNotes.replace(candidateInstruction, "").trim(),
+          };
+          return { attempt, result: await startObjectiveQuiz(exactArgs, draftDeps) };
+        }
+        return { attempt, result };
+      }, error => ({ attempt, result: { questions: [], error: error?.message || String(error) } }));
       pendingJobs.set(attempt, { promise, reserved: reserved.slice(reservationStart) });
     }
     if (!pendingJobs.size) break;
