@@ -31,6 +31,15 @@ const FILTERS_STORAGE_KEY = "rxt-lecture-list-prefs";
 
 function filterPrefsKey(blockId) { return `${FILTERS_STORAGE_KEY}:${blockId || "default"}`; }
 
+function nextStudyStep(row) {
+  if (row.total === 0) return "Link lecture objectives";
+  if (row.struggling > 0) return `Repair ${row.struggling} weak objective${row.struggling === 1 ? "" : "s"}`;
+  if (row.untested > 0) return `Practice ${row.untested} untested objective${row.untested === 1 ? "" : "s"}`;
+  if (row.mastered < row.total) return `Strengthen ${row.total - row.mastered} developing objective${row.total - row.mastered === 1 ? "" : "s"}`;
+  if (row.nextReview) return `Spaced review due ${row.nextReview}`;
+  return "Ready — move to the next lecture";
+}
+
 function readFilterPrefs(blockId) {
   const defaults = { filter: "active", activityType: "all", search: "", sort: "urgency", week: "all", showAllLectures: false };
   try {
@@ -165,6 +174,7 @@ function Row({ row, userId, stats, onStudy, onQuiz, onLog, onUpdateDate, onPreRe
             {row.total > practiced && <span>{row.total - practiced} not yet practiced</span>}
             <span title="Readiness requires at least 3 distinct questions, 80% accuracy, a correct latest answer, 2 sessions and 2 question types.">{row.mastered > 0 ? `${row.mastered} ready` : "Readiness still building"}</span>
           </div>}
+          <div className="mt-2 text-xs text-text-2"><strong className="text-accent-text">Next:</strong> {nextStudyStep(row)}</div>
           {showDetails && <div className="desk-lecture-details">
             <DateEdit row={row} onUpdateDate={onUpdateDate} />
             {row.lastActivityDate && <span>Last studied {row.lastActivityDate}</span>}
@@ -370,7 +380,15 @@ export function LectureList({
     return Object.fromEntries(ACTIVITY_TYPES.map((type) => [type, type === "all" ? all.length : all.filter((row) => row.type === type).length]));
   }, [scores, context.completion, blockId]);
   const displayRows = showAllLectures ? weekRows : priorityRows;
-  const visibleRows = displayRows.slice(0, visibleCount);
+  const visibleRows = useMemo(() => displayRows.slice(0, visibleCount), [displayRows, visibleCount]);
+  const libraryGroups = useMemo(() => {
+    if (!showAllLectures) return [];
+    const visibleIds = new Set(visibleRows.map((row) => row.lectureId));
+    return weeks.map((group) => {
+      const rowsInGroup = weekRows.filter((row) => rowMatchesWeek(row, group.key));
+      return { ...group, rows: rowsInGroup, visibleRows: rowsInGroup.filter((row) => visibleIds.has(row.lectureId)) };
+    }).filter((group) => group.visibleRows.length > 0);
+  }, [showAllLectures, weeks, weekRows, visibleRows]);
   const questionTotals = useMemo(() => (context.lectures || []).filter((lecture) => lecture.blockId === blockId).reduce((out, lecture) => {
     const stat = questionStats.data?.[lecture.id];
     out.answered += stat?.answered || 0;
@@ -613,6 +631,40 @@ export function LectureList({
 
       {displayRows.length === 0 ? (
         <div className="rounded-lg border border-border p-3 text-xs text-text-3">{showAllLectures ? "Nothing matches that filter." : "No released lectures need focus right now."}</div>
+      ) : showAllLectures ? (
+        <div className="space-y-3" aria-label="Lecture library grouped by week">
+          {libraryGroups.map((group) => {
+            const readyCount = group.rows.filter((row) => row.total > 0 && row.mastered >= row.total).length;
+            const attentionCount = group.rows.filter((row) => row.struggling > 0 || row.untested > 0).length;
+            return <details key={group.key} open className="overflow-hidden rounded-xl border border-border bg-bg-elevated">
+              <summary className="flex cursor-pointer flex-wrap items-center justify-between gap-x-4 gap-y-1 px-4 py-3 text-sm">
+                <span className="font-semibold text-text-1">{group.label}{group.range ? ` · ${group.range}` : ""}</span>
+                <span className="font-mono text-xs text-text-3">{group.rows.length} lecture{group.rows.length === 1 ? "" : "s"} · {readyCount} ready · {attentionCount} need practice</span>
+              </summary>
+              <div className="desk-lecture-list border-t border-border bg-bg-elevated px-4">
+                {group.visibleRows.map((row) => <Row
+                  key={row.lectureId}
+                  row={row}
+                  stats={{ ...questionStats.data?.[row.lectureId], slideReviews: lectureReviewStats(context.completion?.[`${row.lectureId}__${blockId}`]).count }}
+                  busy={quizBusyLectureId}
+                  onStudy={onStudyLecture}
+                  onQuiz={onQuiz}
+                  onLog={onLog}
+                  onUpdateDate={onUpdateDate}
+                  userId={userId}
+                  onPreRead={setPreReadTarget}
+                  onDelete={onDelete}
+                  deleting={deletingLectureId}
+                  focused={row.lectureId === highlightId}
+                  rowRef={row.lectureId === focusLectureId ? focusRowRef : undefined}
+                  selectable
+                  selected={selectedLectureIds.has(row.lectureId)}
+                  onToggleSelected={toggleSelected}
+                />)}
+              </div>
+            </details>;
+          })}
+        </div>
       ) : (
         <div className="desk-lecture-list rounded-xl border border-border bg-bg-elevated px-4">
           {visibleRows.map((row) => (
@@ -640,7 +692,7 @@ export function LectureList({
       )}
       {showAllLectures && visibleCount < weekRows.length && (
         <button onClick={() => setVisibleCount((n) => n + 30)} className="mt-3 w-full rounded-lg border border-border py-2 font-mono text-[12px] text-text-2 hover:border-accent hover:text-text-1">
-          Show 18 more · {weekRows.length - visibleCount} remaining
+          Show next 30 · {weekRows.length - visibleCount} remaining
         </button>
       )}
 

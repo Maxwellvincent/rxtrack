@@ -1,5 +1,5 @@
 /**
- * Sidebar preferences — which terms are collapsed.
+ * Sidebar preferences — which terms and block subgroups are collapsed.
  *
  * Local-only and deliberately not synced: this is a per-device view preference,
  * not study data. Storing collapsed ids (rather than expanded ones) means a term
@@ -30,6 +30,23 @@ export function readCollapsedTerms() {
 
 export function writeCollapsedTerms(collapsed) {
   writePrefs({ ...readPrefs(), collapsedTerms: [...(collapsed || [])] });
+}
+
+export function readCollapsedGroups() {
+  const ids = readPrefs().collapsedGroups;
+  return new Set(Array.isArray(ids) ? ids.filter(Boolean) : []);
+}
+
+export function writeCollapsedGroups(collapsed) {
+  writePrefs({ ...readPrefs(), collapsedGroups: [...(collapsed || [])] });
+}
+
+/** Toggle one term subgroup without mutating the current preference set. */
+export function toggleGroup(collapsed, groupId) {
+  const next = new Set(collapsed || []);
+  if (next.has(groupId)) next.delete(groupId);
+  else next.add(groupId);
+  return next;
 }
 
 /** Toggle one term, returning the new set (never mutates the one passed in). */

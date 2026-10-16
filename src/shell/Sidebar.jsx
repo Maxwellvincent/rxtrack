@@ -7,9 +7,12 @@ import { StatusGlyph } from "../ui/Badge.jsx";
 import {
   readCollapsedTerms,
   writeCollapsedTerms,
+  readCollapsedGroups,
+  writeCollapsedGroups,
   toggleTerm,
   collapseAllExcept,
   isTermVisible,
+  toggleGroup,
 } from "./navPrefs.js";
 
 const RAIL_KEY = "rxt-sidebar-collapsed";
@@ -25,6 +28,7 @@ export function Sidebar({ activeBlockId, onSelectBlock, onOpenPalette, userId = 
   const blocks = useBlocks(userId);
   const objectives = useObjectives(null, userId);
   const [collapsed, setCollapsed] = useState(() => readCollapsedTerms());
+  const [collapsedGroups, setCollapsedGroups] = useState(() => readCollapsedGroups());
   const [rail, setRail] = useState(() => readRail());
   const [organizeTerm, setOrganizeTerm] = useState(null);
   const [groupTitle, setGroupTitle] = useState("Neuro & Behavior");
@@ -44,6 +48,11 @@ export function Sidebar({ activeBlockId, onSelectBlock, onOpenPalette, userId = 
   const persist = useCallback((next) => {
     setCollapsed(next);
     writeCollapsedTerms(next);
+  }, []);
+
+  const persistGroups = useCallback((next) => {
+    setCollapsedGroups(next);
+    writeCollapsedGroups(next);
   }, []);
 
   const toggleRail = useCallback(() => {
@@ -173,20 +182,32 @@ export function Sidebar({ activeBlockId, onSelectBlock, onOpenPalette, userId = 
                 for (const b of term.blocks) {
                   if (!b.groupTitle) { groups.push({ key: b.id, blocks: [b] }); continue; }
                   if (!grouped.has(b.groupTitle)) {
-                    const group = { key: `group:${b.groupTitle}`, title: b.groupTitle, blocks: [] };
+                    const group = { key: `${term.id}:group:${b.groupTitle}`, title: b.groupTitle, blocks: [] };
                     grouped.set(b.groupTitle, group);
                     groups.push(group);
                   }
                   grouped.get(b.groupTitle).blocks.push(b);
                 }
-                return groups.map((group) => <div
+                return groups.map((group) => {
+                  const groupOpen = !group.title || !collapsedGroups.has(group.key);
+                  const hasActiveBlock = group.blocks.some((b) => b.id === activeBlockId);
+                  return <div
                   key={group.key}
                   role={group.title ? "group" : undefined}
                   aria-label={group.title || undefined}
                   className={group.title ? "mx-3 mt-1 border-l-2 border-accent/25 pl-2" : ""}
                 >
-                  {group.title && <div className="pb-1 pt-2 pl-2 font-mono text-[11px] font-bold uppercase tracking-wider text-text-2">{group.title}</div>}
-                  {group.blocks.map((b) => {
+                  {group.title && <button
+                    type="button"
+                    aria-expanded={groupOpen}
+                    onClick={() => persistGroups(toggleGroup(collapsedGroups, group.key))}
+                    className="flex w-full items-center justify-between gap-2 pb-1 pt-2 pl-2 pr-1 text-left font-mono text-[11px] font-bold uppercase tracking-wider text-text-2 hover:text-text-1"
+                    title={groupOpen ? `Collapse ${group.title}` : `Expand ${group.title}`}
+                  >
+                    <span className="flex min-w-0 items-center gap-1.5 truncate"><span className={groupOpen ? "" : "-rotate-90"}>▾</span>{group.title}</span>
+                    <span className="shrink-0 text-[10px] text-text-3">{!groupOpen && hasActiveBlock ? "current · " : ""}{groupOpen ? group.blocks.length : `${group.blocks.length} hidden`}</span>
+                  </button>}
+                  {groupOpen && group.blocks.map((b) => {
                   const cov = blockCoverage(objectives.data, b.id);
                   const active = b.id === activeBlockId;
                   return (
@@ -216,7 +237,8 @@ export function Sidebar({ activeBlockId, onSelectBlock, onOpenPalette, userId = 
                     </button>
                   );
                   })}
-                </div>);
+                </div>;
+                });
               })()}
 
               {!open && hasActive && (
