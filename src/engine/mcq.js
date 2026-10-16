@@ -332,7 +332,11 @@ export async function generateMcqs(cfg = {}, deps = {}) {
         return {
           questions: [], failureKind: "source_shortfall",
           error: `No candidates were produced for this batch. ${reason}`,
-          rejections: [{ objectiveIds: (cfg.objectives || []).map(o => o.id || o.code).filter(Boolean),
+          rejections: [{ objectiveIds: (() => {
+            const targeted = (cfg.objectives || []).map(o => o.id || o.code).filter(Boolean).map(String);
+            const identified = targeted.filter(id => reason.includes(id));
+            return identified.length ? identified : targeted;
+          })(),
             issues: ["writer_reported_shortfall"], rationale: reason }],
         };
       }

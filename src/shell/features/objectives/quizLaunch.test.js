@@ -296,6 +296,19 @@ describe("prepareObjectiveQuiz", () => {
     expect(result.incomplete).toBe(false);
     expect(onAccepted.mock.calls.flatMap(call => call[0])).toHaveLength(3);
   });
+  it("reallocates slots after the writer reports an unsupported objective", async () => {
+    const question = { stem: "A patient has a new finding after a selective physiologic change. Which downstream response follows from the supplied lecture relationship?", choices: { A: "Supported response", B: "Alternative response" }, correct: "A" };
+    const callAIJSON = vi.fn()
+      .mockResolvedValueOnce({ questions: [], shortfall: "No supplied lecture evidence supports objective unsupported." })
+      .mockResolvedValue({ questions: [question] });
+    await prepareObjectiveQuiz(
+      { objectives: [{ id: "unsupported", objective: "Explain a source-missing relationship" }, { id: "supported", objective: "Explain a supported relationship" }, { id: "other", objective: "Explain another supported relationship" }], atoms: [{ term: "Source", content: "A supported relationship produces a measurable downstream response." }], questionCount: 2, plannedCount: 2, generationVersion: "v1" },
+      { callAIJSON, prepareBatchSize: 2, reviewBatchSize: 1, maxPrepareAttempts: 2, skipQuestionAudit: true }
+    );
+    expect(callAIJSON.mock.calls).toHaveLength(2);
+    expect(callAIJSON.mock.calls[1][1]).not.toContain('"id":"unsupported"');
+    expect(callAIJSON.mock.calls[1][1]).toContain('"id":"supported"');
+  });
   it("refills only missing slots by default without extra draft candidates", async () => {
     const callAIJSON = vi.fn().mockResolvedValue({ questions: [] });
     await prepareObjectiveQuiz(

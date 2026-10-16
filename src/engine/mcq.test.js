@@ -951,6 +951,11 @@ describe('writer shortfall responses',()=>{
   expect(result.error).not.toContain('No question list');
   expect(result.error).not.toContain('[object Object]');
  });
+ it('marks only objectives explicitly named in a source-shortfall explanation',async()=>{
+  const result=await generateMcqs({lectureText:'Source material. '.repeat(30),objectives:[{id:'o1',text:'Explain pathway one'},{id:'o2',text:'Explain pathway two'}]},
+   {callAIJSON:vi.fn(async()=>({questions:[],shortfall:'No supplied evidence supports objective o1.'}))});
+  expect(result.rejections[0].objectiveIds).toEqual(['o1']);
+ });
  it('distinguishes an unexplained empty array from a missing list',async()=>{
   const result=await generateMcqs({lectureText:'Source material. '.repeat(30)}, {callAIJSON:vi.fn(async()=>({questions:[]}))});
   expect(result.error).toContain('empty question list');

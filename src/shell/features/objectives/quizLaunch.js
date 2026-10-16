@@ -604,7 +604,8 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
   };
   const requested = resolveQuestionCount(args.questionCount, Math.max((args.objectives || []).length, 1));
   const plannedObjectives = objectivesWithPracticeEvidence(args.objectives || [], args.evidenceModel || readLearnerEvidence(args.userId));
-  const allocationPlan = buildAdaptiveObjectivePlan(plannedObjectives, args.plannedCount || requested);
+  let allocationPlan = buildAdaptiveObjectivePlan(plannedObjectives, args.plannedCount || requested);
+  const unsupportedObjectiveIds = new Set();
   const enforceAllocation = allocationPlan.length > 0 && args.generationVersion === "v2";
   const accepted = [];
   const seen = new Set();
@@ -742,6 +743,23 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
       for (const rejection of result.rejections || []) {
         for (const issue of rejection.issues || []) reject(issue);
         rejectionFeedback.push({ objectiveIds: rejection.objectiveIds || [], text: `Previous candidate rejected: ${String(rejection.rationale || "").slice(0, 600)}; issues: ${(rejection.issues || []).join(", ")}. Address this in a NEW causal problem; do not repeat the rejected route.` });
+      }
+      if (result.failureKind === "source_shortfall") {
+        const reportedIds = (result.rejections || [])
+          .filter(rejection => rejection.issues?.includes("writer_reported_shortfall"))
+          .flatMap(rejection => rejection.objectiveIds || [])
+          .map(String);
+        for (const id of reportedIds) unsupportedObjectiveIds.add(id);
+        if (reportedIds.length) {
+          allocationPlan = buildAdaptiveObjectivePlan(
+            plannedObjectives.filter(objective => !unsupportedObjectiveIds.has(String(objective.id || objective.code))),
+            args.plannedCount || requested
+          );
+          if (!allocationPlan.length) {
+            lastError = result.error || "The supplied lecture evidence does not support any of this quiz's linked objectives.";
+            stopPreparation = true;
+          }
+        }
       }
       const newlyAccepted = [];
       for (const question of result.questions || []) {
