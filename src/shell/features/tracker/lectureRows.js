@@ -1,3 +1,4 @@
+import { studyDayDate } from "../../../studyDay.js";
 import { objectivePracticePlan } from "../../../engine/objectivePractice.js";
 /**
  * SP1 T4.4 — the block's full lecture list.
@@ -49,7 +50,7 @@ const PRE_READ_CUTOFF_HOUR = 15;
 export function scoreLectures(context) {
   const { blockId, lectures = [], objectives = [], completion = {}, reviewedLectures = {}, lecturePerformance = {}, weakConcepts = {} } = context || {};
   const now = context?.now ? new Date(context.now) : new Date();
-  const today = new Date(now);
+  const today = studyDayDate(now);
   today.setHours(0, 0, 0, 0);
   const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
 

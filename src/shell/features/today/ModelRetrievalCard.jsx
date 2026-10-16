@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { Button } from '../../../ui/Button.jsx';
 import { useStoreResource } from '../../hooks/useStoreResource.js';
 import { retrievalStore } from '../../../stores/modelRetrieval.js';
-import { createRetrievalModel, gradeModel, selectDailyModels, settingsFor, dayKey } from '../../../engine/modelRetrieval.js';
+import { createRetrievalModel, gradeModel, selectDailyModels, settingsFor, dayKey, reviewDayKey } from '../../../engine/modelRetrieval.js';
 
 const field='w-full rounded-lg border border-border bg-bg-elevated p-2 text-sm text-text-1';
 const grades=[['broken','Broken','Could not reconstruct the major relationships.'],['shaky','Shaky','Reconstructed the outline but missed important connections.'],['solid','Solid','Reconstructed the framework without help.']];
@@ -32,7 +32,7 @@ export function ModelRetrievalCard({userId,blockId,examDate,objectivesForLecture
   const plan=selectDailyModels(models,prefs,now,blockId,examDate);
   const active=models.find(model=>model.id===activeId);
   const blockModels=models.filter(m=>m.blockId===blockId);
-  const canReview=model=>plan.slotsLeft>0 && model.minutes<=plan.minutesLeft && !(model.history||[]).some(h=>h.day===dayKey(now));
+  const canReview=model=>plan.slotsLeft>0 && model.minutes<=plan.minutesLeft && !(model.history||[]).some(h=>reviewDayKey(h)===dayKey(now));
   const start=model=>{setActiveId(model.id);setRevealed(false);setSteps({framework:false,objectives:false,repair:false});setScratch('');setNotice('');};
   const save = async transform => {
     if(busy || resource.loading || resource.error) return false;
@@ -50,7 +50,7 @@ export function ModelRetrievalCard({userId,blockId,examDate,objectivesForLecture
     const ok=await save(current=>{
       const model=current.models[activeId];
       const budget=selectDailyModels(Object.values(current.models).map(project),current.settings,at,blockId,examDate);
-      if(!model || budget.slotsLeft<1 || model.minutes>budget.minutesLeft || model.history.some(h=>h.day===dayKey(at))) throw new Error('Today’s retrieval budget is complete. No extra review is needed.');
+      if(!model || budget.slotsLeft<1 || model.minutes>budget.minutesLeft || model.history.some(h=>reviewDayKey(h)===dayKey(at))) throw new Error('Today’s retrieval budget is complete. No extra review is needed.');
       const {notesAdvice:_notesAdvice,...projected}=project(model);
       saved={...current,models:{...current.models,[activeId]:gradeModel(projected,value,at,eventId)}};
       return saved;

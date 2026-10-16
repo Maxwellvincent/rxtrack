@@ -1,3 +1,4 @@
+import { studyDayDate, studyDayKey, nextStudyDayDelay } from "../../../studyDay.js";
 /**
  * SP1 T4.3 — Today's data + actions, on the store hooks.
  *
@@ -17,7 +18,7 @@ import { usePerformance } from "../../hooks/usePerformance.js";
 import { useTerms } from "../../hooks/useTerms.js";
 import { useWeakConcepts } from "../../hooks/useWeakConcepts.js";
 import { useStoreResource } from "../../hooks/useStoreResource.js";
-import { appendActivity, localDateString } from "../../logic/completionLog.js";
+import { appendActivity } from "../../logic/completionLog.js";
 import { appendPreRead } from "../../logic/preReadLog.js";
 import { buildStudySchedule, generateDailySchedule, objectivesForLecture } from "../../logic/schedule.js";
 import { workAheadLectures } from "../../logic/workAhead.js";
@@ -30,7 +31,8 @@ import { todayTasks as todayTasks_ } from "./fallback.js";
  * synthetic horizon lets the lecture scorer expose dated or urgent lectures instead of returning
  * an empty plan solely because the horizon is missing.
  */
-export function buildTodaySchedule(context) {
+export function buildTodaySchedule(context, userId) {
+  context = { ...context, now: studyDayDate(context.now, userId) };
   const scheduled = generateDailySchedule(context);
   if (scheduled || !context?.lectures?.length) return scheduled;
   const fallbackExam = new Date(context.now || new Date());
@@ -50,13 +52,11 @@ function emitCompletionUpdated() {
 }
 
 export function millisecondsUntilNextLocalDay(now = new Date()) {
-  const next = new Date(now);
-  next.setHours(24, 0, 1, 0);
-  return Math.max(1, next.getTime() - new Date(now).getTime());
+  return nextStudyDayDelay(now);
 }
 
 /** Keep long-lived tabs on the current local calendar day. */
-function useLiveNow(explicitNow) {
+function useLiveNow(explicitNow, userId) {
   const [liveNow, setLiveNow] = useState(() => explicitNow ?? new Date());
 
   useEffect(() => {
@@ -69,7 +69,7 @@ function useLiveNow(explicitNow) {
         const next = new Date();
         setLiveNow(next);
         scheduleRollover(next);
-      }, millisecondsUntilNextLocalDay(current));
+      }, nextStudyDayDelay(current, userId));
     };
     const refresh = () => {
       const current = new Date();
@@ -85,16 +85,17 @@ function useLiveNow(explicitNow) {
       window.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [explicitNow]);
+  }, [explicitNow, userId]);
 
   return explicitNow ?? liveNow;
 }
 
 export function useToday(blockId, userId, { now } = {}) {
-  // Stable between day changes, but refreshed after local midnight and whenever
+  // Stable between day changes, but refreshed after the study-day boundary and whenever
   // a backgrounded tab returns. This preserves memo stability without leaving
   // Today permanently pinned to the date on which the component mounted.
-  const nowValue = useLiveNow(now);
+  const resolvedUserId = userId ?? getStoreHookUserId();
+  const nowValue = useLiveNow(now, resolvedUserId);
   const terms = useTerms(userId);
   const lectures = useLectures(null, userId);
   const objectives = useObjectives(null, userId);
@@ -121,12 +122,12 @@ export function useToday(blockId, userId, { now } = {}) {
     [blockId, terms.data, lectures.data, objectives.data, performance.data, completion.data, examDates.data, weakConcepts.data, learnerEvidence.data, nowValue]
   );
 
-  const daily = useMemo(() => buildTodaySchedule(context), [context]);
-  const study = useMemo(() => buildStudySchedule(context), [context]);
+  const daily = useMemo(() => buildTodaySchedule(context, resolvedUserId), [context, resolvedUserId]);
+  const study = useMemo(() => buildStudySchedule({ ...context, now: studyDayDate(context.now, resolvedUserId) }), [context, resolvedUserId]);
 
   // Day 0 if the planner placed anything there, else the urgency fallback —
   // see fallback.js for why that is needed at all.
-  const { tasks: todayTasks, reason: todayReason } = useMemo(() => todayTasks_(daily), [daily]);
+  const { tasks: todayTasks, reason: todayReason } = useMemo(() => todayTasks_(daily, { todayStr: studyDayKey(context.now, resolvedUserId) }), [daily, context.now, resolvedUserId]);
 
   // The first day the planner DID place work on, when that is not today — a
   // block whose term has not started yet has a real plan, just not for now.
@@ -138,14 +139,14 @@ export function useToday(blockId, userId, { now } = {}) {
   // Lectures you may legitimately pre-read: dated inside the next two days,
   // suppressed inside exam week. Read-only over the scheduler's own output.
   const workAhead = useMemo(
-    () => workAheadLectures(daily, { now: context.now, examDate: context.examDate }),
-    [daily, context.now, context.examDate]
+    () => workAheadLectures(daily, { now: studyDayDate(context.now, resolvedUserId), examDate: context.examDate }),
+    [daily, context.now, context.examDate, resolvedUserId]
   );
 
   // Map lectureId → next scheduled review date string from buildStudySchedule.
   const nextReviewByLectureId = useMemo(() => {
     const map = {};
-    const todayStr = localDateString(context.now);
+    const todayStr = studyDayKey(context.now, resolvedUserId);
     for (const [dateStr, items] of study?.schedule || []) {
       if (dateStr < todayStr) continue;
       for (const item of items || []) {
@@ -155,7 +156,7 @@ export function useToday(blockId, userId, { now } = {}) {
       }
     }
     return map;
-  }, [study, context.now]);
+  }, [study, context.now, resolvedUserId]);
 
   const mutateCompletion = completion.mutate;
   const logActivity = useCallback(
@@ -234,6 +235,6 @@ export function useToday(blockId, userId, { now } = {}) {
     workAhead,
     objectivesForTask,
     nextReviewByLectureId,
-    todayKey: localDateString(context.now),
+    todayKey: studyDayKey(context.now, resolvedUserId),
   };
 }

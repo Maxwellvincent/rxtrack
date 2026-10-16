@@ -49,3 +49,13 @@ describe("question preparation routing", () => {
     expect(call.mock.calls[2][6].bridgeBackend).toBe("codex");
   });
 });
+it("retries one empty cloud reply inside the original deadline", async () => {
+  const call = vi.fn().mockRejectedValueOnce(new Error("You've hit your usage limit"))
+    .mockRejectedValueOnce(new Error("bridge 502: all backends failed | ollama-cloud: empty reply"))
+    .mockResolvedValue({ questions: [] });
+  const deps = await questionPreparationDeps(call);
+  await deps.callAIJSON("system", "draft", {}, 1000, undefined, undefined, { timeoutMs: 10000 });
+  expect(call.mock.calls.map(args => args[6].bridgeBackend)).toEqual(["codex", "ollama-cloud", "ollama-cloud"]);
+  const next = await questionPreparationDeps(call);
+  expect(next.prepareConcurrency).toBe(1);
+});

@@ -82,7 +82,9 @@ if (prepare) {
     objectives: cfg.objectives, atoms: cfg.atoms || [], exemplars: cfg.examples || [],
     questionCount: requested, generationVersion: "v2", difficulty: cfg.difficulty || "medium",
     evidenceModel: {}, clinicalCorrelateLibrary: cfg.clinicalCorrelateLibrary || [],
-  }, { callAIJSON, maxPreparationMs: budget, prepareConcurrency: Number(option("--concurrency", "1")) }, progress => console.log(JSON.stringify({ event: "progress", ...progress })));
+  }, { callAIJSON, maxPreparationMs: budget, prepareConcurrency: Number(option("--concurrency", "1")),
+    ...(process.argv.includes("--production-policy") ? { prepareBatchSize: 3, reviewBatchSize: 3, prepareSpareCandidates: 2, continueAfterEmptyRounds: true, focusedRefill: true, skipRepair: true } : {}),
+  }, progress => console.log(JSON.stringify({ event: "progress", ...progress })));
 } else {
   result = reviewFile
     ? await auditGeneratedQuestions(questions || [], { ...cfg, promptProfile: "compact" }, { callAIJSON, reviewAIJSON, skipRepair: !cachedReviewFile })

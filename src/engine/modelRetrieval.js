@@ -1,3 +1,4 @@
+import { studyDayDate } from "../studyDay.js";
 export const DAY = 86400000;
 export const DEFAULT_SETTINGS = { minutes: 10, cap: 2, sameDay: false, questionEvidence: true, ankiEvidence: true, weekend: false };
 export function settingsFor(settings = {}) {
@@ -5,7 +6,8 @@ export function settingsFor(settings = {}) {
     minutes: [5,10,15,20].includes(Number(settings.minutes)) ? Number(settings.minutes) : 10,
     cap: Math.max(1, Math.min(2, Number(settings.cap) || 2)) };
 }
-export function dayKey(at) { const d = new Date(at); return `${d.getFullYear()}-${d.getMonth()+1}-${d.getDate()}`; }
+export function dayKey(at) { const d = studyDayDate(at); return `${d.getFullYear()}-${d.getMonth()+1}-${d.getDate()}`; }
+export function reviewDayKey(history) { return history.at != null ? dayKey(history.at) : history.day; }
 /** Explicit learner confirmation, not automatic enrollment of an AI-generated reference. */
 export function enrollLectureModel(data, input, now) {
   if (!input.lectureId || !input.blockId) throw new Error('A saved lecture and block are required.');
@@ -69,12 +71,12 @@ export function priorityScore(model, now, examDate) {
 }
 export function selectDailyModels(models, settings, now, blockId, examDate) {
   const prefs=settingsFor(settings), today=dayKey(now);
-  const done=models.flatMap(m=>(m.history||[]).filter(h=>h.day===today));
+  const done=models.flatMap(m=>(m.history||[]).filter(h=>reviewDayKey(h)===today));
   let minutesLeft=Math.max(0,prefs.minutes-done.reduce((n,h)=>n+h.minutes,0));
   let slotsLeft=Math.max(0,prefs.cap-done.length);
   const selected=[];
   const weekend=prefs.weekend && new Date(now).getDay()===6;
-  const candidates=models.filter(m=>m.blockId===blockId && m.status!=='Released' && (m.nextReviewAt<=now || weekend) && !(m.history||[]).some(h=>h.day===today))
+  const candidates=models.filter(m=>m.blockId===blockId && m.status!=='Released' && (m.nextReviewAt<=now || weekend) && !(m.history||[]).some(h=>reviewDayKey(h)===today))
     .sort((a,b)=>priorityScore(b,now,examDate)-priorityScore(a,now,examDate)||a.createdAt-b.createdAt||a.id.localeCompare(b.id));
   for(const model of candidates) if(slotsLeft>0 && model.minutes<=minutesLeft) { selected.push(model); minutesLeft-=model.minutes;slotsLeft--; }
   return {selected,done:done.length,spent:done.reduce((n,h)=>n+h.minutes,0),minutesLeft:Math.max(0,prefs.minutes-done.reduce((n,h)=>n+h.minutes,0)),slotsLeft:Math.max(0,prefs.cap-done.length)};

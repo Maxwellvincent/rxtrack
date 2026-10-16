@@ -1,7 +1,8 @@
+import { studyDayDate, studyDayHour } from "../../../studyDay.js";
 import { readPreference, writePreference, storageReport } from "../../../browserStorage.js";
 import { useState, useCallback } from "react";
 
-function sleepWakeKey(blockId) { return `rxt-sleepwake-${blockId}-${new Date().toDateString()}`; }
+function sleepWakeKey(blockId) { return `rxt-sleepwake-${blockId}-${studyDayDate().toDateString()}`; }
 function lecConfigKey(blockId) { return `rxt-lecconfig-${blockId}`; }
 
 function readSleepWake(blockId) {
@@ -46,6 +47,7 @@ export function DailyPlanSettingsModal({ blockId, onClose }) {
         </div>
 
         <div className="flex flex-col gap-4">
+          {studyDayHour() === 4 && <p className="text-sm text-text-2">Your study day resets at 4:00 a.m. Work after midnight counts toward the previous day until then.</p>}
           <div>
             <div className="mb-1 font-mono text-[12px] font-bold uppercase tracking-wider text-text-3">Wake time</div>
             <div className="mb-2 font-mono text-[12px] text-text-3">Today only — drives mode suggestion.</div>

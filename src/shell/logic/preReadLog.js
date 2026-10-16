@@ -1,3 +1,4 @@
+import { studyDayKey } from "../../studyDay.js";
 /**
  * Logging a pre-read — deliberately NOT `appendActivity`.
  *
@@ -21,7 +22,7 @@ export const PRE_READ_ACTIVITY = "preread";
 
 export const completionKey = (lectureId, blockId) => `${lectureId}__${blockId}`;
 
-const toDateString = (value) => new Date(value).toISOString().slice(0, 10);
+const toDateString = (value) => studyDayKey(value);
 
 /**
  * @returns {{store: object, key: string, entry: object}|null} null when there is

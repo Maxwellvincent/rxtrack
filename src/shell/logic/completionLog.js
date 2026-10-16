@@ -1,3 +1,4 @@
+import { studyDayKey } from "../../studyDay.js";
 /**
  * SP1 T4.3 — logging study activity, ported from App's logActivityToCompletion.
  *
@@ -92,7 +93,7 @@ export const completionKey = (lectureId, blockId) => `${lectureId}__${blockId}`;
 export function appendActivity(store, { lectureId, blockId, activityType, confidenceRating, date, examDate, durationMinutes = null, note = null, reviewKind = null, now = new Date(), id }) {
   if (!lectureId || !blockId) return null;
 
-  const activityDate = toDateString(date, localDateString(now));
+  const activityDate = toDateString(date, studyDayKey(now));
   const key = completionKey(lectureId, blockId);
   const current = store?.[key] || null;
 

@@ -933,3 +933,24 @@ it('targets one objective per draft when retrying the last saved slots', async()
  expect(result.questions).toEqual([]); // Empty or unaudited items never fill slots.
  expect(result.incomplete).toBe(true);
 });
+
+it("uses bounded final-slot recovery after a productive batch reaches its ordinary attempt ceiling", async () => {
+  const stems = [
+    "A biliary obstruction causes jaundice after impaired bile drainage. Which consequence follows this obstruction?",
+    "An intracranial lesion interrupts descending motor axons near their decussation. Which deficit is expected?",
+    "Renal ischemia reduces glomerular filtration and changes tubular delivery. Which physiological response follows?",
+    "An intestinal mucosal injury reduces glucose absorption despite normal luminal digestion. Which transport is impaired?",
+  ];
+  let calls = 0;
+  const callAIJSON = vi.fn(async () => {
+    calls++;
+    const i = calls <= 3 ? calls - 1 : calls === 15 ? 3 : -1;
+    return { questions: i < 0 ? [] : [{ stem: stems[i], choices: { A: `Correct ${i}`, B: `Alternative ${i}`, C: `Other ${i}`, D: `Neither ${i}` }, correct: "A", explanation: "The supplied relationship establishes this predicted consequence." }] };
+  });
+  const result = await prepareObjectiveQuiz(
+    { objectives: [], atoms: [{ term: "Source", content: "Actual explanatory lecture evidence for independent mechanisms." }], questionCount: 4 },
+    { callAIJSON, prepareBatchSize: 1, continueAfterEmptyRounds: true, skipQuestionAudit: true }
+  );
+  expect(result.questions).toHaveLength(4);
+  expect(callAIJSON).toHaveBeenCalledTimes(15);
+});

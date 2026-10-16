@@ -2,7 +2,7 @@
  * counters that already include integrated exams (and older deleted attempts).
  */
 export function questionProgress(studyAnswers = [], sessions = [], range = {}, manualEntries = []) {
-  const inRange = ts => (!range.start || ts >= new Date(`${range.start}T00:00:00`).getTime()) && (!range.end || ts <= new Date(`${range.end}T23:59:59.999`).getTime());
+  const inRange = ts => (range.startAt == null || ts >= range.startAt) && (range.endAt == null || ts <= range.endAt) && (!range.start || ts >= new Date(`${range.start}T00:00:00`).getTime()) && (!range.end || ts <= new Date(`${range.end}T23:59:59.999`).getTime());
   let lectureAnswered = 0;
   let correct = 0;
   const studySeen = new Set();

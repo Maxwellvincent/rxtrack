@@ -56,18 +56,28 @@ export async function questionPreparationDeps(callAIJSON) {
       options.onProviderEvent?.({ provider: backend });
       return callAIJSON(...args);
     };
-    if (Date.now() < limitDeadline()) return call("ollama-cloud");
+    const cloudCall = async () => {
+      try { return await call("ollama-cloud"); }
+      catch (error) {
+        options.signal?.throwIfAborted();
+        // One replacement request for a blank or malformed provider reply. Keep the original
+        // deadline and never retry quota, validation or source-grounding failures.
+        if (!/empty reply|returned no text|not valid or repairable json|invalid json/i.test(String(error?.message || error))) throw error;
+        return call("ollama-cloud");
+      }
+    };
+    if (Date.now() < limitDeadline()) return cloudCall();
     try { return await call("codex"); }
     catch (error) {
       options.signal?.throwIfAborted();
       if (!isCodexUsageLimit(error)) throw error;
       recordLimit(error);
-      return call("ollama-cloud");
+      return cloudCall();
     }
   };
   return {
     callAIJSON: routed, reviewAIJSON: routed,
-    prepareConcurrency: 3, prepareBatchSize: 3, reviewBatchSize: 3,
+    prepareConcurrency: Date.now() < limitDeadline() ? 1 : 3, prepareBatchSize: 3, reviewBatchSize: 3,
     prepareSpareCandidates: 2, continueAfterEmptyRounds: true, focusedRefill: true,
     // Allow reviewed replacement waves to finish in the background. Smaller
     // batches reduce per-call output and release verified questions sooner.

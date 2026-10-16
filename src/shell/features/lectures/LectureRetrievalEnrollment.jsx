@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { Button } from '../../../ui/Button.jsx';
 import { useStoreResource } from '../../hooks/useStoreResource.js';
 import { retrievalStore } from '../../../stores/modelRetrieval.js';
-import { gradeModel, selectDailyModels, dayKey } from '../../../engine/modelRetrieval.js';
+import { gradeModel, selectDailyModels, dayKey, reviewDayKey } from '../../../engine/modelRetrieval.js';
 import { recordLectureNotes, lectureNotesRecommendation, modelWithNotesEvidence } from '../../../engine/lectureNotesReview.js';
 
 export function LectureRetrievalEnrollment({userId,blockId,lectureId,title,reference='',rows=[],evidenceModel={}}) {
@@ -35,7 +35,7 @@ export function LectureRetrievalEnrollment({userId,blockId,lectureId,title,refer
     if(await save(data=>{
       const current=Object.values(data.models).find(m=>m.lectureId===lectureId&&m.blockId===blockId);
       const budget=selectDailyModels(Object.values(data.models),data.settings,at,blockId);
-      if(!current || budget.slotsLeft<1 || current.minutes>budget.minutesLeft || current.history.some(h=>h.day===dayKey(at)))throw Error('Today’s review budget is complete. Continue tomorrow.');
+      if(!current || budget.slotsLeft<1 || current.minutes>budget.minutesLeft || current.history.some(h=>reviewDayKey(h)===dayKey(at)))throw Error('Today’s review budget is complete. Continue tomorrow.');
       const {notesAdvice:_,...projected}=modelWithNotesEvidence(current,rows,evidenceModel,at,data.settings?.questionEvidence!==false);
       return {...data,models:{...data.models,[current.id]:gradeModel(projected,value,at,eventId)}};
     })) {setReviewing(false);setChecked(false);setNotice('Review recorded. Fresh questions will show whether the objective is improving.');}

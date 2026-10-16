@@ -1,11 +1,10 @@
+import { studyDayRange } from "../../../studyDay.js";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import * as calibrationStore from "../../../stores/calibrationByBlock.js";
 import { listExamSessions } from "../../../supabase.js";
 import { questionProgress } from "../exam/questionProgress.js";
 
-function localDateKey(date = new Date()) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
+
 
 export function DailyQuestionScore({ userId, blockId }) {
   // readBlock may deserialize localStorage data or manufacture a new empty
@@ -25,7 +24,7 @@ export function DailyQuestionScore({ userId, blockId }) {
   const loading = loadResult?.key !== queryKey;
   const error = !loading && loadResult.error;
   const sessions = !loading && !error ? loadResult.sessions : [];
-  const today = localDateKey();
+  const today = studyDayRange(new Date(), userId);
 
   useEffect(() => {
     let cancelled = false;
@@ -35,7 +34,7 @@ export function DailyQuestionScore({ userId, blockId }) {
     return () => { cancelled = true; };
   }, [userId, blockId, queryKey]);
 
-  const progress = questionProgress(studyAnswers, sessions, { start: today, end: today });
+  const progress = questionProgress(studyAnswers, sessions, today);
   const accuracy = progress.accuracy == null ? null : Math.round(progress.accuracy * 100);
   const atTarget = accuracy != null && accuracy >= 80;
 

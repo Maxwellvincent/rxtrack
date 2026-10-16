@@ -1,5 +1,6 @@
+import { studyDayDate } from "../../../studyDay.js";
 function checkedKey(blockId, now = new Date()) {
-  return `rxt-checked-${blockId}-${now.toDateString()}`;
+  return `rxt-checked-${blockId}-${studyDayDate(now).toDateString()}`;
 }
 
 export function readChecked(blockId, now = new Date()) {

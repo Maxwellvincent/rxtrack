@@ -636,13 +636,16 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
   let stopPreparation = false;
   let nextAttempt = 1;
   const pendingJobs = new Map();
-  while ((nextAttempt <= attempts || pendingJobs.size) && accepted.length < requested) {
+  // Near-complete batches get three bounded final-slot attempts, but never
+  // override an explicit caller ceiling, a provider failure or the shared clock.
+  const attemptLimit = () => attempts + (!deps.maxPrepareAttempts && deps.continueAfterEmptyRounds && accepted.length >= Math.ceil(requested * 0.75) ? 3 : 0);
+  while ((nextAttempt <= attemptLimit() || pendingJobs.size) && accepted.length < requested) {
     if (deps.signal?.aborted || Date.now() >= preparationDeadline) {
       lastError = deps.signal?.aborted ? "Question preparation stopped. Reviewed questions are saved." : preparationTimeout;
       break;
     }
     const reserved = [...pendingJobs.values()].flatMap(job => job.reserved);
-    while (!stopPreparation && pendingJobs.size < concurrency && nextAttempt <= attempts) {
+    while (!stopPreparation && pendingJobs.size < concurrency && nextAttempt <= attemptLimit()) {
       const attempt = nextAttempt;
       const reservationStart = reserved.length;
       const remaining = requested - accepted.length - reserved.length;

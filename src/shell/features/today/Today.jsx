@@ -1,3 +1,4 @@
+import { studyDayDate, studyDayKey, studyDayMinutes } from "../../../studyDay.js";
 import { readPreference, writePreference } from "../../../browserStorage.js";
 import { useCallback, useState, useMemo, useEffect } from "react";
 import { Button } from "../../../ui/Button.jsx";
@@ -27,7 +28,7 @@ function dayModeKey(blockId, todayKey) { return `rxt-day-mode-${blockId}-${today
 function readDayMode(blockId, todayKey) { return readPreference(dayModeKey(blockId, todayKey)) || null; }
 function writeDayMode(blockId, todayKey, mode) { return writePreference(dayModeKey(blockId, todayKey), mode); }
 
-function sleepWakeKey(blockId) { return `rxt-sleepwake-${blockId}-${new Date().toDateString()}`; }
+function sleepWakeKey(blockId) { return `rxt-sleepwake-${blockId}-${studyDayDate().toDateString()}`; }
 function readSleepWake(blockId) {
   try { return JSON.parse(readPreference(sleepWakeKey(blockId)) || "{}"); }
   catch { return {}; }
@@ -363,11 +364,7 @@ export function selectExamPrepTasks(tasks = [], limit = 3) {
   return selected;
 }
 
-function localDayKey(value) {
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
+function localDayKey(value) { return studyDayKey(value); }
 
 /** Recover completed quiz work from durable performance history on reload/deploy. */
 export function completedLectureQuizIdsToday(lecturePerformance = {}, todayKey = "") {
@@ -379,7 +376,7 @@ export function completedLectureQuizIdsToday(lecturePerformance = {}, todayKey =
   });
 }
 
-function sessionsKey(blockId) { return `rxt-rounds-${blockId}-${new Date().toDateString()}`; }
+function sessionsKey(blockId) { return `rxt-rounds-${blockId}-${studyDayDate().toDateString()}`; }
 function readSessionCounts(blockId) {
   try { return JSON.parse(sessionStorage.getItem(sessionsKey(blockId)) || "{}"); }
   catch { return {}; }
@@ -542,7 +539,7 @@ function RoutineSchedulePanel({ mode, wakeTime, lecConfig }) {
     return () => clearInterval(timer);
   }, []);
   const blocks = computeSchedule(mode, wakeTime, lecConfig?.time, lecConfig?.duration, lecConfig);
-  const nowMins = clock.getHours() * 60 + clock.getMinutes();
+  const nowMins = studyDayMinutes(clock);
   if (!blocks.length) return null;
   return (
     <div className="rounded-sm border border-border bg-bg-elevated overflow-hidden">
@@ -1180,7 +1177,7 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
     task.lec?.id && !focusPlanSet.has(task.lec.id) && !checkedForToday.has(task.lec.id)
   );
 
-  const today = new Date();
+  const today = studyDayDate(context.now, userId);
   const dateStr = today.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
   const examCountdown = daysLeft === 0
     ? "exam today"
