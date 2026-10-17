@@ -1,4 +1,5 @@
 import { preparationErrorMessage } from "../preparationError.js";
+import { QUESTION_CLARITY_CONTRACT, questionClarityIssues } from "./questionClarity.js";
 import { numberedAuditEvidence, resolveAuditEvidence } from "./auditEvidence.js";
 import { questionWritingBenchmarkPrompt } from "./questionWritingStandard.js";
 // mcq.js — pure MCQ generation helpers (port of the monolith's
@@ -55,7 +56,7 @@ function ensureClinicalCorrelateAttribution(questions = [], library = []) {
 
 const LETTERS = ["A", "B", "C", "D", "E", "F", "G", "H"];
 
-const CONNECTED_REASONING_CONTRACT = `CONNECTED REASONING CONTRACT: Ask for one focused endpoint. Second-order requires discriminating findings -> inferred process -> requested mechanism/structure. Third-order requires findings -> inferred process -> mechanism -> a new downstream prediction. These are causal dependencies, not a count of recalled facts. Reject two unrelated recall tasks joined together (for example, an ICP cutoff plus a measurement-method ranking). Do not manufacture order with bundled mechanism/tracer/ventricle combinations that let one recalled fact reveal the key. All options should answer the same focused lead-in at comparable specificity. Mentally hide the options: the vignette and lead-in must support an answer. Then test the shortest route with the options visible: if one label or giveaway eliminates every distractor, downgrade or rewrite. Preserve legitimate school table formats when supported, but never count extra columns as extra reasoning. Relevant clinical, experimental, imaging, or laboratory clues must change the inference; a long patient story is not required.\n`;
+const CONNECTED_REASONING_CONTRACT = `CONNECTED REASONING CONTRACT: Ask for one focused endpoint. Second-order requires discriminating findings -> inferred process -> requested mechanism/structure. Third-order requires findings -> inferred process -> mechanism -> a new downstream prediction. These are causal dependencies, not a count of recalled facts. Reject two unrelated recall tasks joined together (for example, an ICP cutoff plus a measurement-method ranking). Do not manufacture order with bundled mechanism/tracer/ventricle combinations that let one recalled fact reveal the key. All options should answer the same focused lead-in at comparable specificity. Mentally hide the options: the vignette and lead-in must support an answer. Then test the shortest route with the options visible: if one label or giveaway eliminates every distractor, downgrade or rewrite. Preserve legitimate school table formats when supported, but never count extra columns as extra reasoning. Relevant clinical, experimental, imaging, or laboratory clues must change the inference; a long patient story is not required.\n` + QUESTION_CLARITY_CONTRACT + "\n";
 
 const MCQ_SYSTEM = "You are an SGU Basic Principles of Medicine exam-question writer. Reproduce the supplied SGU ExamSoft/IMCQ writing style, not generic UWorld/NBME style. Return ONLY valid JSON — no markdown, no prose.";
 const MCQ_V2_SYSTEM = MCQ_SYSTEM;
@@ -865,6 +866,7 @@ function normalizedComparableText(value) {
  */
 export function locallyValidClinicalQuestions(questions = []) {
   const structurallyValid = questions.filter((question) => {
+    if (questionClarityIssues(question).length) return false;
     const stem = String(question?.stem || "").trim();
     const entries = Object.entries(question?.choices || {});
     const correctText = question?.choices?.[question?.correct];
@@ -892,6 +894,7 @@ export function locallyValidClinicalQuestions(questions = []) {
 /** Minimal recovery screen when independent review and repair cannot return a verdict. */
 export function locallyUsableQuestions(questions = []) {
   return uniqueQuestions((questions || []).filter((question) => {
+    if (questionClarityIssues(question).length) return false;
     const stem = String(question?.stem || "").trim();
     const entries = Object.entries(question?.choices || {});
     const correctText = question?.choices?.[question?.correct];
