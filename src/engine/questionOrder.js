@@ -130,7 +130,7 @@ export function verifyReasoningReview(review, question, cfg = {}) {
   const objective = (cfg.objectives || []).find(item => (question.objectiveIds || []).includes(String(item.id || item.code)));
   if (reasoning?.connectedChain !== true || reasoning?.singleEndpoint !== true || reasoning?.choiceShortcut !== false) return null;
   if (!required || reasoning.allStepsRequired !== true || steps.length < required || new Set(steps.map(normalize)).size < required) return null;
-  if (!objectiveOrderProfile(objective || {}).allowed.includes(orderLevel)) return null;
+  if (!(cfg.reasoningPolicy === "school" && orderLevel === "first-order") && !objectiveOrderProfile(objective || {}).allowed.includes(orderLevel)) return null;
   const quoteFloor = orderLevel === "third-order" ? 2 : 1;
   const supportedQuotes = [...new Set(quotes.map(normalize))].filter(quote => quote.length >= 16 && source.includes(quote));
   if (supportedQuotes.length < quoteFloor || supportedQuotes.length !== new Set(quotes.map(normalize)).size) return null;

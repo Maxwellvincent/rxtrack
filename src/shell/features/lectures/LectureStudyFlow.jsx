@@ -1433,7 +1433,7 @@ export function LectureStudyFlow({
       .filter(question => !seedStems.has(String(question.stem).trim().toLowerCase()))
       .filter(question => {
         const objective = adaptivePlan.find(item => question.objectiveIds?.includes(item.id || item.code));
-        if (!objective || ["first-order", "second-order", "third-order"].indexOf(question.orderLevel) < ["first-order", "second-order", "third-order"].indexOf(objective._targetOrder || "second-order")) return false;
+        if (!objective || (question.difficultyCalibration !== "school" && ["first-order", "second-order", "third-order"].indexOf(question.orderLevel) < ["first-order", "second-order", "third-order"].indexOf(objective._targetOrder || "second-order"))) return false;
         const id = objective.id || objective.code;
         const used = reserveCounts.get(id) || 0;
         if (used >= objective._targetQuestionCount) return false;

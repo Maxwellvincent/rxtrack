@@ -117,7 +117,7 @@ describe("buildMcqPrompt", () => {
     expect(compact).toContain("SOM.NB.8");
     expect(compact).toContain("Calcium entry triggers vesicle fusion.");
     expect(compact).toContain("Electrical synapses transmit ions directly.");
-    expect(compact).toContain('"targetOrder":"third-order"');
+    expect(compact).toContain('"suggestedOrder":"third-order"');
     expect(compact).toContain('"targetCount":2');
     expect(compact).toContain("one unambiguous best answer");
   });
@@ -840,8 +840,8 @@ describe("separate reasoning review gate", () => {
     expect(result.error).toMatch(/stronger reviewer/);
     expect(repair).not.toHaveBeenCalled();
   });
-  it("does not credit verified recall when the objective requests application", async () => {
-    const result = await auditGeneratedQuestions([question], { ...cfg, promptProfile: "compact", objectives: [{ ...cfg.objectives[0], _targetOrder: "second-order" }] }, {
+  it("does not credit verified recall when an explicit challenge requests application", async () => {
+    const result = await auditGeneratedQuestions([question], { ...cfg, reasoningPolicy: "challenge", promptProfile: "compact", objectives: [{ ...cfg.objectives[0], _targetOrder: "second-order" }] }, {
       skipRepair: true,
       reviewAIJSON: async () => ({ reviews: [{ index: 0, approved: true, objectiveAligned: true, issues: [], reasoning: {
         orderLevel: "first-order", steps: ["Recall obstruction"], sourceQuotes: [cfg.atoms[0].content], allStepsRequired: true, connectedChain: true, singleEndpoint: true, choiceShortcut: false,
