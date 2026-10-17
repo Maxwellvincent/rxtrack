@@ -6,7 +6,7 @@
  * per-lecture study mode and performance lookups. Doing it here keeps
  * `schedule.js` free of App and makes the whole input inspectable.
  */
-import { dedupeByText, selectBlockObjectives } from "../../logic/objectives.js";
+import { dedupeByText, selectBlockObjectives, selectLectureObjectives } from "../../logic/objectives.js";
 import { detectStudyMode } from "../../logic/studyMode.js";
 import { objectivesForLecture } from "../../logic/schedule.js";
 
@@ -54,7 +54,12 @@ export function buildScheduleContext({
   const blockLectures = (lectures || []).filter((l) => l?.blockId === blockId);
   const blockMeta = resolveBlockMeta(terms, blockId);
   // Same de-dupe the objectives UI applies, so Today counts what the tracker shows.
-  const blockObjectives = dedupeByText(selectBlockObjectives(objectives, blockId));
+  const rawObjectives = selectBlockObjectives(objectives, blockId);
+  const lectureIds = new Set(blockLectures.flatMap(l => [l.id, ...(l.mergedFrom || []).map(m => m?.id)]));
+  const blockObjectives = [
+    ...blockLectures.flatMap(lecture => selectLectureObjectives(rawObjectives, lecture, learnerEvidence)),
+    ...dedupeByText(rawObjectives.filter(o => !lectureIds.has(o.linkedLecId)), learnerEvidence),
+  ];
 
   const studyModeByLecture = {};
   const lecturePerformance = {};

@@ -23,6 +23,7 @@
 
 import { flattenWeakConcepts, isLandmine } from "../features/tracker/weakConcepts.js";
 import { objectivePracticePlan } from "../../engine/objectivePractice.js";
+import { selectLectureObjectives } from "./objectives.js";
 
 const DAY_MS = 1000 * 60 * 60 * 24;
 
@@ -56,11 +57,7 @@ function daysBetween(from, to) {
 
 /** Objectives belonging to a lecture, including any it was merged from. */
 export function objectivesForLecture(objectives, lecture) {
-  return (objectives || []).filter(
-    (o) =>
-      o.linkedLecId === lecture.id ||
-      (lecture.mergedFrom || []).some((m) => m && m.id === o.linkedLecId)
-  );
+  return selectLectureObjectives(objectives, lecture);
 }
 
 export function statusTally(lectureObjectives) {

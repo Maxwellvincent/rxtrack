@@ -1,4 +1,5 @@
 import { repairCranialLectureLinks } from "../../engine/cranialLectureScope.js";
+import { objectiveLectureNumberConflict } from "../../engine/lectureIdentity.js";
 /**
  * SP1 T1.1 — objectives logic, extracted from App.jsx.
  *
@@ -96,19 +97,36 @@ export function toEntry(existingEntry, nextFlat) {
  * intentionally repeats the same wording in two sessions. Uncoded legacy rows
  * still fall back to normalized text.
  */
-export function dedupeByText(objectives) {
-  const seen = new Set();
-  return (objectives || []).filter((obj) => {
+export function dedupeByText(objectives, learnerEvidence = null) {
+  const seen = new Map();
+  const out = [];
+  const attempts = obj => Number(learnerEvidence?.objectives?.[obj?.id]?.attempts ?? obj?.attempts ?? obj?.totalAttempts) || 0;
+  for (const obj of objectives || []) {
     const code = String(obj?.code || obj?.objectiveCode || "").replace(/\s/g, "").toLowerCase();
     const text = (obj?.objective || obj?.text || "")
       .slice(0, 60)
       .toLowerCase()
       .replace(/\W/g, "");
     const key = code ? `code:${code}` : `text:${text}`;
-    if ((!code && !text) || seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+    if (!code && !text) continue;
+    if (seen.has(key)) {
+      const index = seen.get(key);
+      // Display one exact school-code record without discarding its practiced
+      // identity in favor of an older, untested import. No evidence is copied,
+      // merged, or semantically reassigned here.
+      if (learnerEvidence && attempts(obj) > attempts(out[index])) out[index] = obj;
+    } else { seen.set(key, out.length); out.push(obj); }
+  }
+  return out;
+}
+
+/** Same lecture-scoped objective projection for study, Today and the library. */
+export function selectLectureObjectives(objectives, lecture, learnerEvidence = null) {
+  if (!lecture?.id) return [];
+  return dedupeByText((objectives || []).filter(o =>
+    (o.linkedLecId === lecture.id || (lecture.mergedFrom || []).some(m => m?.id === o.linkedLecId))
+      && !objectiveLectureNumberConflict(o, lecture)
+  ), learnerEvidence);
 }
 
 /** Active flat objective list for a block; out-of-scope small groups stay stored. */

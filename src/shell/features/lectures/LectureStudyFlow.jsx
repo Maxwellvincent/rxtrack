@@ -35,7 +35,7 @@ import { objectiveLectureNumberConflict } from "../../../engine/lectureIdentity.
 import { normalizeMissDiagnostic, reasoningGuidance } from "../../../engine/questionReasoning.js";
 import { buildClinicalCorrelateLibrary } from "../../../engine/clinicalCorrelates.js";
 import { tagAtomsWithObjectives } from "../../../engine/tagAtoms.js";
-import { createObjectiveCommands, selectBlockObjectives, setStatus, storageKeyFor, toEntry } from "../../logic/objectives.js";
+import { createObjectiveCommands, selectBlockObjectives, selectLectureObjectives, setStatus, storageKeyFor, toEntry } from "../../logic/objectives.js";
 import { extractCodeDelimited, extractObjectivesFromLecture } from "../../../ingest/objectives.js";
 import { useObjectives } from "../../hooks/useObjectives.js";
 import { resolveObjectiveTarget } from "../../logic/graduationGate.js";
@@ -403,12 +403,11 @@ export function LectureStudyFlow({
     .filter((o) => o?.linkedLecId === lecture?.id), [objectiveResource.data, blockId, lecture?.id]);
   const mismatchedLectureObjectives = useMemo(() => linkedObjectives
     .filter((objective) => objectiveLectureNumberConflict(objective, lecture)), [linkedObjectives, lecture]);
-  const lectureObjectives = useMemo(() => {
-    const mismatched = new Set(mismatchedLectureObjectives);
-    return linkedObjectives.filter((objective) => !mismatched.has(objective));
-  }, [linkedObjectives, mismatchedLectureObjectives]);
-  const title = lecture?.lectureTitle || lecture?.title || lecture?.fileName || "Lecture";
   const learnerEvidence = useStoreResource(learnerEvidenceStore, userId);
+  const lectureObjectives = useMemo(() => selectLectureObjectives(
+    selectBlockObjectives(objectiveResource.data, blockId), lecture, learnerEvidence.data
+  ), [objectiveResource.data, blockId, lecture, learnerEvidence.data]);
+  const title = lecture?.lectureTitle || lecture?.title || lecture?.fileName || "Lecture";
   const objectivePractice = useMemo(
     () => objectivePracticePlan(lectureObjectives, learnerEvidence.data),
     [lectureObjectives, learnerEvidence.data]
