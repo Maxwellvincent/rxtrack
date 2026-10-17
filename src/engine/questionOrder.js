@@ -90,6 +90,7 @@ export function buildOrderBlueprint({ objectives = [], count = 10 } = {}) {
 
 /** Best-effort structural classification used for analytics and display, not medical validation. */
 export function classifyQuestionOrder(question = {}, objective = null) {
+  if (isPairedCartilageRecall(question)) return "first-order";
   const explicit = normalizeQuestionOrder(question?.orderLevel || question?.questionOrder);
   if (explicit) return explicit;
   const stem = String(question?.stem || "").replace(/\s+/g, " ").trim();
@@ -120,6 +121,7 @@ export function stampQuestionOrders(questions = [], objectives = []) {
 export function verifyReasoningReview(review, question, cfg = {}) {
   const reasoning = review?.reasoning;
   const orderLevel = normalizeQuestionOrder(reasoning?.orderLevel);
+  if (orderLevel !== "first-order" && isPairedCartilageRecall(question)) return null;
   const required = { "first-order": 1, "second-order": 2, "third-order": 3 }[orderLevel];
   const steps = Array.isArray(reasoning?.steps) ? reasoning.steps.map(String).map(step => step.trim()).filter(Boolean) : [];
   const quotes = Array.isArray(reasoning?.sourceQuotes) ? reasoning.sourceQuotes.map(String).map(quote => quote.trim()).filter(Boolean) : [];
@@ -138,6 +140,8 @@ export function verifyReasoningReview(review, question, cfg = {}) {
 /** Old saved questions remain stored, but cannot bypass the updated advanced-reasoning gate. */
 export function hasCurrentReasoningAudit(question) {
   const audit = question?.reasoningAudit;
+  if (isPairedCartilageRecall(question) && normalizeQuestionOrder(audit?.orderLevel) !== "first-order") return false;
   return audit?.status === "verified" && audit.version >= 2 && audit.connectedChain === true
     && audit.singleEndpoint === true && audit.choiceShortcut === false;
 }
+import { isPairedCartilageRecall } from "./questionClarity.js";
