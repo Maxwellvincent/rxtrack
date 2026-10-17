@@ -6,14 +6,14 @@ import { scoreLectures } from "../tracker/lectureRows.js";
 
 it("keeps lecture-list practice equal to the study screen when an old import precedes practiced objective copies", () => {
   const lecture = { id: "l13", blockId: "nb1", lectureNumber: 13, lectureTitle: "NB 13 Cranial Nerves V and VII" };
-  const imported = Array.from({ length: 18 }, (_, i) => ({ id: `old${i}`, code: `ANAT.${i}`, objective: `Identify cranial structure ${i}`, linkedLecId: "l13", lectureNumber: 13 }));
+  const imported = Array.from({ length: 18 }, (_, i) => ({ id: `old${i}`, code: `ANAT.${i}`, objective: `Identify cranial structure ${i}`, linkedLecId: "l13", lectureNumber: 13, status: "struggling" }));
   const extracted = imported.map(o => ({ ...o, id: o.id.replace("old", "new") }));
   const learnerEvidence = { objectives: Object.fromEntries(extracted.slice(0, 7).map(o => [o.id, { attempts: 3, correct: 1, recent: [false] }])) };
   const context = buildScheduleContext({ blockId: "nb1", lectures: [lecture], objectives: { nb1: { imported, extracted } }, learnerEvidence });
   const study = objectivePracticePlan(selectLectureObjectives([...imported, ...extracted], lecture, learnerEvidence), learnerEvidence);
   const library = scoreLectures(context)[0];
   expect(study.worked).toBe(7);
-  expect(library).toMatchObject({ practiced: 7, total: 18, struggling: 7 });
+  expect(library).toMatchObject({ practiced: 7, total: 18, struggling: 7, untested: 11 });
   expect(learnerEvidence.objectives.old0).toBeUndefined();
 });
 
