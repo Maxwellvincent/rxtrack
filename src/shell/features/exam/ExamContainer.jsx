@@ -119,7 +119,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   // generation shortfall after retries) was computed and returned but never
   // read; surfaced here as a brief, dismissable warning once the user is in
   // the session, rather than silently dropped.
-  const [launchWarning, setLaunchWarning] = useState(null);
+  const [, setLaunchWarning] = useState(null);
   const [generationCoverage, setGenerationCoverage] = useState(null);
 
   const selectExamPageSection = (section) => {
@@ -656,14 +656,6 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   if (activeSessionId) {
     return (
       <div className="mx-auto w-full max-w-6xl p-4 sm:p-5">
-        {launchWarning && (
-          <div
-            role="alert"
-            className="m-3 rounded-lg border border-accent/40 bg-bg-elevated px-3 py-2.5 font-mono text-[12px] text-accent-text"
-          >
-            {launchWarning}
-          </div>
-        )}
         <ExamSessionRunner
           onRecoverPreparation={session => recoverExamPreparation({ session, userId, pool: createQuestionPool(userId, blockId), generate: generateExamQuestions, context: { lecturesById, objectivesByLecture, atomsByLecture, lectures, callAIJSON } }).catch(() => {})}
           sessionId={activeSessionId}
