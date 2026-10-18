@@ -36,3 +36,15 @@ it("attributes CBSE answers and weak lectures to their original source block", a
   await finalizeExamSession("u", "cbse-s", options);
   expect(state.record).toHaveBeenCalledTimes(3);
 });
+
+it('automatically records an unlabelled larynx question against its lecture once', async () => {
+ state.record.mockClear(); state.evidence.mockClear();
+ state.session = { sessionId: 'larynx-session', blockId: 'nb1', status: 'in_progress', questions: [{ questionId: 'larynx-q', sourceType: 'question-bank', stem: 'Laryngeal carcinoma is removed from the larynx. The recurrent laryngeal nerve is repaired. Which muscle remains paralyzed?', correct: 'A' }], answers: [{ questionId: 'larynx-q', value: 'B' }], sideEffectsCompleted: { statsRecordedQuestionIds: [], weakConceptsRecorded: false } };
+ const options = { lectures: [{ id: 'l16', blockId: 'nb1', lectureTitle: 'NB 16 Pharynx and Larynx' }] };
+ expect(await finalizeExamSession('u', 'larynx-session', options)).toEqual({ ok: true });
+ expect(state.session.questions[0]).toMatchObject({ lectureId: 'l16', curriculumLinkStatus: 'content-matched' });
+ expect(state.record).toHaveBeenCalledWith('u', 'l16', false);
+ expect(state.evidence.mock.calls[0][1]).toMatchObject({ lectureId: 'l16', objectiveIds: [] });
+ await finalizeExamSession('u', 'larynx-session', options);
+ expect(state.record).toHaveBeenCalledTimes(1);
+});

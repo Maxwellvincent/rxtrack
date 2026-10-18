@@ -58,3 +58,27 @@ it("cleans already-saved school choices when reopening without changing the sour
  expect(restored).toMatchObject({ questionId: "existing", correct: "E", choices: { E: "Chorda tympani" } });
  expect(question.choices.E).toContain("Questions 51.75");
 });
+
+const larynxQuestion = { id: 'larynx', stem: 'A 43-year-old man has persistent sore throat and worsening hoarseness. A laryngeal carcinoma is removed from the larynx. The ansa cervicalis is anastomosed with the recurrent laryngeal nerve to restore phonation. Which muscles of the larynx remain paralyzed?', choices: { A: 'Cricothyroid', B: 'Thyroarytenoid' }, correct: 'A' };
+const larynxLectures = [
+ { id: 'l16', blockId: 'nb1', lectureTitle: 'NB 16 Pharynx and Larynx', lectureNumber: 16 },
+ { id: 'l1', blockId: 'nb1', lectureTitle: 'NB 01 Neuroembryology', chunks: [{ markdown: 'Muscles nerves surgery larynx carcinoma hoarseness phonation throat '.repeat(300) }] },
+ { id: 'updated', blockId: 'nb1', lectureTitle: 'Updated', chunks: [{ markdown: larynxQuestion.stem.repeat(50) }] },
+];
+it('automatically attributes the screenshot case by distinctive larynx content without claiming an objective', () => {
+ const linked = linkSourceLecture(larynxQuestion, larynxLectures, 'nb1');
+ expect(linked).toMatchObject({ lectureId: 'l16', curriculumLinkStatus: 'content-matched', lectureLinkBasis: 'distinctive-lecture-topic', correct: 'A' });
+ expect(linked.objectiveIds).toBeUndefined();
+ expect(linked.candidateLectureLinks).toEqual([]);
+ expect(lectureReviewSummary({ questions: [{ ...linked, questionId: 'q' }], answers: [{ questionId: 'q', value: 'B' }] })[0]).toMatchObject({ lectureId: 'l16', answered: 1, misses: 1 });
+});
+it('uses original source filenames even when a lecture has a generic renamed title', () => {
+ expect(linkSourceLecture(larynxQuestion, [{ id: 'l16', blockId: 'nb1', lectureTitle: 'Updated', sourceFiles: [{ filename: 'NB+16+Pharynx+and+Larynx.pdf' }] }], 'nb1').lectureId).toBe('l16');
+});
+it('keeps tied matches, generic cases, explicit conflicting labels and other blocks unresolved', () => {
+ expect(linkSourceLecture(larynxQuestion, [...larynxLectures, { ...larynxLectures[0], id: 'duplicate' }], 'nb1').lectureId).toBeUndefined();
+ expect(linkSourceLecture(larynxQuestion, [larynxLectures[0]], 'other').lectureId).toBeUndefined();
+ expect(linkSourceLecture({ ...larynxQuestion, stem: 'A patient has nerve injury during surgery. Which structure is affected?' }, larynxLectures, 'nb1').lectureId).toBeUndefined();
+ expect(linkSourceLecture({ ...larynxQuestion, sourceSection: 'NB 99', sourceSectionTitle: 'Other source' }, larynxLectures, 'nb1').lectureId).toBeUndefined();
+ expect(linkSourceLecture({ ...larynxQuestion, lectureId: 'l1', curriculumLinkStatus: 'user-confirmed' }, larynxLectures, 'nb1').lectureId).toBe('l1');
+});

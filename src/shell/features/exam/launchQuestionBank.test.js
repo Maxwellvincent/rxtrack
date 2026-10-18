@@ -90,3 +90,8 @@ describe("launchQuestionBankSession", () => {
     expect(new Set(prepared.map((q) => q.questionId)).size).toBe(2);
   });
 });
+
+it('keeps automatic lecture attribution when preparing a bank session without adding objective IDs', () => {
+ const [question] = prepareQuestionBankQuestions([{ id: 'larynx', stem: 'Laryngeal carcinoma is removed from the larynx. Which muscle of the larynx remains paralyzed?', choices: { A: 'Cricothyroid', B: 'Thyroarytenoid' }, correct: 'A' }], { blockId: 'nb1', filename: 'ExamSoft.pdf', lectures: [{ id: 'l16', blockId: 'nb1', lectureTitle: 'NB 16 Pharynx and Larynx' }] });
+ expect(question).toMatchObject({ lectureId: 'l16', curriculumLinkStatus: 'content-matched', objectiveIds: [], sourceType: 'question-bank', correct: 'A' });
+});

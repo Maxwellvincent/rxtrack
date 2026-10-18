@@ -78,3 +78,11 @@ it('does not suggest neuro objectives from generic lower/upper and exam wording 
   const analysis=buildQuestionBankAnalysis({questions:[{id:'gi',stem:'A man comes to the physician with a history of blood and mucus in stool and pain in the lower abdomen. Endoscopy of the upper and lower gastrointestinal tract is performed. Which of the following is the biopsy specimen?',choices:{A:'Colon'},correct:'A'}],objectives:[{id:'motor',objective:'Correlate upper and lower motor neuronal signs with lesions affecting central and peripheral nervous sites'}]});
   expect(analysis.items[0].objectiveIds).not.toContain('motor');
 });
+
+it('ranks a distinctive pharynx/larynx title above large unrelated lecture texts', () => {
+ const analysis = buildQuestionBankAnalysis({ questions: [{ id: 'larynx', stem: 'Laryngeal carcinoma is removed from the larynx. Recurrent laryngeal nerve repair restores phonation. Which muscle remains paralyzed?', choices: { A: 'Cricothyroid' }, correct: 'A' }], lectures: [
+  { id: 'generic', lectureTitle: 'Updated', chunks: [{ markdown: 'larynx laryngeal carcinoma muscle nerve repair phonation paralyzed '.repeat(100) }] },
+  { id: 'l16', lectureTitle: 'NB 16 Pharynx and Larynx' },
+ ] });
+ expect(analysis.items[0].lectureIds[0]).toBe('l16');
+});

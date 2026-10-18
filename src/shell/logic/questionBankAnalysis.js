@@ -1,3 +1,4 @@
+import { rankLectureContent } from "./lectureContentMatch.js";
 import { alignSchoolQuestions } from "../../engine/schoolAlignment.js";
 
 const FOCUS_RULES = [
@@ -51,6 +52,7 @@ function lectureSupport(question, lectures = [], linkedObjectives = []) {
   const explicitLectureTitle = normalizeLectureTitle(
     `${question.stem || ""} ${question.explanation || ""}`.match(/\b(?:lecture|lec)\s*\d+\s*[:.\-–—]\s*([^.!?\n]{3,120})/i)?.[1]
   );
+  const contentRanks = new Map(rankLectureContent(question, lectures).map(row => [row.lecture.id, row]));
   return lectures.map((lecture) => {
     const map = lecture?.teachingMap || {};
     const atoms = Array.isArray(lecture?.atoms) ? lecture.atoms : [];
@@ -60,7 +62,7 @@ function lectureSupport(question, lectures = [], linkedObjectives = []) {
     const objectiveHit = linkedObjectives.some(({ objective }) => objective.linkedLecId === lecture.id || objective.lectureId === lecture.id);
     const title = normalizeLectureTitle(lecture?.lectureTitle || lecture?.title || lecture?.fileName);
     const explicitTitleHit = !!explicitLectureTitle && !!title && (title.includes(explicitLectureTitle) || explicitLectureTitle.includes(title));
-    return { lecture, shared, score: shared.length + (objectiveHit ? 4 : 0) + (explicitTitleHit ? 20 : 0), map, explicitTitleHit };
+    return { lecture, shared, score: (contentRanks.get(lecture.id)?.score || 0) + (objectiveHit ? 4 : 0) + (explicitTitleHit ? 200 : 0), map, explicitTitleHit };
   }).filter((item) => item.score >= 3).sort((a, b) => b.score - a.score).slice(0, 2);
 }
 

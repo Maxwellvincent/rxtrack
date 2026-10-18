@@ -77,7 +77,7 @@ export async function finalizeExamSession(
       // Record imported answers only when the source label matches the
       // current catalog or the learner confirmed its link. A lecture link
       // never invents an objective tag or advanced-reasoning evidence.
-      if (question?.lectureId && (question?.sourceType !== "question-bank" || ["user-confirmed", "source-label-matched"].includes(question?.curriculumLinkStatus))) {
+      if (question?.lectureId && (question?.sourceType !== "question-bank" || ["user-confirmed", "source-label-matched", "content-matched"].includes(question?.curriculumLinkStatus))) {
         await recordAnswerAwait(userId, question.lectureId, wasCorrect);
       }
       if (question?.lectureId || question?.objectiveIds?.length) {

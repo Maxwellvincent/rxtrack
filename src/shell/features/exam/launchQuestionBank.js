@@ -27,7 +27,7 @@ export function prepareQuestionBankQuestions(questions, { blockId, filename, ana
     ...question,
     questionId: `bank:${filename}:${question.id || question.num || "q"}:${index + 1}`,
     blockId,
-    lectureId: ["user-confirmed", "source-label-matched"].includes(question.curriculumLinkStatus) ? question.lectureId || null : null,
+    lectureId: ["user-confirmed", "source-label-matched", "content-matched"].includes(question.curriculumLinkStatus) ? question.lectureId || null : null,
     objectiveIds: question.curriculumLinkStatus === "user-confirmed" ? question.objectiveIds || [] : [],
     source: "Original school question",
     sourceFile: filename,
