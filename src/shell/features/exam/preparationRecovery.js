@@ -1,3 +1,5 @@
+import { startBackgroundJob } from "../../backgroundJobs.js";
+
 const running = new Set();
 export function holdPreparationWorker(userId, sessionId) {
   const key = `${userId}:${sessionId}`; running.add(key);
@@ -28,17 +30,27 @@ export async function recoverExamPreparation({ session, userId, pool, generate, 
     await waitForConnection();
     const claimed = await pool.claimSessionFill(session.sessionId, plan);
     if (!claimed) return;
-    const allocation = Object.fromEntries(Object.entries(claimed.fillPlan.allocation).map(([id, count]) => [id,
-      Math.max(0, count - (claimed.questions || []).filter(q => q.lectureId === id).length)]).filter(([id, count]) => count && !(claimed.fillBlockedLectureIds || []).includes(id)));
-    if (!Object.keys(allocation).length) return pool.finishSessionFill(session.sessionId, { requestedCount: claimed.targetQuestionCount });
-    let result;
-    try { result = await generate({ ...context, ...claimed.fillPlan, allocation, userId, blockId: claimed.blockId, generationId: claimed.sessionId }, {
-      pool, callAIJSON: context.callAIJSON,
-      onProgress: progress => { report(progress.message); void pool.reportSessionFillProgress(session.sessionId, progress).catch(() => {}); },
-      onQuestionReady: q => pool.appendToSession(session.sessionId, q, { requestedCount: claimed.targetQuestionCount, durationMinutes: claimed.durationMinutes }),
-    }); } catch (error) { result = { errors: [{ message: error?.message || String(error) }] }; }
-    await pool.finishSessionFill(session.sessionId, { requestedCount: claimed.targetQuestionCount, durationMinutes: claimed.durationMinutes,
-      error: (result.errors || []).map(e => e.message).join(" "),
-      blockedLectureIds: [...new Set([...(claimed.fillBlockedLectureIds || []), ...(result.errors || []).filter(e => !connectionFailure(e.message)).map(e => e.lectureId).filter(Boolean)])] });
+    const run = async reportJob => {
+      const allocation = Object.fromEntries(Object.entries(claimed.fillPlan.allocation).map(([id, count]) => [id,
+        Math.max(0, count - (claimed.questions || []).filter(q => q.lectureId === id).length)]).filter(([id, count]) => count && !(claimed.fillBlockedLectureIds || []).includes(id)));
+      if (!Object.keys(allocation).length) {
+        await pool.finishSessionFill(session.sessionId, { requestedCount: claimed.targetQuestionCount });
+        return "Ready questions are saved.";
+      }
+      let result;
+      try { result = await generate({ ...context, ...claimed.fillPlan, allocation, userId, blockId: claimed.blockId, generationId: claimed.sessionId }, {
+        pool, callAIJSON: context.callAIJSON,
+        onProgress: progress => { report(progress.message); reportJob(progress.message); void pool.reportSessionFillProgress(session.sessionId, progress).catch(() => {}); },
+        onQuestionReady: q => pool.appendToSession(session.sessionId, q, { requestedCount: claimed.targetQuestionCount, durationMinutes: claimed.durationMinutes }),
+      }); } catch (error) { result = { errors: [{ message: error?.message || String(error) }] }; }
+      await pool.finishSessionFill(session.sessionId, { requestedCount: claimed.targetQuestionCount, durationMinutes: claimed.durationMinutes,
+        error: (result.errors || []).map(e => e.message).join(" "),
+        blockedLectureIds: [...new Set([...(claimed.fillBlockedLectureIds || []), ...(result.errors || []).filter(e => !connectionFailure(e.message)).map(e => e.lectureId).filter(Boolean)])] });
+      if (result.errors?.length) throw new Error("Some missing questions still need preparation. Reviewed questions remain saved.");
+      return "Question preparation resumed and saved.";
+    };
+    await new Promise(resolve => startBackgroundJob({ label: "Resuming quiz questions", run: async reportJob => {
+      try { return await run(reportJob); } finally { resolve(); }
+    } }));
   } finally { running.delete(key); }
 }
