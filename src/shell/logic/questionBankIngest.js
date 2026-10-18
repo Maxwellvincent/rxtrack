@@ -1,3 +1,4 @@
+import { cleanSchoolQuestion } from "../../engine/schoolSourceText.js";
 /**
  * Uploaded exam questions, prepared for storage.
  *
@@ -123,6 +124,7 @@ export function extractPairedAnswerKey(text = "") {
 export function tagBankQuestions(questions, { blockId, filename, wrongOnly = false, sourceKind = "school", idgen, now = () => new Date().toISOString() }) {
   return (questions || [])
     .filter((q) => q && (q.stem || q.question))
+    .map(cleanSchoolQuestion)
     .map((q) => ({
       ...q,
       id: q.id || newId(idgen),

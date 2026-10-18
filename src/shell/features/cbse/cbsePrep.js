@@ -1,3 +1,4 @@
+import { cleanSchoolQuestion } from "../../../engine/schoolSourceText.js";
 import { questionEvidenceKey } from "../../../stores/learnerEvidence.js";
 import { prepareQuestionBankQuestions, validBankQuestion } from "../exam/launchQuestionBank.js";
 import { flattenObjectiveEntry } from "../../data.js";
@@ -10,6 +11,7 @@ export function ensureCbseTerms(terms = [], userId) {
 }
 const normalize = value => String(value || "").toLowerCase().replace(/\s+/g, " ").trim();
 export function cbseQuestionKey(question) {
+  question = cleanSchoolQuestion(question);
   return questionEvidenceKey(JSON.stringify([normalize(question.stem), Object.values(question.choices || {}).map(normalize).sort(), normalize(question.choices?.[question.correct])]));
 }
 const time = value => typeof value === "number" ? value : new Date(value || 0).getTime() || 0;

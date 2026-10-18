@@ -392,3 +392,23 @@ describe("ExamLaunchModal", () => {
     unmount();
   });
 });
+
+it("keeps settings open when editing question count or clicking the backdrop", () => {
+ const onCancel = vi.fn();
+ const { host, unmount } = render(<ExamLaunchModal eligibleLectures={ELIGIBLE} onLaunch={vi.fn()} onCancel={onCancel} />);
+ const input = host.querySelector('[aria-label="Number of questions"]');
+ act(() => input.click());
+ act(() => setInputValue(input, "30"));
+ act(() => host.querySelector('[role="dialog"]').click());
+ expect(onCancel).not.toHaveBeenCalled(); expect(input.value).toBe("30");
+ act(() => host.querySelector('[aria-label="Close exam settings"]').click());
+ expect(onCancel).toHaveBeenCalledOnce(); unmount();
+});
+
+it("starts within the limit when a saved school-bank default exceeds 100", () => {
+ const { host, unmount } = render(<ExamLaunchModal eligibleLectures={ELIGIBLE} defaultQuestionCount={150} onLaunch={vi.fn()} onCancel={vi.fn()} />);
+ expect(host.querySelector('[aria-label="Number of questions"]').value).toBe("100");
+ expect(host.querySelectorAll('input[type="number"]')[1].value).toBe("150");
+ expect(host.querySelector('[aria-label="Number of questions"]').validity.valid).toBe(true);
+ unmount();
+});

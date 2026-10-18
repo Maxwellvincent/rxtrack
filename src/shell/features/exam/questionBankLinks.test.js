@@ -51,3 +51,10 @@ it("ranks missed lectures using answered questions only", () => {
   expect(summary[0]).toMatchObject({ lectureId: "l5", label: "Neurons and Glia", answered: 1, misses: 1 });
   expect(summary[1]).toMatchObject({ lectureId: "l6", answered: 1, correct: 1 });
 });
+
+it("cleans already-saved school choices when reopening without changing the source key", () => {
+ const question = { questionId: "existing", stem: "Which nerve?", choices: { A: "Facial", E: "Chorda tympani Questions 51.75" }, correct: "E" };
+ const restored = linkSourceLecture(question, [], "b");
+ expect(restored).toMatchObject({ questionId: "existing", correct: "E", choices: { E: "Chorda tympani" } });
+ expect(question.choices.E).toContain("Questions 51.75");
+});

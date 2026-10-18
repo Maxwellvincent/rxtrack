@@ -64,12 +64,13 @@ export function ExamLaunchModal({
   const [format, setFormat] = useState("exam");
   const [studyMode, setStudyMode] = useState("balanced");
   const [difficulty, setDifficulty] = useState("adaptive");
-  const [count, setCount] = useState(String(defaultQuestionCount || 20));
+  const initialCount = Math.max(1, Math.min(MAX_QUESTION_COUNT, parseInt(defaultQuestionCount, 10) || 20));
+  const [count, setCount] = useState(String(initialCount));
   // Auto-calculated from question count (1.5 min/question, matching real
   // exam pacing) until the user types into the duration field themselves —
   // then their value sticks and stops following count changes.
   const [duration, setDuration] = useState(() =>
-    String(examDurationMinutes(defaultQuestionCount || 20))
+    String(examDurationMinutes(initialCount))
   );
   const [durationTouched, setDurationTouched] = useState(false);
   const [contentScope, setContentScope] = useState("block-so-far");
@@ -146,13 +147,12 @@ export function ExamLaunchModal({
       role="dialog"
       aria-modal="true"
       aria-label="Exam settings"
-      onClick={(e) => { if (!launching && e.target === e.currentTarget) onCancel?.(); }}
       className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:p-10"
     >
-      <div className="w-full max-w-sm rounded-xl border border-border bg-bg p-5 shadow-xl">
+      <div className="max-h-[calc(100dvh-2rem)] w-full max-w-sm overflow-y-auto rounded-xl border border-border bg-bg p-5 shadow-xl sm:max-h-[calc(100dvh-5rem)]">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-sm font-bold text-text-1">Exam settings</h2>
-          <button onClick={onCancel} disabled={launching} aria-label="Close exam settings" className="font-mono text-xs text-text-3 hover:text-text-1 disabled:opacity-40">✕</button>
+          <button type="button" onClick={onCancel} disabled={launching} aria-label="Close exam settings" className="font-mono text-xs text-text-3 hover:text-text-1 disabled:opacity-40">✕</button>
         </div>
 
         <fieldset disabled={launching} className="flex flex-col gap-4">
@@ -258,6 +258,8 @@ export function ExamLaunchModal({
             </label>
             <div className="flex items-center gap-2">
               <input
+                id="exam-question-count"
+                aria-label="Number of questions"
                 type="number"
                 min="1"
                 step="1"
@@ -330,6 +332,7 @@ export function ExamLaunchModal({
         </div>}
         <div className="mt-5 flex justify-end gap-2">
           <button
+            type="button"
             onClick={onCancel}
             disabled={launching}
             className="rounded border border-border px-3 py-1.5 font-mono text-xs text-text-2 hover:text-text-1 disabled:cursor-not-allowed disabled:opacity-40"
@@ -337,6 +340,7 @@ export function ExamLaunchModal({
             Cancel
           </button>
           <button
+            type="button"
             onClick={handleLaunch}
             disabled={!canLaunch || launching}
             className="rounded bg-accent px-3 py-1.5 font-mono text-xs font-bold text-bg hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"

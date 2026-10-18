@@ -1,3 +1,4 @@
+import { cleanSchoolQuestion } from "../../../engine/schoolSourceText.js";
 import { cleanLectureTitle, formatLectureLabel } from "../../../lectureTitle.js";
 import { areNearDuplicateQuestions } from "../../../engine/questionSimilarity.js";
 
@@ -62,7 +63,7 @@ export function prepareBankQuestionSet(questions = [], analysis = null) {
   const items = analysis?.items || [];
   const prepared = unique.map((question) => {
     const originalIndex = questions.indexOf(question);
-    return attachCurriculumHints(question, analysisItemFor(question, originalIndex, items), originalIndex);
+    return attachCurriculumHints(cleanSchoolQuestion(question), analysisItemFor(question, originalIndex, items), originalIndex);
   });
   return { questions: prepared, removedDuplicateCount: questions.length - unique.length };
 }
@@ -97,6 +98,7 @@ export function scoreAnsweredQuestions(session) {
 
 /** Exact source labels can establish lecture attribution, but never objective mastery. */
 export function linkSourceLecture(question, lectures = [], blockId) {
+  question = cleanSchoolQuestion(question);
   if (question.curriculumLinkStatus === "user-confirmed" && lectures.some(l => l.id === question.lectureId && (!l.blockId || l.blockId === blockId))) return question;
   const clue = sourceLectureClue(question);
   if (!clue) return question;
