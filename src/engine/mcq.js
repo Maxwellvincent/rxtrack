@@ -58,7 +58,9 @@ function ensureClinicalCorrelateAttribution(questions = [], library = []) {
 
 const LETTERS = ["A", "B", "C", "D", "E", "F", "G", "H"];
 
-const CONNECTED_REASONING_CONTRACT = `CONNECTED REASONING CONTRACT: Ask for one focused endpoint. Second-order requires discriminating findings -> inferred process -> requested mechanism/structure. Third-order requires findings -> inferred process -> mechanism -> a new downstream prediction. These are causal dependencies, not a count of recalled facts. Reject two unrelated recall tasks joined together (for example, an ICP cutoff plus a measurement-method ranking). Do not manufacture order with bundled mechanism/tracer/ventricle combinations that let one recalled fact reveal the key. All options should answer the same focused lead-in at comparable specificity. Mentally hide the options: the vignette and lead-in must support an answer. Then test the shortest route with the options visible: if one label or giveaway eliminates every distractor, downgrade or rewrite. Preserve legitimate school table formats when supported, but never count extra columns as extra reasoning. Relevant clinical, experimental, imaging, or laboratory clues must change the inference; a long patient story is not required.\n` + QUESTION_CLARITY_CONTRACT + "\n" + STEP1_WRITING_CONTRACT + "\n" + SCHOOL_DIFFICULTY_CONTRACT + "\n";
+const SCHOOL_DERIVATIVE_CONTRACT = `SCHOOL-ANCHORED VARIANTS: Relevant uploaded Homework, ExamSoft and IMCQ questions are the primary templates for wording, clue density, tested relationships, lead-ins and distractor contrasts. Build a fresh derivative of a matching concept: retain familiar clinical/anatomic terms and a comparable inferential burden, while changing meaningful findings or the requested endpoint. Do not copy the original item or simply swap demographics. For a weak objective, reinforce the confused relationship with a clear near-transfer case before harder integration; explain the decisive clue and why the closest competing answer fails. Keep objectives as scope and lecture excerpts as factual authority. Unrelated examples teach general style only and must not add content or extra diagnostic steps. School alignment takes priority over making an item appear advanced.\n`;
+
+const CONNECTED_REASONING_CONTRACT = SCHOOL_DERIVATIVE_CONTRACT + `CONNECTED REASONING CONTRACT: Ask for one focused endpoint. Second-order requires discriminating findings -> inferred process -> requested mechanism/structure. Third-order requires findings -> inferred process -> mechanism -> a new downstream prediction. These are causal dependencies, not a count of recalled facts. Reject two unrelated recall tasks joined together (for example, an ICP cutoff plus a measurement-method ranking). Do not manufacture order with bundled mechanism/tracer/ventricle combinations that let one recalled fact reveal the key. All options should answer the same focused lead-in at comparable specificity. Mentally hide the options: the vignette and lead-in must support an answer. Then test the shortest route with the options visible: if one label or giveaway eliminates every distractor, downgrade or rewrite. Preserve legitimate school table formats when supported, but never count extra columns as extra reasoning. Relevant clinical, experimental, imaging, or laboratory clues must change the inference; a long patient story is not required.\n` + QUESTION_CLARITY_CONTRACT + "\n" + STEP1_WRITING_CONTRACT + "\n" + SCHOOL_DIFFICULTY_CONTRACT + "\n";
 
 const MCQ_SYSTEM = "You are an SGU Basic Principles of Medicine exam-question writer. Use supplied SGU ExamSoft/IMCQ/homework wording and difficulty, with the supplied NBME/USMLE editorial principles for clear source-grounded clinical application. Return ONLY valid JSON — no markdown, no prose.";
 const MCQ_V2_SYSTEM = MCQ_SYSTEM;
@@ -634,22 +636,20 @@ export function selectStyleExemplars(examples = [], limit = 5, _difficulty = "me
       };
       return (relevance.get(b) || 0) - (relevance.get(a) || 0) || sourceRank(a) - sourceRank(b);
     });
-  const selected = [];
-  const seenCounts = new Set();
-  for (const q of valid) {
-    const optionCount = Object.keys(q.choices).length;
-    if (seenCounts.has(optionCount)) continue;
-    selected.push(q);
-    seenCounts.add(optionCount);
-    if (selected.length >= limit) return selected;
-  }
+  // Keep concept matches in the actual prompt. Option-count variety and broad
+  // bank sampling must never displace a relevant homework/ExamSoft example.
+  const selected = valid.filter(q => (relevance.get(q) || 0) > 0).slice(0, limit);
   const selectedSet = new Set(selected);
-  const remaining = valid.filter((q) => !selectedSet.has(q));
-  while (selected.length < limit && remaining.length) {
-    const index = selected.length === limit - 1
-      ? remaining.length - 1
-      : Math.floor((selected.length / limit) * remaining.length);
-    selected.push(remaining.splice(Math.max(0, index), 1)[0]);
+  const seenCounts = new Set(selected.map(q => Object.keys(q.choices).length));
+  for (const q of valid) {
+    if (selected.length >= limit) break;
+    const optionCount = Object.keys(q.choices).length;
+    if (selectedSet.has(q) || seenCounts.has(optionCount)) continue;
+    selected.push(q); selectedSet.add(q); seenCounts.add(optionCount);
+  }
+  for (const q of valid) {
+    if (selected.length >= limit) break;
+    if (!selectedSet.has(q)) { selected.push(q); selectedSet.add(q); }
   }
   return selected;
 }

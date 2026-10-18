@@ -962,3 +962,20 @@ describe('writer shortfall responses',()=>{
   expect(result.error).not.toContain('No question list was found');
  });
 });
+
+describe("school-anchored variants", () => {
+ it("retains matching concepts even when unrelated examples have different option counts", () => {
+  const objectives = [{ id: "o", objective: "Describe facial nerve motor branches" }];
+  const related = Array.from({ length: 3 }, (_, i) => ({ stem: `Facial nerve motor branches presentation ${i}?`, choices: { A: "Facial", B: "Trigeminal", C: "Vagus", D: "Accessory", E: "Hypoglossal" }, correct: "A", sourceFile: "Homework.pdf" }));
+  const unrelated = [4, 6, 7].map(count => ({ stem: "Which renal transporter?", choices: Object.fromEntries("ABCDEFG".slice(0, count).split("").map(letter => [letter, letter])), correct: "A", sourceFile: "ExamSoft.pdf" }));
+  expect(selectStyleExemplars([...unrelated, ...related], 3, "medium", { objectives })).toEqual(related);
+ });
+ it("requires concept derivatives and familiar school wording in both prompt paths", () => {
+  for (const promptProfile of ["compact", "full"]) {
+   const prompt = buildMcqPrompt({ promptProfile, lectureText: "Facial nerve supplies facial expression muscles.", objectives: [{ id: "o", objective: "Describe facial nerve motor branches" }] });
+   expect(prompt).toContain("SCHOOL-ANCHORED VARIANTS");
+   expect(prompt).toContain("clear near-transfer case before harder integration");
+   expect(prompt).toContain("School alignment takes priority");
+  }
+ });
+});

@@ -1,3 +1,4 @@
+import { cleanSchoolQuestion } from "../../../engine/schoolSourceText.js";
 import { preparationErrorMessage } from "../../../preparationError.js";
 import { withDeadline } from "../../../asyncDeadline.js";
 import { hasCurrentReasoningAudit } from "../../../engine/questionOrder.js";
@@ -207,6 +208,7 @@ export function selectExemplarsForBlock(banks = {}, _meta = {}, _blockId = null)
     (Array.isArray(questions) ? questions : [])
       .filter(eligible)
       .map((question) => {
+        question = cleanSchoolQuestion(question);
         const upload = metaByFilename.get(filename);
         // Older imported rows did not carry blockId on every question. Stamp it
         // from the upload metadata so clinical evidence can be scoped safely.
