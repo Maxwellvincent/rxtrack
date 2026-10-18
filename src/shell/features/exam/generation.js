@@ -65,8 +65,15 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
   const total = lectureIds.reduce((n, id) => n + allocation[id], 0);
   const history = deps.pool ? await deps.pool.history() : [];
   let nextIndex = 0, cacheHits = 0, stopError = null;
+  let completedLectures = 0;
+  const activities = new Map();
   const coverageByLecture = {};
-  const progress = message => deps.onProgress?.({ message, completed: questions.length, total, cacheHits });
+  const progress = (message, lectureId = null) => {
+    if (lectureId) activities.set(lectureId, message);
+    deps.onProgress?.({ message, completed: questions.length, total, cacheHits,
+      completedLectures, totalLectures: lectureIds.length, failedLectures: errors.length,
+      activeLectures: [...activities.values()] });
+  };
 
   async function generateLecture(lectureId) {
     const requested = allocation[lectureId];
@@ -77,7 +84,7 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
     let lectureText = getLecText(lecture);
     let sourceError = null;
     if (!deps.savedOnly) {
-      progress(`Loading saved lecture content: ${lectureTitle}`);
+      progress(`Loading saved lecture content: ${lectureTitle}`, lectureId);
       try {
         const loaded = await withDeadline(() => loadExamLectureEvidence(lecture, atoms, {
           userId, fetchContent: deps.fetchLectureContent || fetchLectureContent,
@@ -122,7 +129,7 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
     while (obtained < requested && attempt < MAX_ATTEMPTS && !stopError && !sourceError) {
       if (deps.savedOnly) break;
       attempt++;
-      progress(`Generating: ${lectureTitle}${attempt > 1 ? ` · retry ${attempt - 1}` : ""} · up to 2 lectures at once`);
+      progress(`Writing questions: ${lectureTitle}${attempt > 1 ? ` · retry ${attempt - 1}` : ""}`, lectureId);
       let result;
       try {
         result = await withDeadline(signal => startObjectiveQuiz({ objectives, lectureTitle, lectureIdHint: lectureId, blockId, lectures, exemplars, atoms,
@@ -133,6 +140,7 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
           ...deps,
           maxTokens: Math.min(8000, Math.max(2000, (requested - obtained) * 1100)),
           callAIJSON: (...args) => {
+            progress(`${/independent|audit/i.test(String(args[0])) ? "Reviewing accuracy" : "Writing questions"}: ${lectureTitle}`, lectureId);
             args[6] = { ...args[6], signal, bridgeTimeoutMs: LOCAL_BRIDGE_TIMEOUT_MS, throwOnError: true };
             return deps.callAIJSON(...args);
           },
@@ -171,7 +179,12 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
   async function worker() {
     while (nextIndex < lectureIds.length) {
       const lectureId = lectureIds[nextIndex++];
-      await generateLecture(lectureId);
+      try { await generateLecture(lectureId); }
+      finally {
+        completedLectures++;
+        activities.delete(lectureId);
+        progress(`Checked ${completedLectures}/${lectureIds.length} lectures`);
+      }
     }
   }
   const results = await Promise.allSettled(Array.from({ length: Math.min(2, lectureIds.length) }, worker));

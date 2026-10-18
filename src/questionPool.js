@@ -238,6 +238,23 @@ export function createQuestionPool(userId, blockId, database = db) {
         return { ok: true, session: next };
       });
     },
+    async reportSessionFillProgress(sessionId, progress) {
+      const sessionRef = doc(db, "users", userId, "examSessions", sessionId);
+      return runTransaction(db, async tx => {
+        const snap = await tx.get(sessionRef);
+        if (!snap.exists()) return;
+        const session = snap.data();
+        if (session.status !== "in_progress" || session.fillStatus !== "generating") return;
+        tx.update(sessionRef, { fillProgress: clean({
+          message: String(progress.message || "Preparing questions").slice(0, 240),
+          activeLectures: (progress.activeLectures || []).slice(0, 2).map(value => String(value).slice(0, 240)),
+          completedLectures: Number(progress.completedLectures) || 0,
+          totalLectures: Number(progress.totalLectures) || 0,
+          failedLectures: Number(progress.failedLectures) || 0,
+          updatedAt: Date.now(),
+        }) });
+      });
+    },
     async finishSessionFill(sessionId, { requestedCount, durationMinutes, error = "" } = {}) {
       const sessionRef = doc(db, "users", userId, "examSessions", sessionId);
       return runTransaction(db, async tx => {

@@ -115,6 +115,7 @@ async function runLaunch(
       targetQuestionCount: questionCount,
       durationMinutes: format === "exam" ? durationMinutes : null,
     });
+    session.fillStartedAt = Date.now();
     deps.onProgress?.({ message: `Opening with ${savedQuestions.length}/${questionCount} saved questions · generating the rest`, completed: savedQuestions.length, total: questionCount });
     const committed = await pool.commit(session);
     if (!committed.ok) return { ok: false, error: committed.error };
@@ -123,6 +124,15 @@ async function runLaunch(
     void (async () => {
       let result = { questions: [], errors: [] };
       let fillError = "";
+      let progressQueue = Promise.resolve(), lastProgressAt = 0, lastCompleted = -1;
+      const reportFill = progress => {
+        deps.onProgress?.(progress);
+        if (!pool.reportSessionFillProgress) return;
+        const now = Date.now();
+        if (now - lastProgressAt < 2000 && progress.completed === lastCompleted) return;
+        lastProgressAt = now; lastCompleted = progress.completed;
+        progressQueue = progressQueue.then(() => pool.reportSessionFillProgress(sessionId, progress)).catch(() => {});
+      };
       try {
         if (Object.keys(missingAllocation).length) {
           result = await generateExamQuestions(
@@ -130,6 +140,7 @@ async function runLaunch(
               blockId, lectures, weakConceptAccuracyByLecture, userId, generationId: sessionId,
               studyMode, difficultyOverride, focusNotes: adaptiveFocusNotes },
             { ...deps, pool, savedOnly: false,
+              onProgress: reportFill,
               onQuestionReady: question => pool.appendToSession(sessionId, question, { requestedCount: questionCount, durationMinutes }) }
           );
           if (result.errors?.length) fillError = result.errors.map(item => item.message).join(" ");
@@ -139,6 +150,7 @@ async function runLaunch(
       }
       // Questions generated to fill this running attempt belong to its session,
       // not to the already-prepared source set. Keep that named set immutable.
+      await progressQueue;
       await pool.finishSessionFill(sessionId, { requestedCount: questionCount, durationMinutes, error: fillError }).catch(() => {});
       await pool.finish(sessionId, { status: fillError ? "partial" : "complete",
         readyCount: savedQuestions.length + (result.questions?.length || 0), errors: result.errors || [],

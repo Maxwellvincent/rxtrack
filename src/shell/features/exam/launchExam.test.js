@@ -10,12 +10,14 @@ const checkExamAccessMock = vi.fn();
 const appendPoolQuestionMock = vi.fn();
 const finishPoolFillMock = vi.fn();
 const addPreparedQuestionsMock = vi.fn();
+const reportFillProgressMock = vi.fn();
 vi.mock("../../../questionPool.js", () => ({ createQuestionPool: userId => ({
   begin: async () => {}, finish: async () => {},
   addPreparedQuestions: (...args) => addPreparedQuestionsMock(...args),
   commit: session => createExamSessionMock(userId, session),
   appendToSession: (...args) => appendPoolQuestionMock(...args),
   finishSessionFill: (...args) => finishPoolFillMock(...args),
+  reportSessionFillProgress: (...args) => reportFillProgressMock(...args),
 }) }));
 
 vi.mock("./allocation.js", () => ({
@@ -203,6 +205,7 @@ describe("launchExamSession", () => {
     generateExamQuestionsMock
       .mockResolvedValueOnce({ questions: [saved], cacheHits: 1, errors: [] })
       .mockImplementationOnce(async (_args, deps) => {
+        deps.onProgress({ message: "Reviewing accuracy: Lecture One", completed: 0, total: 1, activeLectures: ["Reviewing accuracy: Lecture One"], totalLectures: 1, completedLectures: 0 });
         await deps.onQuestionReady(fresh);
         return { questions: [fresh], cacheHits: 0, errors: [] };
       });
@@ -213,12 +216,13 @@ describe("launchExamSession", () => {
     const [, session] = createExamSessionMock.mock.calls[0];
     expect(session.questions.map(question => question.questionId)).toEqual(["saved"]);
     expect(session.fillStatus).toBe("generating");
+    expect(session.fillStartedAt).toEqual(expect.any(Number));
     expect(session.deadline).toBeNull();
     expect(generateExamQuestionsMock.mock.calls[0][1]).toMatchObject({ savedOnly: true });
     expect(generateExamQuestionsMock.mock.calls[1][1]).toMatchObject({ savedOnly: false });
     expect(appendPoolQuestionMock).toHaveBeenCalledWith(result.sessionId, fresh, expect.objectContaining({ requestedCount: 2 }));
-    await Promise.resolve();
-    expect(finishPoolFillMock).toHaveBeenCalledWith(result.sessionId, expect.objectContaining({ requestedCount: 2 }));
+    await vi.waitFor(() => expect(finishPoolFillMock).toHaveBeenCalledWith(result.sessionId, expect.objectContaining({ requestedCount: 2 })));
+    expect(reportFillProgressMock).toHaveBeenCalledWith(result.sessionId, expect.objectContaining({ message: "Reviewing accuracy: Lecture One", totalLectures: 1 }));
     expect(addPreparedQuestionsMock).not.toHaveBeenCalled();
   });
 });

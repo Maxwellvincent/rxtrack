@@ -18,6 +18,7 @@
  * session is ever created.
  */
 import { useEffect, useState, useMemo } from "react";
+import { ExamPreparationStatus } from "./ExamPreparationStatus.jsx";
 import { linkSourceLecture, lectureReviewSummary } from "./questionBankLinks.js";
 import { SchoolQuestionFigure } from "./SchoolQuestionFigure.jsx";
 import { Button } from "../../../ui/Button.jsx";
@@ -415,7 +416,7 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
   const showAnswer = revealed && (isCorrect || diagnosed);
   const [draftChoice, setDraftChoice] = useState(picked);
   useEffect(() => setDraftChoice(picked), [q?.questionId, picked]);
-  if (!q) return session.fillStatus === "generating" ? <div role="status" className="rounded-lg border border-accent/40 bg-bg-elevated p-4 text-sm text-text-2">Preparing questions for this scope…</div> : null;
+  if (!q) return null; // Preparation status is shown once above the question area.
 
   return (
     <div className="space-y-3" onKeyDown={(event) => advanceOnEnter(event, () => setCurrentIndex((i) => Math.min(questions.length - 1, i + 1)), revealed && currentIndex < questions.length - 1 && !submitting)}>
@@ -696,7 +697,7 @@ export function ExamSessionRunner({
   return (
     <div className="mb-5 space-y-3">
       <SessionTitle session={session} />
-      {session.fillStatus === "generating" && <div role="status" className="rounded-lg border border-accent/40 bg-bg-elevated px-3 py-2 text-sm text-text-2">{session.questions?.length || 0}/{session.targetQuestionCount || "…"} questions ready. You can start answering now; missing questions are generating. {session.format === "exam" ? "The timer starts when the requested set is ready." : ""} Keep this tab open until preparation finishes.</div>}
+      {session.fillStatus === "generating" && <ExamPreparationStatus session={session} />}
       {session.fillStatus === "partial" && <div role="status" className="rounded-lg border border-accent/40 bg-bg-elevated px-3 py-2 text-sm text-text-2">{session.questions?.length || 0}/{session.targetQuestionCount || session.questions?.length || 0} questions ready. {session.fillError ? `The remaining questions could not be prepared: ${session.fillError}` : "The requested set could not be fully prepared."} You can continue with what is ready.</div>}
       {session.format === "exam" ? (
         <ExamFormat userId={userId} controller={{ ...controller, session }} submitOpts={submitOpts} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} />
