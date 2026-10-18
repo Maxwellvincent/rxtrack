@@ -39,7 +39,10 @@ const callAIJSON = async (system, prompt, fallback, maxTokens, _provider, _tempe
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(request),
       signal: AbortSignal.timeout(Math.max(1, Math.ceil(remaining))),
     });
-    if (!response.ok) throw new Error(`Local provider HTTP ${response.status}`);
+    if (!response.ok) {
+      const failure = await response.json().catch(() => ({}));
+      throw new Error(failure?.error?.message || (typeof failure?.error === "string" ? failure.error : `Provider HTTP ${response.status}`));
+    }
     const body = await response.json();
     const raw = direct ? body.response : body.text;
     Object.assign(timing, {
@@ -71,18 +74,21 @@ const reviewAIJSON = cachedReviewFile ? (...params) => {
   if (cachedIndex < cachedReviews.length) return Promise.resolve(cachedReviews[cachedIndex++].result);
   return callAIJSON(...params);
 } : callAIJSON;
+const resumeFile = option("--resume-from", "");
+const resumed = resumeFile ? JSON.parse(await readFile(resumeFile, "utf8")) : null;
+const initialQuestions = resumed?.result?.questions || [];
 const prepare = process.argv.includes("--prepare");
 const requested = Number(option("--count", cfg.count));
 let result;
 if (prepare) {
   const { prepareObjectiveQuiz } = await import("../src/shell/features/objectives/quizLaunch.js");
-  result = await prepareObjectiveQuiz({
+  result = initialQuestions.length >= requested ? { questions: [], incomplete: false } : await prepareObjectiveQuiz({
     lectureTitle: cfg.subject, lectureIdHint: "benchmark-private", blockId: "benchmark-private",
     lectures: [{ id: "benchmark-private", blockId: "benchmark-private", lectureTitle: cfg.subject, chunks: [{ markdown: cfg.lectureText }] }],
     objectives: cfg.objectives, atoms: cfg.atoms || [], exemplars: cfg.examples || [],
-    questionCount: requested, generationVersion: "v2", difficulty: cfg.difficulty || "medium",
+    questionCount: Math.max(0, requested - initialQuestions.length), plannedCount: requested, initialQuestions, avoidQuestions: initialQuestions, avoidStems: initialQuestions.map(q => q.stem), generationVersion: "v2", difficulty: cfg.difficulty || "medium",
     evidenceModel: {}, clinicalCorrelateLibrary: cfg.clinicalCorrelateLibrary || [],
-  }, { callAIJSON, maxPreparationMs: budget, prepareConcurrency: Number(option("--concurrency", "1")),
+  }, { callAIJSON, reviewAIJSON: callAIJSON, repairAIJSON: callAIJSON, maxPreparationMs: budget, prepareConcurrency: Number(option("--concurrency", "1")),
     ...(process.argv.includes("--production-policy") ? { prepareBatchSize: 3, reviewBatchSize: 3, prepareSpareCandidates: 2, continueAfterEmptyRounds: true, focusedRefill: true, skipRepair: true } : {}),
   }, progress => console.log(JSON.stringify({ event: "progress", ...progress })));
 } else {
@@ -90,6 +96,10 @@ if (prepare) {
     ? await auditGeneratedQuestions(questions || [], { ...cfg, promptProfile: "compact" }, { callAIJSON, reviewAIJSON, skipRepair: !cachedReviewFile })
     : await generateMcqs(cfg, { callAIJSON });
 }
-const report = { requested, accepted: result.questions?.length || 0, elapsedSeconds: (performance.now() - started) / 1000, result, calls };
+if (prepare && initialQuestions.length) {
+  result.questions = [...initialQuestions, ...(result.questions || [])];
+  result.incomplete = result.questions.length < requested;
+}
+const report = { requested, resumedCount: initialQuestions.length, accepted: result.questions?.length || 0, elapsedSeconds: (performance.now() - started) / 1000, result, calls };
 await writeFile(output, JSON.stringify(report, null, 2));
 console.log(JSON.stringify({ requested: report.requested, accepted: report.accepted, seconds: Math.round(report.elapsedSeconds), error: result.error, output }));

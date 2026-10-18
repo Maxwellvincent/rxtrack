@@ -312,18 +312,24 @@ function clickerEvidencePrompt(examples = []) {
     clickers.map((question, index) => `CLICKER ${index + 1}${question.hasImage ? " [image-dependent]" : ""}: ${question.stem}`).join("\n") + "\n";
 }
 
-function clinicalTemplates(cfg) {
+function clinicalTemplates(cfg, requireObjectiveMatch = false) {
   const number = String(cfg.subject || "").match(/\b(?:NB|LEC|lecture)\s*0*(\d+)/i)?.[1];
-  const aligned = new Map(alignSchoolQuestions(cfg.examples || [], cfg.objectives || [], cfg.atoms || []).map(x => [x.question, x.score]));
+  const aligned = new Map((cfg.examples || []).map(question => {
+    // A shared lecture heading or an unrelated atom cannot impose an order floor
+    // on this objective. Strict matches use the actual question and objective.
+    const candidate = requireObjectiveMatch ? { ...question, sourceSectionTitle: "" } : question;
+    const match = alignSchoolQuestions([candidate], cfg.objectives || [], requireObjectiveMatch ? [] : cfg.atoms || [])[0];
+    return [question, match?.score || 0];
+  }));
   return selectStyleExemplars(cfg.examples || [], 8, cfg.difficulty, cfg).filter(q => {
     const sourceNumber = String(q.sourceSection || "").match(/\b(?:NB|LEC|lecture)\s*0*(\d+)/i)?.[1];
-    return ((aligned.get(q) || 0) > 0 || (number && sourceNumber && Number(number) === Number(sourceNumber)))
+    return ((aligned.get(q) || 0) > 0 || (!requireObjectiveMatch && number && sourceNumber && Number(number) === Number(sourceNumber)))
       && /\bpatient|\byear[- ]old|\bhistory of|\bexamination\b/i.test(q.stem);
   });
 }
 function schoolApplicationPrompt(cfg) {
   if (clinicalTemplates(cfg).length < 2) return "";
-  return `\nMATCHED SCHOOL APPLICATION REQUIREMENT: The matching uploaded cases test clinical findings and functional distinctions. Generate meaningful patient findings or clinical observations that require applying the taught relationship. A student reviewing a table, a lesion described only by its functional category, or asking which division is sensory AND motor is recall and does not meet this application request. Use ordinary symptoms/examination and a focused school-level lead-in, without adding an extra hidden diagnostic step. If lecture evidence cannot support that application, report the shortage instead of substituting recall. Reviewers must reject such substitutions as school_style_mismatch even if the key is correct. Before drafting, allocate one item to each requested objective before repeating any objective, honoring targetCount. Across this batch, vary the decisive relationship and endpoint; do not reuse one governing fact under different objective IDs. Use competing named nerves, branches, structures, or outcomes at the same endpoint. Do not offer one motor-labeled choice against only sensory-labeled choices when the stem already says motor contraction is absent; the options must require the taught anatomy, not a word match.\n`;
+  return `\nMATCHED SCHOOL APPLICATION REQUIREMENT: The matching uploaded cases test clinical findings and functional distinctions. Generate meaningful patient findings or clinical observations that require applying the taught relationship. A student reviewing a table, a lesion described only by its functional category, or asking which division is sensory AND motor is recall and does not meet this application request. Use ordinary symptoms/examination and a focused school-level lead-in, without adding an extra hidden diagnostic step. If lecture evidence cannot support that application, report the shortage instead of substituting recall. Apply this requirement only to objectives with concept-matching clinical examples; same-lecture examples alone guide wording and do not establish a minimum reasoning order for every objective. A direct lecture association remains valid school-level practice when the matching school task is direct; label it first-order honestly. Before drafting, allocate one item to each requested objective before repeating any objective, honoring targetCount. Across this batch, vary the decisive relationship and endpoint; do not reuse one governing fact under different objective IDs. Use competing named nerves, branches, structures, or outcomes at the same endpoint. Do not offer one motor-labeled choice against only sensory-labeled choices when the stem already says motor contraction is absent; the options must require the taught anatomy, not a word match.\n`;
 }
 function retrievalHints(cfg, queries = cfg.atoms || []) {
   return [...queries, ...clinicalTemplates(cfg).slice(0, 5).map(q => ({ term: "", content: `${q.stem} ${Object.values(q.choices).join(" ")}`, retrievalRole: "school-case" }))];
@@ -933,14 +939,14 @@ export function locallyValidClinicalQuestions(questions = []) {
 }
 
 /** Minimal recovery screen when independent review and repair cannot return a verdict. */
-export function locallyUsableQuestions(questions = []) {
+export function locallyUsableQuestions(questions = [], minimumStemLength = 100) {
   return uniqueQuestions((questions || []).filter((question) => {
     if (questionClarityIssues(question).length) return false;
     const stem = String(question?.stem || "").trim();
     const entries = Object.entries(question?.choices || {});
     const correctText = question?.choices?.[question?.correct];
     const explanation = String(question?.explanation || "").trim();
-    if (!stem.endsWith("?") || stem.length < 100 || !correctText || entries.length < 4 || explanation.length < 40) return false;
+    if (!stem.endsWith("?") || stem.length < minimumStemLength || !correctText || entries.length < 4 || explanation.length < 40) return false;
     // Generated items must not refer to a figure/table that the question object
     // cannot actually supply. Otherwise the learner sees an unanswerable item.
     const visualCue = /\b(?:figure|image|graph|chart|table|photomicrograph|radiograph|x[- ]ray|ultrasound)\b.{0,90}\b(?:shown|below|above|provided|attached|following|numbered|labeled)\b|\b(?:shown|below|above|provided|attached|following)\b.{0,70}\b(?:figure|image|graph|chart|table|photomicrograph|radiograph|x[- ]ray|ultrasound)\b/i.test(stem);
@@ -1037,8 +1043,8 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
   // An explicit independent approval is stronger than the conservative clinical-shape screen.
   // Keep the basic structural guard, but do not discard an approved question merely because it
   // is a shorter anatomy/mechanism item or uses a school-specific stem shape.
-  const structurallyUsableSet = new Set(locallyUsableQuestions(questions));
-  const locallyUsable = locallyUsableQuestions(questions).filter((question) => questionMatchesObjectiveDomain(question, cfg));
+  const structurallyUsableSet = new Set(locallyUsableQuestions(questions, 40));
+  const locallyUsable = locallyUsableQuestions(questions, 40).filter((question) => questionMatchesObjectiveDomain(question, cfg));
   const locallyUsableSet = new Set(locallyUsable);
   const keepLocallyValidated = (failure) => {
     const reason = preparationErrorMessage(failure);
@@ -1143,7 +1149,7 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
       }
       const target = (cfg.objectives || []).find(o => (question.objectiveIds || []).includes(String(o.id || o.code)))?._targetOrder;
       const reasoning = cfg.requireReasoningAudit && review?.approved === true ? verifyReasoningReview(review, question, cfg) : null;
-      if (reasoning?.orderLevel === "first-order" && clinicalTemplates(cfg).length >= 2) return [{ objectiveIds: question.objectiveIds || [], issues: ["school_style_mismatch"], rationale: "Matching school cases require applying clinical findings; a recall-only substitute does not meet this request." }];
+      if (reasoning?.orderLevel === "first-order" && clinicalTemplates({ ...cfg, objectives: (cfg.objectives || []).filter(o => (question.objectiveIds || []).includes(String(o.id || o.code))) }, true).length >= 2) return [{ objectiveIds: question.objectiveIds || [], issues: ["school_style_mismatch"], rationale: "Matching school cases require applying clinical findings; a recall-only substitute does not meet this request." }];
       const levels = ["first-order", "second-order", "third-order"];
       if (target && reasoning && levels.indexOf(reasoning.orderLevel) < levels.indexOf(normalizeQuestionOrder(target))) {
         return [{ objectiveIds: question.objectiveIds || [], issues: ["insufficient_reasoning_depth"], rationale: `Reviewer verified ${reasoning.orderLevel}; this objective requires ${normalizeQuestionOrder(target)}. Generate the missing causal inference rather than relabeling the question.` }];
@@ -1172,7 +1178,7 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
       const acceptedWithNotes = review?.approved !== true && issues.length > 0 && blockingIssues.length === 0;
       const reasoningAudit = verifyReasoningReview(review, question, cfg);
       const target = (cfg.objectives || []).find(o => (question.objectiveIds || []).includes(String(o.id || o.code)))?._targetOrder;
-      if (reasoningAudit?.orderLevel === "first-order" && clinicalTemplates(cfg).length >= 2) return [];
+      if (reasoningAudit?.orderLevel === "first-order" && clinicalTemplates({ ...cfg, objectives: (cfg.objectives || []).filter(o => (question.objectiveIds || []).includes(String(o.id || o.code))) }, true).length >= 2) return [];
       const orders = ["first-order", "second-order", "third-order"];
       if (cfg.requireReasoningAudit && target && reasoningAudit && orders.indexOf(reasoningAudit.orderLevel) < orders.indexOf(normalizeQuestionOrder(target))) return [];
       const semanticObjectiveAlignment = review.objectiveAligned === true && !!reasoningAudit
@@ -1364,7 +1370,10 @@ Return ONLY JSON: {"questions":[{${QUESTION_PLAN_JSON},"stem":"...","choices":{"
 }
 
 function buildCompactAuditPrompt(questions, cfg) {
-  const queries = questions.map(q => ({ term: q.topic || "", content: `${q.stem} ${Object.values(q.choices || {}).join(" ")} ${q.explanation || ""}`, sourceQuotes: q.questionPlan?.sourceQuotes || [] }));
+  const queries = questions.flatMap(q => [
+    { term: q.topic || "", content: `${q.stem} ${Object.values(q.choices || {}).join(" ")} ${q.explanation || ""}`, sourceQuotes: q.questionPlan?.sourceQuotes || [] },
+    ...Object.entries(q.whyWrong || {}).map(([letter, rationale]) => ({ term: q.choices?.[letter] || "", content: `${q.choices?.[letter] || ""} ${rationale}`, retrievalRole: "review-claim" })),
+  ]);
   return `Independently audit every generated question. If the ONLY defect is weak_explanation, return a complete replacement with the identical stem, choices, correct key and objectiveIds, changing only explanation and whyWrong. Other defects must remain rejected. Fail uncertain items; never infer approval from writing quality. Return compact JSON without indentation. Keep approved-item rationale to one concise sentence; rejected-item rationale must name the specific defect and repair needed. Use short causal clauses for reasoning steps, preserving every necessary relationship.
 ${CONNECTED_REASONING_CONTRACT}
 ${schoolApplicationPrompt(cfg)}
@@ -1378,7 +1387,7 @@ SUBJECT: ${cfg.subject || "this lecture"}
 OBJECTIVES:\n${JSON.stringify(compactObjectives(cfg))}
 ${objectiveModalitySection(cfg.objectives || [])}
 ${compactStyle(cfg)}
-${numberedAuditEvidence(cfg, retrieveLectureEvidence(cfg.lectureText || "", cfg.objectives || [], queries, 9000))}
+${numberedAuditEvidence(cfg, retrieveLectureEvidence(cfg.lectureText || "", cfg.objectives || [], queries, Math.min(18000, 9000 + (questions.length - 1) * 4500)))}
 QUESTIONS:\n${JSON.stringify(questions.map(auditQuestionPayload))}
 OTHER BATCH STEMS (comparison only; never factual evidence):\n${JSON.stringify(cfg.comparisonItems || cfg.comparisonStems || [])}
 Reject duplicate_reasoning_route when the same decisive fact/relationship answers an earlier batch item, even with a different stem or objective ID.

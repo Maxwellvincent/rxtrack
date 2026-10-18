@@ -969,3 +969,19 @@ it("uses bounded final-slot recovery after a productive batch reaches its ordina
   expect(result.questions).toHaveLength(4);
   expect(callAIJSON).toHaveBeenCalledTimes(15);
 });
+
+
+it.each([["school", 1], ["challenge", 0]])("keeps independently verified recall only in %s preparation policy", async (reasoningPolicy, expected) => {
+  const source = "The ophthalmic division of the trigeminal nerve passes through the superior orbital fissure.";
+  const question = { stem: "Through which opening does the ophthalmic division of the trigeminal nerve pass?", choices: { A: "Superior orbital fissure", B: "Foramen rotundum", C: "Foramen ovale", D: "Optic canal" }, correct: "A", explanation: source, objectiveIds: ["o1"], orderLevel: "first-order" };
+  const callAIJSON = vi.fn(async (_system, prompt) => prompt.includes("Independently audit")
+    ? { reviews: [{ index: 0, approved: true, objectiveAligned: true, issues: [], reasoning: { orderLevel: "first-order", steps: ["Recall the ophthalmic division exit"], sourceQuotes: [source], allStepsRequired: true, connectedChain: true, singleEndpoint: true, choiceShortcut: false } }] }
+    : { questions: [question] });
+  const result = await prepareObjectiveQuiz({ objectives: [{ id: "o1", objective: "Describe the foramina of the trigeminal divisions", _targetOrder: "second-order" }], atoms: [{ term: "Ophthalmic division", content: source }], questionCount: 1, generationVersion: "v2", reasoningPolicy }, { callAIJSON, maxPrepareAttempts: 1, skipRepair: true });
+  expect(result.questions).toHaveLength(expected);
+  if (expected) {
+    expect(result.questions[0].orderLevel).toBe("first-order");
+    expect(result.questions[0].reasoningAudit.status).toBe("verified");
+    expect(result.diagnostics.rejections.allocation_or_reasoning_depth).toBeUndefined();
+  }
+});

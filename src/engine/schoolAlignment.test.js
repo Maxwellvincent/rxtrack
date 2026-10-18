@@ -94,3 +94,15 @@ it('retrieves detailed objective-coded and clinical-function slides instead of o
  expect(actual).toContain('Lesion causes loss of lacrimal gland secretion');
  expect(source).toContain(actual.match(/SOM.COURSE[^\n]+/)[0]);
 });
+
+it('reserves source support for distractor claims separately from the keyed topic', () => {
+ const source = [
+  'Trigeminal ophthalmic sensory divisions and their anatomy. '.repeat(18),
+  'The facial nerve exits through the stylomastoid foramen before entering the parotid gland.',
+ ].join('\f');
+ const result = retrieveLectureEvidence(source, [{ objective: 'Describe trigeminal ophthalmic sensory divisions' }], [
+  { retrievalRole: 'review-claim', term: 'Facial nerve', content: 'Facial nerve stylomastoid foramen parotid gland' },
+ ], 1900);
+ expect(result).toContain('stylomastoid foramen');
+ expect(result).toContain('ophthalmic sensory');
+});

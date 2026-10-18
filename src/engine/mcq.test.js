@@ -852,8 +852,8 @@ describe("separate reasoning review gate", () => {
     expect(result.error).toContain("insufficient_reasoning_depth");
   });
   it("withholds recall substitutions when matching school cases require clinical application", async () => {
-    const examples = [1, 2].map(n => ({ id: `school-${n}`, sourceSection: "NB 13", stem: `A 40-year-old patient presents with headache ${n}. Which structure is affected?`, choices: { A: "Aqueduct", B: "Ventricle", C: "Cortex", D: "Meninges" }, correct: "A" }));
-    const result = await auditGeneratedQuestions([question], { ...cfg, subject: "NB 13 Cranial Nerves", examples, promptProfile: "compact" }, {
+    const examples = [1, 2].map(n => ({ id: `school-${n}`, schoolObjectiveCode: "SOM.TEST.001", sourceSection: "NB 13", stem: `A 40-year-old patient has CSF obstruction ${n}. Which downstream obstruction response follows?`, choices: { A: "Aqueduct", B: "Ventricle", C: "Cortex", D: "Meninges" }, correct: "A" }));
+    const result = await auditGeneratedQuestions([question], { ...cfg, objectives: [{ ...cfg.objectives[0], code: "SOM.TEST.001" }], subject: "NB 13 Cranial Nerves", examples, promptProfile: "compact" }, {
       skipRepair: true,
       reviewAIJSON: async () => ({ reviews: [{ index: 0, approved: true, objectiveAligned: true, issues: [], reasoning: {
         orderLevel: "first-order", steps: ["Recall obstruction"], sourceQuotes: [cfg.atoms[0].content], allStepsRequired: true, connectedChain: true, singleEndpoint: true, choiceShortcut: false,
@@ -861,6 +861,17 @@ describe("separate reasoning review gate", () => {
     });
     expect(result.questions).toEqual([]);
     expect(result.rejections[0].issues).toContain("school_style_mismatch");
+  });
+  it("does not impose clinical depth from unrelated cases in the same lecture", async () => {
+    const examples = [1, 2].map(n => ({ id: `unrelated-${n}`, sourceSection: "NB 13", sourceSectionTitle: "Analyze CSF obstruction", stem: `A 40-year-old patient has facial weakness ${n}. Which nerve is affected?`, choices: { A: "Facial", B: "Vagus", C: "Trigeminal", D: "Hypoglossal" }, correct: "A" }));
+    const result = await auditGeneratedQuestions([question], { ...cfg, subject: "NB 13 Cranial Nerves", examples, promptProfile: "compact" }, {
+      skipRepair: true,
+      reviewAIJSON: async () => ({ reviews: [{ index: 0, approved: true, objectiveAligned: true, issues: [], reasoning: {
+        orderLevel: "first-order", steps: ["Recall obstruction"], sourceQuotes: [cfg.atoms[0].content], allStepsRequired: true, connectedChain: true, singleEndpoint: true, choiceShortcut: false,
+      } }] }),
+    });
+    expect(result.questions).toHaveLength(1);
+    expect(result.questions[0].orderLevel).toBe("first-order");
   });
   it("withholds self-labeled advanced questions if the separate review has no chain", async () => {
     const result = await auditGeneratedQuestions([question], cfg, { reviewAIJSON: async () => ({ reviews: [{ index: 0, approved: true, issues: [] }] }), skipRepair: true });

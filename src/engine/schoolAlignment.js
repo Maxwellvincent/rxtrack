@@ -70,7 +70,7 @@ export function retrieveLectureEvidence(text, objectives = [], atoms = [], budge
   const pinnedText = pinned.map(text => `[Source-verified quote context]\n${text}\n`).join('');
   const remaining = Math.max(0, budget - pinnedText.length);
   const objectiveQueries = objectives.map(o => ({ words: tokens(textOf(o)), codes: codes(`${o.id || ""} ${o.code || ""}`) })).filter(q => q.words.size || q.codes.length);
-  const clinicalQueries = atoms.filter(a => a.retrievalRole === "school-case").map(a => tokens(a.content));
+  const clinicalQueries = atoms.filter(a => ["school-case", "review-claim"].includes(a.retrievalRole)).map(a => tokens(a.content));
   const candidates = chunks.map((text, index) => {
     const words = tokens(text);
     const matches = query => [...query].filter(word => words.has(word)).length;

@@ -321,6 +321,7 @@ export function buildQuizConfig({
   difficulty = "medium",
   questionCount,
   studyMode = "balanced",
+  reasoningPolicy = "school",
   userId = null,
   clinicalCorrelateLibrary = null,
   styleProfile = null,
@@ -367,13 +368,14 @@ export function buildQuizConfig({
       difficulty,
       count,
       studyMode,
+      reasoningPolicy,
       clinicalCorrelateLibrary: recurringClinicalCorrelates,
       orderBlueprint: buildOrderBlueprint({ objectives: selected, count }),
       requireReasoningAudit: true,
       focusNotes: [
         String(focusNotes || "").trim(),
         selected.length
-          ? `ADAPTIVE OBJECTIVE ALLOCATION — follow these item counts before broad coverage:\n${selected.map((objective) => `- [${objective.id || objective.code}] ${objective._adaptiveStatus}: ${objective._targetQuestionCount} question${objective._targetQuestionCount === 1 ? "" : "s"}; target ${objective._targetOrder || "second-order"}; ${objective._neededTaskTypes?.length ? `use a different task from ${objective._neededTaskTypes.join(", ")}` : "vary the final ask"}`).join("\n")}`
+          ? `ADAPTIVE OBJECTIVE ALLOCATION — follow these item counts before broad coverage:\n${selected.map((objective) => `- [${objective.id || objective.code}] ${objective._adaptiveStatus}: ${objective._targetQuestionCount} question${objective._targetQuestionCount === 1 ? "" : "s"}; ${reasoningPolicy === "challenge" ? "required" : "suggested"} ${objective._targetOrder || "second-order"}; ${objective._neededTaskTypes?.length ? `use a different task from ${objective._neededTaskTypes.join(", ")}` : "vary the final ask"}`).join("\n")}`
           : "",
       ].filter(Boolean).join("\n\n"),
     },
@@ -770,7 +772,7 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
         if (enforceAllocation) {
           const target = remainingObjectiveAllocation(allocationPlan, [...(args.initialQuestions || []), ...accepted], requested).find(objective => question.objectiveIds?.[0] === (objective.id || objective.code));
           const levels = ["first-order", "second-order", "third-order"];
-          if (!target || !hasCurrentReasoningAudit(question) || levels.indexOf(question.orderLevel) < levels.indexOf(target._targetOrder || "second-order")) { reject("allocation_or_reasoning_depth"); continue; }
+          if (!target || !hasCurrentReasoningAudit(question) || (args.reasoningPolicy === "challenge" && levels.indexOf(question.orderLevel) < levels.indexOf(target._targetOrder || "second-order"))) { reject("allocation_or_reasoning_depth"); continue; }
         }
         const repeatsPriorQuestion = avoidedQuestions.some((other) => areNearDuplicateQuestions(question, other));
         // Repeated practice of one topic/objective is valid: a quiz count is a hard
