@@ -701,7 +701,7 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
       const draftArgs = {
         ...args,
         atoms: rotate(sourceAtoms),
-        objectives: enforceAllocation ? candidateAllocation : rotate(args.objectives || []),
+        objectives: enforceAllocation ? candidateAllocation : rotate((args.objectives || []).filter(o => !unsupportedObjectiveIds.has(String(o.id || o.code)))),
         objectiveAllocation: enforceAllocation ? candidateAllocation : null,
         questionCount: candidateCount,
         focusNotes: [args.focusNotes || "", focusedRefill ? "FOCUSED FINAL-SLOT REFILL: Write one independently verifiable item for the allocated objective. Use only supplied source relationships. Build one unambiguous key and same-category distractors that require the intended inference. Address the prior rejection feedback without adding unsupported facts or weakening the requested order." : "", currentScaffolds.length ? `VERIFIED OBJECTIVE RELATIONSHIPS: ${JSON.stringify(currentScaffolds.filter(plan => batchAllocation.some(objective => String(objective.id || objective.code) === plan.objectiveId)))}. Build a fresh causal intervention and endpoint from these relationships; never reuse an old scenario or assume that a previous approval validates this new question. All new questions require independent review.` : "", ...rejectionFeedback.filter(feedback => !enforceAllocation || !feedback.objectiveIds.length || batchAllocation.some(objective => feedback.objectiveIds.includes(objective.id || objective.code))).slice(-6).map(feedback => feedback.text),

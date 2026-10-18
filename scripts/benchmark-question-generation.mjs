@@ -34,7 +34,7 @@ const callAIJSON = async (system, prompt, fallback, maxTokens, _provider, _tempe
       prompt: `${system}\n\nReply with ONLY valid JSON. No markdown fence, no commentary.\n\n${prompt}`,
       format: "json", stream: false, think: false, keep_alive: "10m",
       options: { num_ctx: 8192, temperature: 0.35, num_predict: maxTokens },
-    } : { system, prompt, json: true, maxTokens, timeoutMs: Math.max(1, Math.ceil(remaining)), backend: option("--backend", options.bridgeBackend || "ollama") };
+    } : { system, prompt, json: true, maxTokens, timeoutMs: Math.max(1, Math.ceil(remaining)), backend: option("--backend", options.bridgeBackend || "codex"), backendOnly: options.bridgeBackendOnly, modelTier: options.bridgeModelTier };
     const response = await fetch(direct ? "http://localhost:11434/api/generate" : "http://127.0.0.1:4319/complete", {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(request),
       signal: AbortSignal.timeout(Math.max(1, Math.ceil(remaining))),

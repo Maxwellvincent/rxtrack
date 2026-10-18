@@ -85,3 +85,12 @@ it('reserves excerpts across different selected objective targets', () => {
   expect(evidence).toContain('foramen rotundum');
   expect(evidence).toContain('above the vocal folds');
 });
+
+it('retrieves detailed objective-coded and clinical-function slides instead of overview summaries alone', () => {
+ const intro='Facial nerve overview: two parasympathetic nuclei. '.repeat(12);
+ const detail='SOM.COURSE.0169 Facial parasympathetic branches supply glands. Lesion causes loss of lacrimal gland secretion and nasal secretion.';
+ const source=[intro,detail].join('\f');
+ const actual=retrieveLectureEvidence(source,[{id:'SOM.COURSE.0169',objective:'Describe facial parasympathetic nuclei'}],[{retrievalRole:'school-case',content:'A patient has loss of lacrimal secretion and dry nasal glands.'}],1900);
+ expect(actual).toContain('Lesion causes loss of lacrimal gland secretion');
+ expect(source).toContain(actual.match(/SOM.COURSE[^\n]+/)[0]);
+});

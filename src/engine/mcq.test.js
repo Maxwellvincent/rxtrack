@@ -851,6 +851,17 @@ describe("separate reasoning review gate", () => {
     expect(result.rejections[0].issues).toEqual(["insufficient_reasoning_depth"]);
     expect(result.error).toContain("insufficient_reasoning_depth");
   });
+  it("withholds recall substitutions when matching school cases require clinical application", async () => {
+    const examples = [1, 2].map(n => ({ id: `school-${n}`, sourceSection: "NB 13", stem: `A 40-year-old patient presents with headache ${n}. Which structure is affected?`, choices: { A: "Aqueduct", B: "Ventricle", C: "Cortex", D: "Meninges" }, correct: "A" }));
+    const result = await auditGeneratedQuestions([question], { ...cfg, subject: "NB 13 Cranial Nerves", examples, promptProfile: "compact" }, {
+      skipRepair: true,
+      reviewAIJSON: async () => ({ reviews: [{ index: 0, approved: true, objectiveAligned: true, issues: [], reasoning: {
+        orderLevel: "first-order", steps: ["Recall obstruction"], sourceQuotes: [cfg.atoms[0].content], allStepsRequired: true, connectedChain: true, singleEndpoint: true, choiceShortcut: false,
+      } }] }),
+    });
+    expect(result.questions).toEqual([]);
+    expect(result.rejections[0].issues).toContain("school_style_mismatch");
+  });
   it("withholds self-labeled advanced questions if the separate review has no chain", async () => {
     const result = await auditGeneratedQuestions([question], cfg, { reviewAIJSON: async () => ({ reviews: [{ index: 0, approved: true, issues: [] }] }), skipRepair: true });
     expect(result.questions).toEqual([]);

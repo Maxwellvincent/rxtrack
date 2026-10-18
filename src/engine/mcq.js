@@ -17,15 +17,27 @@ import { buildOrderBlueprint, normalizeQuestionOrder, stampQuestionOrders, quest
 import { objectiveFacetCoveragePrompt } from "./objectiveFacets.js";
 import { buildReasoningDepthPlan } from "./questionReasoning.js";
 
-// Prefer local Ollama for every question-writing stage, including independent review
-// and repair. Otherwise the bridge's Codex-first default can exhaust the browser
-// deadline before Ollama gets a turn, sending routine quizzes to paid APIs.
+// Question writing uses the subscription bridge first. Only recognizable
+// quota/access failures may switch to its configured cloud route; never silently
+// fall back to a small local extraction model or an unrelated paid API.
 export function withQuestionAIRouting(call) {
   if (typeof call !== "function") return call;
-  return (system, prompt, fallback, maxTokens, provider, temperature, options = {}) => call(
-    system, prompt, fallback, maxTokens, provider, temperature,
-    { ...options, bridgeBackend: options.bridgeBackend || "ollama" }
-  );
+  return async (system, prompt, fallback, maxTokens, provider, temperature, options = {}) => {
+    const backend = options.bridgeBackend || "codex";
+    const policy = { ...options, bridgeBackend: backend, bridgeBackendOnly: true, bridgeOnly: true };
+    const started = Date.now();
+    try { return await call(system, prompt, fallback, maxTokens, provider, temperature, policy); }
+    catch (error) {
+      options.signal?.throwIfAborted();
+      if (backend !== "codex" || options.bridgeBackend || !/quota|usage.?limit|rate.?limit|credit|exhaust|429|limit.*reach|not configured|not installed|not found/i.test(error?.message || "")) throw error;
+      const budget = options.bridgeTimeoutMs || options.timeoutMs;
+      const remaining = budget ? budget - (Date.now() - started) : null;
+      if (remaining != null && remaining <= 0) throw error;
+      return call(system, prompt, fallback, maxTokens, provider, temperature, { ...policy,
+        bridgeBackend: "ollama-cloud", bridgeModelTier: options.bridgeModelTier || "routine",
+        ...(remaining != null ? { bridgeTimeoutMs: remaining, timeoutMs: remaining } : {}) });
+    }
+  };
 }
 
 function clinicalCorrelatePracticePrompt(library = [], count = 0, offset = 0) {
@@ -300,6 +312,23 @@ function clickerEvidencePrompt(examples = []) {
     clickers.map((question, index) => `CLICKER ${index + 1}${question.hasImage ? " [image-dependent]" : ""}: ${question.stem}`).join("\n") + "\n";
 }
 
+function clinicalTemplates(cfg) {
+  const number = String(cfg.subject || "").match(/\b(?:NB|LEC|lecture)\s*0*(\d+)/i)?.[1];
+  const aligned = new Map(alignSchoolQuestions(cfg.examples || [], cfg.objectives || [], cfg.atoms || []).map(x => [x.question, x.score]));
+  return selectStyleExemplars(cfg.examples || [], 8, cfg.difficulty, cfg).filter(q => {
+    const sourceNumber = String(q.sourceSection || "").match(/\b(?:NB|LEC|lecture)\s*0*(\d+)/i)?.[1];
+    return ((aligned.get(q) || 0) > 0 || (number && sourceNumber && Number(number) === Number(sourceNumber)))
+      && /\bpatient|\byear[- ]old|\bhistory of|\bexamination\b/i.test(q.stem);
+  });
+}
+function schoolApplicationPrompt(cfg) {
+  if (clinicalTemplates(cfg).length < 2) return "";
+  return `\nMATCHED SCHOOL APPLICATION REQUIREMENT: The matching uploaded cases test clinical findings and functional distinctions. Generate meaningful patient findings or clinical observations that require applying the taught relationship. A student reviewing a table, a lesion described only by its functional category, or asking which division is sensory AND motor is recall and does not meet this application request. Use ordinary symptoms/examination and a focused school-level lead-in, without adding an extra hidden diagnostic step. If lecture evidence cannot support that application, report the shortage instead of substituting recall. Reviewers must reject such substitutions as school_style_mismatch even if the key is correct. Before drafting, allocate one item to each requested objective before repeating any objective, honoring targetCount. Across this batch, vary the decisive relationship and endpoint; do not reuse one governing fact under different objective IDs. Use competing named nerves, branches, structures, or outcomes at the same endpoint. Do not offer one motor-labeled choice against only sensory-labeled choices when the stem already says motor contraction is absent; the options must require the taught anatomy, not a word match.\n`;
+}
+function retrievalHints(cfg, queries = cfg.atoms || []) {
+  return [...queries, ...clinicalTemplates(cfg).slice(0, 5).map(q => ({ term: "", content: `${q.stem} ${Object.values(q.choices).join(" ")}`, retrievalRole: "school-case" }))];
+}
+
 function withSchoolContext(questions, cfg) {
   const chosen = selectStyleExemplars(cfg.examples || [], 5, cfg.difficulty, cfg);
   const references = alignSchoolQuestions(chosen, cfg.objectives, cfg.atoms).map(({question:q,links}) => ({
@@ -340,7 +369,10 @@ export async function generateMcqs(cfg = {}, deps = {}) {
           error: `No candidates were produced for this batch. ${reason}`,
           rejections: [{ objectiveIds: (() => {
             const targeted = (cfg.objectives || []).map(o => o.id || o.code).filter(Boolean).map(String);
-            const identified = targeted.filter(id => reason.includes(id));
+            const identified = targeted.filter(id => {
+              const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+              return new RegExp(`(^|[^A-Za-z0-9_])${escaped}(?=$|[^A-Za-z0-9_])`).test(reason);
+            });
             return identified.length ? identified : targeted;
           })(),
             issues: ["writer_reported_shortfall"], rationale: reason }],
@@ -701,7 +733,7 @@ function buildAtomQuestionsPromptInternal({ atoms = [], objectives = [], difficu
     `${resolvedOrderBlueprint.rationale}\n` +
     `For each item set orderLevel to first-order, second-order, or third-order. First-order = ${questionOrderDescription("first-order")}; second-order = ${questionOrderDescription("second-order")}; third-order = ${questionOrderDescription("third-order")}. Objective targets: ${JSON.stringify(resolvedOrderBlueprint.objectiveTargets)}. Use each objective's allowed orders as its ceiling; never label a question third-order when its objective/facts cannot support integration. ${requireReasoningAudit ? "Return reasoningSteps for every item: the shortest necessary cue-to-relationship-to-answer chain. Follow objective nextOrder targets; second-order needs one relationship after interpreting clues, third-order needs two distinct lecture-supported relationships. Do not manufacture complexity through stem length." : ""}\n`;
   return (
-    CONNECTED_REASONING_CONTRACT + questionWritingBenchmarkPrompt({ objectives, atoms }) +
+    CONNECTED_REASONING_CONTRACT + schoolApplicationPrompt({ subject, examples, objectives, atoms }) + questionWritingBenchmarkPrompt({ objectives, atoms }) +
     objectiveFacetCoveragePrompt(objectives, atoms.length) +
     v2Blueprint + styleProfilePrompt(styleProfile, atoms.length) + orderSection + taskSection +
     `Write ONE USMLE Step 1 clinical-vignette question that tests EACH numbered fact below, in order — one question per fact.\n` +
@@ -814,7 +846,7 @@ export function buildQuestionAuditPrompt(questions, cfg = {}) {
   const clinicalCorrelates = renderClinicalCorrelateLibrary(cfg.clinicalCorrelateLibrary || []);
   return (
     `Independently audit every generated question. Approve it only when ALL checks pass:\n` +
-    CONNECTED_REASONING_CONTRACT + questionWritingBenchmarkPrompt(cfg) +
+    CONNECTED_REASONING_CONTRACT + schoolApplicationPrompt(cfg) + questionWritingBenchmarkPrompt(cfg) +
     `SCHOOL COMPARISON EXAMPLES (style only; never factual authority):\n${JSON.stringify(selectStyleExemplars(cfg.examples || [], 6, cfg.difficulty, { objectives: cfg.objectives, atoms: cfg.atoms }).map(q => ({ sourceFile: q.sourceFile || q.filename, sourceKind: exemplarSourceTier(q), stem: q.stem, choices: q.choices })))}\nCompare clue density, focused lead-in, and plausible distractor distinctions to these actual uploads. Reject material departures as school_style_mismatch. Homework is also a requested practice difficulty and structure reference; retain its source label and never equate it with official exam calibration.\n` +
     `1. The keyed answer is medically correct and is the single best answer.\n` +
     `2. The stem, key, and explanation are supported by the supplied lecture facts or objective.\n` +
@@ -852,6 +884,7 @@ function buildRepairPrompt(items, cfg = {}) {
   return `Repair every rejected question below. Preserve the tested objective when it is valid, but change the stem, choices, key, explanation, and objectiveIds as needed to correct every listed issue. Use only the supplied lecture facts/objectives; do not add outside medical facts. Match the concise clinical/anatomic SGU ExamSoft/IMCQ style and use plausible same-category distractors. Return exactly one repaired question for each input item in the same order.
 ${CONNECTED_REASONING_CONTRACT}
 ${QUESTION_PLAN_CONTRACT}
+${schoolApplicationPrompt(cfg)}
 Match school task depth. Honor each objective's targetOrder only for an explicit challenge policy; do not replace a sound school-level direct question merely because adaptive metadata suggests application. Do not decorate a definition with a vague symptom. Correct the causal sequence using the supplied lecture evidence. Return reasoningSteps and a concise whyWrong rationale for EVERY choice, including the key. An independent reviewer will verify each repair; a repaired item is not automatically approved.
 
 OBJECTIVES:\n${JSON.stringify(objectives)}
@@ -1065,6 +1098,7 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
         const focused = { ...cfg,
           objectives: (cfg.objectives || []).filter(o => (question.objectiveIds || []).includes(String(o.id || o.code))),
           comparisonStems: questions.filter((_, other) => other !== index).map(q => q.stem),
+          comparisonItems: questions.slice(0, index).map(q => ({ stem: q.stem, key: q.choices?.[q.correct], relationship: q.questionPlan?.relationship, endpoint: q.questionPlan?.endpoint })),
         };
         try {
           const prompt = buildQuestionAuditPrompt([question], focused);
@@ -1109,6 +1143,7 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
       }
       const target = (cfg.objectives || []).find(o => (question.objectiveIds || []).includes(String(o.id || o.code)))?._targetOrder;
       const reasoning = cfg.requireReasoningAudit && review?.approved === true ? verifyReasoningReview(review, question, cfg) : null;
+      if (reasoning?.orderLevel === "first-order" && clinicalTemplates(cfg).length >= 2) return [{ objectiveIds: question.objectiveIds || [], issues: ["school_style_mismatch"], rationale: "Matching school cases require applying clinical findings; a recall-only substitute does not meet this request." }];
       const levels = ["first-order", "second-order", "third-order"];
       if (target && reasoning && levels.indexOf(reasoning.orderLevel) < levels.indexOf(normalizeQuestionOrder(target))) {
         return [{ objectiveIds: question.objectiveIds || [], issues: ["insufficient_reasoning_depth"], rationale: `Reviewer verified ${reasoning.orderLevel}; this objective requires ${normalizeQuestionOrder(target)}. Generate the missing causal inference rather than relabeling the question.` }];
@@ -1137,6 +1172,7 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
       const acceptedWithNotes = review?.approved !== true && issues.length > 0 && blockingIssues.length === 0;
       const reasoningAudit = verifyReasoningReview(review, question, cfg);
       const target = (cfg.objectives || []).find(o => (question.objectiveIds || []).includes(String(o.id || o.code)))?._targetOrder;
+      if (reasoningAudit?.orderLevel === "first-order" && clinicalTemplates(cfg).length >= 2) return [];
       const orders = ["first-order", "second-order", "third-order"];
       if (cfg.requireReasoningAudit && target && reasoningAudit && orders.indexOf(reasoningAudit.orderLevel) < orders.indexOf(normalizeQuestionOrder(target))) return [];
       const semanticObjectiveAlignment = review.objectiveAligned === true && !!reasoningAudit
@@ -1273,7 +1309,7 @@ function compactSource(cfg, queries = cfg.atoms || [], evidenceBudget = null) {
     ...(a.testableDetails?.length ? { testableDetails: a.testableDetails } : {}),
     ...(a.exceptions?.length ? { exceptions: a.exceptions } : {}),
     ...(a.quantitativeDetails?.length ? { quantitativeDetails: a.quantitativeDetails } : {}) }));
-  return `KEY FACTS EXTRACTED FROM THE LECTURE (factual authority):\n${JSON.stringify(atoms)}\nLECTURE EXCERPTS (factual authority):\n${retrieveLectureEvidence(cfg.lectureText || "", cfg.objectives || [], queries, evidenceBudget || ((cfg.objectives || []).length <= 3 ? (atoms.length ? 2500 : 4500) : (atoms.length ? 4000 : 7000)))}`;
+  return `KEY FACTS EXTRACTED FROM THE LECTURE (factual authority):\n${JSON.stringify(atoms)}\nLECTURE EXCERPTS (factual authority):\n${retrieveLectureEvidence(cfg.lectureText || "", cfg.objectives || [], retrievalHints(cfg, queries), evidenceBudget || ((cfg.objectives || []).length <= 3 ? (atoms.length ? (clinicalTemplates(cfg).length ? 4500 : 2500) : (clinicalTemplates(cfg).length ? 7500 : 4500)) : (atoms.length ? 4000 : 7000)))}`;
 }
 
 function compactObjectives(cfg) {
@@ -1298,6 +1334,7 @@ function buildCompactMcqPrompt(cfg) {
   const order = cfg.orderBlueprint || buildQuestionSourceBlueprint(cfg.examples || [], cfg.objectives || [], count).order;
   return `${CONNECTED_REASONING_CONTRACT}
 ${QUESTION_PLAN_CONTRACT}
+${schoolApplicationPrompt(cfg)}
 Aim to write exactly ${count} NEW ${cfg.difficulty || "medium"} SGU/ExamSoft-style Step 1 questions for ${cfg.subject || "this lecture"}. If the supplied objective and lecture evidence support fewer than ${count}, return every complete supported question you can draft rather than returning an empty list; never invent details to hit the requested count. If the evidence supports none, return {"questions":[],"shortfall":["briefly state the missing source relationship"]}.
 JSON NESTING: whyWrong is a nested object within each question. After closing whyWrong, use a comma and objectiveIds INSIDE that same question; do not close the question until after difficulty. Validate balanced braces before responding.
 OUTPUT ECONOMY: return compact JSON on one line, without indentation, markdown or introductory text. Keep each questionPlan field to one short clause (aim for 6-8 words), excluding sourceQuotes. Quote only the minimum contiguous source sentences that establish the required relationships; never repeat an entire slide. Keep reasoningSteps to short causal links. Explain the key in two concise sentences and each choice in one concise sentence (aim for 12-18 words) stating the discriminating reason. Preserve every required field, every choice rationale, necessary clinical clues, qualifiers and source-supported relationships; brevity must not change the question or replace the rationale with a label.
@@ -1330,6 +1367,7 @@ function buildCompactAuditPrompt(questions, cfg) {
   const queries = questions.map(q => ({ term: q.topic || "", content: `${q.stem} ${Object.values(q.choices || {}).join(" ")} ${q.explanation || ""}`, sourceQuotes: q.questionPlan?.sourceQuotes || [] }));
   return `Independently audit every generated question. If the ONLY defect is weak_explanation, return a complete replacement with the identical stem, choices, correct key and objectiveIds, changing only explanation and whyWrong. Other defects must remain rejected. Fail uncertain items; never infer approval from writing quality. Return compact JSON without indentation. Keep approved-item rationale to one concise sentence; rejected-item rationale must name the specific defect and repair needed. Use short causal clauses for reasoning steps, preserving every necessary relationship.
 ${CONNECTED_REASONING_CONTRACT}
+${schoolApplicationPrompt(cfg)}
 A new hypothetical scenario is allowed: source-supported rules may be applied to a novel intervention or observation. Require evidence for the causal relationships, not a literal matching patient age, invented protocol label or logically derived observation. Do not reject a counterfactual wrong answer simply because that wrong outcome is absent from the lecture; verify the source-supported explanation for why it is wrong. Reject added medical mechanisms, diagnostic claims or quantitative thresholds not established by the source.
 Check every item for a medically correct single best key, factual support for ALL relationships, meaningful primary-objective alignment and facet, plausible same-category distinct choices, sufficient discriminating clues, consistent scenario, no leaked answer, and a mechanistic explanation. Reject unsupported named diseases, drugs, findings or image dependencies. Compare items for duplicate clue-to-answer routes and repetitive asks. Match the supplied school and homework structure. Homework is a requested practice difficulty reference; clickers establish task patterns only. Neither establishes medical truth. Objective verbs define scope but do not prohibit applying lecture-supported relationships.
 Treat questionPlan as an untrusted hypothesis: verify its quoted relationships against the actual lecture source, and check that its hidden inference and discriminator are required in the FINAL stem and choices. Reject fabricated plans or plans that describe reasoning the question itself gives away. Do not reject causal application merely because one taught rule supplies the relationship: interpreting a novel perturbation then predicting its consequence can be second-order. Reject direct definition lookup or a keyed option identifiable solely by category mismatch. A shared word such as "calcium" is NOT by itself an answer leak: distinguish a valid clue-to-cause inference from a meaningless repeated label. To report answer_choice_shortcut, state which required causal inference can be skipped and show the specific stem/option cue that replaces it. If alternative mechanisms are plausible until the discriminating observations are interpreted, recognize the causal application as second-order. Do not demand two causal relationships for second-order or three for third-order; count interpreting the clue separately from applying the relationship(s). A correct prediction after an unfamiliar intervention can be application only when an actual causal relationship is required. Category subtraction, list membership, paired-versus-unpaired classification and synonym decoding remain recall; unfamiliar wording or a removal story cannot establish depth.
@@ -1342,7 +1380,8 @@ ${objectiveModalitySection(cfg.objectives || [])}
 ${compactStyle(cfg)}
 ${numberedAuditEvidence(cfg, retrieveLectureEvidence(cfg.lectureText || "", cfg.objectives || [], queries, 9000))}
 QUESTIONS:\n${JSON.stringify(questions.map(auditQuestionPayload))}
-OTHER BATCH STEMS (comparison only; never factual evidence):\n${JSON.stringify(cfg.comparisonStems || [])}
+OTHER BATCH STEMS (comparison only; never factual evidence):\n${JSON.stringify(cfg.comparisonItems || cfg.comparisonStems || [])}
+Reject duplicate_reasoning_route when the same decisive fact/relationship answers an earlier batch item, even with a different stem or objective ID.
 REQUIRED REVIEW COUNT: ${questions.length}; REQUIRED INDEXES: ${JSON.stringify(questions.map((_, index) => index))}. Review ALL items. evidenceIds must come ONLY from the SOURCE EVIDENCE CATALOG above, NEVER from QUESTIONS or generated plans. If no catalog excerpt supports a claim, reject it as unsupported_fact.
 Return ONLY JSON: {"reviews":[{"index":0,"approved":true,"objectiveAligned":true,"objectiveFacet":"tested clause","issues":[],"rationale":"brief evidence-based judgment","reasoning":{"orderLevel":"second-order","steps":["interpret clue","apply required relationship"],"evidenceIds":["E1"],"allStepsRequired":true,"connectedChain":true,"singleEndpoint":true,"choiceShortcut":false}}]}
 Issue codes: incorrect_key, ambiguous_key, unsupported_fact, objective_mismatch, duplicate_choices, duplicate_question, answer_leak, weak_explanation, inconsistent_vignette, non_discriminating_clues, multiple_true_choices, repetitive_task_ending, school_style_mismatch, disconnected_recall_tasks, answer_choice_shortcut, order_level_mismatch.`;
@@ -1387,7 +1426,7 @@ function buildFullMcqPrompt({ subject = "this lecture", lectureText = "", exampl
     : "";
 
   const contentSection = lectureText
-    ? "\n\nLECTURE CONTENT (retrieved across the lecture for these targets):\n" + retrieveLectureEvidence(lectureText, objectives, atoms)
+    ? "\n\nLECTURE CONTENT (retrieved across the lecture for these targets):\n" + retrieveLectureEvidence(lectureText, objectives, retrievalHints({ subject, examples, objectives, atoms }), 9000)
     : "";
   const clinicalSection = clinicalCorrelateLibrary?.length
     ? `\n\n${clinicalCorrelatePracticePrompt(clinicalCorrelateLibrary, count, avoidStems.length)}`
@@ -1411,7 +1450,7 @@ function buildFullMcqPrompt({ subject = "this lecture", lectureText = "", exampl
     `${resolvedOrderBlueprint.rationale}\n` +
     `For each item set orderLevel to first-order, second-order, or third-order. First-order = ${questionOrderDescription("first-order")}; second-order = ${questionOrderDescription("second-order")}; third-order = ${questionOrderDescription("third-order")}. Objective targets: ${JSON.stringify(resolvedOrderBlueprint.objectiveTargets)}. Use each objective's allowed orders as its ceiling; never label a question third-order when its objective/facts cannot support integration. ${requireReasoningAudit ? "Return reasoningSteps for every item: the shortest necessary cue-to-relationship-to-answer chain. Follow objective nextOrder targets; second-order needs one relationship after interpreting clues, third-order needs two distinct lecture-supported relationships. Do not manufacture complexity through stem length." : ""}\n`;
   return (
-    CONNECTED_REASONING_CONTRACT + questionWritingBenchmarkPrompt({ objectives, atoms, lectureText }) + objectiveFacetsSection + v2Blueprint + styleProfilePrompt(styleProfile, count) + orderSection + taskSection +
+    CONNECTED_REASONING_CONTRACT + schoolApplicationPrompt({ subject, examples, objectives, atoms }) + questionWritingBenchmarkPrompt({ objectives, atoms, lectureText }) + objectiveFacetsSection + v2Blueprint + styleProfilePrompt(styleProfile, count) + orderSection + taskSection +
     `Aim to generate exactly ${count} NEW SGU Basic Principles of Medicine questions on "${subject}". If the supplied objective and lecture evidence support fewer than ${count}, return every complete supported question you can draft rather than an empty list; never invent details to hit the requested count. If none are supportable, return {"questions":[],"shortfall":["briefly state the missing source relationship"]}.\n\n` +
     `DIFFICULTY: ${diff.toUpperCase()}\n${DIFF_LINE[diff] || DIFF_LINE.medium}\n` +
     `Each stem: an ExamSoft-structured, STEP 1-style clinical, anatomic, imaging, procedure, or laboratory scenario whose details do real reasoning work, ending in one precise foundational-science question. For clinical-application or third-order items, target 4–6 sentences: age/context, timeline, discriminating symptoms or examination, and only the relevant laboratory, imaging, or physiologic data before the final ask. For narrow recognition/mechanism items, 2–4 sentences is acceptable. Do not pad stems with irrelevant comorbidities or force a disease absent from the supplied evidence; match the reference bank's clue density while preserving a realistic board-style vignette. The final sentence should ask for the mechanism, downstream consequence, structure, pathway, or best comparison—not simply repeat the diagnosis already made obvious by the stem.\n` +

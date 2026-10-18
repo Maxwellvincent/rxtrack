@@ -42,7 +42,11 @@ export function retrieveLectureEvidence(text, objectives = [], atoms = [], budge
   // Chunk each real page independently. Joining across removed objective slides
   // creates excerpts that never occur contiguously in the original source.
   const seen = new Set();
-  const chunks = sourcePages.flatMap(page => page.match(/[\s\S]{1,900}/g) || []).filter(chunk => {
+  const chunks = sourcePages.flatMap(page => {
+    const windows = [];
+    for (let start = 0; start < page.length; start += 700) windows.push(page.slice(start, start + 900));
+    return windows;
+  }).filter(chunk => {
     if ((chunk.match(/SOM\.[A-Z0-9.]+/g) || []).length >= 3) return false;
     const key = chunk.toLowerCase().replace(/\s+/g, ' ').trim();
     if (seen.has(key)) return false;
@@ -65,11 +69,12 @@ export function retrieveLectureEvidence(text, objectives = [], atoms = [], budge
   // unrelated verified quotes into one non-contiguous evidence claim.
   const pinnedText = pinned.map(text => `[Source-verified quote context]\n${text}\n`).join('');
   const remaining = Math.max(0, budget - pinnedText.length);
-  const objectiveQueries = objectives.map(o => tokens(textOf(o))).filter(query => query.size);
+  const objectiveQueries = objectives.map(o => ({ words: tokens(textOf(o)), codes: codes(`${o.id || ""} ${o.code || ""}`) })).filter(q => q.words.size || q.codes.length);
+  const clinicalQueries = atoms.filter(a => a.retrievalRole === "school-case").map(a => tokens(a.content));
   const candidates = chunks.map((text, index) => {
     const words = tokens(text);
     const matches = query => [...query].filter(word => words.has(word)).length;
-    return { text, index, score: matches(wanted), objectiveScores: objectiveQueries.map(matches) };
+    return { text, index, score: matches(wanted), objectiveScores: objectiveQueries.map(q => matches(q.words) + (q.codes.some(code => codes(text).includes(code)) ? 30 : 0)), clinicalScores: clinicalQueries.map(q => matches(q) + (matches(q) >= 2 ? Math.min(8, (text.match(/\b(?:loss|paralysis|weakness|reflex|secretion|glands?|injury|lesion)\b/gi) || []).length * 2) : 0)) };
   });
   const capacity = Math.max(1, Math.floor(remaining / 930));
   const chosen = new Map();
@@ -82,7 +87,12 @@ export function retrieveLectureEvidence(text, objectives = [], atoms = [], budge
         .sort((a, b) => b.objectiveScores[target] - a.objectiveScores[target] || a.index - b.index)[0];
       if (best) { chosen.set(best.index, best); added = true; }
     }
-    if (!added || !objectiveQueries.length) break;
+    if (round === 0) for (let target = 0; target < clinicalQueries.length && chosen.size < capacity; target++) {
+      const best = candidates.filter(c => !chosen.has(c.index) && c.clinicalScores[target] > 0)
+        .sort((a,b) => b.clinicalScores[target] - a.clinicalScores[target] || a.index - b.index)[0];
+      if (best) { chosen.set(best.index, best); added = true; }
+    }
+    if (!added || (!objectiveQueries.length && !clinicalQueries.length)) break;
   }
   for (const candidate of [...candidates].sort((a, b) => b.score - a.score || a.index - b.index)) {
     if (chosen.size >= capacity) break;

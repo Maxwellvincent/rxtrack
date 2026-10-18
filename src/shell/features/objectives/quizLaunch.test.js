@@ -291,7 +291,7 @@ describe("prepareObjectiveQuiz", () => {
     expect(callAIJSON).toHaveBeenCalledTimes(3);
     expect(callAIJSON.mock.calls[1][1]).toContain("5 distinct candidate routes for 3 missing slots");
     expect(callAIJSON.mock.calls[2][1]).not.toContain("5 distinct candidate routes");
-    expect(callAIJSON.mock.calls[2][1]).toContain("Generate exactly 3 NEW");
+    expect(callAIJSON.mock.calls[2][1]).toContain("Aim to write exactly 3 NEW");
     expect(result.questions).toHaveLength(3);
     expect(result.incomplete).toBe(false);
     expect(onAccepted.mock.calls.flatMap(call => call[0])).toHaveLength(3);
