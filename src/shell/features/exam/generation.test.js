@@ -41,6 +41,15 @@ function tableMcq(stem) {
 beforeEach(() => installDomStorage());
 
 describe("generateExamQuestions", () => {
+  it("loads cloud text for a metadata-only lecture and passes it to the real quiz generator", async () => {
+    const lecture = { id: "cloud-lecture", blockId: "b1", lectureTitle: "Saved lecture" };
+    const fetchLectureContent = vi.fn(async () => ({ chunks: [{ markdown: LECTURE_BODY }], atoms: [] }));
+    const callAIJSON = vi.fn(async () => ({ questions: [mcq("Which supplied anatomical structure is involved in the described finding?")] }));
+    await generateExamQuestions({ allocation: { [lecture.id]: 1 }, lecturesById: { [lecture.id]: lecture }, lectures: [lecture], objectivesByLecture: { [lecture.id]: [{ id: "o", objective: "Identify the structure" }] }, atomsByLecture: {}, blockId: "b1", userId: "u" }, { fetchLectureContent, callAIJSON, skipQuestionAudit: true });
+    expect(fetchLectureContent).toHaveBeenCalledWith("u", lecture.id);
+    expect(callAIJSON).toHaveBeenCalled();
+    expect(callAIJSON.mock.calls[0][1]).toContain(LECTURE_BODY.trim());
+  });
   it("injects the lecture-matched NB1 correlate plan into generated exams and preserves its tag", async () => {
     const lecture = { id: "l04", blockId: "nb1", lectureTitle: "Lecture 04 - Meninges and Arteries", chunks: [{ markdown: "A middle meningeal artery injury can cause an epidural hemorrhage with a biconvex collection. ".repeat(8) }] };
     const callAIJSON = vi.fn().mockResolvedValue({ questions: [{
@@ -60,7 +69,7 @@ describe("generateExamQuestions", () => {
       weakConceptAccuracyByLecture: {},
       userId: null,
     }, { callAIJSON, skipQuestionAudit: true });
-    expect(callAIJSON.mock.calls[0][1]).toContain("REQUIRED CLINICAL PRACTICE PLAN");
+    expect(callAIJSON.mock.calls[0][1]).toContain("CONDITIONAL CLINICAL PRACTICE CANDIDATES");
     expect(callAIJSON.mock.calls[0][1]).toContain("nb1-04-epidural-hemorrhage");
     expect(result.questions[0]).toMatchObject({ clinicalCorrelateId: "nb1-04-epidural-hemorrhage", clinicalReasoningStage: "mechanism" });
   });

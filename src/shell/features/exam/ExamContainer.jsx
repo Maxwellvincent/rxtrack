@@ -172,10 +172,10 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
     return map;
   }, [objectives]);
 
-  // Task 5's startObjectiveQuiz reuse already falls back gracefully with an
-  // empty atoms array — v1 of the exam tab doesn't need atom-based
-  // generation to work, so every lecture gets no atoms.
-  const atomsByLecture = useMemo(() => ({}), []);
+  // Metadata may be chunk-light; generation hydrates cloud content on demand.
+  const atomsByLecture = useMemo(() => Object.fromEntries(lectures.map(lecture =>
+    [lecture.id, Array.isArray(lecture.atoms) ? lecture.atoms : []]
+  )), [lectures]);
 
   const weakConceptAccuracyByLecture = useMemo(() => {
     const map = {};

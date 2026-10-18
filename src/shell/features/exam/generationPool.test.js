@@ -3,7 +3,7 @@ import { generateExamQuestions, alreadyUsed } from "./generation.js";
 const generate = vi.hoisted(() => vi.fn());
 vi.mock("../objectives/quizLaunch.js", () => ({ startObjectiveQuiz: (...a) => generate(...a), readClinicalAnalysesForBlock: () => [], readExemplarsForBlock: () => [], resolveDefaultDifficulty: () => "medium" }));
 const q = stem => ({ reasoningAudit: { status: "verified", version: 2, connectedChain: true, singleEndpoint: true, choiceShortcut: false }, stem, choices: { A: "yes", B: "no" }, correct: "A" });
-const args = { allocation: { l1: 1, l2: 1, l3: 1 }, lecturesById: {}, objectivesByLecture: {}, atomsByLecture: {}, blockId: "b", lectures: [], userId: null, generationId: "g" };
+const args = { allocation: { l1: 1, l2: 1, l3: 1 }, lecturesById: Object.fromEntries(["l1", "l2", "l3"].map(id => [id, { id, fullText: "Supplied lecture factual evidence. ".repeat(20) }])), objectivesByLecture: {}, atomsByLecture: {}, blockId: "b", lectures: [], userId: null, generationId: "g" };
 const pool = () => ({ history: vi.fn(async () => []), ready: vi.fn(async () => []), save: vi.fn(async question => ({ ...question, poolId: question.questionId })) });
 beforeEach(() => { generate.mockReset(); });
 afterEach(() => vi.useRealTimers());

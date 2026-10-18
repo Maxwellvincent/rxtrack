@@ -7,6 +7,9 @@ import { repairTaskForIndex } from "./focusedRepair.js";
 import { canonicalObjectiveIds } from "../../../engine/objectiveLinks.js";
 import { buildClinicalCorrelateLibrary } from "../../../engine/clinicalCorrelates.js";
 import { questionMatchesObjectiveDomain } from "../../../engine/mcq.js";
+import { fetchLectureContent } from "../../../supabase.js";
+import { getLecText } from "../../../lectureText.js";
+import { loadExamLectureEvidence } from "./lectureEvidence.js";
 
 const MAX_ATTEMPTS = 3;
 // Local Ollama completions for large, school-style prompts routinely take a little over
@@ -68,9 +71,22 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
   async function generateLecture(lectureId) {
     const requested = allocation[lectureId];
     const objectives = objectivesByLecture?.[lectureId] || [];
-    const atoms = atomsByLecture?.[lectureId] || [];
-    const lecture = lecturesById?.[lectureId];
+    let atoms = atomsByLecture?.[lectureId] || [];
+    let lecture = lecturesById?.[lectureId];
     const lectureTitle = lecture?.lectureTitle || lecture?.fileName || lectureId;
+    let lectureText = getLecText(lecture);
+    let sourceError = null;
+    if (!deps.savedOnly) {
+      progress(`Loading saved lecture content: ${lectureTitle}`);
+      try {
+        const loaded = await withDeadline(() => loadExamLectureEvidence(lecture, atoms, {
+          userId, fetchContent: deps.fetchLectureContent || fetchLectureContent,
+        }), deps.contentTimeoutMs || 30000, deps.signal, "Loading saved lecture content");
+        ({ lecture, lectureText, atoms } = loaded);
+      } catch (error) {
+        sourceError = error.message;
+      }
+    }
     const clinicalCorrelateLibrary = buildClinicalCorrelateLibrary({
       atoms,
       examples: exemplars,
@@ -102,13 +118,15 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
       }
       progress(`Loaded saved questions: ${lectureTitle}`);
     }
-    while (obtained < requested && attempt < MAX_ATTEMPTS && !stopError) {
+    if (sourceError) errorMessage = sourceError;
+    while (obtained < requested && attempt < MAX_ATTEMPTS && !stopError && !sourceError) {
       if (deps.savedOnly) break;
       attempt++;
       progress(`Generating: ${lectureTitle}${attempt > 1 ? ` · retry ${attempt - 1}` : ""} · up to 2 lectures at once`);
       let result;
       try {
         result = await withDeadline(signal => startObjectiveQuiz({ objectives, lectureTitle, lectureIdHint: lectureId, blockId, lectures, exemplars, atoms,
+          lectureText,
           studyMode,
           focusNotes,
           difficulty, userId, clinicalCorrelateLibrary, avoidStems: [...history, ...accepted].map(q => q.stem).filter(Boolean).slice(-100), questionCount: requested - obtained }, {
