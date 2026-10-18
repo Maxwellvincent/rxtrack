@@ -1,3 +1,4 @@
+import * as questionRatings from "../../../stores/questionRatings.js";
 /**
  * Task 9 — read-only per-lecture Homework, quiz & exam performance dashboard.
  *
@@ -255,6 +256,8 @@ export function ExamDashboard({ blockId, userId, lectures = [], questionStats = 
   const [error, setError] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
   const [learnerProfile, setLearnerProfile] = useState(() => learnerEvidenceStore.read(userId));
+  const [qualityRevision, setQualityRevision] = useState(0);
+  useEffect(() => questionRatings.subscribe(() => setQualityRevision(n => n + 1)), []);
   const [studyAnswers, setStudyAnswers] = useState(() => calibrationStore.readBlock(userId, blockId));
   useEffect(() => {
     setStudyAnswers(calibrationStore.readBlock(userId, blockId));
@@ -289,7 +292,7 @@ export function ExamDashboard({ blockId, userId, lectures = [], questionStats = 
     return () => {
       cancelled = true;
     };
-  }, [userId, blockId]);
+  }, [userId, blockId, qualityRevision]);
 
   const integratedSessions = useMemo(() => sessions.filter((session) => session?.sourceType !== "question-bank"), [sessions]);
   const performanceSessions = useMemo(() => sessions.map(session => ({ ...session, questions: (session.questions || []).map(q => q.sourceType === "question-bank" ? linkSourceLecture(q, lectures, blockId) : q) })), [sessions, lectures, blockId]);

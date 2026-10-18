@@ -1,3 +1,5 @@
+import { reconcileQuestionQuality } from "../stores/questionQualityReconciliation.js";
+import { QUESTION_REPORT_CATEGORIES, reportProtection } from "../engine/questionScoringPolicy.js";
 import { useEffect, useState } from "react";
 import * as ratingsStore from "../stores/questionRatings.js";
 
@@ -9,28 +11,36 @@ const ISSUES = [
 export function QuestionQualityRating({ userId, question, onChange }) {
   const [rating, setRating] = useState(() => ratingsStore.ratingFor(userId, question) || {});
   const [note, setNote] = useState(() => ratingsStore.ratingFor(userId, question)?.sourceNote || "");
+  const [syncError, setSyncError] = useState(null);
   const [reporting, setReporting] = useState(false);
   useEffect(() => { setRating(ratingsStore.ratingFor(userId, question) || {}); setReporting(false); setNote(ratingsStore.ratingFor(userId, question)?.sourceNote || ""); }, [userId, question]);
   if (!question) return null;
-  const update = (patch) => {
-    const next = ratingsStore.rateQuestion(userId, question, patch) || { ...rating, ...patch };
+  const update = async (patch) => {
+    setSyncError(null);
+    let next;
+    try { next = await ratingsStore.rateQuestionAwait(userId, question, patch); }
+    catch { setSyncError("Could not save this report. Reconnect and try again; your answer remains saved."); return; }
+    if (!next) return;
     setRating(next); onChange?.(next);
+    if ("sourceIssue" in patch || "excludeFromPerformance" in patch || "excludeFromObjectives" in patch) {
+      reconcileQuestionQuality(userId, question).catch(() => setSyncError("Report saved. Weak-area totals could not refresh; reopen this review when connected."));
+    }
   };
   const toggle = (field, value) => update({ [field]: value });
   return (
     <details key={question.questionId || question.id} className="text-sm" data-testid="question-quality-rating">
       <summary className="cursor-pointer py-2 text-text-3 hover:text-text-1">Rate or report question · optional</summary>
       <div className="rounded border border-border bg-bg p-2.5">
+      {syncError && <p role="alert" className="text-xs text-bad">{syncError}</p>}
       <details className="mb-2">
         <summary className="cursor-pointer text-sm font-semibold">⚑ Question/Source Issue{rating.sourceIssue ? " · contested" : ""}</summary>
-        <p className="my-2 text-xs text-text-2">Flag a problem with the question, independently of your answer. Contested items are excluded from objective evidence until you undo the flag.</p>
-        <div className="flex flex-wrap gap-2">{[
-          ["source-framing", "Source framing"], ["ambiguous", "Ambiguous"], ["unsupported", "Unsupported by lecture"],
-          ["incorrect-key", "Incorrect key/explanation"], ["other", "Other"],
-        ].map(([value, label]) => <button type="button" key={value} aria-pressed={rating.sourceIssue === value} onClick={() => update({ sourceIssue: value })} className="rounded border border-border px-2 py-1 text-xs">{label}</button>)}</div>
+        <p className="my-2 text-xs text-text-2">Flag a problem with the question, independently of your answer. Invalid items are excluded pending review. Incomplete explanations retain their score. Your original answer stays in history.</p>
+        <div className="flex flex-wrap gap-2">{QUESTION_REPORT_CATEGORIES.map(([value, label]) => <button type="button" key={value} aria-pressed={rating.sourceIssue === value} onClick={() => { const protection = reportProtection({ sourceIssue: value }); update({ sourceIssue: value, excludeFromPerformance: protection.performance, excludeFromObjectives: protection.objective }); }} className="rounded border border-border px-2 py-1 text-xs">{label}</button>)}</div>
         {rating.sourceIssue && <div className="mt-2 space-y-2">
+          <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={reportProtection(rating).performance} onChange={event => update({ excludeFromPerformance: event.target.checked })} />Exclude this question from my performance metrics</label>
+          <p role="status" className="text-xs">{reportProtection(rating).performance ? "Excluded pending review · answer preserved" : rating.sourceIssue === "source-mismatch" ? "Score retained · excluded from objective mastery pending review" : "Score retained · quality flagged for review"}</p>
           <textarea aria-label="Question source issue note" placeholder="Optional note for review" value={note} onChange={event => setNote(event.target.value.slice(0, 1000))} onBlur={() => update({ sourceNote: note })} className="w-full rounded border border-border bg-bg p-2 text-sm" />
-          <button type="button" onClick={() => { setNote(""); update({ sourceIssue: null, sourceNote: "" }); }} className="text-xs underline">Undo flag · restore eligibility</button>
+          <button type="button" onClick={() => { setNote(""); update({ sourceIssue: null, sourceNote: "", excludeFromPerformance: false, excludeFromObjectives: false }); }} className="text-xs underline">Undo flag · restore eligibility</button>
         </div>}
       </details>
       {question.generationVersion && <><div className="mb-2 flex flex-wrap items-center justify-between gap-2">

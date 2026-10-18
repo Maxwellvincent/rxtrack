@@ -1,3 +1,4 @@
+import * as questionRatingsStore from "../stores/questionRatings.js";
 import { QuestionExplanation } from "../ui/QuestionExplanation.jsx";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Button } from "../ui/Button.jsx";
@@ -88,7 +89,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
     if (lectureId) generatedQuestionsStore.setHighlights(userId, lectureId, stem, next);
   };
 
-  if (done) return <Summary records={records} onExit={onExit} onReviewAtom={onReviewAtom} />;
+  if (done) return <Summary records={records.filter(r => !questionRatingsStore.isExcluded(userId, r))} onExit={onExit} onReviewAtom={onReviewAtom} />;
 
   const q = questions[currentIndex];
   if (!q) {
@@ -112,6 +113,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
     const responseMs = nowMs() - questionStartedAtRef.current;
     setConfidence(level);
     const rec = {
+      questionKey: q.questionKey || q.poolId || q.id || q.questionId || `stem:${q.stem || ""}`,
       concept: q.topic || q.stem.slice(0, 60),
       stem: q.stem.slice(0, 100),
       confidence: level,
@@ -186,11 +188,12 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
     if (preparing && currentIndex + 1 >= questions.length) return;
     if (currentIndex + 1 >= questions.length) {
       setDone(true);
-      const correctCount = records.filter((r) => r.correct).length;
-      const confSum = records.reduce((s, r) => s + (r.confidence || 0), 0);
-      const avgConfidence = records.length ? confSum / (records.length * 5) : 0; // normalize 1-5 → 0-1
-      const hasLandmines = records.some((r) => !r.correct && r.confidence >= 4);
-      onDone?.({ correct: correctCount, total: questions.length, avgConfidence, hasLandmines, records });
+      const eligibleRecords = records.filter(r => !questionRatingsStore.isExcluded(userId, r));
+      const correctCount = eligibleRecords.filter((r) => r.correct).length;
+      const confSum = eligibleRecords.reduce((s, r) => s + (r.confidence || 0), 0);
+      const avgConfidence = eligibleRecords.length ? confSum / (eligibleRecords.length * 5) : 0; // normalize 1-5 → 0-1
+      const hasLandmines = eligibleRecords.some((r) => !r.correct && r.confidence >= 4);
+      onDone?.({ correct: correctCount, total: eligibleRecords.length, avgConfidence, hasLandmines, records: eligibleRecords, allRecords: records });
       return;
     }
     setI(currentIndex + 1); setPicked(null); setConfidence(null); setCrossed(new Set()); setErrorReason(null);
@@ -380,7 +383,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
                       type="button"
                       onClick={() => {
                         if (errorReason === value) return;
-                        recordReflection(userId, value, errorReason);
+                        recordReflection(userId, value, errorReason, q.questionKey || q.poolId || q.id || q.questionId || `stem:${q.stem || ""}`);
                         setErrorReason(value);
                       }}
                       aria-pressed={errorReason === value}

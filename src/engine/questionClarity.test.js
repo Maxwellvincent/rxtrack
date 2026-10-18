@@ -41,3 +41,9 @@ it("requires causal clarity and clinical preference in both generation and revie
     expect(prompt).toContain("Distinguish adjacent histological layers");
   }
 });
+
+it('rejects cranial-nerve lead-ins with exclusively embryologic answer categories', () => {
+ const q={stem:'A patient has difficulty coughing and swallowing. Which cranial nerve is affected?',choices:{A:'Second pouch',B:'First groove',C:'Third pouch'}};
+ expect(questionClarityIssues(q)).toContain('invalid_answer_choices');
+ expect(questionClarityIssues({...q,stem:'Which pharyngeal pouch forms this structure?'})).not.toContain('invalid_answer_choices');
+});

@@ -106,3 +106,18 @@ describe("recordAnswerAwait", () => {
     });
   });
 });
+
+it('projects exclusions without changing raw counters and restores them after undo', async () => {
+ installDomStorage();
+ const { recordEvidence } = await import('./learnerEvidence.js');
+ const ratings = await import('./questionRatings.js');
+ stats.recordAnswer(null,'protected-lecture',false);
+ recordEvidence(null,{questionKey:'bad-q',lectureId:'protected-lecture',correct:false});
+ ratings.rateQuestion(null,{id:'bad-q',lectureId:'protected-lecture'},{sourceIssue:'invalid-choices'});
+ expect(stats.statsForLecture(null,'protected-lecture').answered).toBe(0);
+ stats.recordAnswer(null,'protected-lecture',true);
+ recordEvidence(null,{questionKey:'good-q',lectureId:'protected-lecture',correct:true});
+ expect(stats.statsForLecture(null,'protected-lecture')).toMatchObject({answered:1,correct:1});
+ ratings.rateQuestion(null,{id:'bad-q'},{sourceIssue:null});
+ expect(stats.statsForLecture(null,'protected-lecture')).toMatchObject({answered:2,correct:1});
+});

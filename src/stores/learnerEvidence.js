@@ -1,3 +1,4 @@
+import { excludedEvidenceKeys } from "../engine/questionScoringPolicy.js";
 import { readCloud, subscribeToCloudStore, writeCloud, writeCloudAwait } from "./cloudBase.js";
 import { readJson, writeJson } from "./base.js";
 
@@ -8,22 +9,24 @@ const fallback = { version: 1, total: 0, correct: 0, objectives: {}, atoms: {}, 
 
 export function read(userId) {
   const stored = userId ? readCloud(userId, key, fallback) || fallback : readJson(userId, key, fallback) || fallback;
-  if (!stored.evidenceJournal) return stored;
-  const contested = new Set(Object.values(questionRatings.read(userId).ratings || {}).filter(r => r.sourceIssue).map(r => questionEvidenceKey(r.evidenceKey)));
-  let projected = stored.evidenceBaseline || fallback;
-  for (const event of stored.evidenceJournal) {
-    if (!contested.has(questionEvidenceKey(event.questionKey))) projected = applyEvidence(projected, event);
+  if (!stored.evidenceJournal && !stored.missTypeJournal && !stored.reflectionJournal) return stored;
+  const ratings = questionRatings.read(userId).ratings || {};
+  const contested = excludedEvidenceKeys(ratings);
+  const objectiveContested = excludedEvidenceKeys(ratings, "objective");
+  let projected = stored.evidenceBaseline || (stored.evidenceJournal ? fallback : stored);
+  for (const event of stored.evidenceJournal || []) {
+    if (!contested.has(questionEvidenceKey(event.questionKey))) projected = applyEvidence(projected, objectiveContested.has(questionEvidenceKey(event.questionKey)) ? { ...event, objectiveIds: [] } : event);
   }
   // An excluded-only objective still has an authoritative zero entry. Otherwise
   // UI fallback to legacy counters would revive the contested attempt.
   const objectives = { ...(projected.objectives || {}) };
-  for (const event of stored.evidenceJournal) {
+  for (const event of stored.evidenceJournal || []) {
     for (const id of event.objectiveIds || []) {
       if (!objectives[id]) objectives[id] = { attempts: 0, correct: 0, recent: [], sessions: [], taskTypes: {}, orderLevels: {} };
     }
   }
   return { ...stored, ...projected, objectives, evidenceBaseline: stored.evidenceBaseline, evidenceJournal: stored.evidenceJournal,
-    testTaking: { ...projected.testTaking, reasons: stored.testTaking?.reasons || {}, missTypes: stored.testTaking?.missTypes || {}, diagnosticKeys: stored.testTaking?.diagnosticKeys || [] } };
+    testTaking: { ...projected.testTaking, reasons: projectReflections(stored, userId), missTypes: projectMissTypes(stored, userId), diagnosticKeys: stored.testTaking?.diagnosticKeys || [] } };
 
 }
 
@@ -186,9 +189,19 @@ export function applyReflection(model, reason, previousReason = null) {
   };
 }
 
-export function recordReflection(userId, reason, previousReason = null) {
+function projectReflections(stored, userId) {
+ let model = { testTaking: { reasons: stored.reflectionBaseline || stored.testTaking?.reasons || {} } };
+ for (const event of stored.reflectionJournal || []) {
+  if (!questionRatings.isExcluded(userId, { questionKey: event.questionKey })) model = applyReflection(model, event.reason, event.previousReason);
+ }
+ return model.testTaking.reasons;
+}
+export function recordReflection(userId, reason, previousReason = null, questionKey = null) {
   if (!reason) return read(userId);
-  const next = applyReflection(read(userId), reason, previousReason);
+  const stored = userId ? readCloud(userId, key, fallback) || fallback : readJson(userId, key, fallback) || fallback;
+  const next = { ...applyReflection(stored, reason, previousReason),
+    reflectionBaseline: stored.reflectionBaseline || stored.testTaking?.reasons || {},
+    reflectionJournal: [...(stored.reflectionJournal || []), { reason, previousReason, questionKey, at: Date.now() }] };
   if (userId) writeCloud(userId, key, next);
   else writeJson(userId, key, next);
   return next;
@@ -214,15 +227,28 @@ export async function recordEvidenceAwait(userId, event) {
   return next;
 }
 
+function projectMissTypes(stored, userId) {
+ let model = { testTaking: { missTypes: stored.missTypeBaseline || stored.testTaking?.missTypes || {}, diagnosticKeys: [] } };
+ for (const event of stored.missTypeJournal || []) {
+  if (!questionRatings.isDiagnosticExcluded(userId, event.diagnosticKey)) model = applyMissType(model, event.missType, event.diagnosticKey, event.at);
+ }
+ return model.testTaking.missTypes;
+}
+function recordMissJournal(userId, missType, diagnosticKey) {
+ const stored = userId ? readCloud(userId, key, fallback) || fallback : readJson(userId, key, fallback) || fallback;
+ const journal = stored.missTypeJournal || [];
+ if (journal.some(event => event.diagnosticKey === diagnosticKey)) return stored;
+ return { ...applyMissType(stored, missType, diagnosticKey), missTypeBaseline: stored.missTypeBaseline || stored.testTaking?.missTypes || {}, missTypeJournal: [...journal, { missType, diagnosticKey, at: Date.now() }] };
+}
 export function recordMissType(userId, missType, diagnosticKey) {
-  const next = applyMissType(read(userId), missType, diagnosticKey);
+  const next = recordMissJournal(userId, missType, diagnosticKey);
   if (userId) writeCloud(userId, key, next);
   else writeJson(userId, key, next);
   return next;
 }
 
 export async function recordMissTypeAwait(userId, missType, diagnosticKey) {
-  const next = applyMissType(read(userId), missType, diagnosticKey);
+  const next = recordMissJournal(userId, missType, diagnosticKey);
   if (userId) await writeCloudAwait(userId, key, next);
   else writeJson(userId, key, next);
   return next;

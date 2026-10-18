@@ -970,7 +970,9 @@ export async function listExamSessions(userId, blockId, { status } = {}) {
   const snap = await getDocs(
     query(collection(db, "users", userId, "examSessions"), ...constraints)
   );
-  return snap.docs.map((d) => d.data());
+  const { protectSessionScoring } = await import("./engine/questionScoringPolicy.js");
+  const ratings = (await import("./stores/questionRatings.js")).read(userId).ratings;
+  return snap.docs.map(d => protectSessionScoring(d.data(), ratings));
 }
 
 export async function deleteExamSession(userId, sessionId) {

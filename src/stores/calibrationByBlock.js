@@ -1,3 +1,4 @@
+import * as questionRatings from "./questionRatings.js";
 /**
  * rxt-calibration — the study path's answer log, Firestore-first.
  *
@@ -36,7 +37,7 @@ export function write(userId, value) {
 /** One block's answers, oldest first. */
 export function readBlock(userId, blockId) {
   const all = read(userId);
-  return Array.isArray(all?.[blockId]) ? all[blockId] : [];
+  return Array.isArray(all?.[blockId]) ? all[blockId].filter(record => !questionRatings.isExcluded(userId, record)) : [];
 }
 
 /** Append one answer. Identity is concept + timestamp — see mergeCalibration. */
@@ -48,7 +49,9 @@ export function appendRecord(userId, blockId, record) {
 }
 
 export function subscribe(cb) {
-  return subscribeToCloudStore(key, cb);
+  const off = subscribeToCloudStore(key, cb);
+  const offRatings = questionRatings.subscribe(cb);
+  return () => { off(); offRatings(); };
 }
 
 export function isHydrated(userId) {

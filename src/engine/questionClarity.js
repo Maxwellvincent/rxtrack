@@ -21,5 +21,9 @@ export function questionClarityIssues(question) {
   const asksLoss = /\b(?:absent|lost|missing|disappear|removed)\b/i.test(stem);
   const explicitEffect = /\b(?:digests?|digesting|digested|degrades?|degrading|degraded|dissolves?|dissolving|dissolved|removes?|removing|removed|destroys?|destroyed|cleaves?|cleaved)\b/i.test(stem.split(/\b(?:which|what)\b/i)[0]);
   const assumesRemoval = /\b(?:removed|digested|degraded|destroyed|dissolved|cleaved)\b/i.test(explanation);
-  return appliedEnzyme && asksLoss && assumesRemoval && !explicitEffect ? ["inconsistent_vignette"] : [];
+  const issues = appliedEnzyme && asksLoss && assumesRemoval && !explicitEffect ? ["inconsistent_vignette"] : [];
+  const asksCranialNerve = /which (?:of the following )?(?:cranial )?nerve\b[^?]*\?/i.test(stem.slice(-240));
+  const options = Object.values(question?.choices || {}).map(String);
+  if (asksCranialNerve && options.length >= 2 && options.every(option => /\b(?:pouch|groove|cleft)\b/i.test(option))) issues.push("invalid_answer_choices");
+  return issues;
 }

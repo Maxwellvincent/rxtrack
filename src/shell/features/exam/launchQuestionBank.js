@@ -1,3 +1,4 @@
+import { questionClarityIssues } from "../../../engine/questionClarity.js";
 import { createSessionShape } from "../../../examSessions.js";
 import { createExamSession } from "../../../supabase.js";
 import { examDurationMs } from "./examTiming.js";
@@ -16,7 +17,7 @@ export function validBankQuestion(question) {
   const choicesContiguous = !choiceLetters.length || choiceLetters.every((letter, index) => letter === String.fromCharCode(65 + index));
   const needsImage = !!(question?.hasImage || question?.imageDependent);
   const hasImage = !!(question?.sourceImageUrl || question?.sourceImageDataUrl || question?.image?.url || typeof question?.image === "string");
-  return !!question?.stem && letters.length >= 2 && choicesContiguous && letters.includes(question?.correct) && (!needsImage || hasImage);
+  return !questionClarityIssues(question).includes("invalid_answer_choices") && !!question?.stem && letters.length >= 2 && choicesContiguous && letters.includes(question?.correct) && (!needsImage || hasImage);
 }
 
 export function prepareQuestionBankQuestions(questions, { blockId, filename, analysis = null, lectures = [] }) {

@@ -1,3 +1,5 @@
+import { protectSessionScoring } from "../../../engine/questionScoringPolicy.js";
+import * as questionRatingsStore from "../../../stores/questionRatings.js";
 /**
  * Task 6 — the Integrated Exam session runtime: the presentational half.
  *
@@ -152,7 +154,7 @@ function LeadInCue({ stem }) {
   );
 }
 
-function MissReflection({ userId }) {
+function MissReflection({ userId, question }) {
   const [selected, setSelected] = useState(null);
   return (
     <div className="mt-2 rounded border border-border bg-panel p-2.5">
@@ -161,7 +163,7 @@ function MissReflection({ userId }) {
         {ERROR_REASONS.map(([value, label]) => (
           <button key={value} type="button" onClick={() => {
             if (selected === value) return;
-            recordReflection(userId, value, selected);
+            recordReflection(userId, value, selected, question?.questionKey || question?.poolId || question?.id || question?.questionId);
             setSelected(value);
           }} aria-pressed={selected === value} className={`rounded border-2 px-2.5 py-1.5 text-[12px] font-medium ${selected === value ? "border-accent bg-accent/15 text-text-1 ring-2 ring-accent/40" : "border-border text-text-3 hover:border-border-strong hover:text-text-1"}`}>
             {selected === value ? "✓ " : ""}{label}
@@ -498,26 +500,29 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
 // `tutorModeEnabled` only gates the `TutorPanelForQuestion` breakdown within
 // it, which is the actual preference-gated piece.
 function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, objectivesById, lectureLabelsByLectureId, onNavigateToLecture }) {
+  const [, refreshQuality] = useState(0);
+  useEffect(() => questionRatingsStore.subscribe(() => refreshQuality(n => n + 1)), []);
   const questions = session.questions || [];
   // Start with the complete, PDF-like exam review; filters remain available
   // for focused remediation after the full set is visible.
   const [filter, setFilter] = useState("all");
   const [worksheetError, setWorksheetError] = useState("");
   const answered = questions.filter((q) => pickedFor(session, q.questionId) != null);
-  const correctCount = answered.filter((q) => pickedFor(session, q.questionId) === q.correct).length;
-  const incorrectCount = answered.length - correctCount;
-  const percent = answered.length ? Math.round(correctCount / answered.length * 100) : 0;
+  const scoreableAnswered = answered.filter(q => !questionRatingsStore.isExcluded(userId, q));
+  const correctCount = scoreableAnswered.filter((q) => pickedFor(session, q.questionId) === q.correct).length;
+  const incorrectCount = scoreableAnswered.length - correctCount;
+  const percent = scoreableAnswered.length ? Math.round(correctCount / scoreableAnswered.length * 100) : 0;
   const visible = questions.filter((q) => {
     const picked = pickedFor(session, q.questionId);
-    if (filter === "correct") return picked === q.correct;
-    if (filter === "incorrect") return picked != null && picked !== q.correct;
+    if (filter === "correct") return !questionRatingsStore.isExcluded(userId, q) && picked === q.correct;
+    if (filter === "incorrect") return !questionRatingsStore.isExcluded(userId, q) && picked != null && picked !== q.correct;
     if (filter === "unused") return picked == null;
     return true;
   });
   const exportMissedQuestions = () => {
     const missed = questions.filter((q) => {
       const picked = pickedFor(session, q.questionId);
-      return picked != null && picked !== q.correct;
+      return !questionRatingsStore.isExcluded(userId, q) && picked != null && picked !== q.correct;
     }).map((question) => ({
       ...question,
       lectureLabel: question.lectureLabel || lectureLabelsByLectureId?.[question.lectureId || question.lectureIds?.[0]],
@@ -538,13 +543,13 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, object
       <div className="flex items-center justify-between">
         <div className="font-mono text-[12px] uppercase tracking-wider text-accent-text">Review</div>
         <div data-testid="exam-score" className="font-mono text-sm font-bold text-text-1">
-          {correctCount}/{answered.length} correct · {percent}%
+          {correctCount}/{scoreableAnswered.length} correct · {percent}%{answered.length > scoreableAnswered.length ? ` · ${answered.length - scoreableAnswered.length} excluded` : ""}
         </div>
       </div>
-      {lectureReviewSummary(session, lectureLabelsByLectureId).length > 0 && <section className="rounded-lg border border-border p-3">
+      {lectureReviewSummary(protectSessionScoring(session, questionRatingsStore.read(userId).ratings), lectureLabelsByLectureId).length > 0 && <section className="rounded-lg border border-border p-3">
         <h3 className="font-semibold">Lectures to revisit</h3>
         <p className="text-xs text-text-3">Based on answered questions in this session; a clean result does not establish mastery.</p>
-        <ul className="mt-2 space-y-2">{lectureReviewSummary(session, lectureLabelsByLectureId).map(row => <li key={row.lectureId} className="text-sm"><strong>{row.label}</strong> · {row.correct}/{row.answered} correct · {row.misses ? `${row.misses} missed — review this lecture, then try fresh questions` : "No misses in this session"}{onNavigateToLecture && row.misses > 0 && <button type="button" className="ml-2 text-accent underline" onClick={() => onNavigateToLecture(row.lectureId)}>Review lecture</button>}</li>)}</ul>
+        <ul className="mt-2 space-y-2">{lectureReviewSummary(protectSessionScoring(session, questionRatingsStore.read(userId).ratings), lectureLabelsByLectureId).map(row => <li key={row.lectureId} className="text-sm"><strong>{row.label}</strong> · {row.correct}/{row.answered} correct · {row.misses ? `${row.misses} missed — review this lecture, then try fresh questions` : "No misses in this session"}{onNavigateToLecture && row.misses > 0 && <button type="button" className="ml-2 text-accent underline" onClick={() => onNavigateToLecture(row.lectureId)}>Review lecture</button>}</li>)}</ul>
       </section>}
       {incorrectCount > 0 && <div className="rounded-lg border border-accent/40 bg-bg-elevated p-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -572,7 +577,7 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, object
         return (
           <article key={q.questionId} data-testid="review-question" className="rounded-lg border border-border bg-bg-elevated p-3">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <h3 className="font-mono text-xs font-bold uppercase tracking-wider text-accent-text">Question {questions.findIndex((item) => item.questionId === q.questionId) + 1} · {picked == null ? "Unused" : picked === q.correct ? "✓ Correct" : "✕ Incorrect"}</h3>
+            <h3 className="font-mono text-xs font-bold uppercase tracking-wider text-accent-text">Question {questions.findIndex((item) => item.questionId === q.questionId) + 1} · {questionRatingsStore.isExcluded(userId, q) ? "Excluded · answer preserved" : picked == null ? "Unused" : picked === q.correct ? "✓ Correct" : "✕ Incorrect"}</h3>
               {context && <span className="text-xs text-text-3">{context}</span>}
             </div>
             <QuestionMeta question={q} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} />
@@ -580,7 +585,7 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, object
             <SchoolQuestionFigure question={q} userId={userId} />
             <ChoiceList questionId={q.questionId} choices={q.choices} choiceColumns={q.choiceColumns} choiceLayout={q.choiceLayout} picked={picked} revealed correct={q.correct} onPick={() => {}} />
             <div className="mt-2"><QuestionQualityRating userId={userId} question={q} /></div>
-            {picked != null && picked !== q.correct && <details><summary className="cursor-pointer py-2 text-sm text-text-3">Review this miss · optional</summary><MissReflection userId={userId} /><MissDiagnosis question={q} selectedChoice={picked} onNavigateToLecture={onNavigateToLecture} onComplete={(diagnostic) => {
+            {picked != null && picked !== q.correct && <details><summary className="cursor-pointer py-2 text-sm text-text-3">Review this miss · optional</summary><MissReflection userId={userId} question={q} /><MissDiagnosis question={q} selectedChoice={picked} onNavigateToLecture={onNavigateToLecture} onComplete={(diagnostic) => {
               recordMissType(userId, diagnostic.primaryType, `${session.sessionId}:${q.questionId}`);
             }} /></details>}
             {tutorModeEnabled && <TutorPanelForQuestion question={q} callAI={callAI} />}

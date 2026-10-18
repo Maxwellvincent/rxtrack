@@ -1,3 +1,5 @@
+import { excludedEvidenceKeys, evidenceIdentity } from "../engine/questionScoringPolicy.js";
+import * as questionRatings from "./questionRatings.js";
 /**
  * rxt-lecture-qstats — how many questions you have answered on each lecture, and how many you got
  * right, Firestore-first.
@@ -24,9 +26,24 @@ import { mergeQuestionStats } from "./merge.js";
 export const key = "rxt-lecture-qstats";
 const fallback = {};
 
-export function read(userId) {
+function readStored(userId) {
   if (!userId) return readJson(userId, key, fallback) || fallback;
   return readCloud(userId, key, fallback) || fallback;
+}
+
+export function read(userId) {
+ const stored = readStored(userId);
+ const excluded = excludedEvidenceKeys(questionRatings.read(userId).ratings);
+ if (!excluded.size) return stored;
+ const evidence = userId ? readCloud(userId, "rxt-learner-evidence-v1", {}) : readJson(userId, "rxt-learner-evidence-v1", {});
+ const next = { ...stored };
+ for (const event of evidence?.evidenceJournal || []) {
+  if (!event.lectureId || !excluded.has(evidenceIdentity(event.questionKey))) continue;
+  const row = next[event.lectureId];
+  if (!row) continue;
+  next[event.lectureId] = { ...row, answered: Math.max(0, (Number(row.answered) || 0) - 1), correct: Math.max(0, (Number(row.correct) || 0) - (event.correct ? 1 : 0)) };
+ }
+ return next;
 }
 
 export function write(userId, value) {
@@ -42,7 +59,7 @@ export function write(userId, value) {
  */
 export function recordAnswer(userId, lectureId, wasCorrect) {
   if (!lectureId) return read(userId);
-  const current = read(userId);
+  const current = readStored(userId);
   const prev = current[lectureId] || {};
   const next = mergeQuestionStats(current, {
     [lectureId]: {
@@ -64,7 +81,7 @@ export function recordAnswer(userId, lectureId, wasCorrect) {
  */
 export async function recordAnswerAwait(userId, lectureId, wasCorrect) {
   if (!lectureId) return read(userId);
-  const current = read(userId);
+  const current = readStored(userId);
   const prev = current[lectureId] || {};
   const next = mergeQuestionStats(current, {
     [lectureId]: {
@@ -98,7 +115,9 @@ export function clearLecture(userId, lectureId) {
 }
 
 export function subscribe(cb) {
-  return subscribeToCloudStore(key, cb);
+  const off = subscribeToCloudStore(key, cb);
+  const offRatings = questionRatings.subscribe(cb);
+  return () => { off(); offRatings(); };
 }
 
 export function isHydrated(userId) {

@@ -1,0 +1,21 @@
+import React, { act } from 'react';
+import { createRoot } from 'react-dom/client';
+import { it, expect } from 'vitest';
+import { installDomStorage } from '../stores/testEnv.js';
+import { QuestionQualityRating } from './QuestionQualityRating.jsx';
+import * as ratings from '../stores/questionRatings.js';
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+it('sets category-specific protection and supports restoring the saved attempt', async () => {
+ installDomStorage(); const host=document.createElement('div');const root=createRoot(host);const question={questionId:'ui-q',stem:'Which structure is affected?'};
+ await act(async()=>root.render(<QuestionQualityRating question={question} userId={null}/>));
+ const click = async text => { const button=[...host.querySelectorAll('button')].find(b=>b.textContent===text);expect(button).toBeTruthy();await act(async()=>button.click()); };
+ await click('Invalid answer choices');
+ expect(host.querySelector('input[type=checkbox]').checked).toBe(true);
+ expect(ratings.ratingFor(null,question).excludeFromPerformance).toBe(true);
+ await click('Incomplete explanation');
+ expect(host.querySelector('input[type=checkbox]').checked).toBe(false);
+ expect(ratings.ratingFor(null,question).excludeFromObjectives).toBe(false);
+ await click('Undo flag · restore eligibility');
+ expect(ratings.ratingFor(null,question).sourceIssue).toBeNull();
+ await act(async()=>root.unmount());
+});
