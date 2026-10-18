@@ -18,6 +18,7 @@
  * session is ever created.
  */
 import { useEffect, useState, useMemo } from "react";
+import { quietBackgroundJobs } from "../../backgroundJobs.js";
 import { ExamPreparationStatus } from "./ExamPreparationStatus.jsx";
 import { linkSourceLecture, lectureReviewSummary } from "./questionBankLinks.js";
 import { SchoolQuestionFigure } from "./SchoolQuestionFigure.jsx";
@@ -606,6 +607,7 @@ export function ExamSessionRunner({
   objectivesById = {},
   onExit,
   onSubmitted = null,
+  onRecoverPreparation,
   tutorModeEnabled = false,
   callAI,
 }) {
@@ -616,6 +618,20 @@ export function ExamSessionRunner({
   }, [storedSession, onSubmitted]);
 
   const session = useMemo(() => storedSession ? { ...storedSession, questions: (storedSession.questions || []).map(q => q.sourceType === "question-bank" ? linkSourceLecture(q, lectures, q.sourceBlockId || q.blockId || storedSession.blockId) : q) } : null, [storedSession, lectures]);
+
+  useEffect(() => {
+    if (session?.status !== "in_progress") return;
+    return quietBackgroundJobs();
+  }, [session?.status]);
+  useEffect(() => {
+    if (!session || !onRecoverPreparation) return;
+    const resume = () => onRecoverPreparation(session);
+    resume();
+    window.addEventListener("online", resume);
+    window.addEventListener("focus", resume);
+    const timer = setInterval(resume, 60000);
+    return () => { window.removeEventListener("online", resume); window.removeEventListener("focus", resume); clearInterval(timer); };
+  }, [session, onRecoverPreparation]);
 
   // I6 fix — `finalizeExamSession`'s `blockName`/`lectureLabelsByLectureId`
   // options were threaded correctly through finalize.js/finalizeLogic.js,
@@ -698,7 +714,7 @@ export function ExamSessionRunner({
     <div className="mb-5 space-y-3">
       <SessionTitle session={session} />
       {session.fillStatus === "generating" && <ExamPreparationStatus session={session} />}
-      {session.fillStatus === "partial" && <div role="status" className="rounded-lg border border-accent/40 bg-bg-elevated px-3 py-2 text-sm text-text-2">{session.questions?.length || 0}/{session.targetQuestionCount || session.questions?.length || 0} questions ready. {session.fillError ? `The remaining questions could not be prepared: ${session.fillError}` : "The requested set could not be fully prepared."} You can continue with what is ready.</div>}
+      {session.fillStatus === "partial" && <p role="status" className="text-sm text-text-3">{session.questions?.length || 0} questions available. You can continue with these questions.</p>}
       {session.format === "exam" ? (
         <ExamFormat userId={userId} controller={{ ...controller, session }} submitOpts={submitOpts} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} />
       ) : (

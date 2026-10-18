@@ -25,3 +25,10 @@ export function startBackgroundJob({ label, detail = "", run }) {
 export function readBackgroundJobs() { return jobs; }
 export function subscribeBackgroundJobs(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 export function dismissBackgroundJob(id) { jobs = jobs.filter((job) => job.id !== id); emit(); }
+
+const quietViews = new Set();
+export function quietBackgroundJobs() {
+  const token = {}; quietViews.add(token); emit();
+  return () => { quietViews.delete(token); emit(); };
+}
+export function backgroundJobsAreQuiet() { return quietViews.size > 0; }

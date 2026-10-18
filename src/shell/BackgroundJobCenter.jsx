@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { dismissBackgroundJob, readBackgroundJobs, subscribeBackgroundJobs } from "./backgroundJobs.js";
+import { backgroundJobsAreQuiet, dismissBackgroundJob, readBackgroundJobs, subscribeBackgroundJobs } from "./backgroundJobs.js";
 
 let snapshot = "[]";
 let snapshotJobs = [];
@@ -12,7 +12,8 @@ function getSnapshot() {
 
 export function BackgroundJobCenter() {
   const jobs = useSyncExternalStore(subscribeBackgroundJobs, getSnapshot, getSnapshot);
-  if (!jobs.length) return null;
+  const quiet = useSyncExternalStore(subscribeBackgroundJobs, backgroundJobsAreQuiet, () => false);
+  if (quiet || !jobs.length) return null;
   return (
     <div aria-live="polite" className="fixed bottom-4 right-4 z-[70] w-[min(24rem,calc(100vw-2rem))] space-y-2">
       {jobs.map((job) => (

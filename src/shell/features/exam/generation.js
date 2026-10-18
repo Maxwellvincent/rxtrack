@@ -1,3 +1,4 @@
+import { waitForConnection } from "./preparationRecovery.js";
 import { hasCurrentReasoningAudit } from "../../../engine/questionOrder.js";
 import { readClinicalAnalysesForBlock, readExemplarsForBlock, resolveDefaultDifficulty, startObjectiveQuiz } from "../objectives/quizLaunch.js";
 import { isSemanticDuplicate, questionFingerprint, schoolStyleSimilarity, questionQualityIssues } from "./questionQuality.js";
@@ -76,6 +77,7 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
   };
 
   async function generateLecture(lectureId) {
+    await waitForConnection();
     const requested = allocation[lectureId];
     const objectives = objectivesByLecture?.[lectureId] || [];
     let atoms = atomsByLecture?.[lectureId] || [];
@@ -128,6 +130,7 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
     if (sourceError) errorMessage = sourceError;
     while (obtained < requested && attempt < Math.max(MAX_ATTEMPTS, Math.ceil(requested / 3) + 2) && !stopError && !sourceError) {
       if (deps.savedOnly) break;
+      await waitForConnection();
       attempt++;
       progress(`Writing questions: ${lectureTitle}${attempt > 1 ? ` · retry ${attempt - 1}` : ""}`, lectureId);
       let result;

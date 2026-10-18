@@ -246,7 +246,7 @@ export function createQuestionPool(userId, blockId, database = db) {
         if (!snap.exists()) return;
         const session = snap.data();
         if (session.status !== "in_progress" || session.fillStatus !== "generating") return;
-        tx.update(sessionRef, { fillProgress: clean({
+        tx.update(sessionRef, { fillLeaseUntil: Date.now() + 600000, fillProgress: clean({
           message: String(progress.message || "Preparing questions").slice(0, 240),
           activeLectures: (progress.activeLectures || []).slice(0, 2).map(value => String(value).slice(0, 240)),
           completedLectures: Number(progress.completedLectures) || 0,
@@ -256,7 +256,19 @@ export function createQuestionPool(userId, blockId, database = db) {
         }) });
       });
     },
-    async finishSessionFill(sessionId, { requestedCount, durationMinutes, error = "" } = {}) {
+    async claimSessionFill(sessionId, fallbackPlan) {
+      const ref = doc(db, "users", userId, "examSessions", sessionId);
+      return runTransaction(db, async tx => {
+        const snap = await tx.get(ref);
+        if (!snap.exists()) return null;
+        const session = snap.data();
+        if (session.status !== "in_progress" || !["generating", "partial"].includes(session.fillStatus) || (session.fillRecoveryAttempts || 0) >= 3 || (!session.fillPlan && !fallbackPlan) || session.fillLeaseUntil > Date.now()) return null;
+        const next = { ...session, fillPlan: session.fillPlan || fallbackPlan, fillRecoveryAttempts: (session.fillRecoveryAttempts || 0) + 1, fillStatus: "generating", fillLeaseUntil: Date.now() + 600000 };
+        tx.update(ref, { fillPlan: next.fillPlan, fillRecoveryAttempts: next.fillRecoveryAttempts, fillStatus: next.fillStatus, fillLeaseUntil: next.fillLeaseUntil });
+        return next;
+      });
+    },
+    async finishSessionFill(sessionId, { requestedCount, durationMinutes, error = "", blockedLectureIds = [] } = {}) {
       const sessionRef = doc(db, "users", userId, "examSessions", sessionId);
       return runTransaction(db, async tx => {
         const snap = await tx.get(sessionRef);
@@ -268,7 +280,9 @@ export function createQuestionPool(userId, blockId, database = db) {
         const next = {
           ...session,
           fillStatus: filled ? "complete" : "partial",
-          ...(error ? { fillError: error } : {}),
+          fillLeaseUntil: 0,
+          fillBlockedLectureIds: blockedLectureIds,
+          fillError: error,
           ...(session.format === "exam" && session.startedAt == null ? {
             startedAt: now,
             deadline: now + Math.max(1, Number(durationMinutes) || Number(session.durationMinutes) || 1) * 60_000,

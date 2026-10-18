@@ -1,3 +1,5 @@
+import { recoverExamPreparation } from "./preparationRecovery.js";
+import { generateExamQuestions } from "./generation.js";
 /**
  * Task 12 — the "Integrated Exam" tab's top-level container.
  *
@@ -663,6 +665,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           </div>
         )}
         <ExamSessionRunner
+          onRecoverPreparation={session => recoverExamPreparation({ session, userId, pool: createQuestionPool(userId, blockId), generate: generateExamQuestions, context: { lecturesById, objectivesByLecture, atomsByLecture, lectures, callAIJSON } }).catch(() => {})}
           sessionId={activeSessionId}
           userId={userId}
           blockId={blockId}

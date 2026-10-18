@@ -41,6 +41,19 @@ describe.skipIf(!process.env.FIRESTORE_EMULATOR_HOST)("Firestore prepared questi
     expect(stored.questions[0]).toMatchObject({ sourceType: "question-bank", correct: "A" });
     expect(await pool.ready("bucket")).toEqual([]);
   });
+  it("persists recovery plans, leases a single worker, and retains answers during refill", async () => {
+    const original = { ...question, questionId: "school", sourceType: "question-bank" };
+    const pending = { ...session("recover", original), fillStatus: "partial", fillError: "AI request timed out", targetQuestionCount: 2,
+      answers: [{ questionId: "school", value: "A" }], fillPlan: { allocation: { l: 2 } } };
+    expect(await pool.commit(pending)).toEqual({ ok: true });
+    const claims = await Promise.all([pool.claimSessionFill("recover"), pool.claimSessionFill("recover")]);
+    expect(claims.filter(Boolean)).toHaveLength(1);
+    const saved = await pool.save(question, "bucket", "recovery");
+    await pool.appendToSession("recover", saved, { requestedCount: 2 });
+    const stored = (await database.doc("users/owner/examSessions/recover").get()).data();
+    expect(stored.questions).toHaveLength(2); expect(stored.answers).toEqual(pending.answers);
+    expect(stored.fillRecoveryAttempts).toBe(1);
+  });
   it("allows only one of two sessions to claim the same question", async () => {
     const saved = await pool.save(question, "bucket", "run");
     const results = await Promise.all([pool.commit(session("a", saved)), pool.commit(session("b", saved))]);

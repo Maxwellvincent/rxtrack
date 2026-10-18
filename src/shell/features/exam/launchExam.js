@@ -1,3 +1,4 @@
+import { connectionFailure, holdPreparationWorker } from "./preparationRecovery.js";
 // Task 8, Part B — orchestration for launching an Integrated Exam session.
 //
 // Thin wrapper: allocates questions (Task 4), generates them (Task 5),
@@ -129,11 +130,14 @@ async function runLaunch(
       durationMinutes: format === "exam" ? durationMinutes : null,
     });
     session.fillStartedAt = Date.now();
+    session.fillLeaseUntil = Date.now() + 600000;
+    session.fillPlan = { allocation, studyMode, difficultyOverride, focusNotes: adaptiveFocusNotes };
     deps.onProgress?.({ message: `Opening with ${savedQuestions.length}/${questionCount} saved questions · generating the rest`, completed: savedQuestions.length, total: questionCount });
     const committed = await pool.commit(session);
     if (!committed.ok) return { ok: false, error: committed.error };
     if (preparedGenerationId) await pool.finish(preparedGenerationId, { startedSessionId: sessionId, startedAt: Date.now() }).catch(() => {});
 
+    const releaseWorker = holdPreparationWorker(userId, sessionId);
     let resolveBackground;
     const backgroundPromise = new Promise(resolve => { resolveBackground = resolve; });
     deps.backgroundStarted?.(backgroundPromise);
@@ -169,13 +173,13 @@ async function runLaunch(
         // Questions generated to fill this running attempt belong to its session,
         // not to the already-prepared source set. Keep that named set immutable.
         await progressQueue;
-        await pool.finishSessionFill(sessionId, { requestedCount: questionCount, durationMinutes, error: fillError });
+        await pool.finishSessionFill(sessionId, { requestedCount: questionCount, durationMinutes, error: fillError, blockedLectureIds: (result.errors || []).filter(e => !connectionFailure(e.message)).map(e => e.lectureId) });
         await pool.finish(sessionId, { status: fillError ? "partial" : "complete",
           readyCount: savedQuestions.length + (result.questions?.length || 0), errors: result.errors || [],
           durationMs: Date.now() - startedGenerationAt }).catch(() => {});
         if (fillError) throw new Error(`${savedQuestions.length + (result.questions?.length || 0)}/${questionCount} ready. ${fillError}`);
         return `${savedQuestions.length + (result.questions?.length || 0)}/${questionCount} questions ready`;
-      } finally { resolveBackground(); }
+      } finally { releaseWorker(); resolveBackground(); }
     } });
     return { ok: true, sessionId, generationErrors: [], cacheHits: savedResult.cacheHits || 0 };
   }
