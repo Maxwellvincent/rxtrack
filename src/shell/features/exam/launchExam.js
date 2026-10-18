@@ -5,6 +5,8 @@
 // those functions here — this just sequences the calls and decides what
 // counts as a hard failure vs. a partial-success success.
 
+import { startBackgroundJob } from "../../backgroundJobs.js";
+import { selectSchoolQuestions } from "./schoolQuestionSelection.js";
 import { allocateQuestions } from "./allocation.js";
 import { generateExamQuestions } from "./generation.js";
 import { createSessionShape } from "../../../examSessions.js";
@@ -33,8 +35,14 @@ export async function launchExamSession(args, deps = {}) {
   const key = `${args.userId}:${args.blockId}`;
   if (activeLaunches.has(key)) return { ok: false, error: "Questions are already being prepared for this block. Check background progress, then retry." };
   activeLaunches.add(key);
-  try { return await runLaunch(args, deps); }
-  finally { activeLaunches.delete(key); }
+  let background = false;
+  try {
+    const result = await runLaunch(args, { ...deps, backgroundStarted: promise => {
+      background = true;
+      void promise.finally(() => activeLaunches.delete(key)).catch(() => {});
+    } });
+    return result;
+  } finally { if (!background) activeLaunches.delete(key); }
 }
 
 async function runLaunch(
@@ -52,6 +60,8 @@ async function runLaunch(
     weakConceptAccuracyByLecture,
     weakConcepts,
     learnerEvidence,
+    schoolBanks = [],
+    includeSeen = false,
     prepareOnly = false,
     savedOnly = false,
     startWhilePreparing = false,
@@ -87,12 +97,15 @@ async function runLaunch(
   const adaptiveFocusNotes = [focusNotes, reasoningGuidance(resolvedLearnerEvidence?.testTaking?.missTypes, questionCount)].filter(Boolean).join("\n\n");
 
   if (startWhilePreparing && !prepareOnly && !savedOnly) {
-    const savedResult = await generateExamQuestions(
-      { allocation, lecturesById, objectivesByLecture, atomsByLecture, blockId, lectures,
+    const useSchoolBanks = !preparedGenerationId && studyMode !== "repair" && schoolBanks.length > 0;
+    const school = selectSchoolQuestions({ banks: useSchoolBanks ? schoolBanks : [], lectures, blockId, allocation,
+      history: useSchoolBanks && pool.history ? await pool.history() : [], includeSeen });
+    const savedResult = Object.keys(school.allocation).length ? await generateExamQuestions(
+      { allocation: school.allocation, lecturesById, objectivesByLecture, atomsByLecture, blockId, lectures,
         weakConceptAccuracyByLecture, userId, generationId: sessionId, studyMode, difficultyOverride, focusNotes: adaptiveFocusNotes, preparedGenerationId, preparedQuestionIds },
       { ...deps, pool, savedOnly: true }
-    );
-    const savedQuestions = savedResult.questions || [];
+    ) : { questions: [], cacheHits: 0 };
+    const savedQuestions = [...school.questions, ...(savedResult.questions || [])];
     const savedCounts = savedQuestions.reduce((counts, question) => {
       if (question.lectureId) counts[question.lectureId] = (counts[question.lectureId] || 0) + 1;
       return counts;
@@ -121,41 +134,49 @@ async function runLaunch(
     if (!committed.ok) return { ok: false, error: committed.error };
     if (preparedGenerationId) await pool.finish(preparedGenerationId, { startedSessionId: sessionId, startedAt: Date.now() }).catch(() => {});
 
-    void (async () => {
-      let result = { questions: [], errors: [] };
-      let fillError = "";
-      let progressQueue = Promise.resolve(), lastProgressAt = 0, lastCompleted = -1;
-      const reportFill = progress => {
-        deps.onProgress?.(progress);
-        if (!pool.reportSessionFillProgress) return;
-        const now = Date.now();
-        if (now - lastProgressAt < 2000 && progress.completed === lastCompleted) return;
-        lastProgressAt = now; lastCompleted = progress.completed;
-        progressQueue = progressQueue.then(() => pool.reportSessionFillProgress(sessionId, progress)).catch(() => {});
-      };
+    let resolveBackground;
+    const backgroundPromise = new Promise(resolve => { resolveBackground = resolve; });
+    deps.backgroundStarted?.(backgroundPromise);
+    startBackgroundJob({ label: `Preparing ${examName}`, detail: `${savedQuestions.length}/${questionCount} ready`, run: async report => {
       try {
-        if (Object.keys(missingAllocation).length) {
-          result = await generateExamQuestions(
-            { allocation: missingAllocation, lecturesById, objectivesByLecture, atomsByLecture,
-              blockId, lectures, weakConceptAccuracyByLecture, userId, generationId: sessionId,
-              studyMode, difficultyOverride, focusNotes: adaptiveFocusNotes },
-            { ...deps, pool, savedOnly: false,
-              onProgress: reportFill,
-              onQuestionReady: question => pool.appendToSession(sessionId, question, { requestedCount: questionCount, durationMinutes }) }
-          );
-          if (result.errors?.length) fillError = result.errors.map(item => item.message).join(" ");
+        let result = { questions: [], errors: [] };
+        let fillError = "";
+        let progressQueue = Promise.resolve(), lastProgressAt = 0, lastCompleted = -1;
+        const reportFill = progress => {
+          deps.onProgress?.(progress);
+          report(`${savedQuestions.length + (progress.completed || 0)}/${questionCount} ready · ${progress.message}`);
+          if (!pool.reportSessionFillProgress) return;
+          const now = Date.now();
+          if (now - lastProgressAt < 2000 && progress.completed === lastCompleted) return;
+          lastProgressAt = now; lastCompleted = progress.completed;
+          progressQueue = progressQueue.then(() => pool.reportSessionFillProgress(sessionId, progress)).catch(() => {});
+        };
+        try {
+          if (Object.keys(missingAllocation).length) {
+            result = await generateExamQuestions(
+              { allocation: missingAllocation, lecturesById, objectivesByLecture, atomsByLecture,
+                blockId, lectures, weakConceptAccuracyByLecture, userId, generationId: sessionId,
+                studyMode, difficultyOverride, focusNotes: adaptiveFocusNotes },
+              { ...deps, pool, savedOnly: false,
+                onProgress: reportFill,
+                onQuestionReady: question => pool.appendToSession(sessionId, question, { requestedCount: questionCount, durationMinutes }) }
+            );
+            if (result.errors?.length) fillError = result.errors.map(item => item.message).join(" ");
+          }
+        } catch (error) {
+          fillError = error?.message || String(error);
         }
-      } catch (error) {
-        fillError = error?.message || String(error);
-      }
-      // Questions generated to fill this running attempt belong to its session,
-      // not to the already-prepared source set. Keep that named set immutable.
-      await progressQueue;
-      await pool.finishSessionFill(sessionId, { requestedCount: questionCount, durationMinutes, error: fillError }).catch(() => {});
-      await pool.finish(sessionId, { status: fillError ? "partial" : "complete",
-        readyCount: savedQuestions.length + (result.questions?.length || 0), errors: result.errors || [],
-        durationMs: Date.now() - startedGenerationAt }).catch(() => {});
-    })();
+        // Questions generated to fill this running attempt belong to its session,
+        // not to the already-prepared source set. Keep that named set immutable.
+        await progressQueue;
+        await pool.finishSessionFill(sessionId, { requestedCount: questionCount, durationMinutes, error: fillError });
+        await pool.finish(sessionId, { status: fillError ? "partial" : "complete",
+          readyCount: savedQuestions.length + (result.questions?.length || 0), errors: result.errors || [],
+          durationMs: Date.now() - startedGenerationAt }).catch(() => {});
+        if (fillError) throw new Error(`${savedQuestions.length + (result.questions?.length || 0)}/${questionCount} ready. ${fillError}`);
+        return `${savedQuestions.length + (result.questions?.length || 0)}/${questionCount} questions ready`;
+      } finally { resolveBackground(); }
+    } });
     return { ok: true, sessionId, generationErrors: [], cacheHits: savedResult.cacheHits || 0 };
   }
 

@@ -27,7 +27,19 @@ describe.skipIf(!process.env.FIRESTORE_EMULATOR_HOST)("Firestore prepared questi
     const stored = (await database.doc("users/owner/examSessions/s").get()).data();
     expect(stored.deadline - stored.startedAt).toBe(90000);
     expect(stored.startedAt).toBeGreaterThan(1000);
+    expect(await pool.history()).toHaveLength(0); // Assigned is not yet answered.
+    await database.doc("users/owner/examSessions/s").update({ answers: [{ questionId: saved.questionId, value: "A" }] });
     expect((await pool.history())).toHaveLength(1);
+  });
+  it("commits mixed original and generated items without inventing pool records for originals", async () => {
+    const saved = await pool.save(question, "bucket", "run");
+    const original = { ...question, questionId: "original", sourceType: "question-bank", sourceFile: "homework.pdf" };
+    const mixed = { ...session("mixed", saved), questions: [original, saved] };
+    expect(await pool.commit(mixed)).toEqual({ ok: true });
+    const stored = (await database.doc("users/owner/examSessions/mixed").get()).data();
+    expect(stored.questions).toHaveLength(2);
+    expect(stored.questions[0]).toMatchObject({ sourceType: "question-bank", correct: "A" });
+    expect(await pool.ready("bucket")).toEqual([]);
   });
   it("allows only one of two sessions to claim the same question", async () => {
     const saved = await pool.save(question, "bucket", "run");

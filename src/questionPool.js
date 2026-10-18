@@ -191,10 +191,11 @@ export function createQuestionPool(userId, blockId, database = db) {
     },
     async commit(session) {
       if (sessionBytes(session) > MAX_EXAM_SESSION_BYTES) return { ok: false, error: "Session too large; choose fewer questions. Prepared questions are saved." };
-      const refs = session.questions.map(q => doc(records, q.poolId));
+      const pooledQuestions = session.questions.filter(q => q.sourceType !== "question-bank");
+      const refs = pooledQuestions.map(q => doc(records, q.poolId));
       return runTransaction(db, async tx => {
         const snapshots = await Promise.all(refs.map(ref => tx.get(ref)));
-        if (snapshots.some((s, i) => !s.exists() || s.data().status !== "ready" || s.data().bucket !== session.questions[i].poolBucket)) {
+        if (snapshots.some((s, i) => !s.exists() || s.data().status !== "ready" || s.data().bucket !== pooledQuestions[i].poolBucket)) {
           return { ok: false, error: "Another session used some of these questions. Retry to select unused questions; nothing was lost." };
         }
         // Set the clock only after generation and after transaction reads.

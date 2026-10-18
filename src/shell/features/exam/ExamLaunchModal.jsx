@@ -75,6 +75,7 @@ export function ExamLaunchModal({
   const [contentScope, setContentScope] = useState("block-so-far");
   const [rangeStart, setRangeStart] = useState("");
   const [rangeEnd, setRangeEnd] = useState("");
+  const [includeSeen, setIncludeSeen] = useState(false);
   const [focusNotes, setFocusNotes] = useState("");
   const [examNameOverride, setExamNameOverride] = useState(null);
 
@@ -134,6 +135,7 @@ export function ExamLaunchModal({
       questionCount: parsedCount,
       durationMinutes: format === "exam" ? parsedDuration : null,
       startWhilePreparing: true,
+      includeSeen,
       ...scopePayload,
       ...(focusNotes.trim() ? { focusNotes: focusNotes.trim() } : {}),
     });
@@ -180,6 +182,8 @@ export function ExamLaunchModal({
 
           <div>
             <label className="mb-1 block font-mono text-[12px] font-bold uppercase tracking-wider text-text-3" htmlFor="exam-focus-notes">Instructor emphasis / blockers</label>
+            <p className="mb-2 text-sm text-text-2">Uses available school questions first, then prepares fresh questions for gaps. Preparation continues while you browse RxTrack.</p>
+            <label className="mb-3 flex items-center gap-2 text-sm"><input type="checkbox" checked={includeSeen} onChange={event => setIncludeSeen(event.target.checked)} /> Include previously answered school questions for review</label>
             <textarea id="exam-focus-notes" value={focusNotes} onChange={(event) => setFocusNotes(event.target.value)} rows={4} placeholder="e.g. All major metabolism pathways; rate-limiting steps; vitamin cofactors; enzymes and metabolic processes; concepts I keep missing…" className="w-full resize-y rounded border border-border bg-bg-elevated px-2 py-2 text-sm text-text-1 placeholder:text-text-3" />
             <div className="mt-1 font-mono text-[11px] text-text-3">These topics guide allocation and question generation; lecture evidence still controls factual accuracy.</div>
           </div>

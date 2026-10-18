@@ -226,3 +226,27 @@ describe("launchExamSession", () => {
     expect(addPreparedQuestionsMock).not.toHaveBeenCalled();
   });
 });
+
+it("starts entirely from original school questions without an AI generation call", async () => {
+  allocateQuestionsMock.mockReturnValue({ "lec-1": 1 });
+  createExamSessionMock.mockResolvedValue({ ok: true });
+  const result = await launchExamSession({ ...BASE_ARGS, questionCount: 1, startWhilePreparing: true,
+    lectures: [{ id: "lec-1", blockId: "b1", lectureNumber: 5, lectureTitle: "NB 05 Neurons and Glia" }],
+    schoolBanks: [{ filename: "homework.pdf", blockId: "b1", questions: [{ stem: "Which organelle?", choices: { A: "Lysosome", B: "Golgi" }, correct: "A", sourceSection: "NB 05", sourceSectionTitle: "Neurons and Glia" }] }],
+  });
+  expect(result.ok).toBe(true);
+  await vi.waitFor(() => expect(finishPoolFillMock).toHaveBeenCalled());
+  expect(generateExamQuestionsMock).not.toHaveBeenCalled();
+  expect(createExamSessionMock.mock.calls[0][1].questions[0]).toMatchObject({ sourceType: "question-bank", correct: "A" });
+});
+
+it("keeps the duplicate-launch guard until the background fill finishes", async () => {
+  let finish;
+  generateExamQuestionsMock.mockResolvedValueOnce({ questions: [] }).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  createExamSessionMock.mockResolvedValue({ ok: true });
+  expect((await launchExamSession({ ...BASE_ARGS, startWhilePreparing: true })).ok).toBe(true);
+  await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+  expect((await launchExamSession({ ...BASE_ARGS, startWhilePreparing: true })).error).toContain("already being prepared");
+  finish({ questions: [], errors: [] });
+  await vi.waitFor(() => expect(finishPoolFillMock).toHaveBeenCalled());
+});

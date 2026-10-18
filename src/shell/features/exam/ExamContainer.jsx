@@ -581,6 +581,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           userId,
           blockId,
           ...launchConfig,
+          schoolBanks: blockQuestionBanks,
           eligibleLectures: scopedLectures,
           objectivesByLecture: scopedObjectives,
           atomsByLecture,

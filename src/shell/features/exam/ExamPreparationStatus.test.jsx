@@ -9,6 +9,8 @@ it("does not invite answering at zero and shows real stage, elapsed time and che
   const session = { questions: [], targetQuestionCount: 50, fillStartedAt: Date.now()-120000, fillProgress: { updatedAt: Date.now()-100000, activeLectures: ["Reviewing accuracy: NB 07"], completedLectures: 2, totalLectures: 20, failedLectures: 1 } };
   act(() => root.render(<ExamPreparationStatus session={session} />));
   expect(host.textContent).toContain("0/50 questions ready");
+  expect(host.textContent).toContain("You can browse RxTrack while preparation continues");
+  expect(host.textContent).toContain("closing or reloading the tab interrupts");
   expect(host.textContent).toContain("nothing to answer yet");
   expect(host.textContent).toContain("Reviewing accuracy: NB 07");
   expect(host.textContent).toContain("2/20 lectures checked");

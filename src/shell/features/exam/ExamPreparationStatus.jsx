@@ -16,6 +16,6 @@ export function ExamPreparationStatus({ session }) {
     <p>{elapsed != null ? `Elapsed: ${Math.floor(elapsed/60)}m ${elapsed%60}s. ` : ""}{age != null ? `Last progress update ${age}s ago.` : ""}</p>
     {age != null && age >= 90 && <p>The current request is taking longer. No new progress has been confirmed; completed network requests do not mean reviewed questions are ready.</p>}
     {session.format === "exam" && <p>The timer starts when preparation finishes.</p>}
-    <p>Keep this tab open until preparation finishes.</p>
+    <p>You can browse RxTrack while preparation continues. Keep RxTrack open; closing or reloading the tab interrupts this browser-run job.</p>
   </section>;
 }

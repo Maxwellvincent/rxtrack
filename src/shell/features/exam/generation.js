@@ -126,7 +126,7 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
       progress(`Loaded saved questions: ${lectureTitle}`);
     }
     if (sourceError) errorMessage = sourceError;
-    while (obtained < requested && attempt < MAX_ATTEMPTS && !stopError && !sourceError) {
+    while (obtained < requested && attempt < Math.max(MAX_ATTEMPTS, Math.ceil(requested / 3) + 2) && !stopError && !sourceError) {
       if (deps.savedOnly) break;
       attempt++;
       progress(`Writing questions: ${lectureTitle}${attempt > 1 ? ` · retry ${attempt - 1}` : ""}`, lectureId);
@@ -136,9 +136,9 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
           lectureText,
           studyMode,
           focusNotes,
-          difficulty, userId, clinicalCorrelateLibrary, avoidStems: [...history, ...accepted].map(q => q.stem).filter(Boolean).slice(-100), questionCount: requested - obtained }, {
+          difficulty, userId, clinicalCorrelateLibrary, avoidStems: [...history, ...accepted].map(q => q.stem).filter(Boolean).slice(-100), questionCount: Math.min(3, requested - obtained) }, {
           ...deps,
-          maxTokens: Math.min(8000, Math.max(2000, (requested - obtained) * 1100)),
+          maxTokens: Math.min(8000, Math.max(2000, Math.min(3, requested - obtained) * 1100)),
           callAIJSON: (...args) => {
             progress(`${/independent|audit/i.test(String(args[0])) ? "Reviewing accuracy" : "Writing questions"}: ${lectureTitle}`, lectureId);
             args[6] = { ...args[6], signal, bridgeTimeoutMs: LOCAL_BRIDGE_TIMEOUT_MS, throwOnError: true };
