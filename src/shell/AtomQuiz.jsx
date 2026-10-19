@@ -277,7 +277,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
                 <button
                   type="button"
                   disabled={revealed}
-                  onClick={() => !revealed && !isCrossed && setPicked(letter)}
+                  onClick={() => !revealed && !isCrossed && setPicked(isPicked ? null : letter)}
                   aria-pressed={isPicked}
                   className={"quiz-choice flex flex-1 items-center gap-2 rounded-lg border bg-bg px-3 py-2 text-left text-xs text-text-1 " + borderCls}
                 >

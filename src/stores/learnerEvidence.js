@@ -217,7 +217,7 @@ export function recordEvidence(userId, event) {
   return next;
 }
 
-export async function recordEvidenceBatchAwait(userId, events) {
+export async function recordEvidenceBatchAwait(userId, events, { removeEventIds = [] } = {}) {
   if (userId) {
     readCloud(userId, key, fallback); // Start hydration before replacing any history.
     if (!isHydrated(userId, key)) await new Promise((resolve, reject) => {
@@ -236,7 +236,7 @@ export async function recordEvidenceBatchAwait(userId, events) {
   }
   const stored = userId ? readCloud(userId, key, fallback) || fallback : readJson(userId, key, fallback) || fallback;
   const baseline = stored.evidenceBaseline || stored;
-  const journal = [...(stored.evidenceJournal || [])];
+  const journal = (stored.evidenceJournal || []).filter(event => !removeEventIds.includes(event.eventId));
   for (const event of events) {
     const index = event.eventId ? journal.findIndex(item => item.eventId === event.eventId) : -1;
     const nextEvent = { ...event, at: event.at || Date.now() };

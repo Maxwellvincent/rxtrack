@@ -214,16 +214,16 @@ function ChoiceList({ questionId, choices, picked, revealed, correct, onPick, lo
             ? "border-accent bg-accent/15 ring-2 ring-accent/40"
             : "border-border hover:border-border-strong cursor-pointer"
           : letter === correct
-            ? "border-good"
+            ? "border-good bg-good/10 ring-2 ring-good/40"
             : isPicked
-              ? "border-bad"
+              ? "border-bad bg-bad/10"
               : "border-border opacity-60";
         return (
           <div key={letter} className="flex items-stretch gap-2">
           <button
             type="button"
             disabled={revealed || locked || isCrossed}
-            onClick={() => onPick(letter)}
+            onClick={() => onPick(isPicked ? null : letter)}
             aria-pressed={isPicked}
             className={
               "flex min-h-11 flex-1 items-center gap-2 rounded-lg border bg-bg px-3 py-2 text-left text-xs text-text-1 " +
@@ -238,6 +238,7 @@ function ChoiceList({ questionId, choices, picked, revealed, correct, onPick, lo
             {revealed && isPicked && letter !== correct && <span className="rounded border-2 border-bad bg-bg px-2 py-0.5 text-[10px] font-black text-text-1">✕ YOUR ANSWER</span>}
           </button>
           {!revealed && !locked && <button type="button" aria-label={`${isCrossed ? "Restore" : "Cross out"} choice ${letter}`} aria-pressed={isCrossed} onClick={() => {
+            if (!isCrossed && isPicked) onPick(null);
             setCrossed(current => {
               const next = new Set(current);
               if (next.has(letter)) next.delete(letter); else next.add(letter);
@@ -331,7 +332,7 @@ function ExamFormat({ controller, submitOpts, objectivesById, lectureLabelsByLec
     controller;
   const questions = session.questions || [];
   const q = questions[currentIndex];
-  const answeredCount = (session.answers || []).length;
+  const answeredCount = (session.answers || []).filter(answer => answer.value != null).length;
 
   return (
     <div className="space-y-3" onKeyDown={(event) => advanceOnEnter(event, () => setCurrentIndex((i) => Math.min(questions.length - 1, i + 1)), !!q && pickedFor(session, q.questionId) != null && currentIndex < questions.length - 1 && !submitting)}>
@@ -412,20 +413,20 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
   const questions = session.questions || [];
   const q = questions[currentIndex];
   const picked = q ? pickedFor(session, q.questionId) : null;
-  const revealed = picked != null;
+  const savedAnswer = (session.answers || []).find(answer => answer.questionId === q?.questionId);
+  const revealed = picked != null && savedAnswer?.revealed !== false;
+  const [reasonFirst, setReasonFirst] = useState(false);
   const isCorrect = revealed && picked === q?.correct;
   const [diagnostics, setDiagnostics] = useState({});
   const diagnosed = !!diagnostics[q?.questionId];
-  const showAnswer = revealed && (isCorrect || diagnosed);
-  const [draftChoice, setDraftChoice] = useState(picked);
-  useEffect(() => setDraftChoice(picked), [q?.questionId, picked]);
+  const showAnswer = revealed && (!reasonFirst || diagnosed);
   if (!q) return null; // Preparation status is shown once above the question area.
 
   return (
-    <div className="space-y-3" onKeyDown={(event) => advanceOnEnter(event, () => setCurrentIndex((i) => Math.min(questions.length - 1, i + 1)), revealed && currentIndex < questions.length - 1 && !submitting)}>
+    <div className="space-y-3" onKeyDown={(event) => advanceOnEnter(event, () => setCurrentIndex((i) => Math.min(questions.length - 1, i + 1)), picked != null && currentIndex < questions.length - 1 && !submitting)}>
       <div className="flex items-center justify-between font-mono text-[12px] uppercase tracking-wider text-accent-text">
         <span>Practice</span>
-        <span className="text-text-3">{(session.answers || []).length}/{questions.length} answered</span>
+        <span className="text-text-3">{(session.answers || []).filter(answer => answer.value != null).length}/{questions.length} answered</span>
       </div>
 
       <QuestionNavigator questions={questions} session={session} currentIndex={currentIndex} onSelect={setCurrentIndex} />
@@ -440,20 +441,25 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
           choices={q.choices}
           choiceColumns={q.choiceColumns}
           choiceLayout={q.choiceLayout}
-          picked={revealed ? picked : draftChoice}
+          picked={picked}
           revealed={showAnswer}
-          locked={revealed && !isCorrect && !diagnosed}
+          locked={revealed && !showAnswer}
           correct={q.correct}
-          onPick={setDraftChoice}
+          onPick={letter => answerQuestion(q.questionId, letter, { revealed: false })}
         />
 
         {!revealed && (
           <div className="mt-3">
-            <Button data-testid="check-answer" onClick={() => answerQuestion(q.questionId, draftChoice)} disabled={!draftChoice}>
+            <Button data-testid="check-answer" onClick={() => answerQuestion(q.questionId, picked, { revealed: true })} disabled={!picked}>
               Check answer
             </Button>
+            <label className="ml-3 inline-flex items-center gap-2 text-xs text-text-2"><input type="checkbox" checked={reasonFirst} onChange={event => setReasonFirst(event.target.checked)} />Reason before reveal</label>
           </div>
         )}
+
+        {!revealed && picked != null && currentIndex === questions.length - 1 && session.fillStatus !== "generating" && <Button variant="outline" disabled={submitting} onClick={() => submit(submitOpts)}>Finish without revealing</Button>}
+
+        {revealed && !showAnswer && <div className="space-y-2 rounded-lg border border-border p-3"><label className="block text-sm text-text-2">Your reasoning (optional)<textarea key={q.questionId} className="mt-1 block w-full rounded border border-border bg-panel p-2" rows={3} placeholder="What led you to this answer?" /></label><Button variant="outline" onClick={() => setDiagnostics(current => ({ ...current, [q.questionId]: { skipped: true } }))}>Reveal answer</Button></div>}
 
         {revealed && !isCorrect && <details key={`diagnosis-${q.questionId}`} className="text-sm"><summary className="cursor-pointer py-2 text-text-3">Review this miss · optional</summary><MissDiagnosis question={q} selectedChoice={picked} initialResult={diagnostics[q.questionId]} onSkip={() => setDiagnostics(current => ({ ...current, [q.questionId]: { skipped: true } }))} onNavigateToLecture={onNavigateToLecture} onComplete={(diagnostic) => {
           recordMissType(userId, diagnostic.primaryType, `${session.sessionId}:${q.questionId}`);
@@ -511,6 +517,7 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, object
   const scoreableAnswered = answered.filter(q => !questionRatingsStore.isExcluded(userId, q));
   const correctCount = scoreableAnswered.filter((q) => pickedFor(session, q.questionId) === q.correct).length;
   const incorrectCount = scoreableAnswered.length - correctCount;
+  const unlinkedMisses = scoreableAnswered.filter(q => !q.lectureId && pickedFor(session, q.questionId) !== q.correct).length;
   const percent = scoreableAnswered.length ? Math.round(correctCount / scoreableAnswered.length * 100) : 0;
   const visible = questions.filter((q) => {
     const picked = pickedFor(session, q.questionId);
@@ -547,10 +554,13 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, object
         </div>
       </div>
       {lectureReviewSummary(protectSessionScoring(session, questionRatingsStore.read(userId).ratings), lectureLabelsByLectureId).length > 0 && <section className="rounded-lg border border-border p-3">
-        <h3 className="font-semibold">Lectures to revisit</h3>
-        <p className="text-xs text-text-3">Based on answered questions in this session; a clean result does not establish mastery.</p>
-        <ul className="mt-2 space-y-2">{lectureReviewSummary(protectSessionScoring(session, questionRatingsStore.read(userId).ratings), lectureLabelsByLectureId).map(row => <li key={row.lectureId} className="text-sm"><strong>{row.label}</strong> · {row.correct}/{row.answered} correct · {row.misses ? `${row.misses} missed — review this lecture, then try fresh questions` : "No misses in this session"}{onNavigateToLecture && row.misses > 0 && <button type="button" className="ml-2 text-accent underline" onClick={() => onNavigateToLecture(row.lectureId)}>Review lecture</button>}</li>)}</ul>
+        <h3 className="font-semibold">Lectures to revisit after missed questions</h3>
+        <p className="text-xs text-text-3">Only lectures with missed answers in this session appear here.</p>
+        {!lectureReviewSummary(protectSessionScoring(session, questionRatingsStore.read(userId).ratings), lectureLabelsByLectureId).some(row => row.misses > 0) && <p className="mt-2 text-sm text-good">No misses in the linked lectures this session.</p>}
+        <details className="mt-2 text-sm"><summary className="cursor-pointer text-text-3">Lectures with no misses this session</summary>{lectureReviewSummary(protectSessionScoring(session, questionRatingsStore.read(userId).ratings), lectureLabelsByLectureId).filter(row => row.misses === 0).map(row => <p key={row.lectureId} className="mt-1">{row.label} · {row.correct}/{row.answered} correct</p>)}</details>
+        <ul className="mt-2 space-y-2">{lectureReviewSummary(protectSessionScoring(session, questionRatingsStore.read(userId).ratings), lectureLabelsByLectureId).filter(row => row.misses > 0).map(row => <li key={row.lectureId} className="text-sm"><strong>{row.label}</strong> · {row.correct}/{row.answered} correct · {row.misses ? `${row.misses} missed — review this lecture, then try fresh questions` : "No misses in this session"}{onNavigateToLecture && row.misses > 0 && <button type="button" className="ml-2 text-accent underline" onClick={() => onNavigateToLecture(row.lectureId)}>Review lecture</button>}</li>)}</ul>
       </section>}
+      {unlinkedMisses > 0 && <p role="status" className="rounded-lg border border-warn/40 p-3 text-sm text-text-2">{unlinkedMisses} missed question{unlinkedMisses === 1 ? " is" : "s are"} saved but awaiting lecture links. These misses cannot yet identify a lecture to revisit.</p>}
       {incorrectCount > 0 && <div className="rounded-lg border border-accent/40 bg-bg-elevated p-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="text-sm font-semibold text-text-1">Take your missed questions to Goodnotes</div>

@@ -1,3 +1,5 @@
+import * as questionFigures from "../../../stores/questionFigures.js";
+import { questionReferencesVisual } from "../../../engine/questionVisual.js";
 import { questionClarityIssues } from "../../../engine/questionClarity.js";
 import { createSessionShape } from "../../../examSessions.js";
 import { createExamSession } from "../../../supabase.js";
@@ -15,7 +17,7 @@ export function validBankQuestion(question) {
   const letters = Object.keys(question?.choices || {});
   const choiceLetters = letters.filter((letter) => /^[A-H]$/i.test(letter)).map((letter) => letter.toUpperCase()).sort();
   const choicesContiguous = !choiceLetters.length || choiceLetters.every((letter, index) => letter === String.fromCharCode(65 + index));
-  const needsImage = !!(question?.hasImage || question?.imageDependent);
+  const needsImage = !!(question?.hasImage || question?.imageDependent || questionReferencesVisual(question?.stem));
   const hasImage = !!(question?.sourceImageUrl || question?.sourceImageDataUrl || question?.image?.url || typeof question?.image === "string");
   return !questionClarityIssues(question).includes("invalid_answer_choices") && !!question?.stem && letters.length >= 2 && choicesContiguous && letters.includes(question?.correct) && (!needsImage || hasImage);
 }
@@ -44,8 +46,10 @@ export async function launchQuestionBankSession(
 ) {
   const create = deps.createExamSession || createExamSession;
   const { questions: sourceQuestions, removedDuplicateCount } = prepareBankQuestionSet(questions || [], analysis);
-  const invalidCount = sourceQuestions.filter((question) => !validBankQuestion(question)).length;
   if (!sourceQuestions.length) return { ok: false, error: "This question bank is empty." };
+  const figures = await (deps.loadFigures || questionFigures.load)(userId, filename);
+  const withFigures = sourceQuestions.map(q => questionFigures.apply(q, figures));
+  const invalidCount = withFigures.filter((question) => !validBankQuestion(question)).length;
   if (invalidCount) {
     return {
       ok: false,
@@ -54,7 +58,7 @@ export async function launchQuestionBankSession(
   }
 
   const sessionId = makeSessionId();
-  const prepared = prepareQuestionBankQuestions(sourceQuestions, { blockId, filename, analysis, lectures });
+  const prepared = prepareQuestionBankQuestions(withFigures, { blockId, filename, analysis, lectures });
   const startedAt = format === "exam" ? Date.now() : null;
   const session = createSessionShape({
     sessionId,

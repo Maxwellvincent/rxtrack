@@ -1,3 +1,5 @@
+import * as questionFigures from "../../../stores/questionFigures.js";
+import { missingRequiredVisual } from "../../../engine/questionVisual.js";
 import { protectSessionScoring } from "../../../engine/questionScoringPolicy.js";
 import { updateExamSessionTransaction } from "../../../supabase.js";
 import { recordEvidenceBatchAwait } from "../../../stores/learnerEvidence.js";
@@ -12,19 +14,26 @@ export async function checkpointExamSession(userId, sessionId, { lectures = [] }
     if (current?.status !== "in_progress") return null;
     return { ...current, progressSavedAt: Date.now(),
       checkpointAnswers: current.answers || [],
-      questions: (current.questions || []).map(q => q.sourceType === "question-bank"
-        ? linkSourceLecture(q, lectures, q.sourceBlockId || q.blockId || current.blockId) : q) };
+      questions: (current.questions || []).map(q => {
+        const linked = q.sourceType === "question-bank" ? linkSourceLecture(q, lectures, q.sourceBlockId || q.blockId || current.blockId) : q;
+        return questionFigures.apply(linked, questionFigures.read(userId, q.sourceFile));
+      }) };
   });
   if (!session || session.status !== "in_progress") throw new Error("This session could not be checkpointed. Please reload its status.");
   const questions = new Map((session.questions || []).map(q => [q.questionId, q]));
   const events = [];
+  const removeEventIds = [];
   for (const answer of session.checkpointAnswers) {
     const question = questions.get(answer.questionId);
-    if (!question || answer.value == null || !Object.hasOwn(question.choices || {}, answer.value)) continue;
+    if (!question) continue;
+    if (answer.value == null || missingRequiredVisual(question)) {
+      removeEventIds.push(`exam:${session.sessionId}:${question.questionId}`); continue;
+    }
+    if (!Object.hasOwn(question.choices || {}, answer.value)) continue;
     if (!question.lectureId && !question.objectiveIds?.length) continue;
     events.push(sessionEvidenceEvent(session, question, answer));
   }
-  if (events.length) await recordEvidenceBatchAwait(userId, events);
+  if (events.length || removeEventIds.length) await recordEvidenceBatchAwait(userId, events, { removeEventIds });
   return session;
 }
 

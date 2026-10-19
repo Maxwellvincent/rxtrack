@@ -277,7 +277,7 @@ export function useExamSessionController(sessionId, userId) {
   // (rather than throwing/rejecting) when the answer is refused; callers
   // that care can branch on the return value.
   const answerQuestion = useCallback(
-    (questionId, value) => {
+    (questionId, value, options = {}) => {
       if (!session) return false;
       if (session.status !== "in_progress") return false;
       if (session.format === "exam" && remainingMs != null && remainingMs <= 0) return false;
@@ -291,6 +291,7 @@ export function useExamSessionController(sessionId, userId) {
       const answer = {
         questionId,
         value,
+        ...(session.format === "practice" ? { revealed: options.revealed ?? true } : {}),
         answeredAt: Date.now(),
         seq: seqRef.current++,
         writerId: writerIdRef.current,

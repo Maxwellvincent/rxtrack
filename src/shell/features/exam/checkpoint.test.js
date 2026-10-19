@@ -71,3 +71,12 @@ it("preserves hydrated cloud history and retries a failed publish without duplic
    expect(saved.objectives.o.attempts).toBe(1);
  } finally { resetCloudStores(); __setCloudBackendForTests(null); }
 });
+
+it("clears a saved selection without leaving an incorrect attempt behind",async()=>{
+ await checkpointExamSession(null,'s1');
+ expect(evidence.read(null).total).toBe(1);
+ state.session.answers=[{questionId:'q1',value:null}];
+ await checkpointExamSession(null,'s1');
+ expect(evidence.read(null).total).toBe(0);
+ expect(lectureStats.statsForLecture(null,'l').answered).toBe(0);
+});

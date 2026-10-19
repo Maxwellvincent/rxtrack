@@ -1,3 +1,4 @@
+import { missingRequiredVisual } from "./questionVisual.js";
 // Reporting a quality problem never deletes an answer or changes the source key.
 export const QUESTION_REPORT_CATEGORIES = [
  ['invalid-choices', 'Invalid answer choices', 'performance'],
@@ -32,7 +33,7 @@ export function questionIsExcluded(question, ratings, scope = 'performance') {
  return questionIdentityValues(question).some(value => excluded.has(evidenceIdentity(value)));
 }
 export function protectSessionScoring(session, ratings = {}) {
- const excluded = new Set((session.questions || []).filter(q => questionIsExcluded(q, ratings)).map(q => q.questionId));
+ const excluded = new Set((session.questions || []).filter(q => questionIsExcluded(q, ratings) || missingRequiredVisual(q)).map(q => q.questionId));
  const objectiveExcluded = (session.questions || []).some(q => questionIsExcluded(q, ratings, 'objective'));
  if (!excluded.size && !objectiveExcluded) return session;
  return { ...session,

@@ -1,3 +1,6 @@
+import * as questionFigures from "../../../stores/questionFigures.js";
+import { protectSessionScoring } from "../../../engine/questionScoringPolicy.js";
+import * as questionRatings from "../../../stores/questionRatings.js";
 import { linkSourceLecture } from "./questionBankLinks.js";
 import { sessionEvidenceEvent } from "./sessionEvidence.js";
 /**
@@ -62,7 +65,7 @@ export async function finalizeExamSession(
     return { ok: false, error: `unexpected session status: ${lockResult.status}` };
   }
 
-  const session = lockResult;
+  const session = protectSessionScoring({ ...lockResult, questions: (lockResult.questions || []).map(q => questionFigures.apply(q, questionFigures.read(userId, q.sourceFile))) }, questionRatings.read(userId).ratings);
 
   // Step 2: resume-safe stats recording, in sequence.
   const pending = pendingStatsQuestionIds(session);
@@ -116,7 +119,7 @@ export async function finalizeExamSession(
     const allSubmitted = await listExamSessions(userId, null, { status: "submitted" });
     const sessionsForCalc = [
       ...allSubmitted.filter((s) => s.sessionId !== latest.sessionId),
-      latest,
+      protectSessionScoring(latest, questionRatings.read(userId).ratings),
     ];
 
     const store = (await readWeakConcepts(userId)) || {};

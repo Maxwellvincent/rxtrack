@@ -235,9 +235,11 @@ describe("ExamSessionRunner", () => {
 
     const choice = [...host.querySelectorAll("button")].find((button) => button.textContent.includes("Choice A"));
     act(() => choice.click());
-    expect(controller.answerQuestion).not.toHaveBeenCalled();
+    expect(controller.answerQuestion).toHaveBeenCalledWith("q1", "A", { revealed: false });
+    controllerMock.mockReturnValue({ ...controller, session: { ...controller.session, answers: [{ questionId: "q1", value: "A", revealed: false }] } });
+    rerender(<ExamSessionRunner sessionId="s1" userId="u1" />);
     act(() => host.querySelector('[data-testid="check-answer"]').click());
-    expect(controller.answerQuestion).toHaveBeenCalledWith("q1", "A");
+    expect(controller.answerQuestion).toHaveBeenCalledWith("q1", "A", { revealed: true });
 
     // Answering flows through answerQuestion; simulate the resulting
     // controller state (answered) on a re-render, the way the real hook
@@ -620,4 +622,47 @@ it("links resumed NB05 homework in review and opens the missed lecture", () => {
 
 it("deduplicates candidate labels even when source IDs and capitalization differ", () => {
   expect(uniqueQuestionLinks([{id:"a",label:"Correlate upper and lower motor signs"},{id:"b",label:"correlate upper and lower motor signs"}])).toHaveLength(1);
+});
+
+it("marks the correct option immediately after a wrong checked practice answer", () => {
+ const controller=baseController({session:{...baseController().session,format:"practice",answers:[{questionId:"q1",value:"B",revealed:true}]}});
+ controllerMock.mockReturnValue(controller);
+ const {host,unmount}=render(<ExamSessionRunner sessionId="s1" userId="u1"/>);
+ expect(host.querySelector('[data-testid="practice-reveal"]').textContent).toContain("Incorrect");
+ expect([...host.querySelectorAll('button')].find(b=>b.textContent.includes('Choice A')).textContent).toContain('CORRECT');
+ expect([...host.querySelectorAll('button')].find(b=>b.textContent.includes('Choice B')).textContent).toContain('YOUR ANSWER');
+ unmount();
+});
+it("can clear an unchecked answer and navigate without revealing it", () => {
+ const controller=baseController({session:{...baseController().session,format:"practice",answers:[{questionId:"q1",value:"B",revealed:false}]}});
+ controllerMock.mockReturnValue(controller);
+ const {host,unmount}=render(<ExamSessionRunner sessionId="s1" userId="u1"/>);
+ expect(host.querySelector('[data-testid="practice-reveal"]')).toBeFalsy();
+ act(()=>[...host.querySelectorAll('button')].find(b=>b.textContent.includes('Choice B')).click());
+ expect(controller.answerQuestion).toHaveBeenCalledWith('q1',null,{revealed:false});
+ act(()=>[...host.querySelectorAll('button')].find(b=>b.textContent==='Next →').click());
+ expect(controller.setCurrentIndex).toHaveBeenCalled();
+ unmount();
+});
+it("offers reasoning before reveal as an explicit opt-in", () => {
+ const controller=baseController({session:{...baseController().session,format:"practice",answers:[{questionId:"q1",value:"B",revealed:false}]}});
+ controllerMock.mockReturnValue(controller);
+ const {host,rerender,unmount}=render(<ExamSessionRunner sessionId="s1" userId="u1"/>);
+ act(()=>[...host.querySelectorAll('input[type="checkbox"]')].find(input=>input.parentElement.textContent.includes('Reason before reveal')).click());
+ controller.session.answers=[{questionId:'q1',value:'B',revealed:true}];
+ rerender(<ExamSessionRunner sessionId="s1" userId="u1"/>);
+ expect(host.querySelector('[data-testid="practice-reveal"]')).toBeFalsy();
+ act(()=>[...host.querySelectorAll('button')].find(b=>b.textContent==='Reveal answer').click());
+ expect(host.querySelector('[data-testid="practice-reveal"]')).toBeTruthy();
+ unmount();
+});
+it("never recommends a perfect-score lecture as a missed-lecture repair", () => {
+ const controller=baseController({session:{...baseController().session,status:'submitted',questions:[{...makeQuestion('q1','A'),lectureId:'clean'}, {...makeQuestion('q2','A'),lectureId:'missed'}],answers:[{questionId:'q1',value:'A'},{questionId:'q2',value:'B'}]}});
+ controllerMock.mockReturnValue(controller);
+ const {host,unmount}=render(<ExamSessionRunner sessionId="s1" userId="u1" lectureLabelsByLectureId={{clean:'Perfect lecture',missed:'Weak lecture'}}/>);
+ const section=[...host.querySelectorAll('section')].find(s=>s.textContent.includes('Lectures to revisit after missed questions'));
+ expect(section.querySelector('ul').textContent).toContain('Weak lecture');
+ expect(section.querySelector('ul').textContent).not.toContain('Perfect lecture');
+ expect(section.querySelector('details').textContent).toContain('Perfect lecture');
+ unmount();
 });

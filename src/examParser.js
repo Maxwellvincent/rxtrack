@@ -1,3 +1,4 @@
+import { questionReferencesVisual } from "./engine/questionVisual.js";
 import { parseAnswerExplanations } from "./ingest/answerExplanations.js";
 import { markBoldChoiceItems, parsePairedSourceDocuments } from "./shell/logic/pairedSourceParser.js";
 import { callAI, callAIWithImage, callAIWithImages } from "./aiClient.js";
@@ -1635,7 +1636,7 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
     }
   }
 
-  questions = attachImagesToExamQuestions(questions, slideImages);
+  questions = attachImagesToExamQuestions(questions.map(q => questionReferencesVisual(q.stem) ? { ...q, hasImage: true, imageDependent: true } : q), slideImages);
   if (format !== "report") questions = attachAdjacentVisualPages(questions, pages);
 
   if (format === "report" && pdf && questions.some((question) => question.hasImage && question.sourcePage && !question.sourceImageUrl)) {

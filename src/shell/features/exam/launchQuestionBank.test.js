@@ -1,3 +1,4 @@
+vi.mock("../../../stores/questionFigures.js", async importOriginal => ({ ...await importOriginal(), load: async () => ({}) }));
 import { describe, expect, it, vi } from "vitest";
 import { examDurationMs, examDurationMinutes } from "./examTiming.js";
 import { launchQuestionBankSession, prepareQuestionBankQuestions } from "./launchQuestionBank.js";

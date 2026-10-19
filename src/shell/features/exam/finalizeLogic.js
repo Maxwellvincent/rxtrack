@@ -21,7 +21,7 @@ export function pendingStatsQuestionIds(session) {
   const answers = session?.answers || [];
   const recorded = session?.sideEffectsCompleted?.statsRecordedQuestionIds || [];
   return answers
-    .filter((a) => !hasRecordedStats(recorded, a.questionId))
+    .filter((a) => a.value != null && !hasRecordedStats(recorded, a.questionId))
     .map((a) => a.questionId);
 }
 
@@ -32,7 +32,7 @@ export function pendingStatsQuestionIds(session) {
  */
 export function evaluateSessionForLecture(session, lectureId) {
   const answers = session?.answers || [];
-  const answeredIds = new Set(answers.map((answer) => answer.questionId));
+  const answeredIds = new Set(answers.filter(answer => answer.value != null).map((answer) => answer.questionId));
   const questions = (session?.questions || []).filter(
     (q) => q.lectureId === lectureId && answeredIds.has(q.questionId)
   );

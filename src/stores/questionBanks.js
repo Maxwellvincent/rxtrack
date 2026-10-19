@@ -1,3 +1,4 @@
+import * as questionFigures from "./questionFigures.js";
 /** Question banks persisted one bank per Firestore kv document. */
 import {
   isHydrated as cloudIsHydrated,
@@ -33,7 +34,13 @@ export function read(userId) {
     const questions = readCloud(userId, shardKey(filename), null);
     if (Array.isArray(questions)) result[filename] = questions;
   }
-  return result;
+  return Object.fromEntries(Object.entries(result).map(([filename, questions]) => {
+    if (!Array.isArray(questions)) return [filename, questions];
+    const saved = questionFigures.read(userId, filename);
+    if (!Object.keys(saved).length) return [filename, questions];
+    const updated = questions.map(q => questionFigures.apply(q, saved));
+    return [filename, updated.some((q, i) => q !== questions[i]) ? updated : questions];
+  }));
 }
 
 async function persist(userId, value) {
@@ -89,7 +96,7 @@ export function subscribe(cb) {
   const subscribeShards = () => {
     shardUnsubs.forEach((unsub) => unsub());
     shardUnsubs = activeUserId
-      ? Object.keys(index(activeUserId) || {}).map((filename) => subscribeToCloudStore(shardKey(filename), cb))
+      ? Object.keys(index(activeUserId) || {}).flatMap((filename) => [subscribeToCloudStore(shardKey(filename), cb), questionFigures.subscribe(filename, cb)])
       : [];
     cb();
   };

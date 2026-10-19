@@ -20,3 +20,11 @@ it('keeps incomplete explanations scored and limits source mismatches to objecti
 it('allows explicit score retention while protecting objective evidence', () => {
  expect(reportProtection({sourceIssue:'incorrect-key',excludeFromPerformance:false})).toEqual({performance:false,objective:true});
 });
+
+it('protects missing visual attempts while retaining the raw answers', () => {
+ const session={questions:[{questionId:'missing',stem:'Imaging shows a hematoma (see attached). Which diagnosis?'},{questionId:'complete',stem:'Site X to Site Y. Which direction?',sourceImageUrl:'https://example.com/crop.jpg'}],answers:[{questionId:'missing',value:'A'},{questionId:'complete',value:'B'}]};
+ const scored=protectSessionScoring(session);
+ expect(scored.answers.map(a=>a.questionId)).toEqual(['complete']);
+ expect(scored.originalAnswers).toHaveLength(2);
+ expect(scored.scoringExcludedQuestionIds).toEqual(['missing']);
+});

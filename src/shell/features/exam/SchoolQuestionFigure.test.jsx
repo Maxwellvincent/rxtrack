@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { installDomStorage } from "../../../stores/testEnv.js";
 import { SchoolQuestionFigure, questionReferencesVisual } from "./SchoolQuestionFigure.jsx";
-vi.mock("../../../supabase.js", () => ({ fetchQuestionBankSourceBytes: vi.fn(async () => new Uint8Array([37,80,68,70]).buffer) }));
+vi.mock("../../../supabase.js", () => ({ fetchQuestionBankSourceBytes: vi.fn(async () => new Uint8Array([37,80,68,70]).buffer), uploadQuestionBankPage: vi.fn(async () => "https://example.com/saved-crop.jpg") }));
 vi.mock("../../../examParser.js", () => ({ loadPDFJS: vi.fn(async () => {}) }));
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 let host, root;
@@ -69,7 +69,7 @@ it("detects plural photomicrographs and exposes original page recovery when no e
   expect([...host.querySelectorAll("button")].find(b=>b.textContent==="Use cropped figure").disabled).toBe(true);
   expect(host.textContent).toContain("Select a figure area first");
 });
-it('enables cropping after a loaded image and a real selection, then displays the saved crop', () => {
+it('enables cropping after a loaded image and a real selection, then displays the saved crop', async () => {
   const draw=vi.fn();
   const context=vi.spyOn(window.HTMLCanvasElement.prototype,'getContext').mockReturnValue({drawImage:draw});
   const data=vi.spyOn(window.HTMLCanvasElement.prototype,'toDataURL').mockReturnValue('data:image/jpeg;base64,selected');
@@ -83,7 +83,16 @@ it('enables cropping after a loaded image and a real selection, then displays th
   act(()=>region.dispatchEvent(new window.MouseEvent('pointermove',{bubbles:true,clientX:250,clientY:250})));
   act(()=>region.dispatchEvent(new window.MouseEvent('pointerup',{bubbles:true})));
   expect(save.disabled).toBe(false);
-  act(()=>save.click());
+  await act(async()=>save.click());
   expect(draw).toHaveBeenCalled();expect(host.querySelector('img').alt).toBe('Cropped question figure');
   context.mockRestore();data.mockRestore();
+});
+
+it("offers figure recovery for Site X/Y and see-attached dependencies",()=>{
+ for(const stem of ['Entered at Site X and lodged at Site Y. Which trajectory?', 'Imaging shows a hematoma (see attached). Which diagnosis?']) {
+  expect(questionReferencesVisual(stem)).toBe(true);
+  render(<SchoolQuestionFigure question={{stem,sourceFile:'NB.pdf',sourceStoragePath:'source.pdf'}}/>);
+  expect(host.textContent).toContain('Load original question page');
+ }
+ expect(questionReferencesVisual('CT imaging reveals a mass. Which hormone is increased?')).toBe(false);
 });
