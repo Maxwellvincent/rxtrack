@@ -19,3 +19,14 @@ it("rejects missing figures, wrong blocks and unconfirmed lecture guesses", () =
   }
   expect(selectSchoolQuestions({ ...args, blockId: "other" }).questions).toHaveLength(0);
 });
+it('uses clear single-subject school originals for blueprint quotas without inventing objective credit',()=>{
+ const result=selectSchoolQuestions({...args,allocation:{'l5::bpm::neuroscience':2},objectivesByLecture:{l5:[{id:'o',code:'SOM.BPM2.NSCI.1'}]}});
+ expect(result.questions).toHaveLength(1);
+ expect(result.questions[0]).toMatchObject({blueprintSubject:'neuroscience',blueprintSlot:'l5::bpm::neuroscience',lectureId:'l5',objectiveIds:[],sourceBlockId:'b'});
+ expect(result.allocation).toEqual({'l5::bpm::neuroscience':1});
+});
+it('keeps a mixed-subject lecture unresolved when a school question has no discipline evidence',()=>{
+ const result=selectSchoolQuestions({...args,allocation:{'l5::bpm::neuroscience':1},objectivesByLecture:{l5:[{id:'n',discipline:'NSCI'},{id:'a',discipline:'ANAT'}]}});
+ expect(result.questions).toHaveLength(0);
+ expect(result.allocation).toEqual({'l5::bpm::neuroscience':1});
+});

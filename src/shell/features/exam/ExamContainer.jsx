@@ -738,7 +738,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
         </div>
       </div>
 
-      <BpmBlueprintDashboard userId={userId} objectivesByLecture={blueprintContext.objectivesByLecture}
+      <BpmBlueprintDashboard userId={userId} objectivesByLecture={blueprintContext.objectivesByLecture} lectures={blueprintContext.lectures}
         onReview={onNavigateToLecture} onStart={exam=>{setSelectedBlueprint(String(exam));setLaunchError(null);setShowLaunchModal(true);}} />
 
       <nav className="mb-5 flex flex-wrap gap-2 border-b border-border pb-3" aria-label="Exam center sections">

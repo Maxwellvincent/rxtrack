@@ -1,13 +1,11 @@
-import { readSlot, objectiveSubject, bpmObjective } from "./bpmBlueprint.js";
-import { cleanSchoolQuestion } from "../../../engine/schoolSourceText.js";
+import { readSlot } from "./bpmBlueprint.js";
+import { mapSourceQuestion } from "./blueprintSourceCoverage.js";
+import { schoolQuestionIdentity } from "./schoolSourceIdentity.js";
+export { schoolQuestionIdentity } from "./schoolSourceIdentity.js";
 import { prepareQuestionBankQuestions, validBankQuestion } from "./launchQuestionBank.js";
-import { questionEvidenceKey } from "../../../stores/learnerEvidence.js";
+
 
 const normalize = value => String(value || "").toLowerCase().replace(/\s+/g, " ").trim();
-export function schoolQuestionIdentity(question) {
-  question = cleanSchoolQuestion(question);
-  return questionEvidenceKey(JSON.stringify([normalize(question.stem), Object.values(question.choices || {}).map(normalize).sort(), normalize(question.choices?.[question.correct])]));
-}
 
 // Preserve the original key and verified curriculum links. An uncertain match
 // must never fill another lecture's allocated slot or claim objective credit.
@@ -15,15 +13,17 @@ export function selectSchoolQuestions({ banks = [], lectures = [], blockId, allo
   const seen = new Set(history.map(schoolQuestionIdentity));
   const stems = history.map(q => normalize(q.stem)).filter(Boolean);
   const selected = [], identities = new Set(), remaining = { ...allocation };
+  const weighted = Object.keys(allocation).some(key=>readSlot(key).subject);
   for (const bank of banks) {
-    if (bank.blockId !== blockId && !Object.keys(allocation).some(key=>readSlot(key).subject)) continue;
+    if (bank.blockId !== blockId && !weighted) continue;
     for (const original of bank.questions || []) {
       const [question] = prepareQuestionBankQuestions([original], { filename: bank.filename, blockId: bank.blockId || blockId, lectures, analysis: bank.analysis });
       if (!validBankQuestion(question)) continue;
+      const mapping = weighted ? mapSourceQuestion(original,{objectivesByLecture,lectures,blockId:bank.blockId||blockId}) : null;
       const allocationId = Object.keys(remaining).find(key => {
         const {lectureId,subject}=readSlot(key);
         if(!remaining[key] || lectureId!==question.lectureId)return false;
-        return !subject || (objectivesByLecture[lectureId]||[]).some(o=>bpmObjective(o)&&objectiveSubject(o)===subject&&(question.objectiveIds||[]).some(id=>id===o.id||id===o.code));
+        return !subject || (mapping?.status==='mapped' && mapping.subject===subject);
       });
       if(!allocationId)continue;
       const key = schoolQuestionIdentity(question);

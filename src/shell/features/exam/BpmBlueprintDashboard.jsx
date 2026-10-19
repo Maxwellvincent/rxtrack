@@ -1,3 +1,4 @@
+import { BlueprintSourceCoverage } from "./BlueprintSourceCoverage.jsx";
 import { useState } from 'react';
 import { BPM_BLUEPRINTS, SUBJECT_LABELS, subjectTargets, objectiveSubject, bpmObjective } from './bpmBlueprint.js';
 import * as learnerEvidence from '../../../stores/learnerEvidence.js';
@@ -16,7 +17,7 @@ export function blueprintReadiness(exam,objectivesByLecture={},evidence={}) {
    weak:practiced.filter(o=>o.accuracy<.7).length,untested:items.length-practiced.length};
  });
 }
-export function BpmBlueprintDashboard({userId,objectivesByLecture,onStart,onReview}) {
+export function BpmBlueprintDashboard({userId,objectivesByLecture,lectures=[],onStart,onReview}) {
  const [exam,setExam]=useState('3');
  const resource=useStoreResource(learnerEvidence,userId);
  const rows=blueprintReadiness(exam,objectivesByLecture,resource.data||{});
@@ -34,6 +35,7 @@ export function BpmBlueprintDashboard({userId,objectivesByLecture,onStart,onRevi
    </div>)}
   </div>
   <p className="mt-3 text-xs text-text-3">Each practiced objective has equal weight here. Uses its last 8 linked answers when available; this is practice accuracy, not a predicted exam score or mastery claim. Unclassified objectives are shown in exam settings.</p>
+  <BlueprintSourceCoverage userId={userId} exam={exam} objectivesByLecture={objectivesByLecture} lectures={lectures} />
   <button type="button" className="mt-3 rounded-lg bg-accent px-4 py-2 font-bold text-white" onClick={()=>onStart?.(Number(exam))}>Practice for Test {exam}</button>
  </section>;
 }
