@@ -258,6 +258,11 @@ export async function processQuestionBankFiles({
         if (retry.questions.length === imcqKeys.length) parsed = retry;
       }
 
+      if (parsed.format === "answer-explanations") {
+        report.sourceWarnings.push(`${file.name}: ${parsed.sourceNotice}`);
+        report.sourceWarnings.push(...(parsed.sourceIssues || []).map(issue => `${file.name}: excluded ${issue}.`));
+      }
+
       if (pairedDoc?.structuredPair) {
         report.sourceWarnings.push(...(parsed.sourceIssues || []).map(issue => `${file.name}: excluded ${issue}.`));
         parsed.expectedQuestions = parsed.questions.length;

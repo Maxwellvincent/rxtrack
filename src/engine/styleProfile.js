@@ -29,7 +29,7 @@ function reportOutcomePerformance(questions) {
 /** Build a compact, cumulative style profile from every verified upload. */
 export function buildStyleProfile(examples = [], { now = Date.now() } = {}) {
   const usable = (examples || []).filter((question) =>
-    question?.stem && question?.choices && question.answerKeyVerified !== false
+    question?.stem && question?.choices && question.sourceRepresentation !== "answer-explanation-summary" && question.answerKeyVerified !== false
   );
   const official = usable.filter((question) => {
     const tier = exemplarSourceTier(question);

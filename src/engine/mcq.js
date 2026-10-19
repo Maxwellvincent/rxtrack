@@ -280,7 +280,7 @@ function objectiveModalitySection(objectives = []) {
  * option conventions, and assigned task patterns while retaining source labels. Neither source silently becomes lecture truth.
  */
 export function buildQuestionSourceBlueprint(examples = [], objectives = [], count = 10) {
-  const homework = examples.filter((question) => exemplarSourceTier(question) === "homework" && question?.stem && question?.choices && question.answerKeyVerified !== false);
+  const homework = examples.filter((question) => question?.sourceRepresentation !== "answer-explanation-summary" && exemplarSourceTier(question) === "homework" && question?.stem && question?.choices && question.answerKeyVerified !== false);
   const clicker = examples.filter((question) => exemplarSourceTier(question) === "clicker" && question?.stem && question?.choices);
   const homeworkFingerprint = buildStyleFingerprint(homework.slice(0, STYLE_FINGERPRINT_LIMIT));
   const clickerFingerprint = buildStyleFingerprint(clicker.slice(0, STYLE_FINGERPRINT_LIMIT));
@@ -657,7 +657,7 @@ export function selectStyleExemplars(examples = [], limit = 5, _difficulty = "me
   // Rank relevant lecture/objective examples before broader style references.
   const candidates = examples.filter((q) => {
     const tier = exemplarSourceTier(q);
-    return q?.stem && q?.choices && !q.hasImage && q.answerKeyVerified !== false &&
+    return q?.stem && q?.choices && q.sourceRepresentation !== "answer-explanation-summary" && !q.hasImage && q.answerKeyVerified !== false &&
       tier !== "clicker";
   });
   // Keep the entire uploaded bank in the candidate pool. Previously, the

@@ -30,7 +30,8 @@ export function prepareQuestionBankQuestions(questions, { blockId, filename, ana
     blockId,
     lectureId: ["user-confirmed", "source-label-matched", "content-matched"].includes(question.curriculumLinkStatus) ? question.lectureId || null : null,
     objectiveIds: question.curriculumLinkStatus === "user-confirmed" ? question.objectiveIds || [] : [],
-    source: "Original school question",
+    source: question.sourceRepresentation === "answer-explanation-summary"
+      ? "Explanation-based review (abbreviated prompt)" : "Original school question",
     sourceFile: filename,
     sourceType: "question-bank",
     };

@@ -1,3 +1,4 @@
+import { parseAnswerExplanations } from "./ingest/answerExplanations.js";
 import { markBoldChoiceItems, parsePairedSourceDocuments } from "./shell/logic/pairedSourceParser.js";
 import { callAI, callAIWithImage, callAIWithImages } from "./aiClient.js";
 import { bridgePdf2md } from "./llmBridge.js";
@@ -1546,6 +1547,20 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
   // generic AI parser; the companion merge can then validate every key.
   if (opts?.textOnly) {
     return { questions: [], examTitle: cleanLectureTitle(file.name), totalQuestions: 0, expectedQuestions: null, format: "text", fullText: opts.readBoldAnswerChoices ? pages.map((p,i) => `${i ? `[PAGE_BREAK:${p.num}]\n` : ""}${p.answerLayoutText || p.text}`).join("\n\n") : fullText, chunks: pages.map((p) => ({ text: p.text })) };
+  }
+
+  // Explanation handouts have no full exam stems. Handle them before generic
+  // extraction so option rationales never become choices or invented vignettes.
+  const explanationReview = parseAnswerExplanations(fullText, cleanLectureTitle(file.name));
+  if (explanationReview) {
+    onProgress?.(`✓ Read ${explanationReview.sourceQuestionCount} explanation summaries; ${explanationReview.questions.length} self-contained review prompts`);
+    if (!explanationReview.questions.length) throw new Error("This explanation handout has no self-contained review prompts. Upload the original questions/figures with it.");
+    return {
+      ...explanationReview, examTitle: cleanLectureTitle(file.name),
+      totalQuestions: explanationReview.questions.length, expectedQuestions: explanationReview.questions.length,
+      format: "answer-explanations", fullText, chunks: pages.map(p => ({ text: p.text })),
+      sourceNotice: "Imported as explanation-based review with abbreviated prompts, not original exam questions. Original clinical vignettes and figures are not present in this handout.",
+    };
   }
 
   const isMadcow = /madcow|m a d c o w/i.test(`${file?.name || ""} ${fullText.slice(0, 600)}`);
