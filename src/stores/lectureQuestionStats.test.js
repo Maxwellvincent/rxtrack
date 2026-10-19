@@ -121,3 +121,12 @@ it('projects exclusions without changing raw counters and restores them after un
  ratings.rateQuestion(null,{id:'bad-q'},{sourceIssue:null});
  expect(stats.statsForLecture(null,'protected-lecture')).toMatchObject({answered:2,correct:1});
 });
+
+it("does not increment exam totals twice when checkpoint/finalization is retried", async () => {
+ installDomStorage();
+ await stats.recordAnswerAwait(null, "l", false, "exam:s:q");
+ await stats.recordAnswerAwait(null, "l", false, "exam:s:q");
+ expect(stats.statsForLecture(null, "l")).toEqual({ answered: 1, correct: 0, accuracy: 0 });
+ await stats.recordAnswerAwait(null, "l", true, "exam:another:q");
+ expect(stats.statsForLecture(null, "l")).toEqual({ answered: 2, correct: 1, accuracy: .5 });
+});

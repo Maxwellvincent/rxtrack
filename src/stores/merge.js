@@ -214,6 +214,10 @@ export function mergeQuestionStats(cloud, local) {
       }
     }
   }
+  for (const id of Object.keys(out)) {
+    const keys = [...new Set([...(cloud?.[id]?.statsEventKeys || []), ...(local?.[id]?.statsEventKeys || [])])];
+    if (keys.length) out[id].statsEventKeys = keys;
+  }
   return out;
 }
 

@@ -1,3 +1,4 @@
+import { scoredSessionSnapshot } from "./checkpoint.js";
 import * as questionRatings from "../../../stores/questionRatings.js";
 /**
  * Task 9 — read-only per-lecture Homework, quiz & exam performance dashboard.
@@ -11,7 +12,7 @@ import * as questionRatings from "../../../stores/questionRatings.js";
 import { useEffect, useMemo, useState } from "react";
 import { deleteExamSession, listExamSessions } from "../../../supabase.js";
 import { releaseSessionQuestions } from "../../../questionPool.js";
-import { read as readWeakConcepts } from "../../../stores/weakConcepts.js";
+import { read as readWeakConcepts, subscribe as subscribeWeakConcepts } from "../../../stores/weakConcepts.js";
 import { linkSourceLecture } from "./questionBankLinks.js";
 import { evaluateSessionForLecture } from "./finalizeLogic.js";
 import * as learnerEvidenceStore from "../../../stores/learnerEvidence.js";
@@ -75,7 +76,7 @@ function computeLectureStats(sessions) {
 }
 
 /** Build a lecture-scoped repair handoff from the learner's own exam attempts. */
-export function buildLectureRepairContext(sessions = [], lectureId, objectives = []) {
+export function buildLectureRepairContext(sessions = [], lectureId, objectives = [], learnerEvidence = {}, reportWeaknesses = []) {
   const stats = new Map();
   const misses = [];
   for (const session of sessions || []) {
@@ -114,8 +115,11 @@ export function buildLectureRepairContext(sessions = [], lectureId, objectives =
   );
   const ordered = lectureObjectives.map((objective) => {
     const id = objective.id || objective.code;
-    const performance = stats.get(id) || { attempts: 0, correct: 0, misses: 0 };
-    const explicitlyWeak = String(objective.status || "").toLowerCase() === "struggling";
+    const evidence = learnerEvidence.objectives?.[id];
+    const recent = evidence?.recent || [];
+    const performance = recent.length ? { attempts: recent.length, correct: recent.filter(Boolean).length, misses: recent.filter(value => !value).length }
+      : stats.get(id) || { attempts: 0, correct: 0, misses: 0 };
+    const explicitlyWeak = String(objective.status || "").toLowerCase() === "struggling" && !(recent.length >= 3 && performance.correct / performance.attempts >= 0.8);
     return { objective, id, performance, explicitlyWeak };
   }).sort((a, b) => Number(b.explicitlyWeak) - Number(a.explicitlyWeak)
     || (a.performance.attempts ? a.performance.correct / a.performance.attempts : 1) - (b.performance.attempts ? b.performance.correct / b.performance.attempts : 1)
@@ -132,6 +136,7 @@ export function buildLectureRepairContext(sessions = [], lectureId, objectives =
     if (uniqueMisses.length >= 5) break;
   }
   return {
+    reportTopics: reportWeaknesses.filter(entry => entry.tags?.includes("exam-report") && entry.linkedLecIds?.includes(lectureId)).map(entry => entry.concept),
     focusObjectiveIds: weakObjectives.map(({ id }) => id).filter(Boolean),
     weakObjectives: weakObjectives.map(({ objective, performance }) => ({
       id: objective.id || objective.code,
@@ -257,6 +262,7 @@ export function ExamDashboard({ blockId, userId, lectures = [], questionStats = 
   const [deletingId, setDeletingId] = useState(null);
   const [learnerProfile, setLearnerProfile] = useState(() => learnerEvidenceStore.read(userId));
   const [qualityRevision, setQualityRevision] = useState(0);
+  useEffect(() => subscribeWeakConcepts(() => setQualityRevision(n => n + 1)), []);
   useEffect(() => questionRatings.subscribe(() => setQualityRevision(n => n + 1)), []);
   const [studyAnswers, setStudyAnswers] = useState(() => calibrationStore.readBlock(userId, blockId));
   useEffect(() => {
@@ -278,10 +284,10 @@ export function ExamDashboard({ blockId, userId, lectures = [], questionStats = 
     let cancelled = false;
     setLoading(true);
     setError(null);
-    listExamSessions(userId, blockId, { status: "submitted" })
+    listExamSessions(userId, blockId)
       .then((submitted) => {
         if (cancelled) return;
-        setSessions(submitted || []);
+        setSessions((submitted || []).map(session => scoredSessionSnapshot(session, questionRatings.read(userId).ratings)).filter(Boolean));
         setLoading(false);
       })
       .catch((e) => {
@@ -345,6 +351,17 @@ export function ExamDashboard({ blockId, userId, lectures = [], questionStats = 
     // Add only those newly resolved answers; already-linked sessions overlap.
     for (let index = 0; index < sessions.length; index++) {
       const original = sessions[index];
+      const recorded = new Set(original.sideEffectsCompleted?.statsRecordedQuestionIds || []);
+      if (original.isCheckpoint) {
+        for (const question of performanceSessions[index]?.questions || []) {
+          const answer = (original.answers || []).find(a => a.questionId === question.questionId && a.value != null);
+          if (!answer || !question.lectureId || recorded.has(question.questionId)) continue;
+          if (next[question.lectureId]?.checkpointEventIds?.includes(`exam:${original.sessionId}:${question.questionId}`)) continue;
+          const row = next[question.lectureId] || { answered: 0, correct: 0 };
+          next[question.lectureId] = { ...row, answered: (Number(row.answered) || 0) + 1, correct: (Number(row.correct) || 0) + Number(answer.value === question.correct) };
+        }
+        continue;
+      }
       if (original.sourceType !== "question-bank") continue;
       const answers = new Map((original.answers || []).filter(a => a.value != null).map(a => [a.questionId, a.value]));
       for (let position = 0; position < (original.questions || []).length; position++) {
@@ -362,13 +379,20 @@ export function ExamDashboard({ blockId, userId, lectures = [], questionStats = 
     }
     return next;
   }, [questionStats, lectureStats, sessions, performanceSessions]);
-  const weakAreas = useMemo(() => buildWeakAreaMap({
+  const weakAreas = buildWeakAreaMap({
     lectures,
     objectives,
     questionStats: recoveredQuestionStats,
     learnerEvidence: learnerProfile,
-  }), [lectures, objectives, recoveredQuestionStats, learnerProfile]);
-  const priorityAreas = weakAreas.filter((row) => row.objectivesUntested > 0 || row.strugglingObjectives > 0 || (row.accuracy != null && row.accuracy < 0.8));
+    reportWeaknesses: readWeakConcepts(userId)?.[blockId] || [],
+  });
+  const unlinkedAnswers = performanceSessions.reduce((total, session) => total + (session.answers || []).filter(answer =>
+    answer.value != null && !(session.questions || []).find(q => q.questionId === answer.questionId)?.lectureId
+  ).length, 0);
+  const unlinkedReportTopics = (readWeakConcepts(userId)?.[blockId] || []).filter(entry =>
+    entry.tags?.includes("exam-report") && entry.masteryLevel === "struggling" && !entry.linkedLecIds?.length
+  ).map(entry => entry.concept);
+  const priorityAreas = weakAreas.filter((row) => row.objectivesUntested > 0 || row.strugglingObjectives > 0 || row.reportTopics.length > 0 || (row.priorityAccuracy != null && row.priorityAccuracy < 0.8));
 
   if (loading) {
     return (
@@ -406,29 +430,31 @@ export function ExamDashboard({ blockId, userId, lectures = [], questionStats = 
         </div>
         <p className="mt-2 text-sm text-text-2">{progress.lectureAnswered.toLocaleString()} study / lecture / objective quiz answers · {progress.schoolAnswered.toLocaleString()} school homework / exam answers · {progress.examAnswered.toLocaleString()} integrated-exam answers · {progress.manualAnswered.toLocaleString()} logged outside-app answers</p>
         <PracticeGoal key={`${userId}:${blockId}`} userId={userId} blockId={blockId} studyAnswers={studyAnswers} sessions={sessions}/>
-        <p className="mt-2 text-xs text-text-3">Cumulative recorded practice in this block. Repeat attempts count; unanswered items do not. Exam and homework sessions count after submission; deleted sessions are excluded. Integrated-exam accuracy stays separate below; practice volume is not a predicted exam grade.</p>
+        <p className="mt-2 text-xs text-text-3">Cumulative recorded practice in this block. Repeat attempts count; unanswered items do not. Exam and homework answers count after Save & exit or submission; deleted sessions are excluded. Integrated-exam accuracy stays separate below; practice volume is not a predicted exam grade.</p>
       </section>
       <ConfidenceCalibration records={studyAnswers}/>
       <section className="mb-5 rounded-xl border border-border bg-panel p-4" aria-label="Overall weak-area map">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <div>
             <h2 className="text-base font-semibold text-text-1">Overall weak-area map</h2>
-            <p className="mt-1 text-sm text-text-2">All recorded lecture quizzes and exam practice, plus objective exposure. Low accuracy and untested objectives are shown separately.</p>
+            <p className="mt-1 text-sm text-text-2">Lecture quizzes, saved homework / ExamSoft / IMCQ / exam answers, and linked exam-report topics. Recent performance guides review; missing links are separate from untested material.</p>
           </div>
           <span className="text-sm text-text-3">{priorityAreas.length} lecture{priorityAreas.length === 1 ? "" : "s"} to prioritize · {weakAreas.length} total</span>
         </div>
         {priorityAreas.length ? <div className="mt-3 space-y-3">
           {priorityAreas.slice(0, 8).map((row) => {
             const label = formatLectureLabel(lecturesById?.[row.lectureId] || row.lecture);
-            const coverage = row.objectiveTotal ? row.objectivesTested / row.objectiveTotal : null;
+            const coverage = row.objectiveTotal && !row.objectiveLinksMissing ? row.objectivesTested / row.objectiveTotal : null;
             return <div key={row.lectureId} className="rounded-lg border border-border bg-bg-elevated p-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <button type="button" onClick={() => onNavigateToLecture?.(row.lectureId, buildLectureRepairContext(performanceSessions, row.lectureId, objectives))} className="text-left font-semibold text-text-1 underline decoration-border underline-offset-2 hover:text-accent">{label} →</button>
+                <button type="button" onClick={() => onNavigateToLecture?.(row.lectureId, buildLectureRepairContext(performanceSessions, row.lectureId, objectives, learnerProfile, readWeakConcepts(userId)?.[blockId] || []))} className="text-left font-semibold text-text-1 underline decoration-border underline-offset-2 hover:text-accent">{label} →</button>
                 <div className="flex flex-wrap gap-x-3 text-sm text-text-2">
                   <span>{row.totalQuestions ? `${Math.round(row.accuracy * 100)}% correct · ${row.misses} missed of ${row.totalQuestions}` : "No graded practice yet"}</span>
-                  <span>{row.objectiveTotal ? `${row.objectivesTested}/${row.objectiveTotal} objectives seen · ${row.objectivesUntested} untested` : "No linked objectives"}</span>
+                  <span>{row.objectiveTotal ? row.objectiveLinksMissing ? "Practice recorded · objective links incomplete" : `${row.objectivesTested}/${row.objectiveTotal} objectives seen · ${row.objectivesUntested} untested` : "No linked objectives"}</span>
                 </div>
               </div>
+              {row.recentCount >= 3 && <p className="mt-1 text-sm text-text-2">Recent {row.recentCount} answers: {Math.round(row.recentAccuracy * 100)}% correct · lifetime accuracy shown below</p>}
+              {row.reportTopics.length > 0 && <p className="mt-1 text-sm text-bad">Exam-report review: {row.reportTopics.join("; ")}</p>}
               <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
                 <div>
                   <div className="mb-1 flex justify-between text-xs text-text-3"><span>Practice accuracy</span><span>{row.accuracy == null ? "No data" : `${Math.round(row.accuracy * 100)}%`}</span></div>
@@ -437,8 +463,8 @@ export function ExamDashboard({ blockId, userId, lectures = [], questionStats = 
                   </div>
                 </div>
                 <div>
-                  <div className="mb-1 flex justify-between text-xs text-text-3"><span>Objective exposure</span><span>{coverage == null ? "No linked objectives" : `${Math.round(coverage * 100)}%`}</span></div>
-                  <div className="h-2 overflow-hidden rounded-full bg-panel" role="img" aria-label={coverage == null ? "No linked objectives" : `Objective exposure ${Math.round(coverage * 100)} percent`}>
+                  <div className="mb-1 flex justify-between text-xs text-text-3"><span>Objective exposure</span><span>{coverage == null ? (row.objectiveLinksMissing ? "Links incomplete" : "No linked objectives") : `${Math.round(coverage * 100)}%`}</span></div>
+                  <div className="h-2 overflow-hidden rounded-full bg-panel" role="img" aria-label={coverage == null ? (row.objectiveLinksMissing ? "Links incomplete" : "No linked objectives") : `Objective exposure ${Math.round(coverage * 100)} percent`}>
                     {coverage != null && <div className="h-full bg-accent" style={{ width: `${coverage * 100}%` }} />}
                   </div>
                 </div>
@@ -450,13 +476,18 @@ export function ExamDashboard({ blockId, userId, lectures = [], questionStats = 
             <summary className="cursor-pointer py-2 text-sm font-semibold text-text-2">Show {priorityAreas.length - 8} more priority lectures</summary>
             <div className="space-y-3 pb-3">
               {priorityAreas.slice(8).map((row) => <div key={row.lectureId} className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-2 text-sm">
-                <button type="button" onClick={() => onNavigateToLecture?.(row.lectureId, buildLectureRepairContext(performanceSessions, row.lectureId, objectives))} className="text-left font-semibold underline decoration-border underline-offset-2 hover:text-accent">{formatLectureLabel(lecturesById?.[row.lectureId] || row.lecture)}</button>
+                <button type="button" onClick={() => onNavigateToLecture?.(row.lectureId, buildLectureRepairContext(performanceSessions, row.lectureId, objectives, learnerProfile, readWeakConcepts(userId)?.[blockId] || []))} className="text-left font-semibold underline decoration-border underline-offset-2 hover:text-accent">{formatLectureLabel(lecturesById?.[row.lectureId] || row.lecture)}</button>
                 <span>{row.accuracy == null ? "No graded practice" : `${Math.round(row.accuracy * 100)}% · ${row.misses}/${row.totalQuestions} missed`} · {row.objectivesUntested} objectives untested</span>
               </div>)}
             </div>
           </details>}
         </div> : <p className="mt-3 text-sm text-text-2">No current low-accuracy or untested-objective priorities. Lectures with no objective links or evidence are not ranked as covered.</p>}
-        <details className="mt-3 text-xs text-text-3"><summary className="cursor-pointer py-1 font-semibold">How this map is calculated</summary><p className="mt-1">Practice uses saved lecture totals, with source-linked submitted homework as a fallback for older missing records. Overlapping records are not added twice. Objective exposure counts linked objective attempts or an explicit non-untested status. Exposure means seen, not mastered; outside-app question logs count toward volume but do not have per-lecture accuracy unless linked in the app.</p></details>
+        {(unlinkedAnswers > 0 || unlinkedReportTopics.length > 0) && <details className="mt-3 rounded border border-warn/40 p-3 text-sm text-text-2">
+          <summary className="cursor-pointer font-semibold">Saved evidence awaiting lecture links</summary>
+          {unlinkedAnswers > 0 && <p className="mt-1">{unlinkedAnswers} completed answers are saved but cannot yet target a lecture. They are not treated as untested objectives.</p>}
+          {!!unlinkedReportTopics.length && <p className="mt-1">Unlinked report topics: {unlinkedReportTopics.join("; ")}</p>}
+        </details>}
+        <details className="mt-3 text-xs text-text-3"><summary className="cursor-pointer py-1 font-semibold">How this map is calculated</summary><p className="mt-1">Save & exit publishes completed answers while keeping the session resumable. Lifetime totals combine lecture practice and saved school/exam work without counting a checkpoint twice. Recent accuracy uses up to eight recorded answers; three are required before it changes the review ranking. Uploaded report topics remain separate signals. Objective exposure counts linked objective attempts or an explicit non-untested status. Exposure means seen, not mastered; outside-app question logs count toward volume but do not have per-lecture accuracy unless linked in the app.</p></details>
       </section>
       {generationCoverage && (
         <section className="mb-4 rounded-xl border border-border bg-panel p-4" aria-label="Prepared question objective coverage">
@@ -556,14 +587,14 @@ export function ExamDashboard({ blockId, userId, lectures = [], questionStats = 
                 <button
                   type="button"
                   className="font-semibold text-text-1 underline decoration-border underline-offset-2 hover:text-accent"
-                  onClick={() => onNavigateToLecture?.(row.lectureId, buildLectureRepairContext(performanceSessions, row.lectureId, objectives))}
+                  onClick={() => onNavigateToLecture?.(row.lectureId, buildLectureRepairContext(performanceSessions, row.lectureId, objectives, learnerProfile, readWeakConcepts(userId)?.[blockId] || []))}
                   title="Open this lecture and continue studying its weak objectives"
                 >{row.label} · Study lecture →</button>
                 {row.workedToday && <span className="ml-2 font-semibold">✓ Worked today{row.followupQuestions?` · ${row.followupQuestions} follow-up questions`:''}</span>}
                 {(row.weak || (row.accuracy !== null && row.accuracy < 0.6)) && (
                   <button
                     type="button"
-                    onClick={() => onNavigateToLecture?.(row.lectureId, buildLectureRepairContext(performanceSessions, row.lectureId, objectives))}
+                    onClick={() => onNavigateToLecture?.(row.lectureId, buildLectureRepairContext(performanceSessions, row.lectureId, objectives, learnerProfile, readWeakConcepts(userId)?.[blockId] || []))}
                     className="ml-2 font-mono text-[12px] text-bad underline"
                     title="flagged struggling from Homework, quiz & exam performance"
                   >
@@ -604,7 +635,7 @@ export function ExamDashboard({ blockId, userId, lectures = [], questionStats = 
         const sessionName = session.title || formatLabel;
         const duration = Number.isFinite(session.startedAt) && Number.isFinite(session.submittedAt)
           ? `${Math.max(1, Math.round((session.submittedAt - session.startedAt) / 60_000))} min` : null;
-        return <div key={session.sessionId || session.id} className="flex flex-wrap items-center justify-between gap-2 rounded bg-panel p-3"><div className="min-w-0"><div className="text-sm font-bold text-text-1">{sessionName}</div><div className="mt-0.5 text-xs text-text-2">{formatLabel} · {session.questions?.length || 0} questions · {score}% ({correct}/{answered} correct)</div><div className="font-mono text-[11px] text-text-3">{new Date(session.submittedAt || Date.now()).toLocaleString()}{duration ? ` · ${duration}` : ""}{session.contentScope ? ` · ${scopeLabel(session.contentScope)}` : ""}</div>{lectureLabels.length > 0 && <div className="mt-1 text-xs text-text-2">{lectureLabels.join(" · ")}</div>}</div><div className="flex gap-2"><button type="button" className="rounded border-2 border-border px-3 py-1.5 text-xs font-bold" onClick={() => onReviewSession?.(session.sessionId || session.id)}>Review</button><button type="button" disabled={deletingId === (session.sessionId || session.id)} className="rounded border-2 border-bad/60 px-3 py-1.5 text-xs font-bold" onClick={async () => { const id = session.sessionId || session.id; if (!window.confirm("Delete this exam attempt from your integrated-exam statistics? Its questions will return to the reserve.")) return; setDeletingId(id); try { await releaseSessionQuestions(userId, session); await deleteExamSession(userId, id); setSessions(current => current.filter(item => (item.sessionId || item.id) !== id)); } finally { setDeletingId(null); } }}>{deletingId === (session.sessionId || session.id) ? "Deleting…" : "Delete"}</button></div></div>;
+        return <div key={session.sessionId || session.id} className="flex flex-wrap items-center justify-between gap-2 rounded bg-panel p-3"><div className="min-w-0"><div className="text-sm font-bold text-text-1">{sessionName}</div><div className="mt-0.5 text-xs text-text-2">{session.isCheckpoint ? "Saved progress · " : ""}{formatLabel} · {session.questions?.length || 0} questions · {score}% ({correct}/{answered} correct)</div><div className="font-mono text-[11px] text-text-3">{new Date(session.submittedAt || Date.now()).toLocaleString()}{duration ? ` · ${duration}` : ""}{session.contentScope ? ` · ${scopeLabel(session.contentScope)}` : ""}</div>{lectureLabels.length > 0 && <div className="mt-1 text-xs text-text-2">{lectureLabels.join(" · ")}</div>}</div><div className="flex gap-2"><button type="button" className="rounded border-2 border-border px-3 py-1.5 text-xs font-bold" onClick={() => onReviewSession?.(session.sessionId || session.id)}>{session.isCheckpoint ? "Resume" : "Review"}</button><button type="button" disabled={deletingId === (session.sessionId || session.id)} className="rounded border-2 border-bad/60 px-3 py-1.5 text-xs font-bold" onClick={async () => { const id = session.sessionId || session.id; if (!window.confirm("Delete this exam attempt from your integrated-exam statistics? Its questions will return to the reserve.")) return; setDeletingId(id); try { await releaseSessionQuestions(userId, session); await deleteExamSession(userId, id); setSessions(current => current.filter(item => (item.sessionId || item.id) !== id)); } finally { setDeletingId(null); } }}>{deletingId === (session.sessionId || session.id) ? "Deleting…" : "Delete"}</button></div></div>;
       })}</div></details>}
     </div>
   );

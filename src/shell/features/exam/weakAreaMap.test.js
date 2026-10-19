@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildWeakAreaMap } from "./weakAreaMap.js";
 
 describe("buildWeakAreaMap", () => {
-  it("ranks objective gaps first and combines all saved lecture practice totals", () => {
+  it("ranks demonstrated weaknesses ahead of objective gaps and combines all saved lecture practice totals", () => {
     const rows = buildWeakAreaMap({
       lectures: [
         { id: "covered", lectureTitle: "Covered lecture" },
@@ -22,9 +22,9 @@ describe("buildWeakAreaMap", () => {
       },
     });
 
-    expect(rows.map((row) => row.lectureId)).toEqual(["gap", "weak", "covered"]);
-    expect(rows[0]).toMatchObject({ totalQuestions: 0, accuracy: null, objectiveTotal: 2, objectivesTested: 0, objectivesUntested: 2 });
-    expect(rows[1]).toMatchObject({ totalQuestions: 5, correct: 1, misses: 4, accuracy: 0.2, objectivesUntested: 0, strugglingObjectives: 1 });
+    expect(rows.map((row) => row.lectureId)).toEqual(["weak", "gap", "covered"]);
+    expect(rows[1]).toMatchObject({ totalQuestions: 0, accuracy: null, objectiveTotal: 2, objectivesTested: 0, objectivesUntested: 2 });
+    expect(rows[0]).toMatchObject({ totalQuestions: 5, correct: 1, misses: 4, accuracy: 0.2, objectivesUntested: 0, strugglingObjectives: 1 });
   });
 
   it("counts explicitly rated objectives as seen and tolerates missing lecture metrics", () => {
@@ -37,4 +37,15 @@ describe("buildWeakAreaMap", () => {
     });
     expect(row).toMatchObject({ objectivesTested: 1, objectivesUntested: 1, accuracy: null, totalQuestions: 0 });
   });
+});
+
+it("uses recent retests for priority without erasing lifetime accuracy or report signals", () => {
+ const rows = buildWeakAreaMap({ lectures: [{ id: "improving" }, { id: "weak" }, { id: "report" }],
+ questionStats: { improving: { answered: 30, correct: 9 }, weak: { answered: 5, correct: 1 } },
+ learnerEvidence: { lectures: { improving: { recent: [true,true,true,true] }, weak: { recent: [false,false,true] } } },
+ reportWeaknesses: [{ concept: "Reported pathway weakness", linkedLecIds: ["report"], tags: ["exam-report"], masteryLevel: "struggling" }] });
+ expect(rows.map(r=>r.lectureId)).toEqual(["weak","report","improving"]);
+ expect(rows[2]).toMatchObject({ accuracy: .3, recentAccuracy: 1, priorityAccuracy: 1 });
+ expect(rows[1].reportTopics).toEqual(["Reported pathway weakness"]);
+ expect(rows[1].totalQuestions).toBe(0);
 });

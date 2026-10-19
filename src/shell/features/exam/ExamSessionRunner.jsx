@@ -742,7 +742,7 @@ export function ExamSessionRunner({
           {exitError && <p role="alert" className="text-sm text-bad">{exitError}</p>}
           {onExit && <Button variant="outline" disabled={savingExit} onClick={async () => {
             setSavingExit(true); setExitError(null);
-            try { await controller.saveProgress(); onExit(); }
+            try { await controller.saveProgress(submitOpts); onExit(); }
             catch (error) { setExitError(error?.message || "Could not save your position. Please retry."); }
             finally { setSavingExit(false); }
           }}>{savingExit ? "Saving…" : "Save & exit"}</Button>}

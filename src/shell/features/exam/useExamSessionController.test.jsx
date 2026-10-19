@@ -29,6 +29,8 @@ vi.mock("../../../questionPool.js", () => ({
   releaseUnansweredQuestions: (...args) => releaseUnansweredQuestionsMock(...args),
 }));
 
+vi.mock("./checkpoint.js", () => ({ checkpointExamSession: async (userId, sessionId) => getExamSessionMock(userId, sessionId) }));
+
 const { useExamSessionController } = await import("./useExamSessionController.js");
 const { mergeAnswer } = await import("../../../examSessions.js");
 

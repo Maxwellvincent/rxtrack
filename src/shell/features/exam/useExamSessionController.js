@@ -1,3 +1,4 @@
+import { checkpointExamSession } from "./checkpoint.js";
 /**
  * Task 6 — the Integrated Exam session runtime: the controller hook.
  *
@@ -176,7 +177,7 @@ export function useExamSessionController(sessionId, userId) {
       .catch(() => { if (mountedRef.current) setSyncStatus("error"); });
   }, [userId, sessionId, makePosition]);
 
-  const saveProgress = useCallback(async () => {
+  const saveProgress = useCallback(async (options = {}) => {
     const snapshot = sessionRef.current;
     if (!snapshot) throw new Error("The session is still loading. Please try again.");
     const position = makePosition(indexRef.current);
@@ -188,8 +189,9 @@ export function useExamSessionController(sessionId, userId) {
         return { ...current, answers, resumePosition: newestResumePosition(current.resumePosition, position) };
       });
       if (!saved || saved.status !== "in_progress") throw new Error("This session could not be saved. Please reload its current status.");
+      const checkpoint = await checkpointExamSession(userId, sessionId, options);
       if (mountedRef.current) setSyncStatus("synced");
-      return saved;
+      return checkpoint;
     } catch (error) {
       if (mountedRef.current) setSyncStatus("error");
       throw error;

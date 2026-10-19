@@ -1,5 +1,5 @@
 import { linkSourceLecture } from "./questionBankLinks.js";
-import { hasCurrentReasoningAudit } from "../../../engine/questionOrder.js";
+import { sessionEvidenceEvent } from "./sessionEvidence.js";
 /**
  * Integrated Exam finalization: the I/O orchestrator.
  *
@@ -24,7 +24,6 @@ import { mergeExamReportConcepts } from "../../logic/examReportWeakConcepts.js";
 import { withRecordedStats } from "../../../examSessions.js";
 import { pendingStatsQuestionIds, computeWeakConceptEntry } from "./finalizeLogic.js";
 import { recordEvidenceAwait } from "../../../stores/learnerEvidence.js";
-import { classifyLeadIn } from "./questionReading.js";
 import { releaseUnansweredQuestions } from "../../../questionPool.js";
 
 export async function finalizeExamSession(
@@ -69,7 +68,6 @@ export async function finalizeExamSession(
   const pending = pendingStatsQuestionIds(session);
   for (const questionId of pending) {
     const question = session.questions.find((q) => q.questionId === questionId);
-    const questionNumber = session.questions.findIndex((q) => q.questionId === questionId) + 1;
     const answer = session.answers.find((a) => a.questionId === questionId);
     const wasCorrect = !!answer && answer.value === question?.correct;
 
@@ -78,28 +76,10 @@ export async function finalizeExamSession(
       // current catalog or the learner confirmed its link. A lecture link
       // never invents an objective tag or advanced-reasoning evidence.
       if (question?.lectureId && (question?.sourceType !== "question-bank" || ["user-confirmed", "source-label-matched", "content-matched"].includes(question?.curriculumLinkStatus))) {
-        await recordAnswerAwait(userId, question.lectureId, wasCorrect);
+        await recordAnswerAwait(userId, question.lectureId, wasCorrect, `exam:${session.sessionId}:${questionId}`);
       }
       if (question?.lectureId || question?.objectiveIds?.length) {
-        await recordEvidenceAwait(userId, {
-          source: "integrated-exam",
-          sessionKey: session.sessionId,
-          blockId: question.sourceBlockId || question.blockId || session.blockId,
-          lectureId: question.lectureId || null,
-          objectiveIds: question?.objectiveIds || [],
-          questionKey: question?.questionKey || question?.poolId || question?.id || question?.questionId || `stem:${String(question?.stem || "").toLowerCase().replace(/\s+/g, " ").trim()}`,
-          atomKey: question?.atomKey || null,
-          correct: wasCorrect,
-          difficulty: question?.difficulty || null,
-          misconception: wasCorrect ? null : "exam-error",
-          responseMs: answer?.responseMs,
-          answerChanges: answer?.answerChanges || 0,
-          taskType: question?.taskType || classifyLeadIn(question?.stem),
-          reasoningDepth: question?.reasoningDepth || null,
-          orderLevel: question?.orderLevel || null,
-          reasoningVerified: hasCurrentReasoningAudit(question),
-          questionNumber,
-        });
+        await recordEvidenceAwait(userId, sessionEvidenceEvent(session, question, answer));
       }
     } catch (e) {
       return { ok: false, error: e?.message || String(e), resumable: true };

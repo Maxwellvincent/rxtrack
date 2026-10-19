@@ -2025,9 +2025,10 @@ export function LectureStudyFlow({
           </ul>
         </details>
       )}
-      {examRepairContext && (examRepairContext.weakObjectives?.length || examRepairContext.missedQuestions?.length) > 0 && (
+      {examRepairContext && (examRepairContext.weakObjectives?.length || examRepairContext.missedQuestions?.length || examRepairContext.reportTopics?.length) > 0 && (
         <section id="lecture-repair" aria-label="Exam repair context" className="mt-4 rounded-lg border border-bad/30 bg-bad/5 p-3">
-          <h3 className="font-semibold text-text-1">Continue from your exam misses</h3>
+          <h3 className="font-semibold text-text-1">Review, then retest your weak areas</h3>
+          {!!examRepairContext.reportTopics?.length && <p className="mt-1 text-sm text-text-2">Uploaded report topics to review: {examRepairContext.reportTopics.join("; ")}. These are report signals, not scored objective attempts.</p>}
           {examRepairContext.weakObjectives?.length > 0 && <>
             <p className="mt-1 text-sm text-text-2">Weak objectives are moved to the front when you build a lecture quiz:</p>
             <ul className="mt-1 list-inside list-disc text-sm text-text-1">{examRepairContext.weakObjectives.slice(0, 6).map((objective) => <li key={objective.id}>{objective.label}{objective.attempts ? ` · ${objective.misses}/${objective.attempts} missed` : " · flagged struggling"}</li>)}</ul>

@@ -152,3 +152,8 @@ describe("mergeAtomProgress", () => {
     expect(mergeAtomProgress({}, {})).toEqual({});
   });
 });
+
+it("preserves finalization identities when ordinary practice counters merge", () => {
+ const merged=mergeQuestionStats({l:{answered:4,correct:2,statsEventKeys:["first"]}}, {l:{answered:5,correct:3,statsEventKeys:["second"]}});
+ expect(merged.l).toMatchObject({answered:5,correct:3,statsEventKeys:["first","second"]});
+});

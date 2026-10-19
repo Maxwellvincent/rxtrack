@@ -34,10 +34,17 @@ function readStored(userId) {
 export function read(userId) {
  const stored = readStored(userId);
  const excluded = excludedEvidenceKeys(questionRatings.read(userId).ratings);
- if (!excluded.size) return stored;
  const evidence = userId ? readCloud(userId, "rxt-learner-evidence-v1", {}) : readJson(userId, "rxt-learner-evidence-v1", {});
  const next = { ...stored };
  for (const event of evidence?.evidenceJournal || []) {
+  if (event.pendingLectureStats && event.lectureId && !excluded.has(evidenceIdentity(event.questionKey))) {
+   const row = next[event.lectureId] || { answered: 0, correct: 0 };
+   next[event.lectureId] = { ...row, answered: (Number(row.answered) || 0) + Number(!row.statsEventKeys?.includes(evidenceIdentity(event.eventId))),
+    correct: (Number(row.correct) || 0) + Number(event.correct && !row.statsEventKeys?.includes(evidenceIdentity(event.eventId))),
+    checkpointEventIds: [...(row.checkpointEventIds || []), event.eventId] };
+   continue;
+  }
+  if (event.pendingLectureStats) continue;
   if (!event.lectureId || !excluded.has(evidenceIdentity(event.questionKey))) continue;
   const row = next[event.lectureId];
   if (!row) continue;
@@ -79,10 +86,16 @@ export function recordAnswer(userId, lectureId, wasCorrect) {
  * marker true. Used only by the exam-tab finalization path (a later task);
  * `recordAnswer` keeps being used by objectives quizzes exactly as today.
  */
-export async function recordAnswerAwait(userId, lectureId, wasCorrect) {
+export async function recordAnswerAwait(userId, lectureId, wasCorrect, eventId = null) {
   if (!lectureId) return read(userId);
   const current = readStored(userId);
   const prev = current[lectureId] || {};
+  const eventKey = eventId ? evidenceIdentity(eventId) : null;
+  if (eventKey && prev.statsEventKeys?.includes(eventKey)) {
+    // A prior write may have updated the local cache before failing remotely.
+    if (userId) await writeCloudAwait(userId, key, current);
+    return current;
+  }
   const next = mergeQuestionStats(current, {
     [lectureId]: {
       answered: (prev.answered || 0) + 1,
@@ -90,6 +103,7 @@ export async function recordAnswerAwait(userId, lectureId, wasCorrect) {
       at: Date.now(),
     },
   });
+  if (eventKey) next[lectureId].statsEventKeys = [...new Set([...(prev.statsEventKeys || []), eventKey])];
   if (!userId) {
     writeJson(userId, key, next);
     return next;
@@ -109,7 +123,7 @@ export function statsForLecture(userId, lectureId) {
 /** Forget one lecture's counts — pairs with clearing its round progress. */
 export function clearLecture(userId, lectureId) {
   if (!lectureId) return read(userId);
-  const { [lectureId]: _dropped, ...rest } = read(userId) || {};
+  const { [lectureId]: _dropped, ...rest } = readStored(userId) || {};
   write(userId, rest);
   return rest;
 }
@@ -117,7 +131,8 @@ export function clearLecture(userId, lectureId) {
 export function subscribe(cb) {
   const off = subscribeToCloudStore(key, cb);
   const offRatings = questionRatings.subscribe(cb);
-  return () => { off(); offRatings(); };
+  const offEvidence = subscribeToCloudStore("rxt-learner-evidence-v1", cb);
+  return () => { off(); offRatings(); offEvidence(); };
 }
 
 export function isHydrated(userId) {

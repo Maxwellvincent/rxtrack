@@ -26,6 +26,7 @@ vi.mock("../../../questionPool.js", () => ({ releaseSessionQuestions: vi.fn() })
 
 vi.mock("../../../stores/weakConcepts.js", () => ({
   read: (...args) => readWeakConceptsMock(...args),
+  subscribe: () => () => {},
 }));
 
 vi.mock("../../../stores/learnerEvidence.js", () => ({
@@ -378,7 +379,7 @@ describe("ExamDashboard", () => {
     );
     await flush();
 
-    expect(listExamSessionsMock).toHaveBeenCalledWith(USER, BLOCK, { status: "submitted" });
+    expect(listExamSessionsMock).toHaveBeenCalledWith(USER, BLOCK);
     unmount();
   });
 });
@@ -397,4 +398,20 @@ it("recovers older homework lecture labels into the weak overview and repair con
   expect(navigate.mock.calls[0][0]).toBe("l5");
   expect(navigate.mock.calls[0][1].missedQuestions[0]).toMatchObject({ explanation: question.explanation, stem: question.stem });
   unmount();
+});
+
+it("includes saved unfinished work, report topics and recent review priorities", async () => {
+ readWeakConceptsMock.mockReturnValue({ [BLOCK]: [{ concept: "Pathway report topic", linkedLecIds: ["lec-1"], tags: ["exam-report"], masteryLevel: "struggling" }] });
+ readLearnerEvidenceMock.mockReturnValue({ objectives: {}, lectures: { "lec-1": { recent: [false,false,true] } } });
+ listExamSessionsMock.mockResolvedValue([{ sessionId: "saved", blockId: BLOCK, status: "in_progress", progressSavedAt: 100,
+ questions: [q("saved-1","lec-1"),q("pending-2","lec-1")],
+ checkpointAnswers: [a("saved-1","B")], answers: [a("saved-1","B"),a("pending-2","A")] }]);
+ const { host, unmount } = render(<ExamDashboard blockId={BLOCK} userId={USER} lectures={[{ id:"lec-1",lectureTitle:"Lecture One" }]} lecturesById={LECTURES} objectives={[{id:"o",linkedLecId:"lec-1"}]} />);
+ await flush();
+ const map=host.querySelector('[aria-label="Overall weak-area map"]');
+ expect(map.textContent).toContain("1 missed of 1");
+ expect(map.textContent).toContain("Practice recorded · objective links incomplete");
+ expect(map.textContent).toContain("Recent 3 answers: 33%");
+ expect(map.textContent).toContain("Pathway report topic");
+ unmount();
 });

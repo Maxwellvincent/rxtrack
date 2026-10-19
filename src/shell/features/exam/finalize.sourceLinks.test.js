@@ -15,7 +15,7 @@ it("links resumed homework on submission, records lecture answers once, and does
   const options = { lectures: [{ id: "l5", blockId: "nb1", lectureNumber: 5, lectureTitle: "NB 05 Neurons and Glia" }] };
   expect(await finalizeExamSession("u", "s", options)).toEqual({ ok: true });
   expect(state.session.questions[0]).toMatchObject({ lectureId: "l5", curriculumLinkStatus: "source-label-matched" });
-  expect(state.record).toHaveBeenCalledWith("u", "l5", false);
+  expect(state.record).toHaveBeenCalledWith("u", "l5", false, "exam:s:q");
   expect(state.evidence.mock.calls[0][1]).toMatchObject({ lectureId: "l5", objectiveIds: [], correct: false });
   expect(await finalizeExamSession("u", "s", options)).toMatchObject({ alreadySubmitted: true });
   expect(state.record).toHaveBeenCalledTimes(1);
@@ -43,7 +43,7 @@ it('automatically records an unlabelled larynx question against its lecture once
  const options = { lectures: [{ id: 'l16', blockId: 'nb1', lectureTitle: 'NB 16 Pharynx and Larynx' }] };
  expect(await finalizeExamSession('u', 'larynx-session', options)).toEqual({ ok: true });
  expect(state.session.questions[0]).toMatchObject({ lectureId: 'l16', curriculumLinkStatus: 'content-matched' });
- expect(state.record).toHaveBeenCalledWith('u', 'l16', false);
+ expect(state.record).toHaveBeenCalledWith('u', 'l16', false, 'exam:larynx-session:larynx-q');
  expect(state.evidence.mock.calls[0][1]).toMatchObject({ lectureId: 'l16', objectiveIds: [] });
  await finalizeExamSession('u', 'larynx-session', options);
  expect(state.record).toHaveBeenCalledTimes(1);

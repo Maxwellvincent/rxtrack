@@ -19,7 +19,7 @@ export function questionProgress(studyAnswers = [], sessions = [], range = {}, m
   let examAnswered = 0;
   const seen = new Set();
   for (const session of sessions) {
-    if (session.status && session.status !== 'submitted') continue;
+    if (session.status && session.status !== 'submitted' && !session.isCheckpoint) continue;
     if (!inRange(session.submittedAt)) continue;
     const id = session.sessionId || session.id;
     if (id && seen.has(id)) continue;
