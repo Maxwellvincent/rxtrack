@@ -1,3 +1,4 @@
+import { schoolContinuationQuestions } from "./lectureQuizContinuation.js";
 import * as lectureMetadataStore from "../../../stores/lectures.js";
 import { streamedTutorFeedback } from "../../../llmBridge.js";
 import { ObjectiveProgressChart } from "./ObjectiveProgressChart.jsx";
@@ -1440,13 +1441,20 @@ export function LectureStudyFlow({
         return true;
       })]
       .slice(0, count);
+    const originalSchoolItems = continuing ? schoolContinuationQuestions({
+      banks: questionBanksRes.data || {}, metadata: questionBankMetaRes.data || {}, lecture, blockId,
+      missing: Math.max(0, count - reserve.length), difficulty,
+      history: [...generatedHistory, ...reserve], ratings: questionRatingsStore.read(userId).ratings || {},
+    }) : [];
+    reserve.push(...originalSchoolItems);
+    if (originalSchoolItems.length) setObjectiveNotice(`Added ${originalSchoolItems.length} unseen original school question${originalSchoolItems.length === 1 ? "" : "s"} to continue this quiz. Original wording and answer keys are preserved.`);
     const missing = Math.max(0, count - reserve.length);
     if (!missing) {
       setBusy("");
       setAdHocQuiz(true);
       if (continuing) {
         setQuestions(reserve);
-        quizMetaRef.current = { ...quizMetaRef.current, questions: reserve };
+        quizMetaRef.current = { ...quizMetaRef.current, questions: reserve, requestedCount: count, originalRequestedCount: count, preparationShortfall: null };
         lectureQuizSessionsStore.save(userId, quizMetaRef.current);
       } else startQuizSession(reserve);
       setQuizPreparation(null);
@@ -1618,7 +1626,7 @@ export function LectureStudyFlow({
     } catch (error) {
       if (preparationRunRef.current === runId) { setBusy(""); setQuizPreparation(null); setError(error?.message || "Quiz preparation failed. Please retry."); }
     }
-  }, [orderedObjectives, title, text, blockId, atoms, userId, lecture?.id, logActivity, startQuizSession, schoolExemplars, schoolExamplesLoading, clinicalCorrelateLibrary, objectiveById, learnerEvidence.data, mismatchedLectureObjectives.length]);
+  }, [orderedObjectives, title, text, blockId, atoms, userId, lecture?.id, logActivity, startQuizSession, schoolExemplars, schoolExamplesLoading, clinicalCorrelateLibrary, objectiveById, learnerEvidence.data, mismatchedLectureObjectives.length, questionBanksRes.data, questionBankMetaRes.data, lecture]);
 
   // Prepare at most one small reserve batch per active quiz, never on page load.
   // Background work only saves unseen questions; it does not create a session or grade answers.
@@ -1798,6 +1806,7 @@ export function LectureStudyFlow({
           lectureNumber={lecture?.lectureNumber ?? lecture?.number ?? null}
           userId={userId}
           expectedCount={activeRequestedCount || questions.length}
+          preparationError={stoppedShort ? error || pendingQuiz?.reason || quizMetaRef.current?.preparationShortfall : null}
           onPrepareMore={stoppedShort && !busy ? () => runQuiz(activeRequestedCount, questions[0]?.difficulty || "medium", questions, true) : null}
           preparing={!!quizPreparation && quizPreparation.ready < quizPreparation.requested}
           onCheckpoint={checkpointLectureQuiz}

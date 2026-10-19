@@ -41,7 +41,7 @@ const GAP = {
 // Calibrated quiz over atom-generated questions: pick → rate confidence → reveal
 // gap. Confidence logs to the block's calibration record; session ends with the
 // accuracy-by-confidence curve + landmine list.
-export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "", lectureTitle = "", lectureNumber = null, lectureId = null, userId, onDone, onExit, onReviewAtom, onAnswer, onCheckpoint, initialState = null, expectedCount = null, preparing = false, onPrepareMore = null }) {
+export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "", lectureTitle = "", lectureNumber = null, lectureId = null, userId, onDone, onExit, onReviewAtom, onAnswer, onCheckpoint, initialState = null, expectedCount = null, preparing = false, onPrepareMore = null, preparationError = null }) {
   const [i, setI] = useState(() => Math.max(0, Number(initialState?.i) || 0));
   const [picked, setPicked] = useState(() => initialState?.picked ?? null);
   const [confidence, setConfidence] = useState(() => initialState?.confidence ?? null);
@@ -232,6 +232,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
         />
       </div>
       <div className="quiz-question-card rounded-lg border border-border bg-bg-elevated p-3">
+        {q.sourceType === "question-bank" && <p className="mb-2 text-xs text-text-3">Original school question · {q.sourceFile}</p>}
         {q.generationMode === "grounded-fallback" && (
           <div className="mb-2 rounded border border-border bg-panel px-3 py-2 text-xs text-text-2">
             Source-grounded fallback · reinforces lecture recall, but does not count as an ExamSoft-style objective test.
@@ -363,7 +364,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
                 <ol className="mt-2 list-decimal space-y-1 pl-5 text-text-2">
                   {q.reasoningAudit.steps.map((step, index) => <li key={index}>{step}</li>)}
                 </ol>
-                <p className="mt-2 text-xs text-text-3">{hasCurrentReasoningAudit(q) ? "Checked against this lecture’s source and the current reasoning standard." : "This saved question used an earlier review standard. Fresh quizzes use the updated checks."}</p>
+                <p className="mt-2 text-xs text-text-3">{q.sourceType === "question-bank" ? `Original school question from ${q.sourceFile || "your uploaded bank"}. Its source key is preserved; it has not been relabeled as independently reviewed advanced practice.` : hasCurrentReasoningAudit(q) ? "Checked against this lecture’s source and the current reasoning standard." : "This saved question used an earlier review standard. Fresh quizzes use the updated checks."}</p>
               </details>
             )}
             <QuestionQualityRating userId={userId} question={q} />
@@ -400,6 +401,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
             {!preparing && missingCount > 0 && currentIndex + 1 >= questions.length && (
               <div role="status" className="rounded-lg border border-border bg-bg-elevated p-3 text-sm text-text-2">
                 <p>You’ve reached the end of the {questions.length} available questions. {missingCount} of your requested questions still need preparation.</p>
+                {preparationError && <p className="mt-2 text-sm text-text-2">Preparation stopped: {preparationError}</p>}
                 {onPrepareMore && <Button className="mt-2" onClick={onPrepareMore}>Prepare remaining {missingCount} questions</Button>}
               </div>
             )}

@@ -985,3 +985,14 @@ it.each([["school", 1], ["challenge", 0]])("keeps independently verified recall 
     expect(result.diagnostics.rejections.allocation_or_reasoning_depth).toBeUndefined();
   }
 });
+
+it('keeps school policy explicit in final-slot refills instead of forcing a novel causal experiment',async()=>{
+ const objectives=[{id:'a',objective:'Explain the source relationship'}];
+ const callAIJSON=vi.fn(async()=>({questions:[]}));
+ await prepareObjectiveQuiz({objectives,initialQuestions:[{objectiveIds:['a']}],plannedCount:2,questionCount:1,generationVersion:'v2',lectureText:'An actual source-supported relationship. '.repeat(20)},
+  {callAIJSON,focusedRefill:true,maxPrepareAttempts:1});
+ expect(callAIJSON).toHaveBeenCalled();
+ const prompt=callAIJSON.mock.calls[0][1];
+ expect(prompt).toContain('school-level recognition item or one supported clinical application');
+ expect(prompt).not.toContain('without adding unsupported facts or weakening the requested order');
+});

@@ -31,12 +31,13 @@ it('shows the available total after preparation stops and offers continuation wi
   const root = createRoot(host);
   const questions = [1, 2, 3].map(n => ({ stem: `Clinical question ${n}`, choices: { A: 'One', B: 'Two' }, correct: 'A', explanation: 'Because one.' }));
   const onPrepareMore = vi.fn(), onDone = vi.fn();
-  const props = { questions, expectedCount: 15, preparing: false, onPrepareMore, onDone,
+  const props = { questions, expectedCount: 15, preparing: false, onPrepareMore, onDone, preparationError: "Writer could not support the remaining targets.",
     initialState: { i: 2, picked: 'A', confidence: 3, records: [{ correct: true, confidence: 3 }] } };
   act(() => root.render(<AtomQuiz {...props} />));
   expect(host.querySelector('.quiz-count').textContent).toBe('3/3');
   expect(host.querySelector('[role="progressbar"]').getAttribute('aria-valuemax')).toBe('3');
   expect(host.textContent).toContain('12 of your requested questions still need preparation');
+  expect(host.textContent).toContain('Preparation stopped: Writer could not support the remaining targets.');
   act(() => [...host.querySelectorAll('button')].find(b => b.textContent === 'Prepare remaining 12 questions').click());
   expect(onPrepareMore).toHaveBeenCalledOnce();
   expect(onDone).not.toHaveBeenCalled();
@@ -49,4 +50,20 @@ it('shows the available total after preparation stops and offers continuation wi
   expect(host.textContent).toContain('New fourth question');
   expect(onDone).not.toHaveBeenCalled();
   act(() => root.unmount());
+});
+
+it('continues from question 13 to the appended 14th and 15th without resetting the revealed answer',()=>{
+ const host=document.createElement('div');const root=createRoot(host);
+ const questions=Array.from({length:13},(_,i)=>({stem:`Reviewed question ${i+1}`,choices:{A:'One',B:'Two'},correct:'A',explanation:'Because.'}));
+ const props={questions,expectedCount:15,onDone:vi.fn(),initialState:{i:12,picked:'A',confidence:3,records:[]}};
+ act(()=>root.render(<AtomQuiz {...props}/>));
+ expect(host.textContent).toContain('Reviewed question 13');
+ const school=[14,15].map(i=>({...questions[0],stem:`Authentic school question ${i}`,sourceType:'question-bank',sourceFile:'Homework.pdf'}));
+ act(()=>root.render(<AtomQuiz {...props} questions={[...questions,...school]}/>));
+ expect(host.querySelector('.quiz-count').textContent).toBe('13/15');
+ act(()=>[...host.querySelectorAll('button')].find(b=>b.textContent==='Next →').click());
+ expect(host.textContent).toContain('Authentic school question 14');
+ expect(host.textContent).toContain('Original school question · Homework.pdf');
+ expect(props.onDone).not.toHaveBeenCalled();
+ act(()=>root.unmount());
 });
