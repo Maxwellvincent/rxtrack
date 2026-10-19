@@ -1,3 +1,4 @@
+import { questionSlot } from "./bpmBlueprint.js";
 import { startBackgroundJob } from "../../backgroundJobs.js";
 
 const running = new Set();
@@ -32,7 +33,7 @@ export async function recoverExamPreparation({ session, userId, pool, generate, 
     if (!claimed) return;
     const run = async reportJob => {
       const allocation = Object.fromEntries(Object.entries(claimed.fillPlan.allocation).map(([id, count]) => [id,
-        Math.max(0, count - (claimed.questions || []).filter(q => q.lectureId === id).length)]).filter(([id, count]) => count && !(claimed.fillBlockedLectureIds || []).includes(id)));
+        Math.max(0, count - (claimed.questions || []).filter(q => questionSlot(q) === id).length)]).filter(([id, count]) => count && !(claimed.fillBlockedLectureIds || []).includes(id)));
       if (!Object.keys(allocation).length) {
         await pool.finishSessionFill(session.sessionId, { requestedCount: claimed.targetQuestionCount });
         return "Ready questions are saved.";

@@ -337,7 +337,7 @@ describe("ExamLaunchModal", () => {
         onLaunch={onLaunch}
       />
     );
-    const scope = host.querySelector("select");
+    const scope = host.querySelector('[aria-label="Content scope"]');
     act(() => setInputValue(scope, "2"));
     expect(host.textContent).toContain("7 objectives across 1 lectures");
     const start = [...host.querySelectorAll("button")].find(button => button.textContent === "Start quiz / exam now");
@@ -410,5 +410,15 @@ it("starts within the limit when a saved school-bank default exceeds 100", () =>
  expect(host.querySelector('[aria-label="Number of questions"]').value).toBe("100");
  expect(host.querySelectorAll('input[type="number"]')[1].value).toBe("150");
  expect(host.querySelector('[aria-label="Number of questions"]').validity.valid).toBe(true);
+ unmount();
+});
+
+it('launches Test 3 across all objective-linked lectures without requiring date scope',()=>{
+ installDomStorage();const onLaunch=vi.fn();
+ const candidates=[{lectureId:'all',objectiveCount:3}];
+ const {host,unmount}=render(<ExamLaunchModal eligibleLectures={[]} blueprintLectures={candidates} blueprintObjectives={{all:[{id:'a',discipline:'ANAT'},{id:'n',discipline:'NSCI'},{id:'h',discipline:'HCB'}]}} defaultBlueprintExam="3" defaultQuestionCount={40} onLaunch={onLaunch} onCancel={()=>{}} />);
+ expect(host.textContent).toContain('45–50%');
+ act(()=>[...host.querySelectorAll('button')].find(b=>b.textContent==='Start quiz / exam now').click());
+ expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({blueprintExam:3,contentScope:'entire-block',questionCount:40}));
  unmount();
 });

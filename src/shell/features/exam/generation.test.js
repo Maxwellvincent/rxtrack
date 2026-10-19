@@ -297,3 +297,23 @@ describe("generateExamQuestions", () => {
     }
   });
 });
+
+it('generates separate subject slots from a mixed lecture while retaining its real source block', async()=>{
+ const callAIJSON=vi.fn().mockResolvedValue({questions:[mcq('Subject-specific clinical item')]});
+ const result=await generateExamQuestions({allocation:{'lec1::bpm::anatomy':1,'lec1::bpm::histology':1},lecturesById,lectures,
+  objectivesByLecture:{lec1:[{id:'a',discipline:'ANAT',objective:'Describe anatomy'},{id:'h',discipline:'HCB',objective:'Describe histology'}]},atomsByLecture:{},blockId:'exam-center',userId:null},
+  {callAIJSON,skipQuestionAudit:true});
+ expect(result.questions).toHaveLength(2);
+ expect(result.questions.map(q=>q.blueprintSubject).sort()).toEqual(['anatomy','histology']);
+ expect(result.questions.every(q=>q.lectureId==='lec1'&&q.sourceBlockId==='b1')).toBe(true);
+ expect(result.questions.find(q=>q.blueprintSubject==='anatomy').objectiveIds).toEqual(['a']);
+ expect(result.questions.find(q=>q.blueprintSubject==='histology').objectiveIds).toEqual(['h']);
+});
+
+it('never reassigns a saved question from another subject to a sole target objective',async()=>{
+ const pool={history:async()=>[],readyForLectures:async()=>[{...mcq('Wrong subject'),objectiveIds:['not-anatomy']}],ready:async()=>[]};
+ const result=await generateExamQuestions({allocation:{'lec1::bpm::anatomy':1},lecturesById,lectures,objectivesByLecture:{lec1:[{id:'a',discipline:'ANAT'}]},atomsByLecture:{},blockId:'b1',userId:null},
+  {pool,savedOnly:true,skipQuestionAudit:true});
+ expect(result.questions).toHaveLength(0);
+ expect(result.errors[0].lectureId).toBe('lec1::bpm::anatomy');
+});

@@ -1,3 +1,4 @@
+import { BpmBlueprintDashboard } from "./BpmBlueprintDashboard.jsx";
 import { recoverExamPreparation } from "./preparationRecovery.js";
 import { generateExamQuestions } from "./generation.js";
 /**
@@ -14,7 +15,7 @@ import { Button } from "../../../ui/Button.jsx";
 import { useLectures } from "../../hooks/useLectures.js";
 import { useObjectives } from "../../hooks/useObjectives.js";
 import { useLectureQuestionStats } from "../../hooks/useLectureQuestionStats.js";
-import { dedupeByText, selectBlockObjectives } from "../../logic/objectives.js";
+import { dedupeByText, selectBlockObjectives, flattenEntry } from "../../logic/objectives.js";
 import { statsForLecture } from "../../../stores/lectureQuestionStats.js";
 import * as weakConceptsStore from "../../../stores/weakConcepts.js";
 import * as questionBanksStore from "../../../stores/questionBanks.js";
@@ -121,6 +122,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   // the session, rather than silently dropped.
   const [, setLaunchWarning] = useState(null);
   const [generationCoverage, setGenerationCoverage] = useState(null);
+  const [selectedBlueprint, setSelectedBlueprint] = useState("");
 
   const selectExamPageSection = (section) => {
     setExamPageSection(section);
@@ -128,6 +130,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   };
 
   const lecturesRes = useLectures(blockId, userId);
+  const allLecturesRes = useLectures(null, userId);
   const objectivesRes = useObjectives(null, userId);
   const questionStats = useLectureQuestionStats(userId);
 
@@ -211,6 +214,23 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
         })),
     [lectures, objectivesByLecture]
   );
+
+  const blueprintContext = useMemo(() => {
+    const allLectures = allLecturesRes.data || [];
+    const allObjectives = Object.values(objectivesRes.data || {}).flatMap(flattenEntry);
+    const byLecture = {};
+    for (const objective of allObjectives) {
+      if (!objective?.linkedLecId) continue;
+      (byLecture[objective.linkedLecId] ||= []).push(objective);
+    }
+    return {
+      lectures: allLectures,
+      lecturesById: Object.fromEntries(allLectures.map(l=>[l.id,l])),
+      atomsByLecture: Object.fromEntries(allLectures.map(l=>[l.id,Array.isArray(l.atoms)?l.atoms:[]])),
+      objectivesByLecture: byLecture,
+      eligibleLectures: allLectures.filter(l=>byLecture[l.id]?.length).map(l=>({lectureId:l.id,blockId:l.blockId,lectureLabel:formatLectureLabel(l),objectiveCount:byLecture[l.id].length})),
+    };
+  }, [allLecturesRes.data, objectivesRes.data]);
 
   const questionBanksHydrated = useStoreHydrated(questionBanksStore, userId);
   const questionBankMetaHydrated = useStoreHydrated(questionBankMetaStore, userId);
@@ -529,10 +549,18 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
     });
   };
 
+  const allBlueprintBanks = () => {
+    const banks = questionBanksStore.read(userId) || {};
+    const metadata = Object.values(questionBankMetaStore.read(userId) || {});
+    return Object.entries(banks).map(([filename,questions]) => ({filename,questions,
+      blockId: metadata.find(m=>m.filename===filename)?.blockId || questions?.find(q=>q.blockId)?.blockId || null,
+      analysis: questionBankAnalysisStore.read(userId,filename)}));
+  };
+
   const prepareQuestions = (config) => {
     let scopedLectures = filterLecturesByScope(eligibleLectures, config.contentScope || (config.weekNumber != null ? `week-number:${config.weekNumber}` : "block-so-far"));
     let scopedObjectives = objectivesByLecture;
-    if (config.studyMode === "repair") {
+    if (config.studyMode === "repair" && !config.blueprintExam) {
       const focus = buildFocusedRepairScope({ eligibleLectures: scopedLectures, objectivesByLecture, weakConcepts, learnerEvidence: readLearnerEvidence(userId), blockId });
       scopedLectures = focus.eligibleLectures;
       scopedObjectives = focus.objectivesByLecture;
@@ -542,6 +570,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
       run: async report => {
         const result = await launchExamSession({ userId, blockId, ...config, prepareOnly: true,
           eligibleLectures: scopedLectures, objectivesByLecture: scopedObjectives, atomsByLecture, lecturesById, lectures,
+          ...(config.blueprintExam ? {...blueprintContext,schoolBanks:allBlueprintBanks()} : {}),
           weakConceptAccuracyByLecture, weakConcepts },
           { callAIJSON, onProgress: p => report(`${p.completed || 0}/${p.total || config.questionCount} ready · ${p.message}`) });
         if (!result.ok) throw new Error(result.error);
@@ -572,7 +601,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
       }
       let scopedLectures = filterLecturesByScope(eligibleLectures, launchConfig.contentScope || (launchConfig.weekNumber != null ? `week-number:${launchConfig.weekNumber}` : "block-so-far"));
       let scopedObjectives = objectivesByLecture;
-      if (launchConfig.studyMode === "repair") {
+      if (launchConfig.studyMode === "repair" && !launchConfig.blueprintExam) {
         const focus = buildFocusedRepairScope({ eligibleLectures: scopedLectures, objectivesByLecture, weakConcepts, learnerEvidence: readLearnerEvidence(userId), blockId });
         scopedLectures = focus.eligibleLectures;
         scopedObjectives = focus.objectivesByLecture;
@@ -591,6 +620,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           lectures,
           weakConceptAccuracyByLecture,
           weakConcepts,
+          ...(launchConfig.blueprintExam ? {...blueprintContext,schoolBanks:allBlueprintBanks()} : {}),
         },
         // C1 fix — no caller ever supplied the AI transport: `deps` defaulted
         // to `{}` all the way down to `generateMcqs`, so every generation
@@ -657,7 +687,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
     return (
       <div className="mx-auto w-full max-w-6xl p-4 sm:p-5">
         <ExamSessionRunner
-          onRecoverPreparation={session => recoverExamPreparation({ session, userId, pool: createQuestionPool(userId, blockId), generate: generateExamQuestions, context: { lecturesById, objectivesByLecture, atomsByLecture, lectures, callAIJSON } }).catch(() => {})}
+          onRecoverPreparation={session => recoverExamPreparation({ session, userId, pool: createQuestionPool(userId, blockId), generate: generateExamQuestions, context: { lecturesById, objectivesByLecture, atomsByLecture, lectures, ...(session.blueprintExam ? blueprintContext : {}), callAIJSON } }).catch(() => {})}
           sessionId={activeSessionId}
           userId={userId}
           blockId={blockId}
@@ -699,6 +729,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           <Button
             onClick={() => {
               setLaunchError(null);
+              setSelectedBlueprint("");
               setShowLaunchModal(true);
             }}
           >
@@ -706,6 +737,9 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           </Button>
         </div>
       </div>
+
+      <BpmBlueprintDashboard userId={userId} objectivesByLecture={blueprintContext.objectivesByLecture}
+        onReview={onNavigateToLecture} onStart={exam=>{setSelectedBlueprint(String(exam));setLaunchError(null);setShowLaunchModal(true);}} />
 
       <nav className="mb-5 flex flex-wrap gap-2 border-b border-border pb-3" aria-label="Exam center sections">
         {[["start", "Start & continue"], ["banks", `Question banks${blockQuestionBanks.length ? ` · ${blockQuestionBanks.length}` : ""}`], ["results", "Results & weak lectures"]].map(([id, label]) => (
@@ -721,7 +755,10 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
         <ExamLaunchModal
           blockId={blockId}
           userId={userId}
+          defaultBlueprintExam={selectedBlueprint}
           eligibleLectures={eligibleLectures}
+          blueprintLectures={blueprintContext.eligibleLectures}
+          blueprintObjectives={blueprintContext.objectivesByLecture}
           defaultQuestionCount={defaultQuestionCount}
           onLaunch={handleLaunch}
           onCancel={() => setShowLaunchModal(false)}
@@ -822,6 +859,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
             <div className="flex flex-wrap gap-2">
             <button type="button" disabled={savingPreparedSet || deletingSet} onClick={() => editingPreparedSetId === set.id ? (setEditingPreparedSetId(null), setPreparedSetDraft(null)) : editPreparedSet(set)} className="rounded-lg border border-border px-3 py-2 text-sm font-semibold text-text-2 hover:bg-bg-elevated disabled:opacity-50">{editingPreparedSetId === set.id ? "Close editor" : "Edit"}</button>
             <Button disabled={launching || !available} onClick={() => handleLaunch({
+              blueprintExam: set.blueprintExam || null,
               format: set.format || "exam",
               questionCount: requested,
               durationMinutes: Number(set.durationMinutes) || 45,

@@ -109,7 +109,7 @@ export function allocateQuestions({ eligibleLectures, requestedCount, weakConcep
   );
 
   const weighted = ordered.map((lec) => {
-    const severity = repairSeverityForLecture(weakConcepts, blockId, lec.lectureId);
+    const severity = repairSeverityForLecture(weakConcepts, lec.blockId || blockId, lec.lectureId);
     const objectiveCountNorm =
       maxEligibleObjectiveCount > 0 ? (lec.objectiveCount || 0) / maxEligibleObjectiveCount : 0;
     const evidence = learnerEvidence?.lectures?.[lec.lectureId];

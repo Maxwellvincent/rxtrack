@@ -1,3 +1,4 @@
+import { BPM_BLUEPRINTS, SUBJECT_LABELS, subjectTargets, blueprintInventory } from "./bpmBlueprint.js";
 import { useEffect, useState } from "react";
 import { examDurationMinutes } from "./examTiming.js";
 import { filterLecturesByScope, scopeLabel } from "../../logic/weekScope.js";
@@ -42,6 +43,9 @@ export function ExamLaunchModal({
   blockId,
   userId,
   eligibleLectures = [],
+  defaultBlueprintExam = "",
+  blueprintLectures = [],
+  blueprintObjectives = {},
   defaultQuestionCount,
   onLaunch,
   onCancel,
@@ -61,6 +65,7 @@ export function ExamLaunchModal({
     const timer = setInterval(() => setElapsed(Math.floor((Date.now() - started) / 1000)), 1000);
     return () => clearInterval(timer);
   }, [launching]);
+  const [blueprintExam, setBlueprintExam] = useState(String(defaultBlueprintExam));
   const [format, setFormat] = useState("exam");
   const [studyMode, setStudyMode] = useState("balanced");
   const [difficulty, setDifficulty] = useState("adaptive");
@@ -82,10 +87,11 @@ export function ExamLaunchModal({
 
   const availableWeeks = [...new Set(eligibleLectures.map((lecture) => lecture.weekNumber).filter((week) => week != null))]
     .sort((a, b) => Number(a) - Number(b));
-  const effectiveScope = contentScope === "custom-dates" && rangeStart && rangeEnd
+  const effectiveScope = blueprintExam ? "entire-block" : contentScope === "custom-dates" && rangeStart && rangeEnd
     ? `date-range:${rangeStart}:${rangeEnd}`
     : contentScope;
-  const scopedLectures = filterLecturesByScope(eligibleLectures, effectiveScope);
+  const scopedLectures = blueprintExam ? blueprintLectures : filterLecturesByScope(eligibleLectures, effectiveScope);
+  const inventory = blueprintInventory(blueprintLectures, blueprintObjectives);
 
   const noLectures = !scopedLectures || scopedLectures.length === 0;
 
@@ -93,16 +99,17 @@ export function ExamLaunchModal({
   const parsedDuration = parseFloat(duration);
   const suggestedName = suggestedExamName({
     format,
-    scopeLabel: scopeLabel(effectiveScope),
+    scopeLabel: blueprintExam ? `BPM 2 Test ${blueprintExam}` : scopeLabel(effectiveScope),
     questionCount: parsedCount,
     existingNames,
   });
   const examName = examNameOverride ?? suggestedName;
-  const namePayload = { examName: examName.trim() || suggestedName };
+  const namePayload = { examName: examName.trim() || suggestedName, ...(blueprintExam ? {blueprintExam:Number(blueprintExam),contentScope:"entire-block"} : {}) };
   const durationValid = format !== "exam" || (Number.isFinite(parsedDuration) && parsedDuration > 0);
 
-  const datesValid = contentScope !== "custom-dates" || (rangeStart && rangeEnd && rangeStart <= rangeEnd);
-  const canLaunch = !noLectures && durationValid && datesValid;
+  const datesValid = !!blueprintExam || contentScope !== "custom-dates" || (rangeStart && rangeEnd && rangeStart <= rangeEnd);
+  const missingSubjects = blueprintExam ? subjectTargets(blueprintExam, parsedCount).filter(row=>row.count && !inventory.counts[row.subject]) : [];
+  const canLaunch = !noLectures && durationValid && datesValid && !missingSubjects.length;
   const blueprint = examBlueprint(scopedLectures, parsedCount);
 
   const handleCountChange = (e) => {
@@ -156,6 +163,25 @@ export function ExamLaunchModal({
         </div>
 
         <fieldset disabled={launching} className="flex flex-col gap-4">
+          <div>
+            <label htmlFor="bpm-blueprint" className="mb-1 block text-sm font-bold">Exam blueprint</label>
+            <select id="bpm-blueprint" value={blueprintExam} onChange={e=>{setBlueprintExam(e.target.value);setExamNameOverride(null);}} className="w-full rounded border border-border bg-bg p-2">
+              <option value="">Regular block exam</option>
+              {Object.keys(BPM_BLUEPRINTS).map(n=><option key={n} value={n}>BPM 2 · Test {n}</option>)}
+            </select>
+            {blueprintExam && <div className="mt-3 rounded-lg border border-border p-3 text-sm">
+              <p>All uploaded lectures · allocated by objective discipline. Weak and untested objectives guide practice within each subject.</p>
+              <div className="mt-3 flex h-36 items-end gap-3" role="img" aria-label={`BPM 2 Test ${blueprintExam} subject question targets`}>
+                {subjectTargets(blueprintExam,parsedCount).map(row=><div key={row.subject} className="flex h-full min-w-0 flex-1 flex-col text-center text-[11px]">
+                  <div className="flex h-24 shrink-0 items-end justify-center"><div className="relative w-full max-w-12 rounded-t bg-accent" style={{height:`${Math.max(2,row.count/parsedCount*100)}%`}}><strong className="absolute inset-x-0 bottom-full mb-1">{row.count}</strong></div></div>
+                  <span className="mt-1 flex h-8 items-center justify-center">{row.subject === "neuroscience" ? <span>Neuro<wbr />science</span> : SUBJECT_LABELS[row.subject]}</span><span>{row.range.join('–')}%</span>
+                </div>)}
+              </div>
+              <p className="mt-3 text-xs">Counts use normalized range midpoints and whole-question rounding. Blank subjects in the school blueprint are unspecified. Prepared counts may differ if reviewed questions are unavailable.</p>
+              {!!inventory.unclassified && <p className="mt-2">{inventory.unclassified} objectives have no recognized discipline and are excluded from weighted exams.</p>}
+              {!!missingSubjects.length && <p role="alert" className="mt-2 text-bad">Missing linked objectives: {missingSubjects.map(row=>SUBJECT_LABELS[row.subject]).join(', ')}. Subject quotas will not be reassigned.</p>}
+            </div>}
+          </div>
           <div>
             <div className="mb-1 font-mono text-[12px] font-bold uppercase tracking-wider text-text-3">Question focus</div>
             <div className="grid grid-cols-2 gap-2">
@@ -221,7 +247,7 @@ export function ExamLaunchModal({
                 <div className="font-bold text-text-1">Objective blueprint</div>
                 <div>{blueprint.objectiveCount} objectives across {blueprint.lectureCount} lectures</div>
                 <div>
-                  Planned lecture coverage: {blueprint.guaranteedLectureCoverage}/{blueprint.lectureCount}
+                  {blueprintExam ? "Lecture sampling capacity" : "Planned lecture coverage"}: {blueprint.guaranteedLectureCoverage}/{blueprint.lectureCount}
                   {" · "}up to {blueprint.objectiveSamplingCapacity} objective slots
                 </div>
                 <div className="text-text-3">Weak and untested objectives receive extra allocation.</div>
@@ -229,7 +255,7 @@ export function ExamLaunchModal({
             )}
           </div>
 
-          <div>
+          <div hidden={!!blueprintExam}>
             <label className="mb-1 block font-mono text-[12px] font-bold uppercase tracking-wider text-text-3">Content scope</label>
             <select aria-label="Content scope" value={contentScope} onChange={(event) => setContentScope(event.target.value)} className="w-full rounded border border-border bg-bg-elevated px-2 py-2 text-sm text-text-1">
               {[

@@ -1,3 +1,4 @@
+import { readSlot, questionSlot, objectiveSubject, bpmObjective } from "./bpmBlueprint.js";
 import { waitForConnection } from "./preparationRecovery.js";
 import { hasCurrentReasoningAudit } from "../../../engine/questionOrder.js";
 import { readClinicalAnalysesForBlock, readExemplarsForBlock, resolveDefaultDifficulty, startObjectiveQuiz } from "../objectives/quizLaunch.js";
@@ -60,8 +61,8 @@ export function buildObjectiveCoverage(questions = [], objectives = []) {
 export async function generateExamQuestions({ allocation, lecturesById, objectivesByLecture, atomsByLecture,
   blockId, lectures, weakConceptAccuracyByLecture, userId, generationId, focusNotes = "", difficultyOverride = null, preparedGenerationId = null, preparedQuestionIds = [] }, deps = {}) {
   const questions = [], errors = [], accepted = [];
-  const exemplars = readExemplarsForBlock(userId, blockId);
-  const clinicalAnalyses = readClinicalAnalysesForBlock(userId, blockId);
+  const baseExemplars = readExemplarsForBlock(userId, blockId);
+  const baseClinicalAnalyses = readClinicalAnalysesForBlock(userId, blockId);
   const lectureIds = Object.keys(allocation || {}).filter(id => allocation[id] > 0);
   const total = lectureIds.reduce((n, id) => n + allocation[id], 0);
   const history = deps.pool ? await deps.pool.history() : [];
@@ -76,10 +77,11 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
       activeLectures: [...activities.values()] });
   };
 
-  async function generateLecture(lectureId) {
+  async function generateLecture(allocationId) {
+    const { lectureId, subject } = readSlot(allocationId);
     await waitForConnection();
-    const requested = allocation[lectureId];
-    const objectives = objectivesByLecture?.[lectureId] || [];
+    const requested = allocation[allocationId];
+    const objectives = (objectivesByLecture?.[lectureId] || []).filter(o => !subject || (bpmObjective(o) && objectiveSubject(o) === subject));
     let atoms = atomsByLecture?.[lectureId] || [];
     let lecture = lecturesById?.[lectureId];
     const lectureTitle = lecture?.lectureTitle || lecture?.fileName || lectureId;
@@ -96,6 +98,9 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
         sourceError = error.message;
       }
     }
+    const sourceBlockId = subject ? lecture?.blockId || blockId : blockId;
+    const exemplars = sourceBlockId === blockId ? baseExemplars : readExemplarsForBlock(userId, sourceBlockId);
+    const clinicalAnalyses = sourceBlockId === blockId ? baseClinicalAnalyses : readClinicalAnalysesForBlock(userId, sourceBlockId);
     const clinicalCorrelateLibrary = buildClinicalCorrelateLibrary({
       atoms,
       examples: exemplars,
@@ -120,7 +125,8 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
       for (const q of savedQuestions) {
         if (obtained >= requested) break;
         const objectiveIds = resolveQuestionObjectiveIds(q, objectives);
-        const cached = { ...q, objectiveIds };
+        if (subject && !(q.objectiveIds || []).some(id=>objectives.some(o=>o.id===id || o.code===id))) continue;
+        const cached = { ...q, objectiveIds, ...(subject ? { blueprintSlot: allocationId, blueprintSubject: subject, sourceBlockId } : {}) };
         if (enforceQuality && (!hasCurrentReasoningAudit(q) || alreadyUsed(q, [...history, ...accepted]) || questionQualityIssues(q, objectives).length || !questionMatchesObjectiveDomain(cached, { objectives, atoms }))) continue;
         accepted.push(cached); questions.push(cached); obtained++; cacheHits++;
         await deps.onQuestionReady?.(cached);
@@ -157,9 +163,10 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
       for (const q of result?.questions || []) {
         if (obtained >= requested) break;
         const objectiveIds = resolveQuestionObjectiveIds(q, objectives);
+        if (subject && (!objectiveIds.length || (q.objectiveIds?.length && !q.objectiveIds.some(id=>objectives.some(o=>o.id===id || o.code===id))))) continue;
         const qualityIssues = questionQualityIssues(q, objectives);
         if (!isValidPoolQuestion(q) || (enforceQuality && (qualityIssues.length || !questionMatchesObjectiveDomain({ ...q, objectiveIds }, { objectives, atoms }) || alreadyUsed(q, [...history, ...accepted])))) continue;
-        const stamped = { ...q, difficulty, questionId: crypto.randomUUID(), blockId, lectureId,
+        const stamped = { ...q, ...(subject ? { blueprintSlot: allocationId, blueprintSubject: subject, sourceBlockId } : {}), difficulty, questionId: crypto.randomUUID(), blockId, lectureId,
           taskType: studyMode === "repair" ? repairTaskForIndex(obtained) : (q.taskType || null),
           objectiveIds,
           fingerprint: questionFingerprint(q), schoolStyleScore: schoolStyleSimilarity(q, exemplars),
@@ -173,10 +180,10 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
         progress(`Saved ${questions.length}/${total} questions · ${cacheHits} from your prepared pool`);
       }
     }
-    if (obtained < requested) errors.push({ lectureId, requested, obtained,
+    if (obtained < requested) errors.push({ lectureId: allocationId, requested, obtained,
       message: `${lectureTitle}: ${obtained}/${requested} questions ready. ${errorMessage || stopError || `Shortfall after ${attempt} attempts.`}` });
-    coverageByLecture[lectureId] = buildObjectiveCoverage(
-      questions.filter(q => q.lectureId === lectureId), objectives
+    coverageByLecture[allocationId] = buildObjectiveCoverage(
+      questions.filter(q => questionSlot(q) === allocationId), objectives
     );
   }
   async function worker() {
@@ -185,7 +192,7 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
       try { await generateLecture(lectureId); }
       finally {
         completedLectures++;
-        activities.delete(lectureId);
+        activities.delete(readSlot(lectureId).lectureId);
         progress(`Checked ${completedLectures}/${lectureIds.length} lectures`);
       }
     }
@@ -193,7 +200,7 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
   const results = await Promise.allSettled(Array.from({ length: Math.min(2, lectureIds.length) }, worker));
   const failed = results.find(r => r.status === "rejected");
   if (failed) throw failed.reason;
-  const blockObjectives = lectureIds.flatMap(id => objectivesByLecture?.[id] || []);
+  const blockObjectives = [...new Map(lectureIds.flatMap(id => { const {lectureId,subject}=readSlot(id); return (objectivesByLecture?.[lectureId] || []).filter(o=>!subject || (bpmObjective(o)&&objectiveSubject(o)===subject)); }).map(o=>[o.id,o])).values()];
   return {
     questions,
     errors,

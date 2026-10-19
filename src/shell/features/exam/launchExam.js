@@ -1,3 +1,4 @@
+import { allocateBlueprint, readSlot, questionSlot } from "./bpmBlueprint.js";
 import { connectionFailure, holdPreparationWorker } from "./preparationRecovery.js";
 // Task 8, Part B — orchestration for launching an Integrated Exam session.
 //
@@ -49,6 +50,7 @@ export async function launchExamSession(args, deps = {}) {
 async function runLaunch(
   {
     userId,
+    blueprintExam = null,
     blockId,
     format,
     questionCount,
@@ -82,11 +84,12 @@ async function runLaunch(
   deps.onProgress?.({ message: "Checking exam storage access…", completed: 0 });
   await checkExamAccess(userId);
   const pool = deps.pool || createQuestionPool(userId, blockId);
-  await pool.begin(sessionId, { requestedCount: questionCount, prepareOnly, examName, contentScope: resolvedContentScope, format, durationMinutes, studyMode, difficultyOverride, focusNotes, weekNumber });
+  await pool.begin(sessionId, { requestedCount: questionCount, prepareOnly, examName, contentScope: resolvedContentScope, format, durationMinutes, studyMode, difficultyOverride, focusNotes, weekNumber, ...(blueprintExam ? { blueprintExam } : {}) });
   const startedGenerationAt = Date.now();
   try {
 
-  const allocation = allocateQuestions({
+  const allocation = (blueprintExam ? allocateBlueprint : allocateQuestions)({
+    exam: blueprintExam, objectivesByLecture,
     eligibleLectures,
     requestedCount: questionCount,
     weakConcepts,
@@ -100,7 +103,7 @@ async function runLaunch(
   if (startWhilePreparing && !prepareOnly && !savedOnly) {
     const useSchoolBanks = !preparedGenerationId && studyMode !== "repair" && schoolBanks.length > 0;
     const school = selectSchoolQuestions({ banks: useSchoolBanks ? schoolBanks : [], lectures, blockId, allocation,
-      history: useSchoolBanks && pool.history ? await pool.history() : [], includeSeen });
+      objectivesByLecture, history: useSchoolBanks && pool.history ? await pool.history() : [], includeSeen });
     const savedResult = Object.keys(school.allocation).length ? await generateExamQuestions(
       { allocation: school.allocation, lecturesById, objectivesByLecture, atomsByLecture, blockId, lectures,
         weakConceptAccuracyByLecture, userId, generationId: sessionId, studyMode, difficultyOverride, focusNotes: adaptiveFocusNotes, preparedGenerationId, preparedQuestionIds },
@@ -108,7 +111,7 @@ async function runLaunch(
     ) : { questions: [], cacheHits: 0 };
     const savedQuestions = [...school.questions, ...(savedResult.questions || [])];
     const savedCounts = savedQuestions.reduce((counts, question) => {
-      if (question.lectureId) counts[question.lectureId] = (counts[question.lectureId] || 0) + 1;
+      if (question.lectureId) counts[questionSlot(question)] = (counts[questionSlot(question)] || 0) + 1;
       return counts;
     }, {});
     const missingAllocation = Object.fromEntries(Object.entries(allocation)
@@ -117,7 +120,7 @@ async function runLaunch(
     const session = createSessionShape({
       sessionId,
       blockId,
-      lectureIds: [...new Set([...savedQuestions.map(q => q.lectureId), ...Object.keys(missingAllocation)])],
+      lectureIds: [...new Set([...savedQuestions.map(q => q.lectureId), ...Object.keys(missingAllocation).map(id => readSlot(id).lectureId)])],
       format,
       title: examName,
       contentScope: resolvedContentScope,
@@ -131,7 +134,8 @@ async function runLaunch(
     });
     session.fillStartedAt = Date.now();
     session.fillLeaseUntil = Date.now() + 600000;
-    session.fillPlan = { allocation, studyMode, difficultyOverride, focusNotes: adaptiveFocusNotes };
+    if (blueprintExam) session.blueprintExam = blueprintExam;
+    session.fillPlan = { allocation, blueprintExam, studyMode, difficultyOverride, focusNotes: adaptiveFocusNotes };
     deps.onProgress?.({ message: `Opening with ${savedQuestions.length}/${questionCount} saved questions · generating the rest`, completed: savedQuestions.length, total: questionCount });
     const committed = await pool.commit(session);
     if (!committed.ok) return { ok: false, error: committed.error };
@@ -251,6 +255,7 @@ async function runLaunch(
   });
 
   deps.onProgress?.({ message: `Saving ${questions.length} questions…`, completed: questions.length, total: questions.length });
+  if (blueprintExam) session.blueprintExam = blueprintExam;
   const result = await pool.commit(session);
   if (!result.ok) {
     return { ok: false, error: result.error };

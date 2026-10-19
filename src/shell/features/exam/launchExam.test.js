@@ -250,3 +250,13 @@ it("keeps the duplicate-launch guard until the background fill finishes", async 
   finish({ questions: [], errors: [] });
   await vi.waitFor(() => expect(finishPoolFillMock).toHaveBeenCalled());
 });
+
+it('keeps subject quotas and blueprint metadata when launching a weighted exam',async()=>{
+ allocateQuestionsMock.mockImplementation(({eligibleLectures,requestedCount})=>({[eligibleLectures[0].lectureId]:requestedCount}));
+ generateExamQuestionsMock.mockResolvedValue({questions:Array.from({length:40},(_,i)=>makeQuestion(`q${i}`,'mixed')),errors:[]});
+ createExamSessionMock.mockResolvedValue({ok:true});
+ const result=await launchExamSession({...BASE_ARGS,blueprintExam:3,questionCount:40,eligibleLectures:[{lectureId:'mixed'}],objectivesByLecture:{mixed:[{id:'a',discipline:'ANAT'},{id:'n',discipline:'NSCI'},{id:'h',discipline:'HCB'}]}});
+ expect(result.ok).toBe(true);
+ expect(generateExamQuestionsMock.mock.calls[0][0].allocation).toEqual({'mixed::bpm::anatomy':20,'mixed::bpm::neuroscience':17,'mixed::bpm::histology':3});
+ expect(createExamSessionMock.mock.calls[0][1].blueprintExam).toBe(3);
+});
