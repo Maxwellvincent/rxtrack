@@ -617,6 +617,8 @@ export function ExamSessionRunner({
   callAI,
 }) {
   const controller = useExamSessionController(sessionId, userId);
+  const [savingExit, setSavingExit] = useState(false);
+  const [exitError, setExitError] = useState(null);
   const { session: storedSession, loading, error, submit, abandon, submitResult, submitting, syncStatus } = controller;
   useEffect(() => {
     if (storedSession?.status === "submitted") onSubmitted?.(storedSession);
@@ -737,7 +739,13 @@ export function ExamSessionRunner({
       <div className="flex items-center justify-between">
         <SyncIndicator status={syncStatus} />
         <div className="flex gap-2">
-          {onExit && <Button variant="outline" onClick={onExit}>Save &amp; exit</Button>}
+          {exitError && <p role="alert" className="text-sm text-bad">{exitError}</p>}
+          {onExit && <Button variant="outline" disabled={savingExit} onClick={async () => {
+            setSavingExit(true); setExitError(null);
+            try { await controller.saveProgress(); onExit(); }
+            catch (error) { setExitError(error?.message || "Could not save your position. Please retry."); }
+            finally { setSavingExit(false); }
+          }}>{savingExit ? "Saving…" : "Save & exit"}</Button>}
           <Button variant="ghost" onClick={async () => {
             if (typeof window !== "undefined" && !window.confirm("Abandon this session? Unanswered questions will return to your reserve.")) return;
             await abandon();

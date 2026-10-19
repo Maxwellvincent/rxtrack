@@ -29,11 +29,30 @@ function newWriterId() {
     : `w_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 }
 
+export function resumeQuestionIndex(session) {
+  const questions = session?.questions || [];
+  const position = session?.resumePosition;
+  const byId = position?.questionId ? questions.findIndex(q => q.questionId === position.questionId) : -1;
+  if (byId >= 0) return byId;
+  if (Number.isInteger(position?.index) && position.index >= 0 && position.index < questions.length) return position.index;
+  const answered = new Set((session?.answers || []).filter(a => a.value != null).map(a => a.questionId));
+  const firstUnanswered = questions.findIndex(q => !answered.has(q.questionId));
+  return firstUnanswered >= 0 ? firstUnanswered : Math.max(0, questions.length - 1);
+}
+export function newestResumePosition(current, next) {
+  if (!current) return next;
+  if (current.writerId === next.writerId) return current.seq > next.seq ? current : next;
+  return current.viewedAt > next.viewedAt ? current : next;
+}
+
 export function useExamSessionController(sessionId, userId) {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const [currentIndex, setIndex] = useState(0);
+  const indexRef = useRef(0);
+  const sessionRef = useRef(null);
+  sessionRef.current = session;
   const [syncStatus, setSyncStatus] = useState("synced"); // "pending" | "synced" | "error" | "stopped"
   const [submitting, setSubmitting] = useState(false);
   const [submitResult, setSubmitResult] = useState(null);
@@ -65,13 +84,19 @@ export function useExamSessionController(sessionId, userId) {
 
   if (writerIdRef.current == null) writerIdRef.current = newWriterId();
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (restorePosition = false) => {
     setLoading(true);
     setError(null);
     try {
       const doc = await getExamSession(userId, sessionId);
       if (!mountedRef.current) return doc;
+      sessionRef.current = doc;
       setSession(doc);
+      if (restorePosition) {
+        const index = resumeQuestionIndex(doc);
+        indexRef.current = index;
+        setIndex(index);
+      }
       return doc;
     } catch (e) {
       if (!mountedRef.current) return null;
@@ -114,10 +139,11 @@ export function useExamSessionController(sessionId, userId) {
     firstSeenAtRef.current = new Map();
     mountWallRef.current = Date.now();
     mountPerfRef.current = performance.now();
-    setCurrentIndex(0);
+    indexRef.current = 0;
+    setIndex(0);
     setSubmitResult(null);
     setSyncStatus("synced");
-    load();
+    load(true);
     return () => {
       mountedRef.current = false;
     };
@@ -131,6 +157,44 @@ export function useExamSessionController(sessionId, userId) {
       firstSeenAtRef.current.set(questionId, Date.now());
     }
   }, [session?.questions, currentIndex]);
+
+  const makePosition = useCallback((index) => ({
+    questionId: sessionRef.current?.questions?.[index]?.questionId || null,
+    index, viewedAt: Date.now(), writerId: writerIdRef.current, seq: seqRef.current++,
+  }), []);
+
+  const setCurrentIndex = useCallback((value) => {
+    const questions = sessionRef.current?.questions || [];
+    const requested = typeof value === "function" ? value(indexRef.current) : value;
+    const index = Math.max(0, Math.min(Math.max(0, questions.length - 1), Number(requested) || 0));
+    indexRef.current = index;
+    setIndex(index);
+    if (!questions[index] || sessionRef.current?.status !== "in_progress") return;
+    const position = makePosition(index);
+    updateExamSessionTransaction(userId, sessionId, current => current?.status === "in_progress"
+      ? { ...current, resumePosition: newestResumePosition(current.resumePosition, position) } : null)
+      .catch(() => { if (mountedRef.current) setSyncStatus("error"); });
+  }, [userId, sessionId, makePosition]);
+
+  const saveProgress = useCallback(async () => {
+    const snapshot = sessionRef.current;
+    if (!snapshot) throw new Error("The session is still loading. Please try again.");
+    const position = makePosition(indexRef.current);
+    setSyncStatus("pending");
+    try {
+      const saved = await updateExamSessionTransaction(userId, sessionId, current => {
+        if (current?.status !== "in_progress") return null;
+        const answers = (snapshot.answers || []).reduce((merged, answer) => mergeAnswer(merged, answer), current.answers || []);
+        return { ...current, answers, resumePosition: newestResumePosition(current.resumePosition, position) };
+      });
+      if (!saved || saved.status !== "in_progress") throw new Error("This session could not be saved. Please reload its current status.");
+      if (mountedRef.current) setSyncStatus("synced");
+      return saved;
+    } catch (error) {
+      if (mountedRef.current) setSyncStatus("error");
+      throw error;
+    }
+  }, [userId, sessionId, makePosition]);
 
   // Timer: format "exam" only, only while the session is actually running.
   useEffect(() => {
@@ -241,6 +305,7 @@ export function useExamSessionController(sessionId, userId) {
       };
 
       // Optimistic local update — the UI shouldn't wait on a round trip.
+      sessionRef.current = { ...sessionRef.current, answers: mergeAnswer(sessionRef.current?.answers, answer) };
       setSession((prev) => (prev ? { ...prev, answers: mergeAnswer(prev.answers, answer) } : prev));
 
       setSyncStatus("pending");
@@ -292,6 +357,7 @@ export function useExamSessionController(sessionId, userId) {
     error,
     currentIndex,
     setCurrentIndex,
+    saveProgress,
     remainingMs,
     syncStatus,
     submitting,

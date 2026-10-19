@@ -53,6 +53,7 @@ function baseController(overrides = {}) {
     error: null,
     currentIndex: 0,
     setCurrentIndex: vi.fn(),
+    saveProgress: vi.fn(async () => ({ status: "in_progress" })),
     remainingMs: 45_000,
     syncStatus: "synced",
     submitting: false,
@@ -171,13 +172,42 @@ describe("ExamSessionRunner", () => {
     unmount();
   });
 
-  it("saves and exits an unfinished session without abandoning it", () => {
+  it("saves and exits an unfinished session without abandoning it", async () => {
     const controller = baseController();
     const onExit = vi.fn();
     controllerMock.mockReturnValue(controller);
     const { host, unmount } = render(<ExamSessionRunner sessionId="s1" userId="u1" onExit={onExit} />);
-    act(() => [...host.querySelectorAll("button")].find(button => button.textContent === "Save & exit").click());
+    await act(async () => [...host.querySelectorAll("button")].find(button => button.textContent === "Save & exit").click());
+    expect(controller.saveProgress).toHaveBeenCalledOnce();
     expect(onExit).toHaveBeenCalledOnce();
+    expect(controller.abandon).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it("waits for a durable save before exiting", async () => {
+    let finish;
+    const controller = baseController();
+    controller.saveProgress = vi.fn(() => new Promise(resolve => { finish = resolve; }));
+    const onExit = vi.fn();
+    controllerMock.mockReturnValue(controller);
+    const { host, unmount } = render(<ExamSessionRunner sessionId="s1" userId="u1" onExit={onExit} />);
+    act(() => [...host.querySelectorAll("button")].find(button => button.textContent === "Save & exit").click());
+    expect(onExit).not.toHaveBeenCalled();
+    expect([...host.querySelectorAll("button")].find(button => button.textContent === "Saving…").disabled).toBe(true);
+    await act(async () => finish({ status: "in_progress" }));
+    expect(onExit).toHaveBeenCalledOnce();
+    unmount();
+  });
+
+  it("keeps the quiz open when saving fails", async () => {
+    const controller = baseController();
+    controller.saveProgress = vi.fn(async () => { throw new Error("Connection lost. Please retry."); });
+    const onExit = vi.fn();
+    controllerMock.mockReturnValue(controller);
+    const { host, unmount } = render(<ExamSessionRunner sessionId="s1" userId="u1" onExit={onExit} />);
+    await act(async () => [...host.querySelectorAll("button")].find(button => button.textContent === "Save & exit").click());
+    expect(onExit).not.toHaveBeenCalled();
+    expect(host.querySelector('[role="alert"]').textContent).toContain("Connection lost");
     expect(controller.abandon).not.toHaveBeenCalled();
     unmount();
   });

@@ -575,3 +575,31 @@ describe("useExamSessionController", () => {
     });
   });
 });
+
+it.each(['practice','exam'])('restores the selected question and latest answer after save/exit in %s mode', async format => {
+ let server = makeSession({format,questions:Array.from({length:141},(_,i)=>makeQuestion(`q${i+1}`)),answers:Array.from({length:51},(_,i)=>({questionId:`q${i+1}`,value:'A'}))});
+ getExamSessionMock.mockImplementation(async()=>server);
+ updateExamSessionTransactionMock.mockImplementation(async(_u,_id,update)=>{server=update(server)||server;return server;});
+ const probe=mountController(SESSION_ID, USER); await probe.render();
+ expect(probe.get().currentIndex).toBe(51);
+ await act(async()=>probe.get().setCurrentIndex(69));
+ await act(async()=>{probe.get().answerQuestion('q70','B');await probe.get().saveProgress();});
+ expect(server.resumePosition).toMatchObject({questionId:'q70',index:69});
+ expect(server.answers).toHaveLength(52);
+ probe.unmount();
+ const resumed=mountController(SESSION_ID, USER); await resumed.render();
+ expect(resumed.get().currentIndex).toBe(69);
+ expect(resumed.get().session.answers.find(a=>a.questionId==='q70').value).toBe('B');
+ expect(resumed.get().session.deadline).toBe(server.deadline);
+ resumed.unmount();
+});
+
+it('restores bookmarks by question ID when background generation changes indexes', async()=>{
+ const {resumeQuestionIndex,newestResumePosition}=await import('./useExamSessionController.js');
+ const questions=[makeQuestion('new'),makeQuestion('q1'),makeQuestion('q2')];
+ expect(resumeQuestionIndex({questions,resumePosition:{questionId:'q2',index:1}})).toBe(2);
+ expect(resumeQuestionIndex({questions,resumePosition:{questionId:'q1',index:0},answers:[{questionId:'q1',value:'A'}]})).toBe(1);
+ expect(resumeQuestionIndex({questions,resumePosition:{index:999},answers:[{questionId:'new',value:'A'}]})).toBe(1);
+ const recent={writerId:'tab',seq:5,viewedAt:10,questionId:'q2'};
+ expect(newestResumePosition(recent,{writerId:'tab',seq:4,viewedAt:10,questionId:'q1'})).toBe(recent);
+});
