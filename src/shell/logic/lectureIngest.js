@@ -10,6 +10,7 @@
  */
 
 import { cleanLectureTitle } from "../../lectureTitle.js";
+import { multipartIdentity } from "./multipartLectures.js";
 
 /** "MSK Lecture 27 - Histology of the Skin.md" → type LEC, number 27, title. */
 export function parseLectureFilename(filename) {
@@ -31,7 +32,8 @@ export function parseLectureFilename(filename) {
 
   // Title = whatever follows the first " - " / " — ", else the whole name.
   const dash = base.match(/\s[-—–]\s(.+)$/);
-  const title = (dash ? dash[1] : base).trim();
+  const beforeTail = dash && /^(?:before|after)\b/i.test(dash[1]);
+  const title = (beforeTail ? base.replace(/\s*[-–—]\s*(?:before|after)\b.*$/i, "") : dash ? dash[1] : base).trim();
 
   return { type, number, suffix, title: title || base };
 }
@@ -104,7 +106,7 @@ function chunkBody(chunk) {
 function titleWithoutPartSuffix(title) {
   return String(title || "")
     .replace(/\s*[-–—]\s*(?:after|before)\b.*$/i, "")
-    .replace(/\s+(?:(?:part|pt\.?)[\s-]*)?(?:i{1,3}|iv|v|vi{0,3})$/i, "")
+    .replace(/\s*(?:\(\d+\)|\b(?:part|pt\.?)[\s-]*\d+|\s+(?:(?:part|pt\.?)[\s-]*)?(?:i{1,3}|iv|v|vi{0,3}))$/i, "")
     .trim();
 }
 
@@ -125,7 +127,9 @@ export function combineLectureParts(parts = [], { lectureTitle = "" } = {}) {
   // Only interpret that suffix as a multipart marker when several files agree.
   const commonBase = records.length > 1 && bases.length === records.length &&
     bases.every((title) => title.toLowerCase() === bases[0].toLowerCase()) ? bases[0] : "";
-  const title = String(lectureTitle || commonBase || titles[0] || "Combined lecture").trim();
+  const identities = records.map(part => multipartIdentity({ ...part.lecture, filename: part.filename }));
+  const matchingPartsTitle = records.length > 1 && identities.every(identity => identity && identity.key === identities[0]?.key) ? identities[0].title : "";
+  const title = String(lectureTitle || matchingPartsTitle || commonBase || titles[0] || "Combined lecture").trim();
   const chunks = records.flatMap((part) => [
     { markdown: `## Part ${part.partNumber} · ${part.filename}`, sourceFile: part.filename, sourcePart: part.partNumber },
     ...(part.lecture.chunks || []).map((chunk) => ({ ...chunk, sourceFile: part.filename, sourcePart: part.partNumber })),

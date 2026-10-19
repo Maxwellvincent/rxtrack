@@ -17,6 +17,8 @@ import { ACTIVITY_TYPES, buildLectureRows, lectureCounts, scoreLectures, FILTERS
 import { PreReadModal } from "../lectures/PreReadModal.jsx";
 import { deleteLectureFully, deleteLecturesFully } from "../../logic/deleteLecture.js";
 import { updateLectureDate } from "../../logic/lectureDate.js";
+import { multipartGroups } from "../../logic/multipartLectures.js";
+import { mergeMultipartLectures } from "../../logic/mergeMultipartLectures.js";
 import { localDateString } from "../../logic/completionLog.js";
 import { buildLectureWeeks, rowMatchesWeek } from "./lectureWeeks.js";
 
@@ -319,6 +321,21 @@ export function LectureList({
     setSelectedLectureIds(new Set());
     setBulkDeleteTargets(null);
   }, [blockId]);
+
+  const multipartAttempt = useRef(new Set());
+  useEffect(() => {
+    if (!userId) return;
+    for (const group of multipartGroups(context.lectures || [])) {
+      const key = `${userId}:${group.map(row => row.id).join(":")}`;
+      if (multipartAttempt.current.has(key)) continue;
+      multipartAttempt.current.add(key);
+      void mergeMultipartLectures(userId, group).then(result => {
+        if (result) setLogged(`Combined ${result.combinedParts} lecture parts · source files and objectives preserved.`);
+      }).catch(error => {
+        setLogged(`Could not combine lecture parts: ${error.message}`);
+      });
+    }
+  }, [userId, context.lectures]);
 
   // Task 12, Part B2 — scroll the focused lecture's row into view and give
   // it a brief highlight on mount. Additive only: with no `focusLectureId`

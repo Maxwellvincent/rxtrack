@@ -1,3 +1,4 @@
+import { multipartHistory } from "../../logic/multipartLectures.js";
 /**
  * SP1 T4.3 — assemble the ScheduleContext the pure schedulers consume.
  *
@@ -52,6 +53,8 @@ export function buildScheduleContext({
   now = new Date(),
 }) {
   const blockLectures = (lectures || []).filter((l) => l?.blockId === blockId);
+  completion = multipartHistory(blockLectures, completion, blockId);
+  performance = multipartHistory(blockLectures, performance, blockId);
   const blockMeta = resolveBlockMeta(terms, blockId);
   // Same de-dupe the objectives UI applies, so Today counts what the tracker shows.
   const rawObjectives = selectBlockObjectives(objectives, blockId);

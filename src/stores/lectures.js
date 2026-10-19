@@ -6,15 +6,15 @@ export const key = "rxt-lec-meta";
 const fallback = [];
 
 export function read(userId) {
-  return readJson(userId, key, fallback);
+  return (readJson(userId, key, fallback) || []).filter(lecture => !lecture?.mergedInto);
 }
 
-// Authoritative replace — what a local UI write means (a delete must stay deleted).
+// Authoritative replace â€” what a local UI write means (a delete must stay deleted).
 export function write(userId, value) {
   return writeJson(userId, key, value);
 }
 
-// Merge incoming into stored under this key's conflict policy — the sync path.
+// Merge incoming into stored under this key's conflict policy â€” the sync path.
 export function merge(userId, incoming) {
   return writeJson(userId, key, incoming, { fallback, merge: mergeByIdArray });
 }
