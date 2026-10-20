@@ -9,12 +9,13 @@ export function lectureReviewCount(lecture, blockId, completion) {
 export function LectureProgressDashboard({ rows = [], completion = {}, blockId, objectives = [], onStudy, onQuiz }) {
  const [filter, setFilter] = useState("all"), [selectedId, setSelectedId] = useState(null);
  const ordered = useMemo(() => [...rows].filter(row => row.total > 0).filter(row => filter === "all" || (filter === "repair" ? row.st > 0 : filter === "new" ? row.ut > 0 : lectureReviewCount(row.lec, blockId, completion) > 0))
-  .sort((a, b) => (b.st / b.total) - (a.st / a.total) || (b.ut / b.total) - (a.ut / a.total) || Number(a.lec.lectureNumber || 0) - Number(b.lec.lectureNumber || 0)), [rows, filter, blockId, completion]);
+  .sort((a, b) => (filter === "new" ? (b.ut / b.total) - (a.ut / a.total) || b.ut - a.ut : 0) || (b.st / b.total) - (a.st / a.total) || (b.ut / b.total) - (a.ut / a.total) || Number(a.lec.lectureNumber || 0) - Number(b.lec.lectureNumber || 0)), [rows, filter, blockId, completion]);
  const selected = ordered.find(row => row.lec.id === selectedId) || ordered[0];
  return <section className="rounded-xl border border-border bg-panel p-4" aria-label="Lecture progress dashboard">
   <h3 className="text-lg font-bold">Where to focus next</h3>
   <p className="mt-1 text-sm text-text-2">Each vertical bar represents one lecture’s objectives. Select a lecture to review or quiz it. Review logs are shown separately from question coverage.</p>
-  <div className="my-3 flex flex-wrap gap-2">{[["all", "All lectures"], ["repair", "Needs review"], ["new", "Not yet tested"], ["reviewed", "Reviewed"]].map(([key, label]) => <button type="button" key={key} aria-pressed={filter === key} onClick={() => setFilter(key)} className={`rounded-lg border px-3 py-2 text-sm ${filter === key ? "border-accent bg-accent/10" : "border-border"}`}>{label}</button>)}</div>
+  <div className="my-3 flex flex-wrap gap-2">{[["all", "All lectures"], ["repair", "Needs review"], ["new", "Not yet tested"], ["reviewed", "Reviewed"]].map(([key, label]) => <button type="button" key={key} aria-pressed={filter === key} onClick={() => { setFilter(key); setSelectedId(null); }} className={`rounded-lg border px-3 py-2 text-sm ${filter === key ? "border-accent bg-accent/10" : "border-border"}`}>{label}</button>)}</div>
+  <p className="mb-3 text-xs text-text-2">{filter === "new" ? "Priority runs left to right: highest percentage of untested objectives first." : "Priority runs left to right: lectures with the most weak objectives proportionally come first."}</p>
   <ul className="mb-3 flex flex-wrap gap-4 text-xs" aria-label="Chart legend">{segments.map(segment => <li key={segment.key} className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded-sm" style={{ background: segment.color }} />{segment.label}</li>)}</ul>
   <div className="overflow-x-auto pb-3" tabIndex={0} aria-label="Scrollable vertical lecture chart">
    <div className="flex items-start gap-2" style={{ minWidth: "100%" }}>{ordered.map(row => {

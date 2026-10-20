@@ -20,3 +20,16 @@ it("does not double-count a review retained under merged lecture aliases", () =>
  const review = { id: "r", activityType: "review" };
  expect(lectureReviewCount({ id: "a", mergedFrom: [{ id: "a" }, { id: "b" }] }, "NB", { a__NB: { activityLog: [review] }, b__NB: { activityLog: [review] } })).toBe(1);
 });
+it("puts the highest untested percentage first when that filter is selected", () => {
+ installDomStorage(); const host = document.createElement("div"); document.body.append(host); const root = createRoot(host);
+ const rows = [{ lec: { id: "16", lectureNumber: 16 }, total: 19, tested: 12, coverage: 63, m: 1, ip: 3, st: 8, ut: 7 }, { lec: { id: "11", lectureNumber: 11 }, total: 11, tested: 2, coverage: 18, m: 0, ip: 1, st: 1, ut: 9 }];
+ act(() => root.render(<LectureProgressDashboard rows={rows} />));
+ const bars = () => [...host.querySelectorAll('[aria-label*="objectives covered"]')];
+ expect(bars()[0].getAttribute("aria-label")).toContain("Lecture 16");
+ act(() => bars()[0].click());
+ act(() => [...host.querySelectorAll("button")].find(button => button.textContent === "Not yet tested").click());
+ expect(bars()[0].getAttribute("aria-label")).toContain("Lecture 11");
+ expect(bars()[0].getAttribute("aria-pressed")).toBe("true");
+ expect(host.textContent).toContain("highest percentage of untested objectives first");
+ act(() => root.unmount()); host.remove();
+});
