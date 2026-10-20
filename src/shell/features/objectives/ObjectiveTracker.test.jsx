@@ -58,8 +58,9 @@ it("organizes objectives into an actionable readiness summary", () => {
   expect(view.host.textContent).toContain("Active objectives2");
   expect(view.host.textContent).toContain("Needs repair1");
   expect(view.host.textContent).toContain("Untested1");
-  expect(view.host.textContent).toContain("Unlinked1");
-  expect(view.host.textContent).toContain("1 need lecture match");
+  expect(view.host.textContent).toContain("Reference sources");
+  expect(view.host.textContent).not.toContain("Unlinked1");
+  expect(view.host.textContent).not.toContain("need lecture match");
   expect(view.host.textContent).toContain("Not quizzed");
 
   const repairMetric = [...view.host.querySelectorAll(".desk-objective-metric")]
@@ -121,6 +122,6 @@ it("uses the same totals and evidence states as Today, excluding conflicting lec
  expect(view.host.textContent).toContain(`Developing${counts.inprogress}`);
  expect(view.host.textContent).toContain(`Untested${counts.untested}`);
  expect(view.host.textContent).toContain("1 of 2 linked objectives seen");
- expect(view.host.textContent).toContain(`Unlinked${counts.unlinked}`);
+ expect(view.host.textContent).toContain("Reference sources");
  view.close();
 });

@@ -29,3 +29,8 @@ it("does not let an invalid earlier duplicate hide a valid lecture link", () => 
  const counts = blockProgressCounts({ blockId: "NB", lectures: [lecture], objectives: { NB: objectives } });
  expect(counts).toMatchObject({ total: 1, unlinked: 0 });
 });
+it("keeps linked lab and small-group sources out of lecture totals and priorities", () => {
+ const catalog = [one, { id: "lab", objective: "Lab structures", activity: "LAB 2", linkedLecId: lecture.id, status: "struggling" }, { id: "sg", objective: "Small group", activity: "SG 1", linkedLecId: lecture.id }];
+ const counts = blockProgressCounts({ blockId: "NB", lectures: [lecture], objectives: { NB: catalog } });
+ expect(counts).toMatchObject({ total: 1, struggling: 0, untested: 1, unlinked: 2 });
+});

@@ -1,4 +1,4 @@
-import { selectBlockObjectives, selectLectureObjectives, dedupeByText } from "./objectives.js";
+import { selectBlockObjectives, selectLectureObjectives, dedupeByText, supplementaryObjective } from "./objectives.js";
 import { evidenceAwareObjectives, statusTally } from "./schedule.js";
 import { objectivePracticePlan } from "../../engine/objectivePractice.js";
 
@@ -26,8 +26,8 @@ export function blockProgressProjection({ blockId, lectures = [], objectives = {
   };
   const counted = new Set();
   const linked = [];
-  for (const lecture of lectures.filter(row => (!row.blockId || row.blockId === blockId) && !row.mergedInto)) {
-    const rows = selectLectureObjectives(catalog, lecture, evidence).filter(row => !counted.has(identity(row)));
+  for (const lecture of lectures.filter(row => (!row.blockId || row.blockId === blockId) && !row.mergedInto && !supplementaryObjective(row))) {
+    const rows = selectLectureObjectives(catalog, lecture, evidence).filter(row => !supplementaryObjective(row) && !counted.has(identity(row)));
     rows.forEach(row => counted.add(identity(row)));
     linked.push(...lectureProgressObjectives(rows, evidence).map(row => ({ ...row, linkedLecId: lecture.id })));
   }

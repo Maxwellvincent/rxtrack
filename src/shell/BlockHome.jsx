@@ -82,7 +82,7 @@ export function BlockHome({
               <span className="text-accent">◑ {counts.inprogress} learning</span>
               {counts.struggling > 0 && <span className="text-warn">⚠ {counts.struggling} struggling</span>}
               <span className="text-text-3">○ {counts.untested} untested</span>
-              {counts.unlinked > 0 && <span className="text-text-3">{counts.unlinked} awaiting lecture links · not included</span>}
+
             </div>
           </div>
         )}
@@ -113,7 +113,7 @@ export function BlockHome({
               <span className="text-accent">◑ {counts.inprogress} learning</span>
               {counts.struggling > 0 && <span className="text-warn">⚠ {counts.struggling} struggling</span>}
               <span className="text-text-3">○ {counts.untested} untested</span>
-              {counts.unlinked > 0 && <span className="text-text-3">{counts.unlinked} awaiting lecture links · not included</span>}
+
               {cov != null && (
                 <span className="ml-auto text-text-3">{cov}% covered</span>
               )}

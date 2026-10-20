@@ -120,12 +120,17 @@ export function dedupeByText(objectives, learnerEvidence = null) {
   return out;
 }
 
+/** Supplementary sources stay available without counting toward lecture progress. */
+export function supplementaryObjective(value = {}) {
+  return [value.activity, value.lectureType].some(label => /^(?:SG|LAB|TBL|IMCQ)\b|small[\s_-]*group|anatomy\s+lab|laborator/i.test(String(label || "").trim()));
+}
+
 /** Same lecture-scoped objective projection for study, Today and the library. */
 export function selectLectureObjectives(objectives, lecture, learnerEvidence = null) {
-  if (!lecture?.id) return [];
+  if (!lecture?.id || supplementaryObjective(lecture)) return [];
   return dedupeByText((objectives || []).filter(o =>
     (o.linkedLecId === lecture.id || (lecture.mergedFrom || []).some(m => m?.id === o.linkedLecId))
-      && !objectiveLectureNumberConflict(o, lecture)
+      && !supplementaryObjective(o) && !objectiveLectureNumberConflict(o, lecture)
   ), learnerEvidence);
 }
 

@@ -1,3 +1,4 @@
+import { useCompletion } from "../../hooks/useCompletion.js";
 /**
  * SP1 T1.2/T1.3 — shell entry point for objectives.
  *
@@ -36,6 +37,7 @@ export function ObjectivesContainer({
     userId
   );
   const questionStats = useLectureQuestionStats(userId);
+  const completion = useCompletion(userId);
   const activeObjectiveCount = useMemo(
     () => blockProgressProjection({ blockId, lectures: blockLectures, catalog: objectives, evidence: learnerEvidence }).counts.total,
     [blockId, objectives, blockLectures, learnerEvidence]
@@ -59,7 +61,7 @@ export function ObjectivesContainer({
         <h2 className="text-2xl font-bold text-text-1">Objectives</h2>
         <p className="mt-1 text-sm text-text-3">
           {activeObjectiveCount} active objectives across {blockLectures.length} lectures.
-          {sourceOnlyCount > 0 ? ` ${sourceOnlyCount} unlinked source objectives are preserved but excluded from progress.` : ""}
+          {sourceOnlyCount > 0 ? ` Supplementary sources are optional and excluded from lecture progress.` : ""}
           {" "}Use the command center to choose your next question set, then inspect the underlying evidence.
         </p>
       </div>
@@ -84,6 +86,7 @@ export function ObjectivesContainer({
       editingTitle={editingTitle}
       setEditingTitle={setEditingTitle}
           smartTruncateTitle={smartTruncateTitle}
+      completion={completion.data || {}}
       practiceAnswered={practice.answered}
       practiceAccuracy={practice.answered ? practice.correct / practice.answered : null}
       onStartObjectiveQuiz={onStartObjectiveQuiz}

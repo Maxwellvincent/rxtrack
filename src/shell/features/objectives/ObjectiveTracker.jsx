@@ -1,3 +1,4 @@
+import { LectureProgressDashboard } from "./LectureProgressDashboard.jsx";
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useTheme, getObjStatusColor } from "../../../theme";
 import { LEVEL_COLORS, LEVEL_BG } from "../../../bloomsTaxonomy";
@@ -774,6 +775,7 @@ export default function ObjectiveTracker({
   setEditingTitle = null,
   onRenameLecture = null,
   smartTruncateTitle = null,
+  completion = {},
   practiceAnswered = 0,
   practiceAccuracy = null,
 }) {
@@ -819,10 +821,6 @@ export default function ObjectiveTracker({
   const covSrc = linkedObjectives;
 
   const unlinkedCount = unlinkedObjectives.length;
-  const referenceOnlyCount = unlinkedObjectives.filter((objective) =>
-    normalizedSourceActivity(objective.activity || objective.lectureType) !== "LEC"
-  ).length;
-  const lectureMatchCount = unlinkedCount - referenceOnlyCount;
 
   const byLecture = useMemo(() => {
     const map = new Map();
@@ -1058,7 +1056,7 @@ export default function ObjectiveTracker({
     { key: "lecture", label: "By lecture" },
     { key: "status", label: "By status" },
     { key: "coverage", label: "Coverage" },
-    ...(unlinkedCount > 0 ? [{ key: "unlinked", label: `Unlinked (${unlinkedCount})`, amber: true }] : []),
+    ...(unlinkedCount > 0 ? [{ key: "unlinked", label: "Reference sources" }] : []),
   ];
 
   const lectureOptionLabel = (l) => {
@@ -1078,8 +1076,8 @@ export default function ObjectiveTracker({
       <section className="desk-objectives-hero" aria-labelledby="objective-command-title">
         <div className="desk-objectives-hero-copy">
           <div className="today-eyebrow">Objective command center</div>
-          <h3 id="objective-command-title">Turn the syllabus into your next move.</h3>
-          <p>Repair misses first, expose untested objectives second, then use coverage to decide where another question set will pay off.</p>
+          <h3 id="objective-command-title">Your lecture review map.</h3>
+          <p>Focus on lecture objectives: review weak concepts, cover new material, then test yourself again. Supplementary sources do not affect these totals.</p>
         </div>
         <div className="desk-objectives-hero-meta">
           <strong>{focusCount}</strong>
@@ -1101,12 +1099,11 @@ export default function ObjectiveTracker({
       </section>
       <section className="desk-objective-summary" aria-label="Objective readiness summary">
         {[
-          { label: "Active objectives", value: totalAll, note: `${blockLectures.length} lectures`, view: "lecture" },
+          { label: "Active objectives", value: totalAll, note: `${byLecture.length} lectures`, view: "lecture" },
           { label: "Needs repair", value: countStruggling, note: "Missed or struggling", view: "status", filter: "struggling" },
           { label: "Untested", value: countUntested, note: "No evidence yet", view: "status", filter: "untested" },
           { label: "Developing", value: countInprogress, note: "Building consistency", view: "status", filter: "inprogress" },
           { label: "Mastered", value: countMastered, note: "Current evidence", view: "status", filter: "mastered" },
-          { label: "Unlinked", value: unlinkedCount, note: lectureMatchCount ? `${lectureMatchCount} need lecture match` : "Excluded from progress", view: unlinkedCount ? "unlinked" : "coverage" },
           { label: "Practice questions", value: practiceAnswered.toLocaleString(), note: practiceAccuracy == null ? "No quiz evidence yet" : `${Math.round(practiceAccuracy * 100)}% accuracy`, view: "lecture" },
         ].map((metric) => (
           <button
@@ -1163,6 +1160,8 @@ export default function ObjectiveTracker({
 
       {subView === "lecture" && (
         <div style={{ display: "flex", flexDirection: "column" }}>
+          <LectureProgressDashboard rows={coverageRows} blockId={blockId} completion={completion} objectives={linkedObjectives} onStudy={onStudyLecture} onQuiz={onStartObjectiveQuiz} />
+          <details className="mt-4"><summary className="cursor-pointer py-3 font-semibold">Inspect individual lecture objectives</summary>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-panel p-2.5">
             <div className="desk-objective-library-copy"><strong>{filteredLectureGroups.length} lecture groups</strong><span>Open one group to see its objectives. The rest stay out of your way.</span></div>
             <input value={lectureQuery} onChange={(event) => setLectureQuery(event.target.value)} placeholder="Find a lecture…" aria-label="Find a lecture" className="desk-objective-search" />
@@ -1208,11 +1207,13 @@ export default function ObjectiveTracker({
               No lecture groups match this view. Clear the search or choose All groups.
             </p>
           )}
+          </details>
         </div>
       )}
 
       {subView === "unlinked" && unlinkedCount > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <p className="text-sm text-text-2">Optional reference sources. These objectives are excluded from lecture totals, coverage, mastery and review priorities. No action is required here.</p>
           <div>
             <div
               style={{
