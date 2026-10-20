@@ -2,7 +2,10 @@ import { useMemo } from "react";
 import { blockCoverage } from "./data.js";
 import { useBlocks } from "./hooks/useBlocks.js";
 import { useObjectives } from "./hooks/useObjectives.js";
-import { selectBlockObjectives } from "./logic/objectives.js";
+import { blockProgressCounts } from "./logic/blockProgress.js";
+import { useLectures } from "./hooks/useLectures.js";
+import { useStoreResource } from "./hooks/useStoreResource.js";
+import * as learnerEvidence from "../stores/learnerEvidence.js";
 
 /**
  * Segmented horizontal bar — mastered/learning/struggling fill left-to-right,
@@ -55,20 +58,12 @@ export function BlockHome({
 }) {
   const blocks = useBlocks(userId);
   const objectives = useObjectives(null, userId);
+  const lectures = useLectures(blockId, userId);
+  const evidence = useStoreResource(learnerEvidence, userId);
   const block = blocks.find((b) => b.id === blockId) || null;
 
-  const blockObjs = useMemo(
-    () => selectBlockObjectives(objectives.data || {}, blockId),
-    [objectives.data, blockId]
-  );
-
-  const counts = useMemo(() => {
-    const mastered   = blockObjs.filter((o) => o.status === "mastered").length;
-    const inprogress = blockObjs.filter((o) => o.status === "developing").length;
-    const struggling = blockObjs.filter((o) => o.status === "struggling").length;
-    const untested   = blockObjs.filter((o) => !o.status || o.status === "untested").length;
-    return { mastered, inprogress, struggling, untested, total: blockObjs.length };
-  }, [blockObjs]);
+  const counts = useMemo(() => blockProgressCounts({ blockId, lectures: lectures.data || [], objectives: objectives.data || {}, evidence: evidence.data || {} }),
+    [blockId, lectures.data, objectives.data, evidence.data]);
 
   if (!block) return <div className="p-6 text-text-3">Select a block to begin.</div>;
 
@@ -80,12 +75,14 @@ export function BlockHome({
       <div className="px-5 pb-4">
         {counts.total > 0 && (
           <div className="mt-2 flex flex-col gap-2">
+            <span className="font-mono text-[12px] text-text-3">{counts.total} linked lecture objectives</span>
             <CoverageBar {...counts} />
             <div className="flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[12px]">
               <span className="text-good">✓ {counts.mastered} mastered</span>
               <span className="text-accent">◑ {counts.inprogress} learning</span>
               {counts.struggling > 0 && <span className="text-warn">⚠ {counts.struggling} struggling</span>}
               <span className="text-text-3">○ {counts.untested} untested</span>
+              {counts.unlinked > 0 && <span className="text-text-3">{counts.unlinked} awaiting lecture links · not included</span>}
             </div>
           </div>
         )}
@@ -109,12 +106,14 @@ export function BlockHome({
 
         {counts.total > 0 && (
           <div className="mt-3 flex flex-col gap-1.5">
+            <span className="font-mono text-[12px] text-text-3">{counts.total} linked lecture objectives</span>
             <CoverageBar {...counts} />
             <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono text-[12px]">
               <span className="text-good">✓ {counts.mastered} mastered</span>
               <span className="text-accent">◑ {counts.inprogress} learning</span>
               {counts.struggling > 0 && <span className="text-warn">⚠ {counts.struggling} struggling</span>}
               <span className="text-text-3">○ {counts.untested} untested</span>
+              {counts.unlinked > 0 && <span className="text-text-3">{counts.unlinked} awaiting lecture links · not included</span>}
               {cov != null && (
                 <span className="ml-auto text-text-3">{cov}% covered</span>
               )}

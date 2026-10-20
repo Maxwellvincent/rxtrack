@@ -1,3 +1,4 @@
+import { lectureProgressCounts } from "../../logic/blockProgress.js";
 import { studyDayDate } from "../../../studyDay.js";
 import { objectivePracticePlan } from "../../../engine/objectivePractice.js";
 /**
@@ -11,13 +12,11 @@ import { objectivePracticePlan } from "../../../engine/objectivePractice.js";
 
 import {
   availableDateFor,
-  evidenceAwareObjectives,
   lecDateMap,
   lectureUrgency,
   objectivesForLecture,
   pressureZone,
   recommendedSessionsFor,
-  statusTally,
   weakConceptsForLecture,
 } from "../../logic/schedule.js";
 import { isLandmine, rankConcepts } from "./weakConcepts.js";
@@ -66,12 +65,7 @@ export function scoreLectures(context) {
     // Use the same evidence projection as Today so a question attempt cannot
     // make one queue say "developing" while the other still says "untested".
     const practice = objectivePracticePlan(lecObjs, context?.learnerEvidence);
-    const legacyTally = statusTally(evidenceAwareObjectives(lecObjs, context?.learnerEvidence));
-    // Once objective-linked practice exists, use the same mutually exclusive
-    // states as the study chart. Old self-ratings must not also label untested
-    // objectives as question-performance weaknesses.
-    const tally = practice.worked > 0 ? { total: practice.rows.length, mastered: practice.ready,
-      inprogress: practice.developing, struggling: practice.struggling, untested: practice.untested } : legacyTally;
+    const tally = lectureProgressCounts(lecObjs, context?.learnerEvidence);
     const practiced = practice.worked;
     const perf = lecturePerformance[lec.id] ?? null;
     const sessions = perf?.sessions?.length || 0;
