@@ -24,7 +24,7 @@ export function BpmBlueprintDashboard({userId,blockId,objectivesByLecture,lectur
  return <section className="mb-5 rounded-xl border border-border bg-panel p-4" aria-label="BPM 2 exam blueprint dashboard">
   <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="text-lg font-bold">BPM 2 exam preparation</h3>
    <label className="text-sm">Test <select aria-label="Dashboard test" className="ml-2 rounded border border-border bg-bg p-2" value={exam} onChange={e=>setExam(e.target.value)}>{Object.keys(BPM_BLUEPRINTS).map(n=><option key={n} value={n}>{n}</option>)}</select></label></div>
-  <p className="mt-2 text-sm text-text-2">Current block only, using its linked lecture objectives. DM, ER and other blocks are reserved for comprehensive practice. Bars show average objective accuracy; exam weight sets the practice mix.</p>
+  <p className="mt-2 text-sm text-text-2">Current block only, using its linked lecture objectives. Other blocks are included only in comprehensive practice. Bars show average objective accuracy; exam weight sets the practice mix.</p>
   {resource.loading && <p role="status">Syncing your practice history…</p>}
   <div className="mt-4 grid gap-3 sm:grid-cols-3">
    {rows.map(row=><div key={row.subject} className="rounded-lg border border-border bg-bg p-3">
