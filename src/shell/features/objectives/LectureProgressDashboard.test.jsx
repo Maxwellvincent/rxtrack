@@ -27,11 +27,26 @@ it("puts the highest untested percentage first when that filter is selected", ()
  const bars = () => [...host.querySelectorAll('[aria-label*="objectives covered"]')];
  expect(bars()[0].getAttribute("aria-label")).toContain("Lecture 16");
  act(() => bars()[0].click());
- host.querySelector('[aria-label="Scrollable vertical lecture chart"]').scrollLeft = 200;
  act(() => [...host.querySelectorAll("button")].find(button => button.textContent === "Not yet tested").click());
  expect(bars()[0].getAttribute("aria-label")).toContain("Lecture 11");
  expect(bars()[0].getAttribute("aria-pressed")).toBe("true");
- expect(host.querySelector('[aria-label="Scrollable vertical lecture chart"]').scrollLeft).toBe(0);
+ expect(host.textContent).toContain("Top 2 of 2 lectures");
  expect(host.textContent).toContain("highest percentage of untested objectives first");
+ act(() => root.unmount()); host.remove();
+});
+it("shows six priorities without sideways scrolling and resets pagination when filtering", () => {
+ installDomStorage(); const host = document.createElement("div"); document.body.append(host); const root = createRoot(host);
+ const rows = Array.from({ length: 14 }, (_, index) => ({ lec: { id: `l${index}`, lectureNumber: index + 1 }, total: 20, tested: index, coverage: index * 5, m: 0, ip: index, st: 0, ut: 20 - index }));
+ act(() => root.render(<LectureProgressDashboard rows={rows} />));
+ const bars = () => [...host.querySelectorAll('[aria-label*="objectives covered"]')];
+ expect(bars()).toHaveLength(6); expect(host.textContent).toContain("Top 6 of 14 lectures");
+ expect(host.querySelector('.overflow-x-auto')).toBeNull();
+ act(() => [...host.querySelectorAll("button")].find(button => button.textContent === "Next six →").click());
+ expect(bars()).toHaveLength(6); expect(host.textContent).toContain("Priorities 7–12 of 14");
+ expect(bars()[0].getAttribute("aria-pressed")).toBe("true");
+ act(() => [...host.querySelectorAll("button")].find(button => button.textContent === "Next six →").click());
+ expect(bars()).toHaveLength(2); expect([...host.querySelectorAll("button")].find(button => button.textContent === "Next six →").disabled).toBe(true);
+ act(() => [...host.querySelectorAll("button")].find(button => button.textContent === "Not yet tested").click());
+ expect(host.textContent).toContain("Top 6 of 14 lectures"); expect(bars()[0].getAttribute("aria-label")).toContain("Lecture 1");
  act(() => root.unmount()); host.remove();
 });
