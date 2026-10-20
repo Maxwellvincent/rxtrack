@@ -9,7 +9,7 @@ import { useMemo, useState } from "react";
 import ObjectiveTracker from "./ObjectiveTracker.jsx";
 import { useObjectivesController } from "./useObjectivesController.js";
 import { useLectureQuestionStats } from "../../hooks/useLectureQuestionStats.js";
-import { selectLinkedObjectives } from "../../logic/objectives.js";
+import { blockProgressProjection } from "../../logic/blockProgress.js";
 
 export function ObjectivesContainer({
   blockId,
@@ -37,8 +37,8 @@ export function ObjectivesContainer({
   );
   const questionStats = useLectureQuestionStats(userId);
   const activeObjectiveCount = useMemo(
-    () => selectLinkedObjectives(objectives, blockLectures).length,
-    [objectives, blockLectures]
+    () => blockProgressProjection({ blockId, lectures: blockLectures, catalog: objectives, evidence: learnerEvidence }).counts.total,
+    [blockId, objectives, blockLectures, learnerEvidence]
   );
   const sourceOnlyCount = Math.max(0, objectives.length - activeObjectiveCount);
   const practice = useMemo(() => (blockLectures || []).reduce((out, lecture) => {

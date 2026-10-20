@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useTheme, getObjStatusColor } from "../../../theme";
 import { LEVEL_COLORS, LEVEL_BG } from "../../../bloomsTaxonomy";
-import { objectiveStatusWithEvidence } from "../../logic/objectives.js";
+import { blockProgressProjection } from "../../logic/blockProgress.js";
 
 const MONO = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
 
@@ -95,7 +95,7 @@ function getLecObjDotColor(lecId, blockObjs, T) {
     : blockObjs || [];
   if (objs.length === 0) return T.statusNeutral ?? T.text3;
   const hasStruggling = objs.some((o) => o.status === "struggling");
-  const hasInprogress = objs.some((o) => o.status === "inprogress");
+  const hasInprogress = objs.some((o) => o.status === "inprogress" || o.status === "developing");
   const allMastered = objs.every((o) => o.status === "mastered");
   if (hasStruggling) return "#E24B4A";
   if (allMastered) return "#639922";
@@ -807,43 +807,16 @@ export default function ObjectiveTracker({
     }
   }, [blockId, objectives]);
 
-  const covSrc = useMemo(() => (coverageObjectives ?? objectives ?? []).map((objective) => ({
-    ...objective,
-    status: objectiveStatusWithEvidence(objective, learnerEvidence?.objectives?.[objective?.id]),
-  })), [coverageObjectives, objectives, learnerEvidence]);
-
-  const validLecIds = useMemo(() => new Set((blockLectures || []).map((l) => l.id)), [blockLectures]);
-
-  /** Only objectives with linkedLecId pointing at a real lecture in this block (no Unknown / fake SG rows). */
-  const linkedObjectives = useMemo(() => {
-    const raw = covSrc;
-    const filtered = raw.filter((obj) => {
-      const lid = obj?.linkedLecId;
-      if (!lid || lid === "imported" || lid === "unknown") return false;
-      return validLecIds.has(lid);
-    });
-    return filtered.map((obj) => {
-      const matchedLec = blockLectures.find((l) => l.id === obj.linkedLecId);
-      const resolvedActivity = matchedLec
-        ? `${matchedLec.lectureType || "LEC"} ${matchedLec.lectureNumber ?? ""}`.trim()
-        : (obj.activity || "Other");
-      return {
-        ...obj,
-        linkedLecId: matchedLec?.id ?? obj.linkedLecId ?? null,
-        hasLecture: !!matchedLec,
-        resolvedActivity,
-      };
-    });
-  }, [covSrc, blockLectures, validLecIds]);
-
-  const unlinkedObjectives = useMemo(() => {
-    const raw = covSrc;
-    return raw.filter((obj) => {
-      const lid = obj?.linkedLecId;
-      if (!lid || lid === "imported" || lid === "unknown") return true;
-      return !validLecIds.has(lid);
-    });
-  }, [covSrc, validLecIds]);
+  const progressProjection = useMemo(() => blockProgressProjection({
+    blockId, lectures: blockLectures, catalog: coverageObjectives ?? objectives ?? [], evidence: learnerEvidence || {},
+  }), [blockId, blockLectures, coverageObjectives, objectives, learnerEvidence]);
+  const linkedObjectives = useMemo(() => progressProjection.linked.map(obj => {
+    const matchedLec = blockLectures.find(lecture => lecture.id === obj.linkedLecId);
+    return { ...obj, hasLecture: true, resolvedActivity: matchedLec
+      ? `${matchedLec.lectureType || "LEC"} ${matchedLec.lectureNumber ?? ""}`.trim() : (obj.activity || "Other") };
+  }), [progressProjection, blockLectures]);
+  const unlinkedObjectives = progressProjection.unlinked;
+  const covSrc = linkedObjectives;
 
   const unlinkedCount = unlinkedObjectives.length;
   const referenceOnlyCount = unlinkedObjectives.filter((objective) =>
@@ -1206,7 +1179,7 @@ export default function ObjectiveTracker({
                 key={group.lectureId || group.activity}
                 group={group}
                 objectives={group.objectives}
-                allObjectives={objectives}
+                allObjectives={linkedObjectives}
                 onSelfRate={onSelfRate}
                 onQuiz={onStartObjectiveQuiz}
                 onStudyLecture={onStudyLecture}

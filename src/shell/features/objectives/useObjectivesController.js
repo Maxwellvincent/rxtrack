@@ -1,3 +1,4 @@
+import { blockProgressProjection } from "../../logic/blockProgress.js";
 /**
  * SP1 T1.2 — the objectives read model + action adapters.
  *
@@ -18,7 +19,6 @@ import { usePerformance } from "../../hooks/usePerformance.js";
 import { useStoreResource } from "../../hooks/useStoreResource.js";
 import {
   createObjectiveCommands,
-  dedupeByText,
   selectBlockObjectives,
 } from "../../logic/objectives.js";
 
@@ -38,8 +38,11 @@ export function useObjectivesController(blockId, userId) {
   const blockLectures = lecturesRes.data;
 
   const objectives = useMemo(
-    () => dedupeByText(selectBlockObjectives(objectivesRes.data, blockId)),
-    [objectivesRes.data, blockId]
+    () => {
+      const projection = blockProgressProjection({ blockId, lectures: blockLectures || [], catalog: selectBlockObjectives(objectivesRes.data, blockId), evidence: learnerEvidenceRes.data || {} });
+      return [...projection.linked, ...projection.unlinked];
+    },
+    [objectivesRes.data, blockId, blockLectures, learnerEvidenceRes.data]
   );
 
   const mutateObjectives = objectivesRes.mutate;

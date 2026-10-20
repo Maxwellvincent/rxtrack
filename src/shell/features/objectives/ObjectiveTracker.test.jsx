@@ -92,7 +92,7 @@ it("counts correct and incorrect linked question evidence as seen without promot
       ]}
       learnerEvidence={{ objectives: {
         "obj-seen": { attempts: 1, correct: 1, recent: [true], lastSeen: Date.now() },
-        "obj-missed": { attempts: 1, correct: 0, recent: [false], lastSeen: Date.now() },
+        "obj-missed": { attempts: 3, correct: 0, recent: [false, false, false], lastSeen: Date.now() },
       } }}
       onSelfRate={vi.fn()}
       onStartObjectiveQuiz={vi.fn()}
@@ -108,4 +108,19 @@ it("counts correct and incorrect linked question evidence as seen without promot
   expect(view.host.textContent).toContain("1 in progress");
   expect(view.host.textContent).toContain("1 struggling");
   view.close();
+});
+it("uses the same totals and evidence states as Today, excluding conflicting lecture links", async () => {
+ const { blockProgressCounts } = await import("../../logic/blockProgress.js");
+ const lectures = [{ id: "l13", blockId: "NB", lectureNumber: 13, lectureType: "LEC" }];
+ const objectives = [{ id: "old", code: "SAME", objective: "Nerve", linkedLecId: "l13", status: "struggling" }, { id: "new", code: "SAME", objective: "Nerve", linkedLecId: "l13" }, { id: "conflict", objective: "Wrong lecture", linkedLecId: "l13", lectureNumber: 17 }, { id: "unseen", objective: "New pathway", linkedLecId: "l13" }];
+ const evidence = { objectives: { new: { attempts: 1, correct: 1, recent: [true] } } };
+ const counts = blockProgressCounts({ blockId: "NB", lectures, objectives: { NB: objectives }, evidence });
+ const view = mount(<ObjectiveTracker blockId="NB" blockLectures={lectures} objectives={objectives} learnerEvidence={evidence} onSelfRate={vi.fn()} onStartObjectiveQuiz={vi.fn()} />);
+ expect(counts).toMatchObject({ total: 2, inprogress: 1, untested: 1, unlinked: 1 });
+ expect(view.host.textContent).toContain(`Active objectives${counts.total}`);
+ expect(view.host.textContent).toContain(`Developing${counts.inprogress}`);
+ expect(view.host.textContent).toContain(`Untested${counts.untested}`);
+ expect(view.host.textContent).toContain("1 of 2 linked objectives seen");
+ expect(view.host.textContent).toContain(`Unlinked${counts.unlinked}`);
+ view.close();
 });

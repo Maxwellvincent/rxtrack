@@ -2,24 +2,39 @@ import { selectBlockObjectives, selectLectureObjectives, dedupeByText } from "./
 import { evidenceAwareObjectives, statusTally } from "./schedule.js";
 import { objectivePracticePlan } from "../../engine/objectivePractice.js";
 
-/** Same mutually exclusive states used by the lecture library; never rewrite source data. */
-export function lectureProgressCounts(objectives, evidence) {
+/** One display projection for the library, Today footer and Objectives command center. */
+export function lectureProgressObjectives(objectives, evidence) {
   const practice = objectivePracticePlan(objectives, evidence);
-  return practice.worked > 0
-    ? { total: practice.rows.length, mastered: practice.ready, inprogress: practice.developing, struggling: practice.struggling, untested: practice.untested }
-    : statusTally(evidenceAwareObjectives(objectives, evidence));
+  if (!practice.worked) return evidenceAwareObjectives(objectives, evidence).map(row => ({ ...row,
+    status: ["inprogress", "in_progress", "in progress"].includes(row.status) ? "developing" : row.status }));
+  const rows = new Map(practice.rows.map(row => [String(row.id), row]));
+  return objectives.map(objective => {
+    const row = rows.get(String(objective.id));
+    return { ...objective, status: row?.state === "ready" ? "mastered" : row?.state || "untested" };
+  });
 }
 
-export function blockProgressCounts({ blockId, lectures = [], objectives = {}, evidence = {} }) {
-  const catalog = dedupeByText(selectBlockObjectives(objectives, blockId), evidence);
-  const counts = { total: 0, mastered: 0, inprogress: 0, struggling: 0, untested: 0, unlinked: 0 };
+export function lectureProgressCounts(objectives, evidence) {
+  return statusTally(lectureProgressObjectives(objectives, evidence));
+}
+
+export function blockProgressProjection({ blockId, lectures = [], objectives = {}, catalog: suppliedCatalog, evidence = {} }) {
+  const catalog = suppliedCatalog || selectBlockObjectives(objectives, blockId);
+  const identity = row => {
+    const code = String(row.code || row.objectiveCode || "").replace(/\s/g, "").toLowerCase();
+    return code ? `code:${code}` : `text:${String(row.objective || row.text || "").slice(0, 60).toLowerCase().replace(/\W/g, "")}`;
+  };
   const counted = new Set();
-  for (const lecture of lectures.filter(row => row.blockId === blockId && !row.mergedInto)) {
-    const rows = selectLectureObjectives(catalog, lecture, evidence).filter(row => !counted.has(row));
-    rows.forEach(row => counted.add(row));
-    const tally = lectureProgressCounts(rows, evidence);
-    for (const key of ["total", "mastered", "inprogress", "struggling", "untested"]) counts[key] += tally[key] || 0;
+  const linked = [];
+  for (const lecture of lectures.filter(row => (!row.blockId || row.blockId === blockId) && !row.mergedInto)) {
+    const rows = selectLectureObjectives(catalog, lecture, evidence).filter(row => !counted.has(identity(row)));
+    rows.forEach(row => counted.add(identity(row)));
+    linked.push(...lectureProgressObjectives(rows, evidence).map(row => ({ ...row, linkedLecId: lecture.id })));
   }
-  counts.unlinked = catalog.filter(row => !counted.has(row)).length;
-  return counts;
+  const unlinked = dedupeByText(catalog, evidence).filter(row => !counted.has(identity(row)));
+  return { linked, unlinked, counts: { ...statusTally(linked), unlinked: unlinked.length } };
+}
+
+export function blockProgressCounts(args) {
+  return blockProgressProjection(args).counts;
 }

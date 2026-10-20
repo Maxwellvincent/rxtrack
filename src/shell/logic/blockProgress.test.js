@@ -24,3 +24,8 @@ it("credits a ready objective even when the stored status still says untested", 
  expect(counts).toMatchObject({ total: 1, mastered: 1, untested: 0 });
  expect(one.status).toBe("untested");
 });
+it("does not let an invalid earlier duplicate hide a valid lecture link", () => {
+ const objectives = [{ ...one, id: "invalid", lectureNumber: 99 }, { ...one, lectureNumber: 13 }];
+ const counts = blockProgressCounts({ blockId: "NB", lectures: [lecture], objectives: { NB: objectives } });
+ expect(counts).toMatchObject({ total: 1, unlinked: 0 });
+});
