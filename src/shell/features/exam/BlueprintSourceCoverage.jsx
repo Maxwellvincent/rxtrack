@@ -1,3 +1,4 @@
+import { blockBlueprintBanks } from "./blueprintScope.js";
 import { useMemo, useState } from 'react';
 import * as questionBanks from '../../../stores/questionBanks.js';
 import * as questionBankMeta from '../../../stores/questionBankMeta.js';
@@ -31,7 +32,7 @@ export function SourceCoverageView({coverage,exam}) {
  </details>;
 }
 
-function LoadedSourceCoverage({userId,exam,objectivesByLecture,lectures=[]}) {
+function LoadedSourceCoverage({userId,blockId,exam,objectivesByLecture,lectures=[]}) {
  const banks=useStoreResource(questionBanks,userId), meta=useStoreResource(questionBankMeta,userId), ratings=useStoreResource(questionRatings,userId);
  const coverage=useMemo(()=>{
   const metadata=Object.values(meta.data||{});
@@ -40,8 +41,8 @@ function LoadedSourceCoverage({userId,exam,objectivesByLecture,lectures=[]}) {
    return {filename,questions,sourceKind:entry?.sourceKind||questions?.[0]?.sourceKind,displayName:entry?.displayName,
     blockId:entry?.blockId||questions?.find(q=>q.blockId)?.blockId};
   });
-  return buildBlueprintSourceCoverage({exam,banks:sources,objectivesByLecture,lectures,ratings:ratings.data?.ratings||{}});
- },[exam,banks.data,meta.data,ratings.data,objectivesByLecture,lectures]);
+  return buildBlueprintSourceCoverage({exam,banks:blockBlueprintBanks(sources,blockId,lectures),objectivesByLecture,lectures,ratings:ratings.data?.ratings||{}});
+ },[blockId,exam,banks.data,meta.data,ratings.data,objectivesByLecture,lectures]);
  if(banks.loading||meta.loading||ratings.loading)return <p role="status" className="mt-3 text-sm">Loading school question coverage…</p>;
  if(banks.error||meta.error||ratings.error)return <p role="alert" className="mt-3 text-sm">School question coverage could not sync. Your saved banks have not been changed.</p>;
  return <SourceCoverageView coverage={coverage} exam={exam}/>;

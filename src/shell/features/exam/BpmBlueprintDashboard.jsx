@@ -17,14 +17,14 @@ export function blueprintReadiness(exam,objectivesByLecture={},evidence={}) {
    weak:practiced.filter(o=>o.accuracy<.7).length,untested:items.length-practiced.length};
  });
 }
-export function BpmBlueprintDashboard({userId,objectivesByLecture,lectures=[],onStart,onReview}) {
+export function BpmBlueprintDashboard({userId,blockId,objectivesByLecture,lectures=[],onStart,onReview}) {
  const [exam,setExam]=useState('3');
  const resource=useStoreResource(learnerEvidence,userId);
  const rows=blueprintReadiness(exam,objectivesByLecture,resource.data||{});
  return <section className="mb-5 rounded-xl border border-border bg-panel p-4" aria-label="BPM 2 exam blueprint dashboard">
   <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="text-lg font-bold">BPM 2 exam preparation</h3>
    <label className="text-sm">Test <select aria-label="Dashboard test" className="ml-2 rounded border border-border bg-bg p-2" value={exam} onChange={e=>setExam(e.target.value)}>{Object.keys(BPM_BLUEPRINTS).map(n=><option key={n} value={n}>{n}</option>)}</select></label></div>
-  <p className="mt-2 text-sm text-text-2">Across uploaded lectures, using linked objectives. Bars show average objective accuracy; exam weight sets the practice mix.</p>
+  <p className="mt-2 text-sm text-text-2">Current block only, using its linked lecture objectives. DM, ER and other blocks are reserved for comprehensive practice. Bars show average objective accuracy; exam weight sets the practice mix.</p>
   {resource.loading && <p role="status">Syncing your practice history…</p>}
   <div className="mt-4 grid gap-3 sm:grid-cols-3">
    {rows.map(row=><div key={row.subject} className="rounded-lg border border-border bg-bg p-3">
@@ -35,7 +35,7 @@ export function BpmBlueprintDashboard({userId,objectivesByLecture,lectures=[],on
    </div>)}
   </div>
   <p className="mt-3 text-xs text-text-3">Each practiced objective has equal weight here. Uses its last 8 linked answers when available; this is practice accuracy, not a predicted exam score or mastery claim. Unclassified objectives are shown in exam settings.</p>
-  <BlueprintSourceCoverage userId={userId} exam={exam} objectivesByLecture={objectivesByLecture} lectures={lectures} />
+  <BlueprintSourceCoverage blockId={blockId} userId={userId} exam={exam} objectivesByLecture={objectivesByLecture} lectures={lectures} />
   <button type="button" className="mt-3 rounded-lg bg-accent px-4 py-2 font-bold text-white" onClick={()=>onStart?.(Number(exam))}>Practice for Test {exam}</button>
  </section>;
 }

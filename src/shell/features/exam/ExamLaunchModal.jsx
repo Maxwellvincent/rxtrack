@@ -170,7 +170,7 @@ export function ExamLaunchModal({
               {Object.keys(BPM_BLUEPRINTS).map(n=><option key={n} value={n}>BPM 2 · Test {n}</option>)}
             </select>
             {blueprintExam && <div className="mt-3 rounded-lg border border-border p-3 text-sm">
-              <p>All uploaded lectures · allocated by objective discipline. Weak and untested objectives guide practice within each subject.</p>
+              <p>Current block lectures only · allocated by objective discipline. Weak and untested objectives guide practice within each subject.</p>
               <div className="mt-3 flex h-36 items-end gap-3" role="img" aria-label={`BPM 2 Test ${blueprintExam} subject question targets`}>
                 {subjectTargets(blueprintExam,parsedCount).map(row=><div key={row.subject} className="flex h-full min-w-0 flex-1 flex-col text-center text-[11px]">
                   <div className="flex h-24 shrink-0 items-end justify-center"><div className="relative w-full max-w-12 rounded-t bg-accent" style={{height:`${Math.max(2,row.count/parsedCount*100)}%`}}><strong className="absolute inset-x-0 bottom-full mb-1">{row.count}</strong></div></div>

@@ -1,3 +1,4 @@
+import { blockBlueprintContext, blockBlueprintBanks } from "./blueprintScope.js";
 import { BpmBlueprintDashboard } from "./BpmBlueprintDashboard.jsx";
 import { recoverExamPreparation } from "./preparationRecovery.js";
 import { generateExamQuestions } from "./generation.js";
@@ -15,7 +16,7 @@ import { Button } from "../../../ui/Button.jsx";
 import { useLectures } from "../../hooks/useLectures.js";
 import { useObjectives } from "../../hooks/useObjectives.js";
 import { useLectureQuestionStats } from "../../hooks/useLectureQuestionStats.js";
-import { dedupeByText, selectBlockObjectives, flattenEntry } from "../../logic/objectives.js";
+import { dedupeByText, selectBlockObjectives } from "../../logic/objectives.js";
 import { statsForLecture } from "../../../stores/lectureQuestionStats.js";
 import * as weakConceptsStore from "../../../stores/weakConcepts.js";
 import * as questionBanksStore from "../../../stores/questionBanks.js";
@@ -130,7 +131,6 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   };
 
   const lecturesRes = useLectures(blockId, userId);
-  const allLecturesRes = useLectures(null, userId);
   const objectivesRes = useObjectives(null, userId);
   const questionStats = useLectureQuestionStats(userId);
 
@@ -215,22 +215,10 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
     [lectures, objectivesByLecture]
   );
 
-  const blueprintContext = useMemo(() => {
-    const allLectures = allLecturesRes.data || [];
-    const allObjectives = Object.values(objectivesRes.data || {}).flatMap(flattenEntry);
-    const byLecture = {};
-    for (const objective of allObjectives) {
-      if (!objective?.linkedLecId) continue;
-      (byLecture[objective.linkedLecId] ||= []).push(objective);
-    }
-    return {
-      lectures: allLectures,
-      lecturesById: Object.fromEntries(allLectures.map(l=>[l.id,l])),
-      atomsByLecture: Object.fromEntries(allLectures.map(l=>[l.id,Array.isArray(l.atoms)?l.atoms:[]])),
-      objectivesByLecture: byLecture,
-      eligibleLectures: allLectures.filter(l=>byLecture[l.id]?.length).map(l=>({lectureId:l.id,blockId:l.blockId,lectureLabel:formatLectureLabel(l),objectiveCount:byLecture[l.id].length})),
-    };
-  }, [allLecturesRes.data, objectivesRes.data]);
+  const blueprintContext = useMemo(
+    () => blockBlueprintContext(blockId, lectures, objectivesRes.data || {}),
+    [blockId, lectures, objectivesRes.data]
+  );
 
   const questionBanksHydrated = useStoreHydrated(questionBanksStore, userId);
   const questionBankMetaHydrated = useStoreHydrated(questionBankMetaStore, userId);
@@ -552,9 +540,9 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   const allBlueprintBanks = () => {
     const banks = questionBanksStore.read(userId) || {};
     const metadata = Object.values(questionBankMetaStore.read(userId) || {});
-    return Object.entries(banks).map(([filename,questions]) => ({filename,questions,
+    return blockBlueprintBanks(Object.entries(banks).map(([filename,questions]) => ({filename,questions,
       blockId: metadata.find(m=>m.filename===filename)?.blockId || questions?.find(q=>q.blockId)?.blockId || null,
-      analysis: questionBankAnalysisStore.read(userId,filename)}));
+      analysis: questionBankAnalysisStore.read(userId,filename)})), blockId, blueprintContext.lectures);
   };
 
   const prepareQuestions = (config) => {
@@ -738,7 +726,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
         </div>
       </div>
 
-      <BpmBlueprintDashboard userId={userId} objectivesByLecture={blueprintContext.objectivesByLecture} lectures={blueprintContext.lectures}
+      <BpmBlueprintDashboard blockId={blockId} userId={userId} objectivesByLecture={blueprintContext.objectivesByLecture} lectures={blueprintContext.lectures}
         onReview={onNavigateToLecture} onStart={exam=>{setSelectedBlueprint(String(exam));setLaunchError(null);setShowLaunchModal(true);}} />
 
       <nav className="mb-5 flex flex-wrap gap-2 border-b border-border pb-3" aria-label="Exam center sections">
