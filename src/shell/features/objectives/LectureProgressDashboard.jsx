@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useRef } from "react";
 import { formatLectureLabel } from "../../../lectureTitle.js";
 const segments = [{ key: "m", label: "Mastered", color: "var(--color-good, #2563a6)" }, { key: "ip", label: "Learning", color: "var(--color-accent, #187876)" }, { key: "st", label: "Needs review", color: "var(--color-bad, #a13c60)" }, { key: "ut", label: "Not yet tested", color: "var(--color-border, #d9dcd8)" }];
 export function lectureReviewCount(lecture, blockId, completion) {
@@ -7,6 +7,7 @@ export function lectureReviewCount(lecture, blockId, completion) {
  return new Set(reviews.map(row => row.id || JSON.stringify(row))).size;
 }
 export function LectureProgressDashboard({ rows = [], completion = {}, blockId, objectives = [], onStudy, onQuiz }) {
+ const chartRef = useRef(null);
  const [filter, setFilter] = useState("all"), [selectedId, setSelectedId] = useState(null);
  const ordered = useMemo(() => [...rows].filter(row => row.total > 0).filter(row => filter === "all" || (filter === "repair" ? row.st > 0 : filter === "new" ? row.ut > 0 : lectureReviewCount(row.lec, blockId, completion) > 0))
   .sort((a, b) => (filter === "new" ? (b.ut / b.total) - (a.ut / a.total) || b.ut - a.ut : 0) || (b.st / b.total) - (a.st / a.total) || (b.ut / b.total) - (a.ut / a.total) || Number(a.lec.lectureNumber || 0) - Number(b.lec.lectureNumber || 0)), [rows, filter, blockId, completion]);
@@ -14,10 +15,10 @@ export function LectureProgressDashboard({ rows = [], completion = {}, blockId, 
  return <section className="rounded-xl border border-border bg-panel p-4" aria-label="Lecture progress dashboard">
   <h3 className="text-lg font-bold">Where to focus next</h3>
   <p className="mt-1 text-sm text-text-2">Each vertical bar represents one lecture’s objectives. Select a lecture to review or quiz it. Review logs are shown separately from question coverage.</p>
-  <div className="my-3 flex flex-wrap gap-2">{[["all", "All lectures"], ["repair", "Needs review"], ["new", "Not yet tested"], ["reviewed", "Reviewed"]].map(([key, label]) => <button type="button" key={key} aria-pressed={filter === key} onClick={() => { setFilter(key); setSelectedId(null); }} className={`rounded-lg border px-3 py-2 text-sm ${filter === key ? "border-accent bg-accent/10" : "border-border"}`}>{label}</button>)}</div>
+  <div className="my-3 flex flex-wrap gap-2">{[["all", "All lectures"], ["repair", "Needs review"], ["new", "Not yet tested"], ["reviewed", "Reviewed"]].map(([key, label]) => <button type="button" key={key} aria-pressed={filter === key} onClick={() => { setFilter(key); setSelectedId(null); if (chartRef.current) chartRef.current.scrollLeft = 0; }} className={`rounded-lg border px-3 py-2 text-sm ${filter === key ? "border-accent bg-accent/10" : "border-border"}`}>{label}</button>)}</div>
   <p className="mb-3 text-xs text-text-2">{filter === "new" ? "Priority runs left to right: highest percentage of untested objectives first." : "Priority runs left to right: lectures with the most weak objectives proportionally come first."}</p>
   <ul className="mb-3 flex flex-wrap gap-4 text-xs" aria-label="Chart legend">{segments.map(segment => <li key={segment.key} className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded-sm" style={{ background: segment.color }} />{segment.label}</li>)}</ul>
-  <div className="overflow-x-auto pb-3" tabIndex={0} aria-label="Scrollable vertical lecture chart">
+  <div ref={chartRef} className="overflow-x-auto pb-3" tabIndex={0} aria-label="Scrollable vertical lecture chart">
    <div className="flex items-start gap-2" style={{ minWidth: "100%" }}>{ordered.map(row => {
     const label = formatLectureLabel(row.lec), reviews = lectureReviewCount(row.lec, blockId, completion);
     return <button type="button" key={row.lec.id} aria-pressed={selected?.lec.id === row.lec.id} aria-label={`${label}: ${row.tested} of ${row.total} objectives covered, ${row.st} need review, ${row.ut} not yet tested, ${reviews} logged reviews`} onClick={() => setSelectedId(row.lec.id)} className={`flex shrink-0 flex-col items-center rounded-lg border p-2 text-center ${selected?.lec.id === row.lec.id ? "border-accent bg-accent/5" : "border-transparent"}`} style={{ width: 104 }}>

@@ -27,9 +27,11 @@ it("puts the highest untested percentage first when that filter is selected", ()
  const bars = () => [...host.querySelectorAll('[aria-label*="objectives covered"]')];
  expect(bars()[0].getAttribute("aria-label")).toContain("Lecture 16");
  act(() => bars()[0].click());
+ host.querySelector('[aria-label="Scrollable vertical lecture chart"]').scrollLeft = 200;
  act(() => [...host.querySelectorAll("button")].find(button => button.textContent === "Not yet tested").click());
  expect(bars()[0].getAttribute("aria-label")).toContain("Lecture 11");
  expect(bars()[0].getAttribute("aria-pressed")).toBe("true");
+ expect(host.querySelector('[aria-label="Scrollable vertical lecture chart"]').scrollLeft).toBe(0);
  expect(host.textContent).toContain("highest percentage of untested objectives first");
  act(() => root.unmount()); host.remove();
 });
