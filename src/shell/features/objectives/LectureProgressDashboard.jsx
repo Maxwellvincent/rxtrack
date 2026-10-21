@@ -37,7 +37,7 @@ export function LectureProgressDashboard({ rows = [], completion = {}, evidence 
  const timingFor = row => lectureReviewTiming(row, blockId, completion, evidence, getLecPerf, now);
  const [page, setPage] = useState(0);
  const [filter, setFilter] = useState("all"), [selectedId, setSelectedId] = useState(null);
- const ordered = useMemo(() => [...rows].filter(row => row.total > 0).filter(row => filter === "all" || (filter === "repair" ? row.st > 0 : filter === "new" ? row.ut > 0 : filter === "due" || filter === "upcoming" ? timingFor(row).status === filter : lectureReviewCount(row.lec, blockId, completion, evidence, getLecPerf) > 0))
+ const ordered = useMemo(() => [...rows].filter(row => row.total > 0).filter(row => filter === "all" || (filter === "repair" ? row.st > 0 || (accuracyFor(row) != null && accuracyFor(row) < .8) : filter === "new" ? row.ut > 0 : filter === "due" || filter === "upcoming" ? timingFor(row).status === filter : lectureReviewCount(row.lec, blockId, completion, evidence, getLecPerf) > 0))
   .sort((a, b) => (["due", "upcoming"].includes(filter) ? String(timingFor(a).nextReview).localeCompare(String(timingFor(b).nextReview)) : filter === "reviewed" ? (timingFor(b).lastReviewedAt || 0) - (timingFor(a).lastReviewedAt || 0) : 0) || (["all", "repair"].includes(filter) ? (() => {
    const aAccuracy = accuracyFor(a), bAccuracy = accuracyFor(b);
    const aWeak = aAccuracy != null && aAccuracy < .8, bWeak = bAccuracy != null && bAccuracy < .8;
