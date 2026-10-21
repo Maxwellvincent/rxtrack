@@ -56,3 +56,13 @@ it('migrates a legacy bank key in place and does not combine q1 from different b
  expect(result.events[0].questionKey).not.toBe(result.events[1].questionKey);
  expect(run({calibration:[],sessions:[a,b],evidence:{evidenceJournal:result.events}}).events).toEqual([]);
 });
+it('removes only the exact superseded legacy event when a previous repair already exists',async()=>{
+ const {mergeEvidenceJournal}=await import('../stores/learnerEvidence.js');
+ const session={sessionId:'one',blockId:'NB',status:'submitted',format:'practice',questions:[{id:'q1',questionId:'one:q1',sourceType:'question-bank',stem:'Question about glial cells',choices:{A:'Answer'},correct:'A',objectiveIds:['o']}],answers:[{questionId:'one:q1',value:'A',answeredAt:100}]};
+ const old={source:'school-practice',sessionKey:'one',blockId:'NB',questionKey:questionEvidenceKey('q1'),objectiveIds:['other'],correct:true,at:100};
+ const first=run({calibration:[],sessions:[session],evidence:{evidenceJournal:[old]}});
+ expect(first.events[0].historyPreviousQuestionKey).toBe(old.questionKey);
+ const journal=mergeEvidenceJournal([old,...first.events],first.events);
+ expect(journal).toHaveLength(1);expect(journal[0].objectiveIds).toEqual(['o']);
+ expect(run({calibration:[],sessions:[session],evidence:{evidenceJournal:journal}}).events).toEqual([]);
+});

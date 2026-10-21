@@ -52,11 +52,11 @@ export function auditAnswerHistory({blockId, objectives=[], evidence={}, calibra
   if(match){
    const added=ids.filter(id=>!(match.objectiveIds || []).includes(id));
    const identityChanged=questionEvidenceKey(match.questionKey)!==key;
-   const replaceIds=candidate.source==='school-practice' && !!exact;
+   const replaceIds=candidate.source==='school-practice' && !!(exact || legacy?.includes(match));
    const removed=replaceIds && (match.objectiveIds || []).some(id=>!ids.includes(id));
    if(!added.length && !identityChanged && !removed){summary.alreadyRecorded++;group.alreadyRecorded++;continue;}
    const eventId=match.eventId || `history:${blockId}:${key}:${match.at}`;
-   updates.set(eventId,{...match,eventId,questionKey:key,lectureId:candidate.lectureId || match.lectureId,objectiveIds:replaceIds?ids:[...new Set([...(match.objectiveIds || []),...ids])],historyReconciled:true});
+   updates.set(eventId,{...match,eventId,questionKey:key,lectureId:candidate.lectureId || match.lectureId,objectiveIds:replaceIds?ids:[...new Set([...(match.objectiveIds || []),...ids])],historyReconciled:true,...(!match.eventId?{historyPreviousQuestionKey:match.questionKey}:{} )});
    summary.repairedLinks++;group.repaired++;
   }else if(existing.length || evidence.objectives && ids.every(id=>evidence.objectives[id]?.questionKeys?.includes(key))){
    // An old log without stable session/time cannot safely establish another attempt.

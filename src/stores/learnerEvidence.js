@@ -236,14 +236,7 @@ export async function recordEvidenceBatchAwait(userId, events, { removeEventIds 
   }
   const stored = userId ? readCloud(userId, key, fallback) || fallback : readJson(userId, key, fallback) || fallback;
   const baseline = stored.evidenceBaseline || stored;
-  const journal = (stored.evidenceJournal || []).filter(event => !removeEventIds.includes(event.eventId));
-  for (const event of events) {
-    let index = event.eventId ? journal.findIndex(item => item.eventId === event.eventId) : -1;
-    if(index < 0 && event.historyReconciled) index = journal.findIndex(item => !item.eventId && item.blockId === event.blockId && questionEvidenceKey(item.questionKey) === questionEvidenceKey(event.questionKey) && item.at === event.at);
-    const nextEvent = { ...event, at: event.at || Date.now() };
-    if (index >= 0) journal[index] = nextEvent;
-    else journal.push(nextEvent);
-  }
+  const journal = mergeEvidenceJournal((stored.evidenceJournal || []).filter(event => !removeEventIds.includes(event.eventId)), events);
   journal.sort((a, b) => (a.at || 0) - (b.at || 0));
   // Rebuild once per checkpoint and write once, even for a long school bank.
   // The same event identity updates an outcome without another attempt.
@@ -308,3 +301,16 @@ export function recordLearningNote(userId, note, {persistAwait=false}={}) {
 
 export function isHydrated(userId) { return !userId || cloudIsHydrated(userId, key); }
 export function readError(userId) { return userId ? cloudReadError(userId, key) : null; }
+
+/** Replace an identified legacy event as its key migrates, including an earlier duplicate repair. */
+export function mergeEvidenceJournal(current=[], events=[]) {
+ let journal=[...current];
+ for(const event of events){
+  const previous=event.historyPreviousQuestionKey || event.questionKey;
+  if(event.historyReconciled)journal=journal.filter(item=>!(!item.eventId && item.blockId===event.blockId && questionEvidenceKey(item.questionKey)===questionEvidenceKey(previous) && item.at===event.at && (!event.sessionKey || item.sessionKey===event.sessionKey)));
+  const index=event.eventId?journal.findIndex(item=>item.eventId===event.eventId):-1;
+  const next={...event,at:event.at || Date.now()};
+  if(index>=0)journal[index]=next;else journal.push(next);
+ }
+ return journal;
+}
