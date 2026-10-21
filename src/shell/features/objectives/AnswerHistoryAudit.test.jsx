@@ -14,14 +14,14 @@ import {AnswerHistoryAudit} from './AnswerHistoryAudit.jsx';
 globalThis.IS_REACT_ACT_ENVIRONMENT=true;
 it('audits the selected block, awaits persistence, and reports recovered answers',async()=>{
  const host=document.createElement('div'),root=createRoot(host);
- await act(async()=>root.render(<AnswerHistoryAudit lectures={[{id:"l",blockId:"NB"}]} userId="u" blockId="NB" objectives={[{id:'o',linkedLecId:'l',blockId:'NB'}]} />));
+ await act(async()=>root.render(<AnswerHistoryAudit lectures={[{id:"l",blockId:"NB"}]} userId="u" blockId="NB" objectives={[{id:'o',objective:'Describe the tested relationship',linkedLecId:'l',blockId:'NB'}]} />));
  expect(mocks.list).toHaveBeenCalledWith('u','NB');expect(mocks.batch).toHaveBeenCalledOnce();
  expect(host.textContent).toContain('checked');expect(host.textContent).toContain('1 recovered');act(()=>root.unmount());
 });
 it('keeps failed writes visible without claiming completion',async()=>{
  mocks.batch.mockRejectedValueOnce(new Error('offline'));
  const host=document.createElement('div'),root=createRoot(host);
- await act(async()=>root.render(<AnswerHistoryAudit lectures={[{id:"l",blockId:"NB"}]} userId="u" blockId="NB" objectives={[{id:'o',linkedLecId:'l'}]} />));
+ await act(async()=>root.render(<AnswerHistoryAudit lectures={[{id:"l",blockId:"NB"}]} userId="u" blockId="NB" objectives={[{id:'o',objective:'Describe the tested relationship',linkedLecId:'l'}]} />));
  expect(host.textContent).toContain('needs attention');expect(host.querySelector('[role="alert"]').textContent).toContain('offline');
  expect(host.textContent).not.toContain('1 recovered');act(()=>root.unmount());
 });
