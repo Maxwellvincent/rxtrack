@@ -19,7 +19,7 @@ export function blueprintSourceGroup(bank={}) {
 export function mapSourceQuestion(question={}, {objectivesByLecture={},lectures=[],blockId,objectiveCatalog=null}={}) {
  const catalog=objectiveCatalog || Object.values(objectivesByLecture).flat();
  const sourceCodes=[question.schoolObjectiveCode,question.sourceObjectiveCode,...(Array.isArray(question.schoolObjectiveCodes)?question.schoolObjectiveCodes:[])].filter(Boolean).map(String);
- const trustedIds=question.curriculumLinkStatus==='user-confirmed' && Array.isArray(question.objectiveIds) ? question.objectiveIds : [];
+ const trustedIds=['user-confirmed','evidence-verified'].includes(question.curriculumLinkStatus) && Array.isArray(question.objectiveIds) ? question.objectiveIds : [];
  const refs=[...new Set([...sourceCodes,...trustedIds].map(String))];
  const linked=refs.length ? catalog.filter(o=>refs.includes(String(o.id))||refs.includes(String(o.code))) : [];
  const coded=sourceCodes.filter(code=>!linked.some(o=>String(o.id)===code||String(o.code)===code)).map(code=>({code}));
@@ -38,7 +38,7 @@ export function mapSourceQuestion(question={}, {objectivesByLecture={},lectures=
  if(explicit)return {status:'mapped',subject:explicit,basis:'source-subject'};
  const linkedQuestion=linkSourceLecture(question,lectures,blockId);
  const lecture=lectures.find(l=>l.id===linkedQuestion.lectureId);
- const accepted=['user-confirmed','source-label-matched','content-matched'].includes(linkedQuestion.curriculumLinkStatus);
+ const accepted=['user-confirmed','evidence-verified','source-label-matched','content-matched'].includes(linkedQuestion.curriculumLinkStatus);
  if(lecture&&accepted) {
   const objectives=objectivesByLecture[lecture.id]||[];
   if(objectives.length&&objectives.every(o=>!bpmObjective(o)))return {status:'outside-course',subject:null,basis:'lecture-objectives'};
