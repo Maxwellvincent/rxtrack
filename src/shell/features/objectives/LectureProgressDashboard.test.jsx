@@ -68,3 +68,18 @@ it("shows quiz reviews in the Reviewed filter and exposes status counts without 
  expect(host.querySelector('[aria-label="Vertical lecture priority chart"]').innerHTML).toContain("repeating-linear-gradient");
  act(() => root.unmount()); host.remove();
 });
+it("filters due and upcoming reviews by actual review timing", () => {
+ installDomStorage(); const host = document.createElement("div"); document.body.append(host); const root = createRoot(host);
+ const now = new Date(2026, 9, 21, 12).getTime();
+ const rows = ["due", "soon"].map((id, index) => ({lec: {id, lectureNumber: index+1}, total: 4, tested: 2, coverage: 50, m: 0, ip: 2, st: 0, ut: 2}));
+ const evidence = {evidenceJournal: [{lectureId: "due", blockId: "NB", sessionKey: "a", at: now-86400000}, {lectureId: "soon", blockId: "NB", sessionKey: "b", at: now}]};
+ act(() => root.render(<LectureProgressDashboard rows={rows} blockId="NB" evidence={evidence} now={now} />));
+ act(() => [...host.querySelectorAll("button")].find(button => button.textContent === "Due for review").click());
+ expect(host.querySelectorAll('[aria-label*="objectives covered"]')).toHaveLength(1);
+ expect(host.querySelector('[aria-label*="objectives covered"]').getAttribute("aria-label")).toContain("Lecture 1");
+ expect(host.textContent).toContain("Last review:");
+ act(() => [...host.querySelectorAll("button")].find(button => button.textContent === "Upcoming reviews").click());
+ expect(host.querySelectorAll('[aria-label*="objectives covered"]')).toHaveLength(1);
+ expect(host.querySelector('[aria-label*="objectives covered"]').getAttribute("aria-label")).toContain("Lecture 2");
+ act(() => root.unmount()); host.remove();
+});
