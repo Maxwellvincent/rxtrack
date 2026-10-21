@@ -1,3 +1,4 @@
+import {contextBlockReviewPolicy} from '../../../engine/blockReviewPolicy.js';
 import { studyDayDate, studyDayKey, nextStudyDayDelay } from "../../../studyDay.js";
 /**
  * SP1 T4.3 — Today's data + actions, on the store hooks.
@@ -32,6 +33,7 @@ import { todayTasks as todayTasks_ } from "./fallback.js";
  * an empty plan solely because the horizon is missing.
  */
 export function buildTodaySchedule(context, userId) {
+  if(contextBlockReviewPolicy(context).suspended)return {schedule:[],daysLeft:0,lecScores:[],upcoming:[],undated:[],needsBlockStart:false,reviewsSuspended:true};
   context = { ...context, now: studyDayDate(context.now, userId) };
   const scheduled = generateDailySchedule(context);
   if (scheduled || !context?.lectures?.length) return scheduled;

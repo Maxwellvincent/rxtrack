@@ -1,3 +1,4 @@
+import {contextBlockReviewPolicy} from '../../../engine/blockReviewPolicy.js';
 import {lectureCompletion} from '../../../engine/lectureCompletion.js';
 import { lectureProgressCounts, blockProgressProjection } from "../../logic/blockProgress.js";
 import { studyDayDate } from "../../../studyDay.js";
@@ -59,6 +60,7 @@ export function scoreLectures(context) {
   const blockStart = context?.blockMeta?.startDate ? new Date(context.blockMeta.startDate) : null;
   if (blockStart) blockStart.setHours(0, 0, 0, 0);
 
+  const reviewsSuspended=contextBlockReviewPolicy(context).suspended;
   const _lecDates = lecDateMap(lectures);
   const catalog=blockProgressProjection({blockId,lectures,catalog:objectives,evidence:context?.learnerEvidence || {}}).linked;
   return lectures.map((lec) => {
@@ -72,7 +74,7 @@ export function scoreLectures(context) {
     const sessions = perf?.sessions?.length || 0;
     const lastScore = perf?.lastScore ?? null;
     const confidence = perf?.confidenceLevel || "Low";
-    const nextReview = perf?.nextReview ? new Date(perf.nextReview) : null;
+    const nextReview = !reviewsSuspended && perf?.nextReview ? new Date(perf.nextReview) : null;
     const avgBloom =
       tally.total > 0 ? lecObjs.reduce((s, o) => s + (o.bloom_level ?? 2), 0) / tally.total : 2;
     const pairedDate = (!lec.lectureDate && !lec.date && lec.lectureType === "DLA" && lec.lectureNumber != null)
@@ -84,6 +86,7 @@ export function scoreLectures(context) {
 
     return {
       lec,
+      reviewsSuspended,
       ...tally,
       practiced,
       firstPass:lectureCompletion(lecObjs,context?.learnerEvidence),
@@ -112,7 +115,7 @@ export function scoreLectures(context) {
         weakConceptCount: lecWeakConcepts.length,
         hasLandmineWeakConcept: lecWeakConcepts.some(isLandmine),
       }),
-      recommendedSessions: recommendedSessionsFor({ sessions, tally, nextReview, today, lastScore }),
+      recommendedSessions: reviewsSuspended ? [] : recommendedSessionsFor({ sessions, tally, nextReview, today, lastScore }),
       studyMode: context?.studyModeByLecture?.[lec.id] ?? null,
       topWeakConcepts: rankConcepts(lecWeakConcepts).slice(0, 3).map((c) => c.concept || c.description).filter(Boolean),
     };
@@ -153,7 +156,8 @@ export function lectureRow(score, { completion = {}, blockId } = {}) {
     completedToday: !!(entry?.lastActivityDate && entry.lastActivityDate === score.todayKey),
     scheduledToday: !!score.scheduledToday,
     lastConfidence: entry?.lastConfidence ?? null,
-    nextReview: entry?.reviewDates?.[0] ?? null,
+    nextReview: score.reviewsSuspended ? null : entry?.reviewDates?.[0] ?? null,
+    reviewsSuspended: !!score.reviewsSuspended,
     ankiInRotation: !!entry?.ankiInRotation,
     availableDate: score.availableDate ?? null,
     weekNumber: lecture.weekNumber ?? null,

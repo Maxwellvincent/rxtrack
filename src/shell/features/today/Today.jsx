@@ -1211,6 +1211,7 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
             <button onClick={() => { const next = !taskListCollapsed; setTaskListCollapsed(next); writeTaskListCollapsed(next); }} className="today-text-button">{taskListCollapsed ? "Show queue" : "Collapse queue"}</button>
           </section>
           {focusPlanIds.length > 0 && <div className="today-progress-wrap"><ProgressBar done={doneCount} total={focusPlanIds.length} /></div>}
+          {daily?.reviewsSuspended && <div className="today-note" role="status">Routine reviews paused: this block has ended. History and manual review remain available, along with comprehensive/CBSE practice.</div>}
           {logFeedback && <div className="today-feedback" role="status">{logFeedback}</div>}
           {todayReason === "urgency-fallback" && nextDay && <div className="today-note">Nothing is scheduled today — showing the highest-urgency work ahead of {nextDay.dateStr}.</div>}
 

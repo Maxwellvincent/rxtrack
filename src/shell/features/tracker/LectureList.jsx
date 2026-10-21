@@ -1,3 +1,4 @@
+import {contextBlockReviewPolicy} from '../../../engine/blockReviewPolicy.js';
 import {LectureDashboard} from './LectureDashboard.jsx';
 /**
  * SP1 T4.4 — every lecture in the block, not just Today's six.
@@ -35,6 +36,7 @@ const FILTERS_STORAGE_KEY = "rxt-lecture-list-prefs";
 function filterPrefsKey(blockId) { return `${FILTERS_STORAGE_KEY}:${blockId || "default"}`; }
 
 function nextStudyStep(row) {
+  if(row.reviewsSuspended)return "Routine reviews paused; manual review remains available.";
   if (row.total === 0) return "Link lecture objectives";
   if (row.struggling > 0) return `Repair ${row.struggling} weak objective${row.struggling === 1 ? "" : "s"}`;
   if (row.untested > 0) return `Practice ${row.untested} untested objective${row.untested === 1 ? "" : "s"}`;
@@ -181,7 +183,7 @@ function Row({ row, userId, stats, onStudy, onQuiz, onLog, onUpdateDate, onPreRe
           {showDetails && <div className="desk-lecture-details">
             <DateEdit row={row} onUpdateDate={onUpdateDate} />
             {row.lastActivityDate && <span>Last studied {row.lastActivityDate}</span>}
-            {row.nextReview && <span>Review {row.nextReview}</span>}
+            {row.reviewsSuspended ? <span>Routine reviews paused</span> : row.nextReview && <span>Review {row.nextReview}</span>}
             {row.sessions > 0 && <span>{row.sessions} study sessions</span>}
           </div>}
           {showDetails && row.topWeakConcepts.length > 0 && (
@@ -377,8 +379,9 @@ export function LectureList({
   // user's last library filter/sort. Future-dated lectures are not actionable
   // yet, so reserve this queue for
   // lectures already released (or with no schedule date).
+  const reviewsSuspended=contextBlockReviewPolicy(context).suspended;
   const priorityRows = useMemo(
-    () => buildLectureRows(scores, {
+    () => reviewsSuspended ? [] : buildLectureRows(scores, {
       completion: context.completion,
       blockId,
       atomProgress: repairProgress.data,
@@ -387,7 +390,7 @@ export function LectureList({
       search: "",
       sort: "urgency",
     }).filter((row) => !row.isFuture && (row.total>0 || !scores.some(score=>score.total>0)) && (!row.done || row.struggling>0 || row.repairCount>0 || row.nextReview || (questionStats.data?.[row.lectureId]?.answered>0 && questionStats.data[row.lectureId].correct/questionStats.data[row.lectureId].answered<0.8))).slice(0, 6),
-    [scores, context.completion, blockId, repairProgress.data, questionStats.data]
+    [scores, context.completion, blockId, repairProgress.data, questionStats.data,reviewsSuspended]
   );
   const counts = useMemo(
     () => lectureCounts(scores, { completion: context.completion, blockId, atomProgress: repairProgress.data }),
@@ -617,6 +620,7 @@ export function LectureList({
       </div>
       </details>
 
+      {reviewsSuspended && <p role="status" className="mb-3 rounded-xl border border-border p-3 text-sm">Routine reviews paused for this finished block. Browse the lecture library for manual review; history remains available for comprehensive/CBSE practice.</p>}
       <section className="desk-lecture-focus-bar" aria-label="Lecture focus queue">
         <div>
           <div className="today-eyebrow">{showAllLectures ? "Lecture library" : "Focus queue"}</div>

@@ -297,3 +297,7 @@ describe("lecturePerformanceFor", () => {
     expect(lecturePerformanceFor({ "lec1__b1": {} }, "lec9", "b1")).toBeNull();
   });
 });
+it('does not create a synthetic review horizon for a completed block',()=>{
+ const result=buildTodaySchedule({blockId:'done',blockMeta:{status:'complete'},now:new Date(2026,9,21),lectures:[{id:'l',blockId:'done'}]});
+ expect(result.reviewsSuspended).toBe(true);expect(result.schedule).toEqual([]);expect(result.lecScores).toEqual([]);
+});

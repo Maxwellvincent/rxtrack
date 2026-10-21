@@ -1,4 +1,4 @@
-import {classifyObjectiveMapping,reviewCurriculumMapping} from '../../../engine/semanticObjectiveMapping.js';
+import {classifyObjectiveMapping,createCurriculumReviewer} from '../../../engine/semanticObjectiveMapping.js';
 import {mapAnsweredLectureQuestions,applyAnsweredLectureMappings} from '../../../engine/answerLectureMapping.js';
 import {blockProgressProjection} from '../../logic/blockProgress.js';
 import * as generatedStore from '../../../stores/generatedQuestions.js';
@@ -37,7 +37,7 @@ export function AnswerHistoryAudit({userId,blockId,objectives=[],lectures=[],loa
    }
    const changes=mapAnsweredLectureQuestions(sessions,enriched,blockId);
    const catalog=blockProgressProjection({blockId,lectures,catalog:objectives,evidence:evidenceStore.read(userId)}).linked;
-   const review=reviewCurriculumMapping;
+   const review=createCurriculumReviewer();
    let classified=0,inspected=0;
    for(const session of sessions){
     const answered=new Set((session.answers || []).filter(a=>a.value!=null).map(a=>a.questionId));

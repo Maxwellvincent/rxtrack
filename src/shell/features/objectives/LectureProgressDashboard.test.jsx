@@ -93,3 +93,13 @@ it("puts the lowest measured lecture accuracy ahead of weak-objective proportion
  expect(host.querySelector('[aria-label*="objectives covered"]').getAttribute("aria-label")).toContain("Lecture 2");
  act(()=>root.unmount()); host.remove();
 });
+it('pauses due/upcoming filters after the block ends without hiding manual review or last activity',()=>{
+ installDomStorage();const host=document.createElement('div');document.body.append(host);const root=createRoot(host);
+ const onStudy=vi.fn();
+ const rows=[{lec:{id:'l',lectureNumber:1,lectureTitle:'Pathways'},total:1,tested:1,coverage:100,m:0,ip:1,st:0,ut:0}];
+ act(()=>root.render(<LectureProgressDashboard rows={rows} blockId="NB" blockMeta={{examDate:'2026-10-23'}} now={new Date(2026,9,24).getTime()} evidence={{evidenceJournal:[{lectureId:'l',blockId:'NB',sessionKey:'s',at:new Date(2026,9,21).getTime()}]}} onStudy={onStudy}/>));
+ expect(host.textContent).toContain('Routine reviews paused');expect(host.textContent).toContain('Last review:');
+ act(()=>[...host.querySelectorAll('button')].find(b=>b.textContent==='Review lecture →').click());expect(onStudy).toHaveBeenCalledWith('l');
+ act(()=>[...host.querySelectorAll('button')].find(b=>b.textContent==='Upcoming reviews').click());expect(host.textContent).toContain('No matching lectures');
+ act(()=>root.unmount());host.remove();
+});

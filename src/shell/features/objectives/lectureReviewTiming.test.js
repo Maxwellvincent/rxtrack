@@ -27,3 +27,8 @@ it("prioritizes consolidation today for weak objectives and spaces fully mastere
  expect(lectureReviewTiming({...row, st: 2}, "NB", {}, evidence, null, now)).toMatchObject({nextReview: localDateString(now), status: "due"});
  expect(lectureReviewTiming({...row, m: 10}, "NB", {}, evidence, null, now)).toMatchObject({nextReview: "2026-10-23", status: "upcoming"});
 });
+it('retains last review history but removes due/upcoming dates after the block ends',()=>{
+ const now=new Date(2026,9,24).getTime();
+ const result=lectureReviewTiming({lec:{id:'l'},total:1},'NB',{}, {evidenceJournal:[{lectureId:'l',blockId:'NB',at:new Date(2026,9,21).getTime()}]},null,now,{examDate:'2026-10-23'});
+ expect(result.status).toBe('suspended');expect(result.lastReviewedAt).toBeTruthy();expect(result.nextReview).toBeNull();
+});

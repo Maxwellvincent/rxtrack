@@ -238,3 +238,8 @@ it('uses the same deduplicated block denominator as the Objectives page',async()
  expect(scores.reduce((n,s)=>n+s.total,0)).toBe(projection.counts.total);
  expect(scores.reduce((n,s)=>n+s.firstPass.covered,0)).toBe(1);
 });
+it('keeps finished-block lecture history and completion while suppressing routine recommendations',()=>{
+ const context={blockId:'NB',blockMeta:{status:'complete'},now:new Date(2026,9,24),lectures:[{id:'l',blockId:'NB'}],objectives:[{id:'o',linkedLecId:'l',objective:'Explain motor supply'}],learnerEvidence:{objectives:{o:{attempts:1,correct:0,recent:[false]}}},lecturePerformance:{l:{sessions:[{at:'2026-10-21',score:0}],nextReview:'2026-10-22'}},completion:{l__NB:{reviewDates:['2026-10-22']}}};
+ const scores=scoreLectures(context);expect(scores).toHaveLength(1);expect(scores[0].firstPass.complete).toBe(true);expect(scores[0].recommendedSessions).toEqual([]);
+ const row=lectureRow(scores[0],{blockId:'NB',completion:context.completion});expect(row.nextReview).toBeNull();expect(row.reviewsSuspended).toBe(true);expect(context.completion.l__NB.reviewDates).toEqual(['2026-10-22']);
+});

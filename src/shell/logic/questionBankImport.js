@@ -1,4 +1,4 @@
-import {classifyObjectiveMapping,reviewCurriculumMapping} from '../../engine/semanticObjectiveMapping.js';
+import {classifyObjectiveMapping,createCurriculumReviewer} from '../../engine/semanticObjectiveMapping.js';
 import {blockProgressProjection} from './blockProgress.js';
 import { archiveQuestionSource } from "../../storageUpload.js";
 import { parseExamPDF } from "../../examParser.js";
@@ -419,6 +419,7 @@ export async function processQuestionBankFiles({
       if(await bridgeAvailable()){
         const {fetchLectureContent}=await import('../../supabase.js');
         const catalog=blockProgressProjection({blockId,lectures,catalog:objectives,evidence:{}}).linked;
+        const review=createCurriculumReviewer();
         const enriched=[];
         for(const lecture of lectures.filter(l=>l.blockId===blockId)){
           const content=await fetchLectureContent(userId,lecture.id);
@@ -429,7 +430,7 @@ export async function processQuestionBankFiles({
           for(const [i,q] of source.entries()){
             if(!q.correct || q.answerKeyVerified===false || ['user-confirmed','evidence-verified'].includes(q.curriculumLinkStatus))continue;
             update(`Mapping ${entry.filename} · question ${i+1}/${source.length} to lecture objectives…`);
-            const patch=await classifyObjectiveMapping({...q,sourceTitle:entry.filename},{lectures:enriched,objectives:catalog,blockId,review:reviewCurriculumMapping,onEvaluation:async classification=>{
+            const patch=await classifyObjectiveMapping({...q,sourceTitle:entry.filename},{lectures:enriched,objectives:catalog,blockId,review,onEvaluation:async classification=>{
               const current=questionBanksStore.read(userId),list=current[entry.filename];
               if(!Array.isArray(list))return;
               await questionBanksStore.writeAwait(userId,{...current,[entry.filename]:list.map(item=>item.stem===q.stem && item.correct===q.correct && JSON.stringify(item.choices)===JSON.stringify(q.choices) && !['user-confirmed','evidence-verified'].includes(item.curriculumLinkStatus)?{...item,curriculumMappingReview:classification}:item)});

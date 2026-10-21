@@ -123,6 +123,7 @@ export async function bridgeComplete(req) {
         new CustomEvent("rxt-bridge-used", { detail: { backend: data.backend } })
       );
     }
+    if(data.usage)req.onUsage?.(data.usage);
     return data.text;
   } catch (err) {
     req.signal?.throwIfAborted();

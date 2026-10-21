@@ -1,3 +1,6 @@
+import {useExamDates} from '../../hooks/useExamDates.js';
+import {useTerms} from '../../hooks/useTerms.js';
+import {resolveBlockMeta} from '../today/scheduleContext.js';
 import { AnswerHistoryAudit } from './AnswerHistoryAudit.jsx';
 import { useCompletion } from "../../hooks/useCompletion.js";
 /**
@@ -37,6 +40,9 @@ export function ObjectivesContainer({
     blockId,
     userId
   );
+  const terms=useTerms(userId);
+  const examDates=useExamDates(userId);
+  const blockMeta=useMemo(()=>{const block=resolveBlockMeta(terms.data,blockId) || {};return {...block,examDate:examDates.data?.[blockId] || block.examDate};},[terms.data,examDates.data,blockId]);
   const questionStats = useLectureQuestionStats(userId);
   const completion = useCompletion(userId);
   const activeObjectiveCount = useMemo(
@@ -73,6 +79,7 @@ export function ObjectivesContainer({
       )}
       <AnswerHistoryAudit userId={userId} blockId={blockId} objectives={objectives} lectures={blockLectures} loading={loading} />
       <ObjectiveTracker
+      blockMeta={blockMeta}
       blockId={blockId}
       blockLectures={blockLectures}
       objectives={objectives}

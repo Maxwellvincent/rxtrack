@@ -1,3 +1,4 @@
+import {contextBlockReviewPolicy} from '../../engine/blockReviewPolicy.js';
 /**
  * SP1 T4.2 — the two schedulers, extracted from App.jsx as pure functions.
  *
@@ -98,6 +99,7 @@ export function evidenceAwareObjectives(objectives = [], learnerEvidence = {}) {
  * spread over days at most MAX_PER_DAY apart.
  */
 export function buildStudySchedule(context) {
+  if(contextBlockReviewPolicy(context).suspended)return null;
   const { blockId, lectures = [], objectives = [], performance = {} } = context;
   const examDate = context.examDate ?? context.examDates?.[blockId];
   if (!examDate) return null;
@@ -420,6 +422,7 @@ export function recommendedSessionsFor({ sessions, tally, nextReview, today, las
  * passes — lectures happening that day, spaced-rep due, then by urgency.
  */
 export function generateDailySchedule(context) {
+  if(contextBlockReviewPolicy(context).suspended)return {schedule:[],daysLeft:0,lecScores:[],upcoming:[],undated:[],needsBlockStart:false,reviewsSuspended:true};
   const {
     blockId,
     lectures = [],

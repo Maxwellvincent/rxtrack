@@ -1,3 +1,4 @@
+import {formatLectureLabel} from '../lectureTitle.js';
 import {retrieveLectureEvidence} from './schoolAlignment.js';
 import {rankLectureContent} from '../shell/logic/lectureContentMatch.js';
 import {scheduleLectureCandidates,curriculumMappingProvenance} from './curriculumMappingContext.js';
@@ -67,21 +68,21 @@ export async function classifyObjectiveMapping(question,{lectures,objectives,blo
  const verified=validateObjectiveMapping(verification,context);
  if(!verified || JSON.stringify(verified.map(l=>l.objectiveId).sort())!==JSON.stringify(links.map(l=>l.objectiveId).sort()) || verified[0].lectureId!==links[0].lectureId){await onEvaluation({version:MAPPING_VERSION,blockId,decision:'unresolved',reason:'Semantic review passes did not agree on supported objective links'});return null;}
  const lecture=lectures.find(l=>l.id===verified[0].lectureId);
- return {lectureId:lecture.id,objectiveIds:verified.map(l=>l.objectiveId),curriculumLinkStatus:'evidence-verified',curriculumMapping:{...curriculumMappingProvenance(question,lecture,blockId,'two-pass-source-verified'),version:MAPPING_VERSION,decision:'objective',links:verified}};
+ return {lectureId:lecture.id,lectureLabel:formatLectureLabel(lecture),lectureLinkBasis:'two-pass-source-verified',objectiveIds:verified.map(l=>l.objectiveId),curriculumLinkStatus:'evidence-verified',curriculumMapping:{...curriculumMappingProvenance(question,lecture,blockId,'two-pass-source-verified'),version:MAPPING_VERSION,decision:'objective',links:verified}};
 }
 
-let codexLimitedUntil=0;
-/** Existing subscription bridge only: mapping never silently invokes a paid API. */
-export async function reviewCurriculumMapping(system,prompt,signal){
- const {callAIJSON}=await import('../aiClient.js');
- if(Date.now()<codexLimitedUntil)return callAIJSON(system,prompt,null,2500,undefined,0,{bridgeOnly:true,bridgeBackend:'ollama',bridgeBackendOnly:true,timeoutMs:90000,signal});
- try {
-  return await callAIJSON(system,prompt,null,2500,undefined,0,{bridgeOnly:true,bridgeBackend:'codex',bridgeBackendOnly:true,timeoutMs:90000,signal});
- } catch(error) {
-  signal?.throwIfAborted();
-  if(!/429|usage limit|rate.limit|too many requests/i.test(error.message || ''))throw error;
-  codexLimitedUntil=Date.now()+5*60*1000;
-  // Only the bridge's offline backend is eligible; never a cloud/API fallback.
-  return callAIJSON(system,prompt,null,2500,undefined,0,{bridgeOnly:true,bridgeBackend:'ollama',bridgeBackendOnly:true,timeoutMs:90000,signal});
- }
+/** Approved quality route, with a separate $5 ceiling for each mapping batch. */
+export function createCurriculumReviewer({budgetUsd=5}={}){
+ let spentUsd=0;
+ return async (system,prompt,signal)=>{
+  // Reserve conservatively before sending; actual bridge usage releases the surplus.
+  const reserve=new TextEncoder().encode(system+'\n'+prompt).length*1.32/1e6+2500*3.96/1e6;
+  if(spentUsd+reserve>budgetUsd)throw new Error('Objective mapping paused at its processing budget. Completed links are saved.');
+  const {bridgeComplete,parseBridgeJSON}=await import('../llmBridge.js');
+  let cost=reserve;
+  const text=await bridgeComplete({system,prompt,json:true,maxTokens:2500,backend:'ollama-cloud',backendOnly:true,modelTier:'quality',timeoutMs:90000,signal,onUsage:usage=>{if(Number.isFinite(usage?.costUsd) && usage.costUsd>=0)cost=usage.costUsd;}});
+  spentUsd+=cost;
+  if(text==null)throw new Error('Approved quality bridge is unavailable. Completed mappings are preserved.');
+  return parseBridgeJSON(text);
+ };
 }
