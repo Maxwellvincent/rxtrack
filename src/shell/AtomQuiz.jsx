@@ -115,6 +115,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
     const responseMs = nowMs() - questionStartedAtRef.current;
     setConfidence(level);
     const rec = {
+      lectureId, blockId, sessionKey: evidenceSessionKeyRef.current,
       questionKey: q.questionKey || q.poolId || q.id || q.questionId || `stem:${q.stem || ""}`,
       learningContext: questionLearningContext(q, picked),
       concept: q.topic || q.stem.slice(0, 60),

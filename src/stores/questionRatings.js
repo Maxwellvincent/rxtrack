@@ -1,5 +1,5 @@
 import { questionIdentityValues, evidenceIdentity, questionIsExcluded, reportProtection } from "../engine/questionScoringPolicy.js";
-import { readCloud, subscribeToCloudStore, writeCloud, writeCloudAwait } from "./cloudBase.js";
+import { readCloud, subscribeToCloudStore, writeCloud, writeCloudAwait, isHydrated as cloudIsHydrated, readError as cloudReadError } from "./cloudBase.js";
 
 export const key = "rxt-question-ratings-v1";
 import { readJson, writeJson } from "./base.js";
@@ -97,3 +97,6 @@ export { evidenceIdentity };
 export async function rateQuestionAwait(userId, question, patch) {
   return rateQuestion(userId, question, patch, { persistAwait: true });
 }
+
+export function isHydrated(userId) { return !userId || cloudIsHydrated(userId, key); }
+export function readError(userId) { return userId ? cloudReadError(userId, key) : null; }

@@ -1,3 +1,4 @@
+import { AnswerHistoryAudit } from './AnswerHistoryAudit.jsx';
 import { useCompletion } from "../../hooks/useCompletion.js";
 /**
  * SP1 T1.2/T1.3 — shell entry point for objectives.
@@ -70,6 +71,7 @@ export function ObjectivesContainer({
           Objectives could not sync: {error?.message || String(error)}
         </div>
       )}
+      <AnswerHistoryAudit userId={userId} blockId={blockId} objectives={objectives} loading={loading} />
       <ObjectiveTracker
       blockId={blockId}
       blockLectures={blockLectures}

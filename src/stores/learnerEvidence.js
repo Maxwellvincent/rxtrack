@@ -1,5 +1,5 @@
 import { excludedEvidenceKeys } from "../engine/questionScoringPolicy.js";
-import { readCloud, subscribeToCloudStore, writeCloud, writeCloudAwait, isHydrated, readError } from "./cloudBase.js";
+import { readCloud, subscribeToCloudStore, writeCloud, writeCloudAwait, isHydrated as cloudIsHydrated, readError as cloudReadError } from "./cloudBase.js";
 import { readJson, writeJson } from "./base.js";
 
 import * as questionRatings from "./questionRatings.js";
@@ -220,25 +220,26 @@ export function recordEvidence(userId, event) {
 export async function recordEvidenceBatchAwait(userId, events, { removeEventIds = [] } = {}) {
   if (userId) {
     readCloud(userId, key, fallback); // Start hydration before replacing any history.
-    if (!isHydrated(userId, key)) await new Promise((resolve, reject) => {
+    if (!cloudIsHydrated(userId, key)) await new Promise((resolve, reject) => {
       let off = () => {};
       const timer = setTimeout(() => { off(); reject(new Error("Practice history is still syncing. Please retry Save & exit.")); }, 15000);
       const check = () => {
-        if (!isHydrated(userId, key)) return;
+        if (!cloudIsHydrated(userId, key)) return;
         clearTimeout(timer); off();
-        const error = readError(userId, key);
+        const error = cloudReadError(userId, key);
         if (error) reject(error); else resolve();
       };
       off = subscribeToCloudStore(key, check); check();
     });
-    const error = readError(userId, key);
+    const error = cloudReadError(userId, key);
     if (error) throw error;
   }
   const stored = userId ? readCloud(userId, key, fallback) || fallback : readJson(userId, key, fallback) || fallback;
   const baseline = stored.evidenceBaseline || stored;
   const journal = (stored.evidenceJournal || []).filter(event => !removeEventIds.includes(event.eventId));
   for (const event of events) {
-    const index = event.eventId ? journal.findIndex(item => item.eventId === event.eventId) : -1;
+    let index = event.eventId ? journal.findIndex(item => item.eventId === event.eventId) : -1;
+    if(index < 0 && event.historyReconciled) index = journal.findIndex(item => !item.eventId && item.blockId === event.blockId && questionEvidenceKey(item.questionKey) === questionEvidenceKey(event.questionKey) && item.at === event.at);
     const nextEvent = { ...event, at: event.at || Date.now() };
     if (index >= 0) journal[index] = nextEvent;
     else journal.push(nextEvent);
@@ -304,3 +305,6 @@ export function recordLearningNote(userId, note, {persistAwait=false}={}) {
  if(userId) writeCloud(userId,key,next); else writeJson(userId,key,next);
  return next;
 }
+
+export function isHydrated(userId) { return !userId || cloudIsHydrated(userId, key); }
+export function readError(userId) { return userId ? cloudReadError(userId, key) : null; }

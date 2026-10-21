@@ -1,0 +1,37 @@
+import {it,expect} from 'vitest';
+import {auditAnswerHistory} from './answerHistoryAudit.js';
+import {applyEvidence,questionEvidenceKey} from '../stores/learnerEvidence.js';
+const objectives=[{id:'o',code:'SOM.NB.1',status:'developing'},{id:'other'}];
+const record={questionKey:'q',objectiveIds:['SOM.NB.1'],correct:false,ts:10000};
+const run=(args={})=>auditAnswerHistory({blockId:'NB',objectives,calibration:[record],...args});
+it('recovers explicit code links and is idempotent after replay',()=>{
+ const first=run();expect(first.events).toHaveLength(1);expect(first.events[0].objectiveIds).toEqual(['o']);
+ const evidence={...applyEvidence({},first.events[0]),evidenceJournal:first.events};
+ expect(run({evidence}).events).toHaveLength(0);expect(evidence.objectives.o.attempts).toBe(1);
+});
+it('repairs existing unlinked answer instead of adding a second answer',()=>{
+ const event={at:10000,blockId:'NB',questionKey:questionEvidenceKey('q'),objectiveIds:[],correct:false};
+ const result=run({evidence:{evidenceJournal:[event]}});
+ expect(result.events).toHaveLength(1);expect(result.summary.repairedLinks).toBe(1);expect(result.summary.recoveredAnswers).toBe(0);
+});
+it('never infers objective credit from review labels or unlinked answers',()=>{
+ const result=run({calibration:[{...record,objectiveIds:[]} ]});
+ expect(result.events).toEqual([]);expect(result.summary.needsLinking).toBe(1);expect(result.summary.legacyReviewedWithoutAnswers).toBe(1);
+});
+it('excludes disputed answers and foreign blocks, and retains unanswered questions as untested',()=>{
+ const result=run({excluded:()=>true,sessions:[{sessionId:'s',blockId:'ER',status:'submitted',questions:[],answers:[]}]});
+ expect(result.events).toEqual([]);expect(result.summary.excluded).toBe(1);
+});
+it('recovers school/exam answers only once and uses original session identity',()=>{
+ const session={sessionId:'s',blockId:'NB',format:'practice',status:'submitted',questions:[{questionId:'q1',correct:'A',choices:{A:'One'},objectiveIds:['o'],sourceType:'question-bank'}],answers:[{questionId:'q1',value:'A',answeredAt:50}]};
+ const result=run({calibration:[],sessions:[session]});expect(result.events[0]).toMatchObject({sessionKey:'s',correct:true,objectiveIds:['o']});
+ expect(run({calibration:[],sessions:[session],evidence:{evidenceJournal:result.events}}).events).toEqual([]);
+});
+it('updates a legacy journal row in place and cannot double its grade on repeated audits',async()=>{
+ const storage=new Map();Object.defineProperty(globalThis,'localStorage',{value:{getItem:k=>storage.get(k)??null,setItem:(k,v)=>storage.set(k,String(v))},configurable:true});
+ const {recordEvidence,recordEvidenceBatchAwait,read}=await import('../stores/learnerEvidence.js');
+ recordEvidence(null,{at:10000,blockId:'NB',questionKey:questionEvidenceKey('q'),objectiveIds:[],correct:false});
+ const first=run({evidence:read(null)});await recordEvidenceBatchAwait(null,first.events);
+ expect(read(null).total).toBe(1);expect(read(null).objectives.o.attempts).toBe(1);
+ expect(run({evidence:read(null)}).events).toHaveLength(0);
+});

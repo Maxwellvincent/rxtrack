@@ -14,6 +14,7 @@ import * as questionRatings from "./questionRatings.js";
  */
 import {
   isHydrated as cloudIsHydrated,
+  readError as cloudReadError,
   readCloud,
   subscribeToCloudStore,
   writeCloud,
@@ -57,3 +58,5 @@ export function subscribe(cb) {
 export function isHydrated(userId) {
   return !userId || cloudIsHydrated(userId, key);
 }
+
+export function readError(userId) { return userId ? cloudReadError(userId, key) : null; }
