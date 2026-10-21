@@ -50,3 +50,21 @@ it("shows six priorities without sideways scrolling and resets pagination when f
  expect(host.textContent).toContain("Top 6 of 14 lectures"); expect(bars()[0].getAttribute("aria-label")).toContain("Lecture 1");
  act(() => root.unmount()); host.remove();
 });
+
+it("counts a 15-answer quiz once, keeps other blocks out, and avoids history double counting", () => {
+ const evidence = { evidenceJournal: [...Array.from({length: 15}, (_, i) => ({lectureId: "a", blockId: "NB", sessionKey: "quiz-1", questionKey: `q${i}`})), {lectureId: "a", blockId: "DM", sessionKey: "other"}] };
+ expect(lectureReviewCount({id: "a"}, "NB", {}, evidence, () => ({sessions: [{at: 1}]}))).toBe(1);
+ expect(lectureReviewCount({id: "a"}, "NB", {}, { lectures: {a: {attempts: 15}} })).toBe(1);
+});
+it("shows quiz reviews in the Reviewed filter and exposes status counts without color", () => {
+ installDomStorage(); const host = document.createElement("div"); document.body.append(host); const root = createRoot(host);
+ const rows = [{lec: {id: "a", lectureNumber: 1}, total: 4, tested: 3, coverage: 75, m: 1, ip: 1, st: 1, ut: 1}];
+ act(() => root.render(<LectureProgressDashboard rows={rows} blockId="NB" evidence={{evidenceJournal: [{lectureId: "a", blockId: "NB", sessionKey: "quiz"}]}} />));
+ act(() => [...host.querySelectorAll("button")].find(button => button.textContent === "Reviewed").click());
+ expect(host.textContent).toContain("1 review session");
+ expect(host.textContent).toContain("Needs review: 1");
+ expect(host.textContent).toContain("Learning: 1");
+ expect(host.textContent).toContain("Not yet tested: 1");
+ expect(host.querySelector('[aria-label="Vertical lecture priority chart"]').innerHTML).toContain("repeating-linear-gradient");
+ act(() => root.unmount()); host.remove();
+});

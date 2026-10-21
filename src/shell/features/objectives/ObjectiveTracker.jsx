@@ -1160,7 +1160,7 @@ export default function ObjectiveTracker({
 
       {subView === "lecture" && (
         <div style={{ display: "flex", flexDirection: "column" }}>
-          <LectureProgressDashboard rows={coverageRows} blockId={blockId} completion={completion} objectives={linkedObjectives} onStudy={onStudyLecture} onQuiz={onStartObjectiveQuiz} />
+          <LectureProgressDashboard rows={coverageRows} blockId={blockId} completion={completion} evidence={learnerEvidence} getLecPerf={getLecPerf} objectives={linkedObjectives} onStudy={onStudyLecture} onQuiz={onStartObjectiveQuiz} />
           <details className="mt-4"><summary className="cursor-pointer py-3 font-semibold">Inspect individual lecture objectives</summary>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-panel p-2.5">
             <div className="desk-objective-library-copy"><strong>{filteredLectureGroups.length} lecture groups</strong><span>Open one group to see its objectives. The rest stay out of your way.</span></div>
