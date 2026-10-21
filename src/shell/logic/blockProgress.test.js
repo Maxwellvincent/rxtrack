@@ -34,3 +34,15 @@ it("keeps linked lab and small-group sources out of lecture totals and prioritie
  const counts = blockProgressCounts({ blockId: "NB", lectures: [lecture], objectives: { NB: catalog } });
  expect(counts).toMatchObject({ total: 1, struggling: 0, untested: 1, unlinked: 2 });
 });
+
+it("preserves completed siblings when another objective gains quiz evidence", () => {
+ const objectives = [one, { id: "reviewed", objective: "Reviewed separately", linkedLecId: lecture.id, status: "in_progress" }];
+ const evidence = { objectives: { one: { attempts: 1, correct: 1, recent: [true] } } };
+ const counts = blockProgressCounts({ blockId: "NB", lectures: [lecture], objectives: { NB: objectives }, evidence });
+ expect(counts).toMatchObject({ total: 2, inprogress: 2, untested: 0 });
+});
+it("keeps an excluded-only objective untested despite a saved completion label", () => {
+ const objectives = [one, { id: "excluded", objective: "Excluded question", linkedLecId: lecture.id, status: "mastered" }];
+ const evidence = { objectives: { one: { attempts: 1, correct: 1 }, excluded: { attempts: 0, correct: 0 } } };
+ expect(blockProgressCounts({ blockId: "NB", lectures: [lecture], objectives: { NB: objectives }, evidence })).toMatchObject({ total: 2, inprogress: 1, mastered: 0, untested: 1 });
+});

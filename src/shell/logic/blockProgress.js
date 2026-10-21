@@ -1,16 +1,22 @@
 import { selectBlockObjectives, selectLectureObjectives, dedupeByText, supplementaryObjective } from "./objectives.js";
-import { evidenceAwareObjectives, statusTally } from "./schedule.js";
+import { statusTally } from "./schedule.js";
 import { objectivePracticePlan } from "../../engine/objectivePractice.js";
 
 /** One display projection for the library, Today footer and Objectives command center. */
 export function lectureProgressObjectives(objectives, evidence) {
   const practice = objectivePracticePlan(objectives, evidence);
-  if (!practice.worked) return evidenceAwareObjectives(objectives, evidence).map(row => ({ ...row,
-    status: ["inprogress", "in_progress", "in progress"].includes(row.status) ? "developing" : row.status }));
   const rows = new Map(practice.rows.map(row => [String(row.id), row]));
   return objectives.map(objective => {
     const row = rows.get(String(objective.id));
-    return { ...objective, status: row?.state === "ready" ? "mastered" : row?.state || "untested" };
+    // A practiced sibling must not erase this objective's explicit review status.
+    // An authoritative zero evidence entry still protects scoring exclusions.
+    const hasJournalEntry = evidence?.objectives?.[objective.id] != null;
+    const savedStatus = ["inprogress", "in_progress", "in progress"].includes(objective.status)
+      ? "developing" : objective.status;
+    const status = !row?.worked && !hasJournalEntry
+      ? savedStatus || "untested"
+      : row?.state === "ready" ? "mastered" : row?.state || "untested";
+    return { ...objective, status };
   });
 }
 
