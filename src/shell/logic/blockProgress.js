@@ -8,15 +8,10 @@ export function lectureProgressObjectives(objectives, evidence) {
   const rows = new Map(practice.rows.map(row => [String(row.id), row]));
   return objectives.map(objective => {
     const row = rows.get(String(objective.id));
-    // A practiced sibling must not erase this objective's explicit review status.
-    // An authoritative zero evidence entry still protects scoring exclusions.
-    const hasJournalEntry = evidence?.objectives?.[objective.id] != null;
-    const savedStatus = ["inprogress", "in_progress", "in progress"].includes(objective.status)
-      ? "developing" : objective.status;
-    const status = !row?.worked && !hasJournalEntry
-      ? savedStatus || "untested"
-      : row?.state === "ready" ? "mastered" : row?.state || "untested";
-    return { ...objective, status };
+    // A review label is not proof that a linked question was answered.
+    // Preserve that label separately; only durable question evidence changes coverage.
+    const status = row?.state === "ready" ? "mastered" : row?.state || "untested";
+    return { ...objective, reviewStatus: objective.reviewStatus || objective.status, status, questionAttempts: row?.attempts || 0 };
   });
 }
 
@@ -25,7 +20,7 @@ export function lectureProgressCounts(objectives, evidence) {
 }
 
 export function blockProgressProjection({ blockId, lectures = [], objectives = {}, catalog: suppliedCatalog, evidence = {} }) {
-  const catalog = suppliedCatalog || selectBlockObjectives(objectives, blockId);
+  const catalog = (suppliedCatalog || selectBlockObjectives(objectives, blockId)).filter(row => !row.blockId || row.blockId === blockId);
   const identity = row => {
     const code = String(row.code || row.objectiveCode || "").replace(/\s/g, "").toLowerCase();
     return code ? `code:${code}` : `text:${String(row.objective || row.text || "").slice(0, 60).toLowerCase().replace(/\W/g, "")}`;

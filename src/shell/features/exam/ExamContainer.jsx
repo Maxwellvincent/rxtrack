@@ -598,6 +598,12 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
         scopedObjectives = focus.objectivesByLecture;
         if (!scopedLectures.length) throw new Error("No weak objectives need focused repair right now. Use a balanced exam to build more evidence.");
       }
+      if (launchConfig.targetObjectiveIds?.length) {
+        const selectedIds=new Set(launchConfig.targetObjectiveIds);
+        scopedObjectives=Object.fromEntries(Object.entries(objectivesByLecture).map(([id,list])=>[id,list.filter(objective=>selectedIds.has(objective.id))]).filter(([,list])=>list.length));
+        scopedLectures=eligibleLectures.filter(lecture=>scopedObjectives[lecture.lectureId]?.length).map(lecture=>({...lecture,objectiveCount:scopedObjectives[lecture.lectureId].length}));
+        if(!scopedLectures.length)throw new Error("These objectives need valid lecture links before a targeted retest can start.");
+      }
       const result = await launchExamSession(
         {
           userId,
@@ -677,7 +683,10 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   if (activeSessionId) {
     return (
       <div className="mx-auto w-full max-w-6xl p-4 sm:p-5">
+        {launchError && <p role="alert" className="mb-3 rounded border border-bad p-3 text-sm">{launchError}</p>}
         <ExamSessionRunner
+          retestBusy={launching}
+          onTargetedRetest={({objectives: targets,count})=>handleLaunch({format:"practice",questionCount:count,durationMinutes:examDurationMinutes(count),examName:`Targeted retest · ${count} questions`,studyMode:"balanced",targetObjectiveIds:targets.map(o=>o.id),includeSeen:false,startWhilePreparing:true})}
           onRecoverPreparation={session => recoverExamPreparation({ session, userId, pool: createQuestionPool(userId, blockId), generate: generateExamQuestions, context: { lecturesById, objectivesByLecture, atomsByLecture, lectures, ...(session.blueprintExam ? blueprintContext : {}), callAIJSON } }).catch(() => {})}
           sessionId={activeSessionId}
           userId={userId}

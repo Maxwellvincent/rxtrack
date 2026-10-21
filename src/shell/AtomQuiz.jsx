@@ -1,3 +1,5 @@
+import { questionLearningContext } from "../engine/learningLoop.js";
+import { LearningGapNote } from "../ui/LearningGapNote.jsx";
 import * as questionRatingsStore from "../stores/questionRatings.js";
 import { QuestionExplanation } from "../ui/QuestionExplanation.jsx";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
@@ -41,7 +43,7 @@ const GAP = {
 // Calibrated quiz over atom-generated questions: pick → rate confidence → reveal
 // gap. Confidence logs to the block's calibration record; session ends with the
 // accuracy-by-confidence curve + landmine list.
-export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "", lectureTitle = "", lectureNumber = null, lectureId = null, userId, onDone, onExit, onReviewAtom, onAnswer, onCheckpoint, initialState = null, expectedCount = null, preparing = false, onPrepareMore = null, preparationError = null }) {
+export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "", lectureTitle = "", lectureNumber = null, lectureId = null, userId, onDone, onExit, onReviewAtom, onAnswer, onCheckpoint, initialState = null, expectedCount = null, preparing = false, onPrepareMore = null, preparationError = null, objectiveReport = null, sessionKey = null }) {
   const [i, setI] = useState(() => Math.max(0, Number(initialState?.i) || 0));
   const [picked, setPicked] = useState(() => initialState?.picked ?? null);
   const [confidence, setConfidence] = useState(() => initialState?.confidence ?? null);
@@ -51,7 +53,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
   const [errorReason, setErrorReason] = useState(() => initialState?.errorReason ?? null);
   const questionStartedAtRef = useRef(null);
   const evidenceSessionId = useId();
-  const evidenceSessionKeyRef = useRef(`quiz:${lectureId || blockId}:${evidenceSessionId}`);
+  const evidenceSessionKeyRef = useRef(sessionKey || `quiz:${lectureId || blockId}:${evidenceSessionId}`);
   useEffect(() => { questionStartedAtRef.current = nowMs(); }, [i]);
   const currentIndex = Math.min(i, Math.max(0, questions.length - 1));
   const presentedStem = !done ? questions[currentIndex]?.stem : null;
@@ -89,7 +91,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
     if (lectureId) generatedQuestionsStore.setHighlights(userId, lectureId, stem, next);
   };
 
-  if (done) return <Summary records={records.filter(r => !questionRatingsStore.isExcluded(userId, r))} onExit={onExit} onReviewAtom={onReviewAtom} />;
+  if (done) return <Summary records={records.filter(r => !questionRatingsStore.isExcluded(userId, r))} onExit={onExit} onReviewAtom={onReviewAtom} objectiveReport={objectiveReport} />;
 
   const q = questions[currentIndex];
   if (!q) {
@@ -114,6 +116,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
     setConfidence(level);
     const rec = {
       questionKey: q.questionKey || q.poolId || q.id || q.questionId || `stem:${q.stem || ""}`,
+      learningContext: questionLearningContext(q, picked),
       concept: q.topic || q.stem.slice(0, 60),
       stem: q.stem.slice(0, 100),
       confidence: level,
@@ -144,6 +147,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
       correct: isCorrect,
       confidence: level,
       difficulty: q.difficulty || null,
+      ...(!isCorrect ? {learningContext: questionLearningContext(q, picked)} : {}),
       misconception: !isCorrect ? (level >= 4 ? "landmine" : "knowledge-gap") : null,
       responseMs,
       taskType: classifyLeadIn(q.stem),
@@ -355,6 +359,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
                 choices={q.choices}
               />
             )}
+            {!correct && <LearningGapNote key={q.questionKey || q.id || currentIndex} userId={userId} question={q} blockId={blockId} lectureId={lectureId} />}
             <details key={`review-tools-${currentIndex}-${q.id}`} className="text-sm">
               <summary className="cursor-pointer py-2 text-text-3 hover:text-text-1">Review tools · optional</summary>
               <div className="mt-2 space-y-2">
@@ -367,7 +372,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
                 <p className="mt-2 text-xs text-text-3">{q.sourceType === "question-bank" ? `Original school question from ${q.sourceFile || "your uploaded bank"}. Its source key is preserved; it has not been relabeled as independently reviewed advanced practice.` : hasCurrentReasoningAudit(q) ? "Checked against this lecture’s source and the current reasoning standard." : "This saved question used an earlier review standard. Fresh quizzes use the updated checks."}</p>
               </details>
             )}
-            <QuestionQualityRating userId={userId} question={q} />
+            <QuestionQualityRating userId={userId} question={{...q, lectureId:q.lectureId || lectureId}} />
             <div className="rounded border border-border p-3 text-sm">
               <strong>{q.generationMode === "grounded-fallback" ? "School objective supported" : "School objective practiced"}</strong>
               {q.objectiveTexts?.length ? q.objectiveTexts.map(o => <p key={o.id}>{o.code ? `${o.code} ` : ""}{o.text}</p>)
@@ -415,7 +420,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
   );
 }
 
-export function Summary({ records, onExit, onReviewAtom }) {
+export function Summary({ records, onExit, onReviewAtom, objectiveReport }) {
   const toReview = atomsToReview(records);
   const objectivesToRepair = objectivesToReview(records);
   const objectivesTested = new Set(records.flatMap((record) => record.objectiveIds || [])).size;
@@ -433,7 +438,8 @@ export function Summary({ records, onExit, onReviewAtom }) {
           </div>
         )}
       </div>
-      {objectivesToRepair.length > 0 && (
+      {objectiveReport}
+      {!objectiveReport && objectivesToRepair.length > 0 && (
         <section className="rounded-lg border border-bad bg-bg-elevated p-3" aria-labelledby="objectives-to-review-heading">
           <div id="objectives-to-review-heading" className="mb-2 font-mono text-[12px] uppercase tracking-wider text-bad">
             ⚠ {objectivesToRepair.length} school objective{objectivesToRepair.length === 1 ? "" : "s"} to review

@@ -37,3 +37,12 @@ it("preserves the practiced duplicate identity for blueprint readiness", () => {
  expect(context.objectivesByLecture.nb[0].id).toBe("practiced");
  expect(blueprintReadiness(3,context.objectivesByLecture,evidence)[0]).toMatchObject({practiced:1,untested:0});
 });
+it("uses the same question-only coverage denominator as the lecture map", async()=>{
+ const {blockProgressCounts}=await import("../../logic/blockProgress.js");
+ const active={NB:[objectives.NB[0],{id:"untouched",discipline:"ANAT",objective:"Describe a different source",linkedLecId:"nb",status:"mastered"},{id:"lab",activity:"LAB",discipline:"ANAT",linkedLecId:"nb",objective:"Lab-only task"}]};
+ const evidence={objectives:{"nb-obj":{attempts:1,correct:1,recent:[true]}}};
+ const context=blockBlueprintContext("NB",lectures,active,evidence);
+ const anatomy=blueprintReadiness(3,context.objectivesByLecture,evidence)[0];
+ const counts=blockProgressCounts({blockId:"NB",lectures,objectives:active,evidence});
+ expect(anatomy.items).toHaveLength(counts.total);expect(anatomy.untested).toBe(counts.untested);expect(anatomy.practiced).toBe(1);
+});

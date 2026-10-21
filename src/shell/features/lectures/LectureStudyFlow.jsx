@@ -1,3 +1,5 @@
+import { latestLearningRecords } from "../../../engine/learningLoop.js";
+import { ObjectiveLearningReport } from "../../../ui/ObjectiveLearningReport.jsx";
 import { lectureSourceObjectives } from "../../../engine/sourceObjectiveScope.js";
 import { schoolContinuationQuestions } from "./lectureQuizContinuation.js";
 import * as lectureMetadataStore from "../../../stores/lectures.js";
@@ -37,10 +39,9 @@ import { objectiveLectureNumberConflict } from "../../../engine/lectureIdentity.
 import { normalizeMissDiagnostic, reasoningGuidance } from "../../../engine/questionReasoning.js";
 import { buildClinicalCorrelateLibrary } from "../../../engine/clinicalCorrelates.js";
 import { tagAtomsWithObjectives } from "../../../engine/tagAtoms.js";
-import { createObjectiveCommands, selectBlockObjectives, selectLectureObjectives, setStatus, storageKeyFor, toEntry } from "../../logic/objectives.js";
+import { createObjectiveCommands, selectBlockObjectives, selectLectureObjectives } from "../../logic/objectives.js";
 import { extractObjectivesFromLecture } from "../../../ingest/objectives.js";
 import { useObjectives } from "../../hooks/useObjectives.js";
-import { resolveObjectiveTarget } from "../../logic/graduationGate.js";
 import * as objectivesStore from "../../../stores/blockObjectives.js";
 import * as performanceStore from "../../../stores/performance.js";
 import * as atomTermIndex from "../../../stores/atomTermIndex.js";
@@ -391,6 +392,7 @@ export function LectureStudyFlow({
   const [savedLectureQuizzes, setSavedLectureQuizzes] = useState(() => lectureQuizSessionsStore.read(userId, lecture?.id, blockId));
   const quizMetaRef = useRef(null);
   const [completedQuizSessionId, setCompletedQuizSessionId] = useState(null);
+  const [completedQuizRecords, setCompletedQuizRecords] = useState([]);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [objectiveNotice, setObjectiveNotice] = useState("");
@@ -406,6 +408,7 @@ export function LectureStudyFlow({
   const mismatchedLectureObjectives = useMemo(() => linkedObjectives
     .filter((objective) => objectiveLectureNumberConflict(objective, lecture)), [linkedObjectives, lecture]);
   const learnerEvidence = useStoreResource(learnerEvidenceStore, userId);
+  const recentLearningRecords = useMemo(()=>latestLearningRecords(learnerEvidence.data || {}, lecture?.id, blockId),[learnerEvidence.data,lecture?.id,blockId]);
   const lectureObjectives = useMemo(() => selectLectureObjectives(
     selectBlockObjectives(objectiveResource.data, blockId), lecture, learnerEvidence.data
   ), [objectiveResource.data, blockId, lecture, learnerEvidence.data]);
@@ -1371,8 +1374,9 @@ export function LectureStudyFlow({
     return () => { detach(); preparationRunRef.current += 1; };
   }, [lecture?.id, userId]);
 
-  const runQuiz = useCallback(async (count, difficulty, startingQuestions = [], continueSession = false) => {
-    if (!orderedObjectives.length && mismatchedLectureObjectives.length) {
+  const runQuiz = useCallback(async (count, difficulty, startingQuestions = [], continueSession = false, retestObjectives = null) => {
+    const quizObjectives = retestObjectives?.length ? objectivesWithPracticeEvidence(retestObjectives, learnerEvidence.data) : orderedObjectives;
+    if (!quizObjectives.length && mismatchedLectureObjectives.length) {
       setError("This lecture needs its objective links reviewed before questions can be prepared. Open More → Admin diagnostics → Objective source and lecture links.");
       return;
     }
@@ -1407,7 +1411,7 @@ export function LectureStudyFlow({
       .flatMap(session => (session.questions || []).slice(0, Math.max(0, Number(session.progress?.i) || 0) + 1))
       .map(question => question.stem));
     const validReserve = new Set(locallyValidClinicalQuestions(priorQuestions));
-    const adaptivePlan = buildAdaptiveObjectivePlan(orderedObjectives, count);
+    const adaptivePlan = buildAdaptiveObjectivePlan(quizObjectives, count);
     const adaptiveRank = new Map(adaptivePlan.map((objective, index) => [objective.id || objective.code, index]));
     const reserveCounts = new Map();
     const seedQuestions = (Array.isArray(startingQuestions) ? startingQuestions : [])
@@ -1493,7 +1497,7 @@ export function LectureStudyFlow({
 
     const job = startPreparationJob(jobKey, { userId, controller, count, difficulty, initialQuestions: reserve }, currentJob => withDeadline(async (signal) => prepareObjectiveQuiz(
       {
-        objectives: orderedObjectives,
+        objectives: quizObjectives,
         evidenceModel: learnerEvidence.data,
         initialQuestions: reserve,
         plannedCount: count,
@@ -1588,7 +1592,7 @@ export function LectureStudyFlow({
         generatedQuestionsStore.isQuestionUnseen(q) && !previouslyPresented.has(q.stem) &&
         validReserve.has(q) &&
         String(q?.difficulty || "").toLowerCase() === difficulty &&
-        (!orderedObjectives.length || q.objectiveIds?.length)
+        (!quizObjectives.length || q.objectiveIds?.length)
       );
       if (matching.length >= count) {
         startQuizSession([...matching].sort(() => Math.random() - 0.5).slice(0, count));
@@ -1799,6 +1803,7 @@ export function LectureStudyFlow({
         <AtomQuiz
           key={quizSessionId}
           questions={questions}
+          sessionKey={quizMetaRef.current?.id}
           initialState={quizResumeState}
           blockId={blockId}
           lectureId={lecture?.id ?? null}
@@ -1806,6 +1811,9 @@ export function LectureStudyFlow({
           blockName={blockName}
           lectureNumber={lecture?.lectureNumber ?? lecture?.number ?? null}
           userId={userId}
+          objectiveReport={<ObjectiveLearningReport objectives={lectureObjectives} evidence={learnerEvidence.data || {}} records={completedQuizRecords} busy={!!busy}
+            onReviewNotes={() => { setQuestions(null); setQuizResumeState(null); }}
+            onRetest={({count,objectives})=>runQuiz(count, "medium", [], false, objectives)} />}
           expectedCount={activeRequestedCount || questions.length}
           preparationError={stoppedShort ? error || pendingQuiz?.reason || quizMetaRef.current?.preparationShortfall : null}
           onPrepareMore={stoppedShort && !busy ? () => runQuiz(activeRequestedCount, questions[0]?.difficulty || "medium", questions, true) : null}
@@ -1822,18 +1830,16 @@ export function LectureStudyFlow({
           }}
           onReviewAtom={(atomKey) => { preparationRunRef.current += 1; setBusy(""); setQuizPreparation(null); setActiveRequestedCount(null); setQuestions(null); setQuizResumeState(null); setReviewAtomKey(atomKey); }}
           onDone={({ correct = 0, total = 0, avgConfidence = 0, hasLandmines = false, records = [] } = {}) => {
+            setCompletedQuizRecords(records.filter(record => !questionRatingsStore.isExcluded(userId, record, "objective")));
             setCompletedQuizSessionId(quizSessionId);
             lectureQuizSessionsStore.remove(userId, quizMetaRef.current?.id);
             quizMetaRef.current = null;
             // An ad-hoc quiz doesn't advance the round-resume bookmark — there is no sequence
-            // for it to be a position in — but it's always its own "last round" for the
-            // objective-status update below, since there's no next one coming.
+            // for it to be a position in. Linked answer evidence is recorded independently.
             const nextDone = adHocQuiz ? done : Math.max(done, round + 1);
-            let isLastRound = true;
             if (!adHocQuiz) {
               saveRoundProgress(userId, lecture?.id, nextDone);
               setDone(nextDone);
-              isLastRound = nextDone >= rounds.length;
             }
             setQStats(questionStats.statsForLecture(userId, lecture?.id));
             refreshAtomMastery();
@@ -1881,42 +1887,8 @@ export function LectureStudyFlow({
               });
             } catch { /* non-critical */ }
 
-            // Only update objective status after the final round of a session
-            if (!isLastRound) return;
-            try {
-              const perfStore = performanceStore.read(userId) || {};
-              const perfKey = `${lecture?.id}__${blockId}`;
-              const sessions = perfStore[perfKey]?.sessions || [];
-
-              const blockExamDate = examDates?.[blockId] ?? null;
-              const comprehensiveExamDate = examDates?.__comprehensive ?? null;
-
-              const objStore = objectivesStore.read(userId) || {};
-              let objs = selectBlockObjectives(objStore, blockId);
-              let changed = false;
-
-              for (const obj of lectureObjectives) {
-                const target = resolveObjectiveTarget({
-                  objective: obj,
-                  atoms,
-                  sessions,
-                  avgConfidence,
-                  hasLandmines,
-                  blockExamDate,
-                  comprehensiveExamDate,
-                  masterySummary: (atomKeys) => atomProgressStore.masterySummary(userId, lecture?.id, atomKeys),
-                });
-                if (target && obj.status !== target) {
-                  objs = setStatus(objs, obj.id, target, new Date());
-                  changed = true;
-                }
-              }
-              if (changed) {
-                const storeKey = storageKeyFor(objStore, blockId);
-                const nextEntry = toEntry(objStore[storeKey], objs);
-                objectivesStore.write(userId, { ...objStore, [storeKey]: nextEntry });
-              }
-            } catch { /* non-critical */ }
+            // Linked answers already update objective evidence in AtomQuiz. A lecture-level
+            // session score cannot establish practice or mastery for untouched objectives.
           }}
         />
         {isActiveQuizComplete(completedQuizSessionId, quizSessionId) && (
@@ -2315,6 +2287,7 @@ export function LectureStudyFlow({
       </nav>
 
       </header>
+      {recentLearningRecords.length>0 && <details className="my-3 rounded-lg border border-border p-3"><summary className="cursor-pointer font-semibold">Last practice · targeted follow-up</summary><div className="mt-3"><ObjectiveLearningReport objectives={lectureObjectives} evidence={learnerEvidence.data || {}} records={recentLearningRecords} busy={!!busy} onRetest={({count,objectives})=>runQuiz(count,"medium",[],false,objectives)} /></div></details>}
 
       {pendingQuiz && <div role="status" className="my-3 rounded-lg border border-border bg-panel p-3 text-sm">
         <strong>{pendingQuiz.questions.length}/{pendingQuiz.count} questions ready</strong>

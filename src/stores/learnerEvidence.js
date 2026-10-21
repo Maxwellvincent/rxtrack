@@ -9,7 +9,7 @@ const fallback = { version: 1, total: 0, correct: 0, objectives: {}, atoms: {}, 
 
 export function read(userId) {
   const stored = userId ? readCloud(userId, key, fallback) || fallback : readJson(userId, key, fallback) || fallback;
-  if (!stored.evidenceJournal && !stored.missTypeJournal && !stored.reflectionJournal) return stored;
+  if (!stored.evidenceJournal && !stored.missTypeJournal && !stored.reflectionJournal && !stored.learningNotes) return stored;
   const ratings = questionRatings.read(userId).ratings || {};
   const contested = excludedEvidenceKeys(ratings);
   const objectiveContested = excludedEvidenceKeys(ratings, "objective");
@@ -25,7 +25,7 @@ export function read(userId) {
       if (!objectives[id]) objectives[id] = { attempts: 0, correct: 0, recent: [], sessions: [], taskTypes: {}, orderLevels: {} };
     }
   }
-  return { ...stored, ...projected, objectives, evidenceBaseline: stored.evidenceBaseline, evidenceJournal: stored.evidenceJournal,
+  return { ...stored, ...projected, objectives, learningJournal: (stored.evidenceJournal || []).filter(event => !contested.has(questionEvidenceKey(event.questionKey)) && !objectiveContested.has(questionEvidenceKey(event.questionKey))), learningNotes: (stored.learningNotes || []).filter(note => !contested.has(questionEvidenceKey(note.questionKey)) && !objectiveContested.has(questionEvidenceKey(note.questionKey))), evidenceBaseline: stored.evidenceBaseline, evidenceJournal: stored.evidenceJournal,
     testTaking: { ...projected.testTaking, reasons: projectReflections(stored, userId), missTypes: projectMissTypes(stored, userId), diagnosticKeys: stored.testTaking?.diagnosticKeys || [] } };
 
 }
@@ -290,4 +290,17 @@ export function subscribe(cb) {
   const unsubEvidence = subscribeToCloudStore(key, cb);
   const unsubRatings = questionRatings.subscribe(cb);
   return () => { unsubEvidence(); unsubRatings(); };
+}
+
+/** Save a learner-authored sticking point without creating a graded answer. */
+export function recordLearningNote(userId, note, {persistAwait=false}={}) {
+ const stored = userId ? readCloud(userId, key, fallback) || fallback : readJson(userId, key, fallback) || fallback;
+ const text=String(note.note || "").trim().slice(0,600);
+ if(!text || !(note.objectiveIds || []).length) return stored;
+ const entry={...note,note:text,at:Date.now()};
+ const notes=(stored.learningNotes || []).filter(item=>item.questionKey!==entry.questionKey || item.blockId!==entry.blockId);
+ const next={...stored,learningNotes:[...notes,entry].slice(-300)};
+ if(userId && persistAwait)return writeCloudAwait(userId,key,next).then(()=>next);
+ if(userId) writeCloud(userId,key,next); else writeJson(userId,key,next);
+ return next;
 }

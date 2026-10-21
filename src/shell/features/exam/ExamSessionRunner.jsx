@@ -1,3 +1,8 @@
+import { ObjectiveLearningReport } from "../../../ui/ObjectiveLearningReport.jsx";
+import { questionLearningContext } from "../../../engine/learningLoop.js";
+import * as learnerEvidenceStore from "../../../stores/learnerEvidence.js";
+import { useStoreResource } from "../../hooks/useStoreResource.js";
+import { LearningGapNote } from "../../../ui/LearningGapNote.jsx";
 import { protectSessionScoring } from "../../../engine/questionScoringPolicy.js";
 import * as questionRatingsStore from "../../../stores/questionRatings.js";
 /**
@@ -474,6 +479,7 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
             {(q.explanation || Object.keys(q.whyWrong || {}).length > 0) && (
               <QuestionExplanation selectedLetter={picked} text={q.explanation} correctLetter={q.correct} whyWrong={q.whyWrong} choices={q.choices} sourceType={q.sourceType || session.sourceType} />
             )}
+            {!isCorrect && <LearningGapNote key={q.questionId} userId={userId} question={q} blockId={session.blockId} lectureId={q.lectureId} />}
             <QuestionQualityRating userId={userId} question={q} />
             {tutorModeEnabled && <TutorPanelForQuestion question={q} callAI={callAI} />}
             {currentIndex + 1 >= questions.length && session.fillStatus === "generating" ? (
@@ -505,7 +511,8 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
 // all. Now this always renders for a submitted format-"exam" session;
 // `tutorModeEnabled` only gates the `TutorPanelForQuestion` breakdown within
 // it, which is the actual preference-gated piece.
-function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, objectivesById, lectureLabelsByLectureId, onNavigateToLecture }) {
+function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, objectivesById, lectureLabelsByLectureId, onNavigateToLecture, onTargetedRetest, retestBusy }) {
+  const learningEvidence=useStoreResource(learnerEvidenceStore,userId);
   const [, refreshQuality] = useState(0);
   useEffect(() => questionRatingsStore.subscribe(() => refreshQuality(n => n + 1)), []);
   const questions = session.questions || [];
@@ -560,6 +567,9 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, object
         <details className="mt-2 text-sm"><summary className="cursor-pointer text-text-3">Lectures with no misses this session</summary>{lectureReviewSummary(protectSessionScoring(session, questionRatingsStore.read(userId).ratings), lectureLabelsByLectureId).filter(row => row.misses === 0).map(row => <p key={row.lectureId} className="mt-1">{row.label} · {row.correct}/{row.answered} correct</p>)}</details>
         <ul className="mt-2 space-y-2">{lectureReviewSummary(protectSessionScoring(session, questionRatingsStore.read(userId).ratings), lectureLabelsByLectureId).filter(row => row.misses > 0).map(row => <li key={row.lectureId} className="text-sm"><strong>{row.label}</strong> · {row.correct}/{row.answered} correct · {row.misses ? `${row.misses} missed — review this lecture, then try fresh questions` : "No misses in this session"}{onNavigateToLecture && row.misses > 0 && <button type="button" className="ml-2 text-accent underline" onClick={() => onNavigateToLecture(row.lectureId)}>Review lecture</button>}</li>)}</ul>
       </section>}
+      <ObjectiveLearningReport objectives={Object.values(objectivesById || {})} evidence={learningEvidence.data || {}}
+        records={scoreableAnswered.filter(q=>!questionRatingsStore.isExcluded(userId,q,"objective")).map(q=>({objectiveIds:q.objectiveIds || [],correct:pickedFor(session,q.questionId)===q.correct,learningContext:questionLearningContext(q,pickedFor(session,q.questionId))}))}
+        busy={retestBusy} onRetest={onTargetedRetest} />
       {unlinkedMisses > 0 && <p role="status" className="rounded-lg border border-warn/40 p-3 text-sm text-text-2">{unlinkedMisses} missed question{unlinkedMisses === 1 ? " is" : "s are"} saved but awaiting lecture links. These misses cannot yet identify a lecture to revisit.</p>}
       {incorrectCount > 0 && <div className="rounded-lg border border-accent/40 bg-bg-elevated p-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -595,6 +605,7 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, object
             <SchoolQuestionFigure question={q} userId={userId} />
             <ChoiceList questionId={q.questionId} choices={q.choices} choiceColumns={q.choiceColumns} choiceLayout={q.choiceLayout} picked={picked} revealed correct={q.correct} onPick={() => {}} />
             <div className="mt-2"><QuestionQualityRating userId={userId} question={q} /></div>
+            {picked != null && picked !== q.correct && <LearningGapNote key={q.questionId} userId={userId} question={q} blockId={session.blockId} lectureId={q.lectureId} />}
             {picked != null && picked !== q.correct && <details><summary className="cursor-pointer py-2 text-sm text-text-3">Review this miss · optional</summary><MissReflection userId={userId} question={q} /><MissDiagnosis question={q} selectedChoice={picked} onNavigateToLecture={onNavigateToLecture} onComplete={(diagnostic) => {
               recordMissType(userId, diagnostic.primaryType, `${session.sessionId}:${q.questionId}`);
             }} /></details>}
@@ -623,6 +634,8 @@ export function ExamSessionRunner({
   onExit,
   onSubmitted = null,
   onRecoverPreparation,
+  onTargetedRetest,
+  retestBusy = false,
   tutorModeEnabled = false,
   callAI,
 }) {
@@ -700,7 +713,7 @@ export function ExamSessionRunner({
         <SessionTitle session={session} />
         <div className="sticky top-2 z-10 flex items-center justify-between rounded-lg border border-border bg-bg-elevated p-2 shadow-sm"><div className="text-sm font-bold text-text-1">Submitted. {sessionLabel(session)} saved and graded.</div>{onExit && <Button onClick={onExit}>Done</Button>}</div>
         {(session.questions || []).length > 0 && (
-          <SubmittedExamReview session={session} tutorModeEnabled={tutorModeEnabled} callAI={callAI} userId={userId} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} onNavigateToLecture={onNavigateToLecture} />
+          <SubmittedExamReview onTargetedRetest={onTargetedRetest} retestBusy={retestBusy} session={session} tutorModeEnabled={tutorModeEnabled} callAI={callAI} userId={userId} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} onNavigateToLecture={onNavigateToLecture} />
         )}
       </div>
     );

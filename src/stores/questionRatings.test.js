@@ -86,3 +86,17 @@ it('migrates an older rating by evidence identity without leaving an exclusion b
  expect(ratings.isExcluded(user,q)).toBe(false);
  expect(Object.keys(ratings.read(user).ratings)).toHaveLength(1);
 });
+
+it("retains learning notes without grading them and suppresses contested question confusions", async () => {
+ const {recordLearningNote}=await import("./learnerEvidence.js");
+ const {learningFocus}=await import("../engine/learningLoop.js");
+ const user="learning-notes-user";
+ recordEvidence(user,{questionKey:"broken",objectiveIds:["o"],lectureId:"l",blockId:"NB",correct:false,learningContext:{selected:"Ovale",keyed:"Rotundum"}});
+ const before=readEvidence(user).total;
+ recordLearningNote(user,{questionKey:"broken",objectiveIds:["o"],lectureId:"l",blockId:"NB",note:"I confuse nerve exits"});
+ expect(readEvidence(user).total).toBe(before);
+ expect(learningFocus({objectives:[{id:"o"}],evidence:readEvidence(user),blockId:"NB"})).toContain("I confuse nerve exits");
+ ratings.rateQuestion(user,{id:"broken",lectureId:"l"},{sourceIssue:"incorrect-key"});
+ expect(learningFocus({objectives:[{id:"o"}],evidence:readEvidence(user),blockId:"NB"})).toBe("");
+ expect(readEvidence(user).evidenceJournal).toHaveLength(1);
+});

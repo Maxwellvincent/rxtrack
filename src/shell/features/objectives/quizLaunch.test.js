@@ -74,7 +74,7 @@ describe("quiz launch decisions", () => {
       ...result,
       [objective._adaptiveStatus]: (result[objective._adaptiveStatus] || 0) + objective._targetQuestionCount,
     }), {});
-    expect(totals).toEqual({ struggling: 11, developing: 4 });
+    expect(totals).toEqual({ struggling: 8, developing: 3, untested: 4 });
     expect(plan.reduce((sum, objective) => sum + objective._targetQuestionCount, 0)).toBe(15);
   });
 
@@ -85,7 +85,7 @@ describe("quiz launch decisions", () => {
       { id: "new", status: "untested" },
     ], 5);
     expect(plan.map((objective) => [objective.id, objective._targetQuestionCount])).toEqual([
-      ["repair", 3], ["develop", 2],
+      ["repair", 3], ["develop", 1], ["new", 1],
     ]);
   });
 
@@ -1013,4 +1013,13 @@ it("does not accept a reused source code when the objective wording describes un
  expect(prompt).toContain("viscerocranium");
  expect(prompt).not.toContain("wrong-fertilization");
  expect(prompt).not.toContain("blastocyst");
+});
+it("carries objective-specific contrasts and feedback into generation configuration",()=>{
+ const {config}=buildQuizConfig({userId:null,objectives:[{id:"o",linkedLecId:"l",objective:"Describe nerve exits"}],blockId:"NB",lectureIdHint:"l",feedback:{sampleSize:1,issueCounts:{"missing-clue":1}},evidenceModel:{objectives:{o:{attempts:1,correct:0}},learningJournal:[{objectiveIds:["o"],blockId:"NB",questionKey:"q",correct:false,learningContext:{selected:"Ovale",keyed:"Rotundum",topic:"Trigeminal exits"}}]},questionCount:4});
+ expect(config.focusNotes).toContain("Ovale");expect(config.focusNotes).toContain("Rotundum");
+ expect(config.feedback.issueCounts).toMatchObject({"missing-clue":1});
+});
+it("covers four selected untested objectives in a 15-question first pass",()=>{
+ const plan=buildAdaptiveObjectivePlan(Array.from({length:4},(_,i)=>({id:`new${i}`,status:"untested"})),15);
+ expect(plan.map(o=>o._targetQuestionCount)).toEqual([4,4,4,3]);
 });

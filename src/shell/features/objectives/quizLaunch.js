@@ -1,3 +1,6 @@
+import { learningFocus } from "../../../engine/learningLoop.js";
+import { getLearnerProfile } from "../../../stores/tutorSessions.js";
+import { feedbackFor } from "../../../stores/questionRatings.js";
 import { lectureSourceObjectives, repairSourceObjectiveLinks, sourceObjectiveTextConflict } from "../../../engine/sourceObjectiveScope.js";
 import { cleanSchoolQuestion } from "../../../engine/schoolSourceText.js";
 import { preparationErrorMessage } from "../../../preparationError.js";
@@ -99,6 +102,8 @@ export function buildAdaptiveObjectivePlan(objectives, questionCount) {
   };
 
   let remaining = count;
+  // A selected scope gets a first pass before extra repair questions when it fits.
+  if (count >= ordered.length) remaining -= addRoundRobin(ordered, ordered.length, 1);
   const focused = ordered.filter((objective) => Number(objective?._focusPriority) === 0);
   if (focused.length) {
     const focusSlots = Math.min(remaining, Math.max(focused.length, Math.ceil(count * 0.6)), focused.length * 3);
@@ -329,8 +334,10 @@ export function buildQuizConfig({
   focusNotes = "",
   evidenceModel = null,
   objectiveAllocation = null,
+  feedback = null,
 }) {
-  const pool = sortWeakestFirst(objectivesWithPracticeEvidence(objectives, evidenceModel || readLearnerEvidence(userId)));
+  const learnerModel = evidenceModel || readLearnerEvidence(userId);
+  const pool = sortWeakestFirst(objectivesWithPracticeEvidence(objectives, learnerModel));
   const count = resolveQuestionCount(questionCount, Math.max(pool.length, 1));
 
   // When no objectives, fall through to atom/text-based generation
@@ -370,11 +377,13 @@ export function buildQuizConfig({
       count,
       studyMode,
       reasoningPolicy,
+      feedback: feedback || feedbackFor(userId, lecture?.id || lectureIdHint, "v2"),
       clinicalCorrelateLibrary: recurringClinicalCorrelates,
       orderBlueprint: buildOrderBlueprint({ objectives: selected, count }),
       requireReasoningAudit: true,
       focusNotes: [
         String(focusNotes || "").trim(),
+        learningFocus({objectives:selected,evidence:learnerModel,blockId,lectureId:lecture?.id || lectureIdHint,tutorProfile:getLearnerProfile(userId)}),
         selected.length
           ? `ADAPTIVE OBJECTIVE ALLOCATION — follow these item counts before broad coverage:\n${selected.map((objective) => `- [${objective.id || objective.code}] ${objective._adaptiveStatus}: ${objective._targetQuestionCount} question${objective._targetQuestionCount === 1 ? "" : "s"}; ${reasoningPolicy === "challenge" ? "required" : "suggested"} ${objective._targetOrder || "second-order"}; ${objective._neededTaskTypes?.length ? `use a different task from ${objective._neededTaskTypes.join(", ")}` : "vary the final ask"}`).join("\n")}`
           : "",
@@ -557,6 +566,8 @@ export async function startObjectiveQuiz(args, deps = {}) {
         generationVersion: args.generationVersion,
         clinicalCorrelateLibrary: config.clinicalCorrelateLibrary,
         orderBlueprint: config.orderBlueprint,
+        focusNotes: config.focusNotes,
+        feedback: config.feedback,
       },
       deps
     )),

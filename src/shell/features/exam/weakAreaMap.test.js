@@ -27,7 +27,7 @@ describe("buildWeakAreaMap", () => {
     expect(rows[0]).toMatchObject({ totalQuestions: 5, correct: 1, misses: 4, accuracy: 0.2, objectivesUntested: 0, strugglingObjectives: 1 });
   });
 
-  it("counts explicitly rated objectives as seen and tolerates missing lecture metrics", () => {
+  it("keeps review-only ratings separate from question coverage", () => {
     const [row] = buildWeakAreaMap({
       lectures: [{ id: "l1", lectureTitle: "Lec 1" }],
       objectives: [
@@ -35,7 +35,7 @@ describe("buildWeakAreaMap", () => {
         { id: "b", linkedLecId: "l1", status: "untested" },
       ],
     });
-    expect(row).toMatchObject({ objectivesTested: 1, objectivesUntested: 1, accuracy: null, totalQuestions: 0 });
+    expect(row).toMatchObject({ objectivesTested: 0, objectivesUntested: 2, accuracy: null, totalQuestions: 0 });
   });
 });
 

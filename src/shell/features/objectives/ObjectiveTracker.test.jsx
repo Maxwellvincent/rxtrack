@@ -48,6 +48,7 @@ it("organizes objectives into an actionable readiness summary", () => {
         { id: "obj-2", linkedLecId: "lec-1", objective: "Compare hormone classes", status: "untested" },
         { id: "obj-3", objective: "Describe feedback loops", status: "untested" },
       ]}
+      learnerEvidence={{objectives:{"obj-1":{attempts:2,correct:0,recent:[false,false]}}}}
       onSelfRate={vi.fn()}
       onStartObjectiveQuiz={vi.fn()}
       onStudyLecture={onStudyLecture}

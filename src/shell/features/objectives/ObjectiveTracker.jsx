@@ -1091,7 +1091,7 @@ export default function ObjectiveTracker({
           <span>01 · Repair</span><strong>{countStruggling}</strong><small>Missed or unstable objectives</small><em>Open repair queue →</em>
         </button>
         <button type="button" className="desk-objective-focus-card desk-objective-focus-card--first" onClick={() => { setSubView("status"); setStatusFilter("untested"); }}>
-          <span>02 · First pass</span><strong>{countUntested}</strong><small>Objectives without evidence</small><em>Start first-pass review →</em>
+          <span>02 · First pass</span><strong>{countUntested}</strong><small>No linked question answers</small><em>Start first-pass review →</em>
         </button>
         <button type="button" className="desk-objective-focus-card desk-objective-focus-card--coverage" onClick={() => setSubView("coverage")}>
           <span>03 · Coverage</span><strong>{coveragePercent}%</strong><small>{testedCount} of {totalAll} linked objectives seen</small><em>Inspect lecture coverage →</em>
@@ -1101,7 +1101,7 @@ export default function ObjectiveTracker({
         {[
           { label: "Active objectives", value: totalAll, note: `${byLecture.length} lectures`, view: "lecture" },
           { label: "Needs repair", value: countStruggling, note: "Missed or struggling", view: "status", filter: "struggling" },
-          { label: "Untested", value: countUntested, note: "No evidence yet", view: "status", filter: "untested" },
+          { label: "Untested", value: countUntested, note: "No linked question answers", view: "status", filter: "untested" },
           { label: "Developing", value: countInprogress, note: "Building consistency", view: "status", filter: "inprogress" },
           { label: "Mastered", value: countMastered, note: "Current evidence", view: "status", filter: "mastered" },
           { label: "Practice questions", value: practiceAnswered.toLocaleString(), note: practiceAccuracy == null ? "No quiz evidence yet" : `${Math.round(practiceAccuracy * 100)}% accuracy`, view: "lecture" },

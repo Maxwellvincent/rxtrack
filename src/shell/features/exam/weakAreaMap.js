@@ -1,8 +1,9 @@
-const TESTED_STATUSES = new Set(["mastered", "developing", "inprogress", "struggling"]);
+import { objectivePracticePlan } from "../../../engine/objectivePractice.js";
 
 /** Combine lecture-level practice totals with linked-objective exposure. */
 export function buildWeakAreaMap({ lectures = [], objectives = [], questionStats = {}, learnerEvidence = {}, reportWeaknesses = [] } = {}) {
   const byLecture = new Map();
+  const practice = new Map(objectivePracticePlan(objectives, learnerEvidence).rows.map(row=>[row.id,row]));
   for (const objective of objectives || []) {
     const lectureId = objective?.linkedLecId || objective?.lectureId;
     if (!lectureId) continue;
@@ -11,10 +12,10 @@ export function buildWeakAreaMap({ lectures = [], objectives = [], questionStats
     const status = String(objective.status || "untested").toLowerCase();
     const row = byLecture.get(lectureId) || { total: 0, tested: 0, struggling: 0 };
     row.total += 1;
-    if (Number(evidence?.attempts) > 0 || TESTED_STATUSES.has(status)) row.tested += 1;
+    if (practice.get(id)?.worked) row.tested += 1;
     const recent = evidence?.recent || [];
     const recovering = recent.length >= 3 && recent.filter(Boolean).length / recent.length >= 0.8;
-    if (!recovering && (status === "struggling" || (Number(evidence?.attempts) > 0 && recent.at(-1) === false))) row.struggling += 1;
+    if (practice.get(id)?.worked && !recovering && (status === "struggling" || (Number(evidence?.attempts) > 0 && recent.at(-1) === false))) row.struggling += 1;
     byLecture.set(lectureId, row);
   }
 

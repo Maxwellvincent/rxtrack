@@ -67,3 +67,19 @@ it('continues from question 13 to the appended 14th and 15th without resetting t
  expect(props.onDone).not.toHaveBeenCalled();
  act(()=>root.unmount());
 });
+it('keeps a resumed quiz under one evidence session while counting fresh answered questions', async()=>{
+ const storage = new Map();
+ Object.defineProperty(globalThis,'localStorage',{value:{getItem:key=>storage.get(key) ?? null,setItem:(key,value)=>storage.set(key,String(value)),removeItem:key=>storage.delete(key)},configurable:true});
+ const {read}=await import('../stores/learnerEvidence.js');
+ const host=document.createElement('div');document.body.append(host);
+ const make=(id)=>({id,stem:`Which supplied relationship is tested by ${id}?`,choices:{A:'Source answer',B:'Other answer'},correct:'A',explanation:'Source explanation.',objectiveIds:['resume-objective'],generationMode:'grounded-fallback'});
+ for(const id of ['resume-first','resume-second']){
+  const root=createRoot(host);
+  act(()=>root.render(<AtomQuiz questions={[make(id)]} sessionKey="saved-quiz-identity" lectureId="resume-lecture" blockId="NB" userId={null}/>));
+  act(()=>host.querySelector('.quiz-choice').click());
+  act(()=>[...host.querySelectorAll('button')].find(button=>button.textContent.includes('Confident')).click());
+  act(()=>root.unmount());
+ }
+ expect(read(null).objectives['resume-objective']).toMatchObject({attempts:2,sessions:['saved-quiz-identity']});
+ host.remove();
+});

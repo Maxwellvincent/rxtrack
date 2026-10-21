@@ -99,9 +99,10 @@ vi.mock("./ExamLaunchModal.jsx", () => ({
 }));
 
 vi.mock("./ExamSessionRunner.jsx", () => ({
-  ExamSessionRunner: ({ sessionId, onExit, tutorModeEnabled }) => (
+  ExamSessionRunner: ({ sessionId, onExit, tutorModeEnabled, onTargetedRetest }) => (
     <div data-testid="session-runner" data-tutor-mode={tutorModeEnabled ? "true" : "false"}>
       runner for {sessionId}
+      <button data-testid="targeted-retest" onClick={()=>onTargetedRetest?.({objectives:[{id:"o1"}],count:4})}>Targeted retest</button>
       <button data-testid="exit-session" onClick={onExit}>exit</button>
     </div>
   ),
@@ -561,4 +562,18 @@ describe("ExamContainer", () => {
       unmount();
     });
   });
+});
+
+it("starts a short fresh retest restricted to the requested objective IDs", async()=>{
+ launchExamSessionMock.mockResolvedValueOnce({ok:true,sessionId:"initial"}).mockResolvedValueOnce({ok:true,sessionId:"retest"});
+ const ui=render(<ExamContainer userId="u1" blockId="b1" blockName="NB 1"/>);
+ await flush();
+ act(()=>[...ui.host.querySelectorAll("button")].find(button=>button.textContent.includes("Start Integrated Exam")).click());
+ await act(async()=>ui.host.querySelector('[data-testid="fire-launch"]').click());await flush();
+ await act(async()=>ui.host.querySelector('[data-testid="targeted-retest"]').click());await flush();
+ const config=launchExamSessionMock.mock.calls[1][0];
+ expect(config.questionCount).toBe(4);expect(config.includeSeen).toBe(false);
+ expect(config.eligibleLectures.map(l=>l.lectureId)).toEqual(["lec-1"]);
+ expect(config.objectivesByLecture["lec-1"].map(o=>o.id)).toEqual(["o1"]);
+ ui.unmount();
 });
