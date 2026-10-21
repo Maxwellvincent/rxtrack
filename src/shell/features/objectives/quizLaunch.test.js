@@ -1005,3 +1005,12 @@ it("replaces a foreign thyroid allocation with the two explicit olfaction source
  expect(prompt).toContain("0266"); expect(prompt).toContain("0267");
  expect(prompt).not.toContain("wrong-thyroid"); expect(prompt).not.toContain("pyramidal lobe");
 });
+it("does not accept a reused source code when the objective wording describes unrelated embryology", async () => {
+ const callAIJSON=vi.fn().mockResolvedValue({questions:[{stem:"Which skull bones form the viscerocranium?",choices:{A:"Facial bones",B:"Other bones"},correct:"A",explanation:"The lecture describes facial bones."}]});
+ const code="SOM.MKII.BPM2.1.NB.1.ANAT.0002";
+ await startObjectiveQuiz({lectureIdHint:"skull",blockId:"nb",objectives:[{id:"wrong-fertilization",code,linkedLecId:"skull",objective:"Briefly describe the process from fertilization to formation of the blastocyst and timeframe of events"}],lectureText:`# Objectives\n${code} Identify the bones that constitute the viscerocranium of the skull and the foramina found in this part of the skull\n# Lecture\nThe viscerocranium consists of facial bones and contains the described foramina.`,questionCount:1},{callAIJSON,skipQuestionAudit:true});
+ const prompt=callAIJSON.mock.calls.map(call=>String(call[1])).join("\n");
+ expect(prompt).toContain("viscerocranium");
+ expect(prompt).not.toContain("wrong-fertilization");
+ expect(prompt).not.toContain("blastocyst");
+});

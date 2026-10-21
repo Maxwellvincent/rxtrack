@@ -3,6 +3,10 @@ import { useState } from 'react';
 import { BPM_BLUEPRINTS, SUBJECT_LABELS, subjectTargets, objectiveSubject, bpmObjective } from './bpmBlueprint.js';
 import * as learnerEvidence from '../../../stores/learnerEvidence.js';
 import { useStoreResource } from '../../hooks/useStoreResource.js';
+export function compareBlueprintReviewPriority(a, b) {
+ const rank = item => item.accuracy == null ? 1 : item.accuracy < .7 ? 0 : 2;
+ return rank(a) - rank(b) || (a.accuracy ?? 2) - (b.accuracy ?? 2);
+}
 export function blueprintReadiness(exam,objectivesByLecture={},evidence={}) {
  const objectives=[...new Map(Object.entries(objectivesByLecture).flatMap(([lectureId,list])=>list.filter(bpmObjective).map(o=>[o.id||o.code,{...o,lectureId}]))).values()];
  return subjectTargets(exam,40).map(row=>{
@@ -31,7 +35,7 @@ export function BpmBlueprintDashboard({userId,blockId,objectivesByLecture,lectur
     <div className="flex h-40 items-end justify-center"><div className="flex h-full w-16 flex-col justify-end text-center"><strong>{row.accuracy==null?'No data':`${Math.round(row.accuracy*100)}%`}</strong><div aria-label={`${SUBJECT_LABELS[row.subject]} average objective accuracy`} className={`mt-1 w-full rounded-t ${row.accuracy!=null&&row.accuracy<.7?'bg-bad':'bg-accent'}`} style={{height:row.accuracy==null?'2px':`${Math.max(2,row.accuracy*100)}%`}} /></div></div>
     <h4 className="mt-2 font-bold">{SUBJECT_LABELS[row.subject]}</h4><p className="text-sm">{row.range.join('–')}% of test · {row.practiced}/{row.items.length} objectives practiced</p>
     <p className="mt-1 text-sm text-text-2">{row.weak} below 70% · {row.untested} untested</p>
-    <details className="mt-2 text-sm"><summary className="cursor-pointer">Review priorities</summary><ul className="mt-2 space-y-2">{[...row.items].sort((a,b)=>(a.accuracy??-.01)-(b.accuracy??-.01)).slice(0,8).map(o=><li key={o.id||o.code}><button type="button" onClick={()=>onReview?.(o.lectureId)} className="text-left underline">{o.objective||o.text||o.description||o.code||o.id}</button><span className="block text-text-2">{o.accuracy==null?'Untested':`${Math.round(o.accuracy*100)}% · ${o.attempts} linked answers`}</span></li>)}</ul></details>
+    <details className="mt-2 text-sm"><summary className="cursor-pointer">Review priorities</summary><p className="mt-2 text-xs text-text-2">Lowest recorded objective accuracy first, then untested material.</p><ul className="mt-2 space-y-2">{[...row.items].sort(compareBlueprintReviewPriority).slice(0,8).map(o=><li key={o.id||o.code}><button type="button" onClick={()=>onReview?.(o.lectureId)} className="text-left underline">{o.objective||o.text||o.description||o.code||o.id}</button><span className="block text-xs text-text-2">{lectures.find(lecture => lecture.id === o.lectureId)?.lectureTitle || "Linked lecture"} · {o.code || o.objectiveCode || "No source code"}</span><span className="block text-text-2">{o.accuracy==null?'Untested':`${Math.round(o.accuracy*100)}% · ${o.attempts} linked answers`}</span></li>)}</ul></details>
    </div>)}
   </div>
   <p className="mt-3 text-xs text-text-3">Each practiced objective has equal weight here. Uses its last 8 linked answers when available; this is practice accuracy, not a predicted exam score or mastery claim. Unclassified objectives are shown in exam settings.</p>

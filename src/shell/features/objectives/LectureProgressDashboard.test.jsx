@@ -83,3 +83,11 @@ it("filters due and upcoming reviews by actual review timing", () => {
  expect(host.querySelector('[aria-label*="objectives covered"]').getAttribute("aria-label")).toContain("Lecture 2");
  act(() => root.unmount()); host.remove();
 });
+it("puts the lowest measured lecture accuracy ahead of weak-objective proportions", () => {
+ installDomStorage(); const host=document.createElement("div"); document.body.append(host); const root=createRoot(host);
+ const rows=[{lec:{id:"a",lectureNumber:1},total:10,tested:10,coverage:100,m:0,ip:1,st:9,ut:0},{lec:{id:"b",lectureNumber:2},total:10,tested:10,coverage:100,m:0,ip:8,st:2,ut:0}];
+ act(()=>root.render(<LectureProgressDashboard rows={rows} evidence={{lectures:{a:{attempts:10,correct:5},b:{attempts:10,correct:2}}}}/>));
+ expect(host.querySelector('[aria-label*="objectives covered"]').getAttribute("aria-label")).toContain("Lecture 2");
+ expect(host.textContent).toContain("20% accuracy");
+ act(()=>root.unmount()); host.remove();
+});

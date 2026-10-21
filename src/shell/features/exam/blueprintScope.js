@@ -1,14 +1,14 @@
-import { selectBlockObjectives } from "../../logic/objectives.js";
+import { selectBlockObjectives, selectLectureObjectives } from "../../logic/objectives.js";
 import { formatLectureLabel } from "../../../lectureTitle.js";
 
 /** Subject weights never broaden a block exam's curriculum scope. CBSE owns cross-block practice. */
-export function blockBlueprintContext(blockId, lectures = [], objectiveStore = {}) {
+export function blockBlueprintContext(blockId, lectures = [], objectiveStore = {}, evidence = {}) {
   const scoped = lectures.filter(lecture => lecture?.blockId === blockId && !lecture.mergedInto);
-  const ids = new Set(scoped.map(lecture => lecture.id));
+  const catalog = selectBlockObjectives(objectiveStore, blockId).filter(objective => !objective.blockId || objective.blockId === blockId);
   const objectivesByLecture = {};
-  for (const objective of selectBlockObjectives(objectiveStore, blockId)) {
-    if (!ids.has(objective?.linkedLecId)) continue;
-    (objectivesByLecture[objective.linkedLecId] ||= []).push(objective);
+  for (const lecture of scoped) {
+    const objectives = selectLectureObjectives(catalog, lecture, evidence);
+    if (objectives.length) objectivesByLecture[lecture.id] = objectives;
   }
   return {
     lectures: scoped,

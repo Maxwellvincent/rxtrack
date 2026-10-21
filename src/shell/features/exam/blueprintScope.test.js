@@ -11,7 +11,7 @@ describe("block exam blueprint scope", () => {
   expect(Object.keys(context.atomsByLecture)).toEqual(["nb"]);
   const rows = blueprintReadiness(3, context.objectivesByLecture);
   expect(rows.flatMap(row => row.items).map(item => item.id)).toEqual(["nb-obj"]);
-  const complete = blockBlueprintContext("NB", lectures, { ...objectives, NB: [...objectives.NB, { id: "nb-n", linkedLecId: "nb", discipline: "NSCI" }, { id: "nb-h", linkedLecId: "nb", discipline: "HCB" }] });
+  const complete = blockBlueprintContext("NB", lectures, { ...objectives, NB: [...objectives.NB, { id: "nb-n", linkedLecId: "nb", discipline: "NSCI", objective:"Describe neural pathways" }, { id: "nb-h", linkedLecId: "nb", discipline: "HCB", objective:"Describe tissue layers" }] });
   const allocation = allocateBlueprint({ exam: 3, eligibleLectures: complete.eligibleLectures, objectivesByLecture: complete.objectivesByLecture, requestedCount: 40 });
   expect(allocation).toEqual({ "nb::bpm::anatomy": 20, "nb::bpm::neuroscience": 17, "nb::bpm::histology": 3 });
  });
@@ -24,4 +24,16 @@ describe("block exam blueprint scope", () => {
   expect(blockBlueprintBanks(banks, "NB", lectures).flatMap(bank => bank.questions).map(question => question.id)).toEqual(["nb", "linked"]);
   expect(banks[1].questions).toHaveLength(3);
  });
+});
+it("excludes conflicting block metadata and deduplicates exact objective codes", () => {
+ const context = blockBlueprintContext("NB", lectures, {NB: [objectives.NB[0], {...objectives.NB[0], id:"duplicate"}, {id:"foreign", linkedLecId:"nb", blockId:"ER", objective:"Foreign record"}]});
+ expect(context.objectivesByLecture.nb.map(o=>o.id)).toEqual(["nb-obj"]);
+});
+
+it("preserves the practiced duplicate identity for blueprint readiness", () => {
+ const original=objectives.NB[0];
+ const evidence={objectives:{practiced:{attempts:2,correct:1}}};
+ const context=blockBlueprintContext("NB",lectures,{NB:[original,{...original,id:"practiced"}]},evidence);
+ expect(context.objectivesByLecture.nb[0].id).toBe("practiced");
+ expect(blueprintReadiness(3,context.objectivesByLecture,evidence)[0]).toMatchObject({practiced:1,untested:0});
 });

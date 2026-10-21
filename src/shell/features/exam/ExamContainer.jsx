@@ -34,6 +34,8 @@ import { callAI, callAIJSON } from "../../../aiClient.js";
 import { createQuestionPool } from "../../../questionPool.js";
 import { listExamSessions } from "../../../supabase.js";
 import { cleanLectureTitle, formatLectureLabel } from "../../../lectureTitle.js";
+import * as learnerEvidenceStore from "../../../stores/learnerEvidence.js";
+import { useStoreResource } from "../../hooks/useStoreResource.js";
 import { read as readLearnerEvidence } from "../../../stores/learnerEvidence.js";
 import { buildFocusedRepairScope } from "./focusedRepair.js";
 import { sourceLabel } from "../../logic/questionBankAnalysis.js";
@@ -132,6 +134,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
 
   const lecturesRes = useLectures(blockId, userId);
   const objectivesRes = useObjectives(null, userId);
+  const blueprintEvidenceRes = useStoreResource(learnerEvidenceStore, userId);
   const questionStats = useLectureQuestionStats(userId);
 
   const lectures = useMemo(() => lecturesRes.data || [], [lecturesRes.data]);
@@ -216,8 +219,8 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   );
 
   const blueprintContext = useMemo(
-    () => blockBlueprintContext(blockId, lectures, objectivesRes.data || {}),
-    [blockId, lectures, objectivesRes.data]
+    () => blockBlueprintContext(blockId, lectures, objectivesRes.data || {}, blueprintEvidenceRes.data || {}),
+    [blockId, lectures, objectivesRes.data, blueprintEvidenceRes.data]
   );
 
   const questionBanksHydrated = useStoreHydrated(questionBanksStore, userId);

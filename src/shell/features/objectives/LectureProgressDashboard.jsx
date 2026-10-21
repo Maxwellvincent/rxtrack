@@ -8,6 +8,13 @@ const segments = [
  { key: "ut", label: "Not yet tested", symbol: "○", color: "#f3f4f6", pattern: "radial-gradient(#536171 1px, transparent 1px)", size: "6px 6px" },
 ];
 const segmentStyle = segment => ({ backgroundColor: segment.color, backgroundImage: segment.pattern, backgroundSize: segment.size, borderTop: "1px solid #17212b" });
+export function lectureReviewAccuracy(lecture, evidence = {}, getLecPerf, blockId) {
+ const stats = evidence.lectures?.[lecture.id];
+ if (stats?.recent?.length >= 3) return stats.recent.filter(Boolean).length / stats.recent.length;
+ if (stats?.attempts > 0) return stats.correct / stats.attempts;
+ const score = getLecPerf?.(lecture, blockId)?.lastScore;
+ return typeof score === "number" && Number.isFinite(score) ? Math.max(0, Math.min(1, score / 100)) : null;
+}
 export function lectureReviewActivity(lecture, blockId, completion = {}, evidence = {}, getLecPerf) {
  const ids = [...new Set([lecture.id, ...(lecture.mergedFrom || []).map(row => row.id)])];
  const reviews = ids.flatMap(id => completion?.[`${id}__${blockId}`]?.activityLog || []).filter(row => row.activityType === "review");
@@ -26,11 +33,16 @@ export function LectureProgressDashboard({ rows = [], completion = {}, evidence 
  const [clock, setClock] = useState(Date.now);
  useEffect(() => { const timer = setInterval(() => setClock(Date.now()), 60000); return () => clearInterval(timer); }, []);
  const now = suppliedNow ?? clock;
+ const accuracyFor = row => lectureReviewAccuracy(row.lec, evidence, getLecPerf, blockId);
  const timingFor = row => lectureReviewTiming(row, blockId, completion, evidence, getLecPerf, now);
  const [page, setPage] = useState(0);
  const [filter, setFilter] = useState("all"), [selectedId, setSelectedId] = useState(null);
  const ordered = useMemo(() => [...rows].filter(row => row.total > 0).filter(row => filter === "all" || (filter === "repair" ? row.st > 0 : filter === "new" ? row.ut > 0 : filter === "due" || filter === "upcoming" ? timingFor(row).status === filter : lectureReviewCount(row.lec, blockId, completion, evidence, getLecPerf) > 0))
-  .sort((a, b) => (["due", "upcoming"].includes(filter) ? String(timingFor(a).nextReview).localeCompare(String(timingFor(b).nextReview)) : filter === "reviewed" ? (timingFor(b).lastReviewedAt || 0) - (timingFor(a).lastReviewedAt || 0) : 0) || (filter === "new" ? (b.ut / b.total) - (a.ut / a.total) || b.ut - a.ut : 0) || (b.st / b.total) - (a.st / a.total) || (b.ut / b.total) - (a.ut / a.total) || Number(a.lec.lectureNumber || 0) - Number(b.lec.lectureNumber || 0)), [rows, filter, blockId, completion, evidence, getLecPerf, now]);
+  .sort((a, b) => (["due", "upcoming"].includes(filter) ? String(timingFor(a).nextReview).localeCompare(String(timingFor(b).nextReview)) : filter === "reviewed" ? (timingFor(b).lastReviewedAt || 0) - (timingFor(a).lastReviewedAt || 0) : 0) || (["all", "repair"].includes(filter) ? (() => {
+   const aAccuracy = accuracyFor(a), bAccuracy = accuracyFor(b);
+   const aWeak = aAccuracy != null && aAccuracy < .8, bWeak = bAccuracy != null && bAccuracy < .8;
+   return Number(bWeak) - Number(aWeak) || (aWeak && bWeak ? aAccuracy - bAccuracy : 0);
+  })() : 0) || (filter === "new" ? (b.ut / b.total) - (a.ut / a.total) || b.ut - a.ut : 0) || (b.st / b.total) - (a.st / a.total) || (b.ut / b.total) - (a.ut / a.total) || Number(a.lec.lectureNumber || 0) - Number(b.lec.lectureNumber || 0)), [rows, filter, blockId, completion, evidence, getLecPerf, now]);
  const currentPage = Math.min(page, Math.max(0, Math.ceil(ordered.length / 6) - 1));
  const visible = ordered.slice(currentPage * 6, currentPage * 6 + 6);
  const selected = visible.find(row => row.lec.id === selectedId) || visible[0];
@@ -38,7 +50,7 @@ export function LectureProgressDashboard({ rows = [], completion = {}, evidence 
   <h3 className="text-lg font-bold">Where to focus next</h3>
   <p className="mt-1 text-sm text-text-2">Your six highest-priority lectures come first. Select a bar to review or quiz that lecture. Question practice counts as review activity. Objective coverage and mastery are tracked separately.</p>
   <div className="my-3 flex flex-wrap gap-2">{[["all", "All lectures"], ["repair", "Needs review"], ["new", "Not yet tested"], ["due", "Due for review"], ["upcoming", "Upcoming reviews"], ["reviewed", "Reviewed"]].map(([key, label]) => <button type="button" key={key} aria-pressed={filter === key} onClick={() => { setFilter(key); setSelectedId(null); setPage(0); }} className={`rounded-lg border px-3 py-2 text-sm ${filter === key ? "border-accent bg-accent/10" : "border-border"}`}>{label}</button>)}</div>
-  <p className="mb-3 text-xs text-text-2">{["due", "upcoming"].includes(filter) ? "Review dates run left to right: earliest due first." : filter === "reviewed" ? "Most recently reviewed lectures come first." : filter === "new" ? "Priority runs left to right: highest percentage of untested objectives first." : "Priority runs left to right: lectures with the most weak objectives proportionally come first."}</p>
+  <p className="mb-3 text-xs text-text-2">{["due", "upcoming"].includes(filter) ? "Review dates run left to right: earliest due first." : filter === "reviewed" ? "Most recently reviewed lectures come first." : filter === "new" ? "Priority runs left to right: highest percentage of untested objectives first." : "Priority runs left to right: lowest recorded lecture accuracy first, then weak and untested objectives."}</p>
   <ul className="mb-3 flex flex-wrap gap-4 text-xs" aria-label="Chart legend">{segments.map(segment => <li key={segment.key} className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded-sm" style={segmentStyle(segment)} />{segment.symbol} {segment.label}</li>)}</ul>
   <div className="mb-3 flex flex-wrap items-center justify-between gap-2" aria-label="Lecture priority pages">
    <p className="text-sm font-semibold" aria-live="polite">{ordered.length ? currentPage === 0 ? `Top ${visible.length} of ${ordered.length} lectures` : `Priorities ${currentPage * 6 + 1}–${currentPage * 6 + visible.length} of ${ordered.length}` : "No matching lectures"}</p>
@@ -51,6 +63,7 @@ export function LectureProgressDashboard({ rows = [], completion = {}, evidence 
     return <button type="button" key={row.lec.id} aria-pressed={selected?.lec.id === row.lec.id} aria-label={`${label}: ${row.tested} of ${row.total} objectives covered, ${row.st} need review, ${row.ut} not yet tested, ${reviews} logged reviews`} onClick={() => setSelectedId(row.lec.id)} className={`flex min-w-0 flex-col items-center rounded-lg border p-2 text-center ${selected?.lec.id === row.lec.id ? "border-accent bg-accent/5" : "border-transparent"}`}>
      <span className="mb-1 text-xs text-text-2">#{currentPage * 6 + index + 1} priority</span>
      <strong className="text-sm">{row.coverage}% tested</strong>
+     <span className="text-xs">{accuracyFor(row) == null ? "No accuracy data" : `${Math.round(accuracyFor(row) * 100)}% accuracy`}</span>
      <div className="my-2 flex h-48 w-12 flex-col-reverse overflow-hidden rounded-t border border-border" aria-hidden="true">{segments.filter(segment => row[segment.key] > 0).map(segment => <span key={segment.key} style={{ flex: `0 0 ${100 * row[segment.key] / row.total}%`, ...segmentStyle(segment) }} />)}</div>
      <strong className="text-xs">{row.lec.lectureType || "LEC"} {row.lec.lectureNumber ?? ""}</strong>
      <span className="mt-1 line-clamp-2 w-full text-xs" style={{ overflowWrap: "anywhere" }} title={label}>{row.lec.lectureTitle || row.lec.title || label}</span>

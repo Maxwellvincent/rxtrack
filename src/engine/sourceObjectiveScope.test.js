@@ -20,3 +20,13 @@ it("preserves manual links and uses stable IDs for newly recovered source object
  expect(lectureSourceObjectives(text, lecture, "NB").map(row => row.id)).toEqual(source.map(row => row.id));
  expect(repairSourceObjectiveLinks([{ id: "manual", manuallyAligned: true, linkedLecId: lecture.id }], lecture, source)[0].linkedLecId).toBe(lecture.id);
 });
+it("quarantines reused codes with unrelated wording and recovers the actual slide objective", () => {
+ const code="SOM.MKII.BPM2.1.NB.1.ANAT.0002";
+ const skull={id:"skull",blockId:"NB"};
+ const original=[{id:"wrong",code,linkedLecId:"skull",objective:"Briefly describe the process from fertilization to the formation of the blastocyst, paying attention to location and timeframe",attempts:4,personalNotes:"Preserve"}];
+ const source=[{id:"source:skull:"+code,code,linkedLecId:"skull",objective:"Identify the bones that constitute the viscerocranium of the skull and the foramina found in this part of the skull"}];
+ const repaired=repairSourceObjectiveLinks(original,skull,source);
+ expect(repaired[0]).toMatchObject({linkedLecId:null,attempts:4,personalNotes:"Preserve",lectureLinkRepair:{reason:"source-code-wording-conflict"}});
+ expect(repaired.filter(row=>row.linkedLecId==="skull")).toEqual(source);
+ expect(repairSourceObjectiveLinks(repaired,skull,source)).toBe(repaired);
+});

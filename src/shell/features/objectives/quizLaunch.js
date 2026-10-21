@@ -1,4 +1,4 @@
-import { lectureSourceObjectives, repairSourceObjectiveLinks } from "../../../engine/sourceObjectiveScope.js";
+import { lectureSourceObjectives, repairSourceObjectiveLinks, sourceObjectiveTextConflict } from "../../../engine/sourceObjectiveScope.js";
 import { cleanSchoolQuestion } from "../../../engine/schoolSourceText.js";
 import { preparationErrorMessage } from "../../../preparationError.js";
 import { withDeadline } from "../../../asyncDeadline.js";
@@ -507,10 +507,11 @@ function sourceScopedQuizArgs(args) {
   if (!source.length) return args;
   const code = row => String(row?.code || row?.objectiveCode || "").replace(/\s/g, "").toUpperCase();
   const supported = new Set(source.map(code));
-  if (args.objectives?.length && args.objectives.every(row => supported.has(code(row)))) return args;
+  const matchesSource = row => supported.has(code(row)) && !sourceObjectiveTextConflict(row, source.find(item => code(item) === code(row)));
+  if (args.objectives?.length && args.objectives.every(matchesSource)) return args;
   const repaired = repairSourceObjectiveLinks(args.objectives || [], lecture, source);
-  return { ...args, objectives: repaired.filter(row => row.linkedLecId === lecture.id && supported.has(code(row))),
-    objectiveAllocation: args.objectiveAllocation?.every(row => supported.has(code(row))) ? args.objectiveAllocation : null };
+  return { ...args, objectives: repaired.filter(row => row.linkedLecId === lecture.id && matchesSource(row)),
+    objectiveAllocation: args.objectiveAllocation?.every(matchesSource) ? args.objectiveAllocation : null };
 }
 
 export async function startObjectiveQuiz(args, deps = {}) {
