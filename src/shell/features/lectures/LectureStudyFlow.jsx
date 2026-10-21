@@ -1,3 +1,4 @@
+import { lectureSourceObjectives } from "../../../engine/sourceObjectiveScope.js";
 import { schoolContinuationQuestions } from "./lectureQuizContinuation.js";
 import * as lectureMetadataStore from "../../../stores/lectures.js";
 import { streamedTutorFeedback } from "../../../llmBridge.js";
@@ -37,7 +38,7 @@ import { normalizeMissDiagnostic, reasoningGuidance } from "../../../engine/ques
 import { buildClinicalCorrelateLibrary } from "../../../engine/clinicalCorrelates.js";
 import { tagAtomsWithObjectives } from "../../../engine/tagAtoms.js";
 import { createObjectiveCommands, selectBlockObjectives, selectLectureObjectives, setStatus, storageKeyFor, toEntry } from "../../logic/objectives.js";
-import { extractCodeDelimited, extractObjectivesFromLecture } from "../../../ingest/objectives.js";
+import { extractObjectivesFromLecture } from "../../../ingest/objectives.js";
 import { useObjectives } from "../../hooks/useObjectives.js";
 import { resolveObjectiveTarget } from "../../logic/graduationGate.js";
 import * as objectivesStore from "../../../stores/blockObjectives.js";
@@ -1066,14 +1067,14 @@ export function LectureStudyFlow({
 
   useEffect(() => {
     if (objectiveResource.loading || !text || !lecture?.id) return;
-    const sourceObjectives = extractCodeDelimited(text, lecture, blockId);
-    if (sourceObjectives.length < 3) return;
+    const sourceObjectives = lectureSourceObjectives(text, lecture, blockId);
+    if (!sourceObjectives.length) return;
     const commands = createObjectiveCommands({
       read: () => objectivesStore.read(userId) || {},
       write: next => objectivesStore.write(userId, next),
       notify: () => window.dispatchEvent(new CustomEvent("rxt-objectives-updated")),
     });
-    const repaired = commands.repairCranialLinks(blockId, lecture, sourceObjectives, lectureMetadataStore.read(userId));
+    const repaired = commands.repairSourceLinks(blockId, lecture, sourceObjectives);
     if (repaired) setObjectiveNotice("Lecture objective links repaired from the source codes. Your notes and practice history were preserved.");
   }, [text, lecture, blockId, userId, objectiveResource.loading, objectiveResource.data]);
 

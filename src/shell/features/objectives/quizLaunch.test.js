@@ -996,3 +996,12 @@ it('keeps school policy explicit in final-slot refills instead of forcing a nove
  expect(prompt).toContain('school-level recognition item or one supported clinical application');
  expect(prompt).not.toContain('without adding unsupported facts or weakening the requested order');
 });
+
+it("replaces a foreign thyroid allocation with the two explicit olfaction source objectives before drafting", async () => {
+ const callAIJSON = vi.fn().mockResolvedValue({ questions: [{ stem: "Which component detects odorants?", choices: { A: "Olfactory receptor neuron", B: "Other neuron" }, correct: "A", explanation: "The supplied lecture describes olfactory receptor neurons." }] });
+ await startObjectiveQuiz({ lectureIdHint: "olfaction", lectureTitle: "Chemical Senses: Olfaction", blockId: "nb", objectives: [{ id: "wrong-thyroid", linkedLecId: "olfaction", objective: "Describe the thyroid gland and pyramidal lobe" }],
+  lectureText: "# Objectives\nSOM.MK.I.BPM2.1.NB.1.NSCI.0266 Describe smell qualities and the functional anatomy of the olfactory system\nSOM.MK.I.BPM2.1.NB.1.NSCI.0267 Describe the olfactory pathways and cortical areas\n# Olfactory stimuli\nOlfactory receptor neurons detect odorants and transmit signals through the olfactory bulb.\n".repeat(1), questionCount: 2 }, { callAIJSON, skipQuestionAudit: true });
+ const prompt = callAIJSON.mock.calls.map(call => String(call[1])).join("\n");
+ expect(prompt).toContain("0266"); expect(prompt).toContain("0267");
+ expect(prompt).not.toContain("wrong-thyroid"); expect(prompt).not.toContain("pyramidal lobe");
+});

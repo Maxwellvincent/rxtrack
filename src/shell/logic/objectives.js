@@ -1,3 +1,4 @@
+import { repairSourceObjectiveLinks } from "../../engine/sourceObjectiveScope.js";
 import { repairCranialLectureLinks } from "../../engine/cranialLectureScope.js";
 import { objectiveLectureNumberConflict } from "../../engine/lectureIdentity.js";
 /**
@@ -428,6 +429,8 @@ export function createObjectiveCommands({ read, write, now = () => new Date().to
       apply(blockId, (objs) => deleteObjectives(objs, objIds)),
     deleteUnlinked: (blockId, blockLectures) =>
       apply(blockId, (objs) => deleteUnlinked(objs, blockLectures)),
+    repairSourceLinks: (blockId, lecture, incoming) =>
+      apply(blockId, objs => repairSourceObjectiveLinks(objs, lecture, incoming)),
     repairCranialLinks: (blockId, lecture, incoming, lectures) =>
       apply(blockId, objs => repairCranialLectureLinks(objs, lecture, incoming, lectures)),
     replaceLectureObjectives: (blockId, lecId, incoming) =>

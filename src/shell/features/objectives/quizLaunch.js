@@ -1,3 +1,4 @@
+import { lectureSourceObjectives, repairSourceObjectiveLinks } from "../../../engine/sourceObjectiveScope.js";
 import { cleanSchoolQuestion } from "../../../engine/schoolSourceText.js";
 import { preparationErrorMessage } from "../../../preparationError.js";
 import { withDeadline } from "../../../asyncDeadline.js";
@@ -498,7 +499,22 @@ export function buildGroundedRecallQuestions({ atoms = [], objectives = [], coun
  * determine which questions are selected or force one question per definition/mechanism. This
  * keeps objective comparison/prediction tasks visible even when extraction produced many atoms.
  */
+function sourceScopedQuizArgs(args) {
+  const lecture = (args.lectures || []).find(row => row.id === args.lectureIdHint)
+    || (args.lectureIdHint ? { id: args.lectureIdHint, blockId: args.blockId, lectureTitle: args.lectureTitle } : null);
+  if (!lecture || !args.lectureText) return args;
+  const source = lectureSourceObjectives(args.lectureText, lecture, args.blockId);
+  if (!source.length) return args;
+  const code = row => String(row?.code || row?.objectiveCode || "").replace(/\s/g, "").toUpperCase();
+  const supported = new Set(source.map(code));
+  if (args.objectives?.length && args.objectives.every(row => supported.has(code(row)))) return args;
+  const repaired = repairSourceObjectiveLinks(args.objectives || [], lecture, source);
+  return { ...args, objectives: repaired.filter(row => row.linkedLecId === lecture.id && supported.has(code(row))),
+    objectiveAllocation: args.objectiveAllocation?.every(row => supported.has(code(row))) ? args.objectiveAllocation : null };
+}
+
 export async function startObjectiveQuiz(args, deps = {}) {
+  args = sourceScopedQuizArgs(args);
   const atoms = Array.isArray(args.atoms) ? args.atoms : [];
   const built = buildQuizConfig(args);
   // Only error out if no objectives AND no atoms AND no lecture text hint
@@ -572,6 +588,8 @@ export function remainingObjectiveAllocation(plan = [], answered = [], limit = 5
  * Refill only the missing slots and carry accepted stems forward so retries stay fresh.
  */
 export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {}) {
+  args = sourceScopedQuizArgs(args);
+
   // Draft, review and repair share one wall-clock budget. Independent per-call
   // five-minute timeouts otherwise multiply into a very long preparation run.
   const startedAt = Date.now();
