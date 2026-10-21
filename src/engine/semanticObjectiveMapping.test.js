@@ -22,3 +22,11 @@ it('does not borrow evidence from another block or supplementary resource',()=>{
  expect(objectiveMappingContext(question,lectures.map(l=>({...l,blockId:'ER'})),objectives,'NB').candidates).toEqual([]);
  expect(objectiveMappingContext(question,lectures.map(l=>({...l,lectureType:'SG'})),objectives,'NB').candidates).toEqual([]);
 });
+
+it('retrieves the keyed glial-cell relationship despite long unrelated lecture sections',async()=>{
+ const {mappingLectureExcerpt}=await import('./semanticObjectiveMapping.js');
+ const source=('Neurons transmit impulses. Soma and dendrites receive input. '.repeat(400))+' Astrocytes: key functions include maintaining the blood-brain barrier and regulating extracellular potassium. '+('Oligodendrocytes provide myelin in the CNS. '.repeat(300));
+ const excerpt=mappingLectureExcerpt(source,{stem:'Which glial cell contributes to the blood-brain barrier?',choices:{A:'Astrocytes',B:'Oligodendrocytes'},correct:'A'});
+ expect(excerpt).toContain('Astrocytes: key functions include maintaining the blood-brain barrier');
+ expect(excerpt.length).toBeLessThanOrEqual(2800);
+});
