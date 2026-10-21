@@ -1,3 +1,4 @@
+import { scheduleLectureCandidates, curriculumMappingProvenance } from '../../../engine/curriculumMappingContext.js';
 import { automaticLectureContentMatch } from "../../logic/lectureContentMatch.js";
 import { cleanSchoolQuestion } from "../../../engine/schoolSourceText.js";
 import { cleanLectureTitle, formatLectureLabel } from "../../../lectureTitle.js";
@@ -103,11 +104,17 @@ export function linkSourceLecture(question, lectures = [], blockId) {
   if (question.curriculumLinkStatus === "user-confirmed" && lectures.some(l => l.id === question.lectureId && (!l.blockId || l.blockId === blockId))) return question;
   const clue = sourceLectureClue(question);
   if (!clue) {
-    const match = automaticLectureContentMatch(question, lectures, blockId);
+    const localLectures = lectures.filter(l => !l.blockId || l.blockId === blockId);
+    const scheduled = scheduleLectureCandidates(question, localLectures);
+    const broadMatch = automaticLectureContentMatch(question, localLectures, blockId);
+    const scheduledMatch = scheduled.length ? automaticLectureContentMatch(question, scheduled, blockId) : null;
+    // A schedule hint may resolve ambiguity, but must not contradict clear content.
+    const match = broadMatch || scheduledMatch;
     if (!match) return question;
     return { ...question, lectureId: match.lecture.id, lectureLabel: formatLectureLabel(match.lecture),
       curriculumLinkStatus: "content-matched", lectureLinkBasis: "distinctive-lecture-topic",
-      lectureLinkEvidence: match.titleEvidence, candidateLectureLinks: [] };
+      lectureLinkEvidence: match.titleEvidence,
+      curriculumMapping: curriculumMappingProvenance(question, match.lecture, blockId, broadMatch ? "distinctive-lecture-topic" : "schedule-and-distinctive-topic"), candidateLectureLinks: [] };
   }
   const cleanTitle = value => normalize(cleanLectureTitle(value).replace(/&/g, " and ").replace(/^(?:lecture|lec|nb|n)\s*0*\d+\s*(?:[:.·–—-]\s*)?/i, "").replace(/^(?:nb|n)\s*0*\d+\s*/, ""));
   const expectedTitle = cleanTitle(clue.title);
@@ -120,7 +127,7 @@ export function linkSourceLecture(question, lectures = [], blockId) {
     return Number(number) === clue.number && (!expectedTitle || cleanTitle(title) === expectedTitle);
   });
   if (candidates.length !== 1) return question;
-  return { ...question, lectureId: candidates[0].id, lectureLabel: formatLectureLabel(candidates[0]), curriculumLinkStatus: "source-label-matched", lectureLinkBasis: "explicit-source-number-and-title", sourceLectureClue: clue.label, sourceLectureNumber: clue.number };
+  return { ...question, lectureId: candidates[0].id, lectureLabel: formatLectureLabel(candidates[0]), curriculumLinkStatus: "source-label-matched", lectureLinkBasis: "explicit-source-number-and-title", sourceLectureClue: clue.label, sourceLectureNumber: clue.number, curriculumMapping: curriculumMappingProvenance(question, candidates[0], blockId, "explicit-source-number-and-title") };
 }
 
 export function lectureReviewSummary(session, labels = {}) {

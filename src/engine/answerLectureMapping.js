@@ -10,9 +10,9 @@ export function mapAnsweredLectureQuestions(sessions=[],lectures=[],blockId) {
   for(const question of session.questions || []){
    if(!answered.has(question.questionId))continue;
    if(question.lectureId && allowed.some(l=>l.id===question.lectureId))continue;
-   const linked=linkSourceLecture(question,allowed,blockId);
+   const linked=linkSourceLecture({...question, sourceTitle:question.sourceTitle || session.sourceTitle || session.title, weekNumber:question.weekNumber ?? session.weekNumber},allowed,blockId);
    if(!linked.lectureId || !allowed.some(l=>l.id===linked.lectureId))continue;
-   changes.push({sessionId:session.sessionId,questionId:question.questionId,lectureId:linked.lectureId,lectureLabel:linked.lectureLabel,curriculumLinkStatus:linked.curriculumLinkStatus,lectureLinkBasis:linked.lectureLinkBasis,lectureLinkEvidence:linked.lectureLinkEvidence || [linked.sourceLectureClue].filter(Boolean)});
+   changes.push({sessionId:session.sessionId,questionId:question.questionId,lectureId:linked.lectureId,lectureLabel:linked.lectureLabel,...(linked.curriculumMapping?{curriculumMapping:linked.curriculumMapping}:{}),curriculumLinkStatus:linked.curriculumLinkStatus,lectureLinkBasis:linked.lectureLinkBasis,lectureLinkEvidence:linked.lectureLinkEvidence || [linked.sourceLectureClue].filter(Boolean)});
   }
  }
  return changes;
