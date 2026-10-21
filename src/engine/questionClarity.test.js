@@ -47,3 +47,27 @@ it('rejects cranial-nerve lead-ins with exclusively embryologic answer categorie
  expect(questionClarityIssues(q)).toContain('invalid_answer_choices');
  expect(questionClarityIssues({...q,stem:'Which pharyngeal pouch forms this structure?'})).not.toContain('invalid_answer_choices');
 });
+
+const chiari = {
+ stem: "A newborn has difficulty swallowing and a small posterior cranial fossa. Which anatomic displacement is expected?",
+ choices: { A: "Optic chiasm into the sella", B: "Vermis and medulla through the foramen magnum" }, correct: "B",
+ explanation: "The patient's symptoms of raised intracranial pressure (headaches, nausea) and difficulty swallowing support the diagnosis.",
+};
+it("withholds invented patient symptoms even when the key is anatomically plausible", () => {
+ expect(questionClarityIssues(chiari)).toContain("inconsistent_vignette");
+ expect(locallyUsableQuestions([chiari])).toEqual([]);
+});
+it("permits general teaching facts and reasoning from the actual supplied findings", () => {
+ expect(questionClarityIssues({ ...chiari, explanation: "The small posterior fossa and difficulty swallowing support hindbrain involvement. Headaches and nausea can occur in older patients." })).toEqual([]);
+ expect(questionClarityIssues({ ...chiari, stem: "An older child has headaches, nausea, difficulty swallowing and a small posterior fossa. Which displacement is expected?" })).toEqual([]);
+});
+it("rejects developmental-delay framing in a newborn", () => {
+ expect(questionClarityIssues({ ...chiari, stem: "A newborn has developmental delays. Which displacement is expected?", explanation: "Anatomic review." })).toContain("inconsistent_vignette");
+});
+it("requires source-supported differentiating clues in standard and compact audits and drafting", () => {
+ for (const prompt of [buildMcqPrompt({}), buildQuestionAuditPrompt([chiari]), buildQuestionAuditPrompt([chiari], { promptProfile: "compact" })]) {
+  expect(prompt).toContain("SOURCE CLUE SUFFICIENCY");
+  expect(prompt).toContain("without the explanation or supplied key");
+  expect(prompt).toContain("never attribute additional symptoms");
+ }
+});
