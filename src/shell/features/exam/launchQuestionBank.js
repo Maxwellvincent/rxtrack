@@ -1,3 +1,4 @@
+import {schoolQuestionIdentity} from './schoolSourceIdentity.js';
 import * as questionFigures from "../../../stores/questionFigures.js";
 import { questionReferencesVisual } from "../../../engine/questionVisual.js";
 import { questionClarityIssues } from "../../../engine/questionClarity.js";
@@ -28,6 +29,7 @@ export function prepareQuestionBankQuestions(questions, { blockId, filename, ana
     const question = linkSourceLecture(sourceQuestion, lectures, blockId);
     return {
     ...question,
+    questionKey:question.questionKey || question.poolId || schoolQuestionIdentity(question),
     questionId: `bank:${filename}:${question.id || question.num || "q"}:${index + 1}`,
     blockId,
     lectureId: ["user-confirmed", "evidence-verified", "source-label-matched", "content-matched"].includes(question.curriculumLinkStatus) ? question.lectureId || null : null,

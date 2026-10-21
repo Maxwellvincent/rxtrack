@@ -44,14 +44,19 @@ export function auditAnswerHistory({blockId, objectives=[], evidence={}, calibra
    continue;
   }
   const existing=journal.filter(event=>event.blockId===blockId && questionEvidenceKey(event.questionKey)===key);
-  const match=existing.find(event=>event.eventId && event.eventId===candidate.eventId)
+  const exact=candidate.eventId && journal.find(event=>event.blockId===blockId && event.eventId===candidate.eventId);
+  const legacy=candidate.legacyQuestionKey && journal.filter(event=>event.blockId===blockId && questionEvidenceKey(event.questionKey)===questionEvidenceKey(candidate.legacyQuestionKey) && event.sessionKey===candidate.sessionKey && (event.questionNumber===candidate.questionNumber || event.at===candidate.at));
+  const match=exact || (legacy?.length===1?legacy[0]:null) || existing.find(event=>event.eventId && event.eventId===candidate.eventId)
     || existing.find(event=>event.sessionKey===candidate.sessionKey)
     || existing.find(event=>Math.abs(Number(event.at)-Number(candidate.at))<2000);
   if(match){
    const added=ids.filter(id=>!(match.objectiveIds || []).includes(id));
-   if(!added.length){summary.alreadyRecorded++;group.alreadyRecorded++;continue;}
+   const identityChanged=questionEvidenceKey(match.questionKey)!==key;
+   const replaceIds=candidate.source==='school-practice' && !!exact;
+   const removed=replaceIds && (match.objectiveIds || []).some(id=>!ids.includes(id));
+   if(!added.length && !identityChanged && !removed){summary.alreadyRecorded++;group.alreadyRecorded++;continue;}
    const eventId=match.eventId || `history:${blockId}:${key}:${match.at}`;
-   updates.set(eventId,{...match,eventId,objectiveIds:[...new Set([...(match.objectiveIds || []),...ids])],historyReconciled:true});
+   updates.set(eventId,{...match,eventId,questionKey:key,lectureId:candidate.lectureId || match.lectureId,objectiveIds:replaceIds?ids:[...new Set([...(match.objectiveIds || []),...ids])],historyReconciled:true});
    summary.repairedLinks++;group.repaired++;
   }else if(existing.length || evidence.objectives && ids.every(id=>evidence.objectives[id]?.questionKeys?.includes(key))){
    // An old log without stable session/time cannot safely establish another attempt.

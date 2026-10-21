@@ -19,3 +19,8 @@ it('does not trust unconfirmed bank objective hints or foreign generated pools',
  const questions=historySourceQuestions({generated:{foreign:{questions:[q]}},banks:{'Homework.pdf':[{...q,curriculumLinkStatus:'candidate'}]},lectures:[{id:'l',blockId:'NB'}],blockId:'NB'});
  expect(questions).toHaveLength(1);expect(questions[0].objectiveIds).toEqual([]);
 });
+it('prefers source text over reused local IDs and excludes other blocks',()=>{
+ const foreign={...q,id:'q1',stem:'An unrelated question '.repeat(8),lectureId:'wrong',blockId:'DM'};
+ expect(recoverAnswerSource({id:'q1',stem},[foreign,{...q,id:'q2'}],objectives).record.lectureId).toBe('l');
+ expect(historySourceQuestions({banks:{bank:[foreign]},lectures:[{id:'l',blockId:'NB'}],blockId:'NB'})).toEqual([]);
+});

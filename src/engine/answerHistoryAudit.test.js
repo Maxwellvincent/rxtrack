@@ -47,3 +47,12 @@ it('reconstructs identities and objective links from a saved source without copy
  expect(result.events[0]).toMatchObject({objectiveIds:['o'],correct:false});
  expect(result.events[0]).not.toHaveProperty('choices');expect(result.events[0]).not.toHaveProperty('explanation');
 });
+it('migrates a legacy bank key in place and does not combine q1 from different banks',()=>{
+ const make=(sessionId,stem,objective)=>({sessionId,blockId:'NB',status:'submitted',format:'practice',questions:[{id:'q1',questionId:sessionId+':q1',sourceType:'question-bank',stem,choices:{A:'Answer',B:'Other'},correct:'A',objectiveIds:[objective]}],answers:[{questionId:sessionId+':q1',value:'A',answeredAt:100}]});
+ const a=make('one','Question about glial cells and their roles','o'),b=make('two','Question about motor nerves and their roles','other');
+ const old={eventId:'exam:one:one:q1',source:'school-practice',sessionKey:'one',blockId:'NB',questionKey:questionEvidenceKey('q1'),objectiveIds:['other'],correct:true,at:100};
+ const result=run({calibration:[],sessions:[a,b],evidence:{evidenceJournal:[old]}});
+ expect(result.events).toHaveLength(2);expect(result.events[0]).toMatchObject({eventId:old.eventId,objectiveIds:['o'],correct:true});
+ expect(result.events[0].questionKey).not.toBe(result.events[1].questionKey);
+ expect(run({calibration:[],sessions:[a,b],evidence:{evidenceJournal:result.events}}).events).toEqual([]);
+});

@@ -6,7 +6,8 @@ const textOf=o=>normalize(o.objective || o.text || o.content);
 export function recoverAnswerSource(record, sourceQuestions=[], objectives=[]) {
  const stem=normalize(record.stem);
  const refs=[record.questionKey,record.poolId,record.questionId,record.id].filter(Boolean).map(String);
- const matches=sourceQuestions.filter(q=>refs.some(ref=>[q.questionKey,q.poolId,q.questionId,q.id].filter(Boolean).map(String).includes(ref)) || stem.length>=80 && normalize(q.stem).startsWith(stem));
+ const byStem=stem.length>=80?sourceQuestions.filter(q=>normalize(q.stem).startsWith(stem)):[];
+ const matches=byStem.length?byStem:sourceQuestions.filter(q=>(!record.sourceFile || !q.sourceFile || normalize(record.sourceFile)===normalize(q.sourceFile)) && refs.some(ref=>[q.questionKey,q.poolId,q.questionId,q.id].filter(Boolean).map(String).includes(ref)));
  if(!matches.length)return {record,basis:null};
  const targets=q=>{
   const explicit=canonicalObjectiveIds([...(q.objectiveIds || []),q.schoolObjectiveCode,...(q.schoolObjectiveCodes || [])].filter(Boolean),objectives);
@@ -22,6 +23,6 @@ export function recoverAnswerSource(record, sourceQuestions=[], objectives=[]) {
 export function historySourceQuestions({generated={},banks={},lectures=[],blockId}) {
  const allowed=new Set(lectures.filter(l=>(!l.blockId || l.blockId===blockId)).map(l=>l.id));
  const questions=Object.entries(generated).flatMap(([lectureId,value])=>allowed.has(lectureId)?(value.questions || []).map(q=>({...q,lectureId,sourceFile:q.sourceFile || 'Generated lecture quiz'})):[]);
- for(const [filename,list] of Object.entries(banks)) for(const q of Array.isArray(list)?list:[])questions.push({...q,sourceFile:filename,objectiveIds:['user-confirmed','evidence-verified'].includes(q.curriculumLinkStatus)?q.objectiveIds:[],objectiveTexts:['user-confirmed','evidence-verified'].includes(q.curriculumLinkStatus)?q.objectiveTexts:[]});
+ for(const [filename,list] of Object.entries(banks)) for(const q of (Array.isArray(list)?list:[]).filter(q=>!q.blockId || q.blockId===blockId))questions.push({...q,sourceFile:filename,objectiveIds:['user-confirmed','evidence-verified'].includes(q.curriculumLinkStatus)?q.objectiveIds:[],objectiveTexts:['user-confirmed','evidence-verified'].includes(q.curriculumLinkStatus)?q.objectiveTexts:[]});
  return questions;
 }

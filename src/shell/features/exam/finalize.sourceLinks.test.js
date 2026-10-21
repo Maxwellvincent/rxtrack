@@ -5,7 +5,7 @@ vi.mock("../../../supabase.js", () => ({
   getExamSession: vi.fn(async () => state.session), listExamSessions: vi.fn(async () => []),
 }));
 vi.mock("../../../stores/lectureQuestionStats.js", () => ({ recordAnswerAwait: (...args) => state.record(...args) }));
-vi.mock("../../../stores/learnerEvidence.js", () => ({ recordEvidenceAwait: (...args) => state.evidence(...args) }));
+vi.mock("../../../stores/learnerEvidence.js", async (importOriginal) => ({ ...await importOriginal(), recordEvidenceAwait: (...args) => state.evidence(...args) }));
 vi.mock("../../../stores/weakConcepts.js", () => ({ read: vi.fn(async () => ({})), writeAwait: vi.fn(async () => {}) }));
 vi.mock("../../../questionPool.js", () => ({ releaseUnansweredQuestions: vi.fn(async () => {}) }));
 import { finalizeExamSession } from "./finalize.js";
