@@ -228,3 +228,13 @@ describe("scoreLectures", () => {
     expect(scoreLectures(context())[1].recommendedSessions[0].type).toBe("deepLearn");
   });
 });
+it('uses the same deduplicated block denominator as the Objectives page',async()=>{
+ const {blockProgressProjection}=await import('../../logic/blockProgress.js');
+ const lectures=[{id:'a',blockId:'NB'},{id:'b',blockId:'NB'},{id:'lab',blockId:'NB',lectureType:'LAB'}];
+ const objectives=[{id:'o1',code:'SAME',objective:'One relationship',linkedLecId:'a'},{id:'o2',code:'SAME',objective:'One relationship',linkedLecId:'b'},{id:'lab-o',objective:'Lab objective',linkedLecId:'lab'}];
+ const evidence={objectives:{o1:{attempts:1,correct:0,recent:[false]}}};
+ const projection=blockProgressProjection({blockId:'NB',lectures,catalog:objectives,evidence});
+ const scores=scoreLectures({blockId:'NB',lectures,objectives,learnerEvidence:evidence});
+ expect(scores.reduce((n,s)=>n+s.total,0)).toBe(projection.counts.total);
+ expect(scores.reduce((n,s)=>n+s.firstPass.covered,0)).toBe(1);
+});

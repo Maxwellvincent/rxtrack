@@ -386,7 +386,7 @@ export function LectureList({
       activityType: "all",
       search: "",
       sort: "urgency",
-    }).filter((row) => !row.isFuture && (!row.done || row.struggling>0 || row.repairCount>0 || row.nextReview || (questionStats.data?.[row.lectureId]?.answered>0 && questionStats.data[row.lectureId].correct/questionStats.data[row.lectureId].answered<0.8))).slice(0, 6),
+    }).filter((row) => !row.isFuture && (row.total>0 || !scores.some(score=>score.total>0)) && (!row.done || row.struggling>0 || row.repairCount>0 || row.nextReview || (questionStats.data?.[row.lectureId]?.answered>0 && questionStats.data[row.lectureId].correct/questionStats.data[row.lectureId].answered<0.8))).slice(0, 6),
     [scores, context.completion, blockId, repairProgress.data, questionStats.data]
   );
   const counts = useMemo(

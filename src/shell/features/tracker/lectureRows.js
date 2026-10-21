@@ -1,5 +1,5 @@
 import {lectureCompletion} from '../../../engine/lectureCompletion.js';
-import { lectureProgressCounts } from "../../logic/blockProgress.js";
+import { lectureProgressCounts, blockProgressProjection } from "../../logic/blockProgress.js";
 import { studyDayDate } from "../../../studyDay.js";
 import { objectivePracticePlan } from "../../../engine/objectivePractice.js";
 /**
@@ -15,7 +15,6 @@ import {
   availableDateFor,
   lecDateMap,
   lectureUrgency,
-  objectivesForLecture,
   pressureZone,
   recommendedSessionsFor,
   weakConceptsForLecture,
@@ -61,8 +60,9 @@ export function scoreLectures(context) {
   if (blockStart) blockStart.setHours(0, 0, 0, 0);
 
   const _lecDates = lecDateMap(lectures);
+  const catalog=blockProgressProjection({blockId,lectures,catalog:objectives,evidence:context?.learnerEvidence || {}}).linked;
   return lectures.map((lec) => {
-    const lecObjs = objectivesForLecture(objectives, lec);
+    const lecObjs = catalog.filter(objective=>objective.linkedLecId===lec.id);
     // Use the same evidence projection as Today so a question attempt cannot
     // make one queue say "developing" while the other still says "untested".
     const practice = objectivePracticePlan(lecObjs, context?.learnerEvidence);
