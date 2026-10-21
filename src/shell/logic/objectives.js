@@ -123,7 +123,8 @@ export function dedupeByText(objectives, learnerEvidence = null) {
 
 /** Supplementary sources stay available without counting toward lecture progress. */
 export function supplementaryObjective(value = {}) {
-  return [value.activity, value.lectureType].some(label => /^(?:SG|LAB|TBL|IMCQ)\b|small[\s_-]*group|anatomy\s+lab|laborator/i.test(String(label || "").trim()));
+  return [value.activity, value.lectureType, value.sourceType].some(label => /^(?:SG|LAB|TBL|IMCQ)\b|small[\s_-]*group|(?:mini[\s_-]*)?anatomy[\s_-]+lab|laborator/i.test(String(label || "").trim()))
+    || [value.sourceName,value.sourceFile,value.title,value.lectureTitle].some(label=>/\bsmall[\s_-]*group\b|\b(?:mini[\s_-]*)?anatomy[\s_-]+lab(?:oratory)?\b|\bmini[\s_-]*lab\b/i.test(String(label || '')));
 }
 
 /** Same lecture-scoped objective projection for study, Today and the library. */
@@ -178,7 +179,11 @@ export function setStatus(objectives, objId, status, now, { includeLastDrilled =
 
 /** Self-rating from the UI — status + lastTested only (App's `onSelfRate`). */
 export function selfRate(objectives, objId, status, now) {
-  return updateObjective(objectives, objId, { status, lastTested: now });
+  if(status === 'reviewed') {
+    const objective=(objectives || []).find(row=>row.id===objId);
+    return updateObjective(objectives,objId,{reviewedAt:objective?.reviewedAt ? null : now});
+  }
+  return updateObjective(objectives, objId, { status, lastTested: now, reviewedAt: now });
 }
 
 /** Record objective evidence immediately for an objective-linked question. */

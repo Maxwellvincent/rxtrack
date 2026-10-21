@@ -712,7 +712,8 @@ function ObjectiveRow({ obj, index, onSelfRate, T, color, hasLecture, lectureTyp
           </span>
         )}
       </div>
-      <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+      <div style={{ display: "flex", gap: 4, flexShrink: 0, flexWrap: "wrap" }}>
+        <button type="button" aria-pressed={!!obj.reviewedAt} onClick={()=>onSelfRate(obj.id,"reviewed")} title="Mark this objective reviewed without recording a test answer" className="rounded border border-border px-2 py-1 text-xs">{obj.reviewedAt ? "✓ Reviewed" : "Mark reviewed"}</button>
         {[
           { s: "struggling", label: "⚠", title: "Still struggling" },
           { s: "inprogress", label: "◐", title: "In progress" },
@@ -1068,6 +1069,8 @@ export default function ObjectiveTracker({
   const testedCount = totalAll - countUntested;
   const coveragePercent = totalAll ? Math.round((testedCount / totalAll) * 100) : 0;
   const focusCount = countStruggling + countUntested;
+  const reviewedOnlyCount=linkedObjectives.filter(obj=>obj.reviewedAt && !obj.questionAttempts).length;
+  const studyCoveredCount=testedCount + reviewedOnlyCount;
 
   return (
     <div className="desk-objectives" style={{ display: "flex", flexDirection: "column", gap: 16, padding: "0 4px 24px" }}>
@@ -1078,12 +1081,13 @@ export default function ObjectiveTracker({
           <div className="today-eyebrow">Objective command center</div>
           <h3 id="objective-command-title">Your lecture review map.</h3>
           <p>Focus on lecture objectives: review weak concepts, cover new material, then test yourself again. Supplementary sources do not affect these totals.</p>
+          <p aria-label="Study coverage">Study coverage: <strong>{studyCoveredCount} of {totalAll}</strong> lecture objectives · {testedCount} with question evidence · {reviewedOnlyCount} reviewed without questions · {totalAll-studyCoveredCount} not yet recorded. Mark an individual objective reviewed after studying it; this does not change question accuracy or mastery.</p>
         </div>
         <div className="desk-objectives-hero-meta">
           <strong>{focusCount}</strong>
           <span>priority objectives</span>
           <div className="desk-objectives-hero-progress"><span style={{ width: `${coveragePercent}%` }} /></div>
-          <small>{coveragePercent}% seen at least once</small>
+          <small>{coveragePercent}% question coverage</small>
         </div>
       </section>
       <section className="desk-objective-focus" aria-label="Objective study paths">

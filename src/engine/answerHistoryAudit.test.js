@@ -35,3 +35,15 @@ it('updates a legacy journal row in place and cannot double its grade on repeate
  expect(read(null).total).toBe(1);expect(read(null).objectives.o.attempts).toBe(1);
  expect(run({evidence:read(null)}).events).toHaveLength(0);
 });
+it('reports unresolved records by original source and reason without grading them',()=>{
+ const result=run({calibration:[{concept:'Unkeyed legacy recall',correct:true,ts:1}]});
+ expect(result.origins[0]).toMatchObject({source:'Lecture-quiz answer log',needsLinking:1});
+ expect(result.unresolved[0]).toMatchObject({reason:'Missing question identity',stem:'Unkeyed legacy recall',hasFullQuestion:false});
+ expect(result.events).toEqual([]);
+});
+it('reconstructs identities and objective links from a saved source without copying large source text into evidence',()=>{
+ const stem='A clinical case with enough distinguishing source text to identify the same saved question precisely without assuming that all lecture objectives were tested.';
+ const result=run({calibration:[{stem:stem.slice(0,100),correct:false,ts:12}],sourceQuestions:[{id:'q',stem,objectiveIds:['o'],lectureId:'l',explanation:'large text',choices:{A:'Answer'}}]});
+ expect(result.events[0]).toMatchObject({objectiveIds:['o'],correct:false});
+ expect(result.events[0]).not.toHaveProperty('choices');expect(result.events[0]).not.toHaveProperty('explanation');
+});

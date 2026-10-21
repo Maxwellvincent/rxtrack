@@ -71,7 +71,7 @@ export function ObjectivesContainer({
           Objectives could not sync: {error?.message || String(error)}
         </div>
       )}
-      <AnswerHistoryAudit userId={userId} blockId={blockId} objectives={objectives} loading={loading} />
+      <AnswerHistoryAudit userId={userId} blockId={blockId} objectives={objectives} lectures={blockLectures} loading={loading} />
       <ObjectiveTracker
       blockId={blockId}
       blockLectures={blockLectures}

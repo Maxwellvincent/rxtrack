@@ -120,7 +120,7 @@ describe("reducers", () => {
       .toEqual({ id: "a", status: "mastered", lastUpdated: NOW, lastTested: NOW });
     expect(setStatus(objs("a"), "a", "mastered", NOW, { includeLastDrilled: true })[0].lastDrilled).toBe(NOW);
     expect(selfRate(objs("a"), "a", "struggling", NOW)[0])
-      .toEqual({ id: "a", status: "struggling", lastTested: NOW });
+      .toEqual({ id: "a", status: "struggling", lastTested: NOW, reviewedAt: NOW });
   });
 
   it("syncs objective mastery evidence on every linked question answer", () => {
@@ -324,4 +324,10 @@ describe("command handlers", () => {
     commands.deleteUnlinked("b1", [{ id: "lec1" }]);
     expect(current().b1).toEqual([{ id: "a", linkedLecId: "lec1" }]);
   });
+});
+
+it('tracks review-only coverage independently from testing and supports undo',()=>{
+ const reviewed=selfRate([{id:'r',status:'untested',attempts:0}],'r','reviewed',NOW);
+ expect(reviewed[0]).toMatchObject({status:'untested',attempts:0,reviewedAt:NOW});
+ expect(selfRate(reviewed,'r','reviewed',NOW)[0].reviewedAt).toBe(null);
 });

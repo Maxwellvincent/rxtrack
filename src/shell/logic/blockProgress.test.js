@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { blockProgressCounts, lectureProgressCounts } from "./blockProgress.js";
+import { blockProgressCounts, lectureProgressCounts, blockProgressProjection } from "./blockProgress.js";
 const lecture = { id: "nb13", blockId: "NB", lectureNumber: 13, lectureType: "LEC" };
 const one = { id: "one", code: "SOM.MKII.BPM2.1.NB.1.ANAT.1", objective: "Identify the nerve", linkedLecId: "nb13", status: "untested" };
 it("counts linked curriculum once, keeps unlinked separate and excludes other blocks", () => {
@@ -45,4 +45,8 @@ it("keeps an excluded-only objective untested despite a saved completion label",
  const objectives = [one, { id: "excluded", objective: "Excluded question", linkedLecId: lecture.id, status: "mastered" }];
  const evidence = { objectives: { one: { attempts: 1, correct: 1 }, excluded: { attempts: 0, correct: 0 } } };
  expect(blockProgressCounts({ blockId: "NB", lectures: [lecture], objectives: { NB: objectives }, evidence })).toMatchObject({ total: 2, inprogress: 1, mastered: 0, untested: 1 });
+});
+it('keeps labelled anatomy labs and small groups outside lecture denominators',()=>{
+ const result=blockProgressProjection({blockId:'NB',lectures:[{id:'l',blockId:'NB'},{id:'lab',blockId:'NB',title:'Mini Anatomy Lab'}],catalog:[{id:'o',objective:'Lecture objective',linkedLecId:'l'},{id:'lab-o',objective:'Lab objective',linkedLecId:'lab'},{id:'sg',objective:'Small group objective',linkedLecId:'l',sourceName:'Small Group 2'}]});
+ expect(result.linked.map(o=>o.id)).toEqual(['o']);expect(result.counts.total).toBe(1);
 });
