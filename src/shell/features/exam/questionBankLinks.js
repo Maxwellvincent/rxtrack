@@ -101,7 +101,7 @@ export function scoreAnsweredQuestions(session) {
 /** Exact source labels can establish lecture attribution, but never objective mastery. */
 export function linkSourceLecture(question, lectures = [], blockId) {
   question = cleanSchoolQuestion(question);
-  if (question.curriculumLinkStatus === "user-confirmed" && lectures.some(l => l.id === question.lectureId && (!l.blockId || l.blockId === blockId))) return question;
+  if (["user-confirmed", "evidence-verified"].includes(question.curriculumLinkStatus) && lectures.some(l => l.id === question.lectureId && (!l.blockId || l.blockId === blockId))) return question;
   const clue = sourceLectureClue(question);
   if (!clue) {
     const localLectures = lectures.filter(l => !l.blockId || l.blockId === blockId);

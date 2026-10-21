@@ -96,3 +96,8 @@ it('keeps automatic lecture attribution when preparing a bank session without ad
  const [question] = prepareQuestionBankQuestions([{ id: 'larynx', stem: 'Laryngeal carcinoma is removed from the larynx. Which muscle of the larynx remains paralyzed?', choices: { A: 'Cricothyroid', B: 'Thyroarytenoid' }, correct: 'A' }], { blockId: 'nb1', filename: 'ExamSoft.pdf', lectures: [{ id: 'l16', blockId: 'nb1', lectureTitle: 'NB 16 Pharynx and Larynx' }] });
  expect(question).toMatchObject({ lectureId: 'l16', curriculumLinkStatus: 'content-matched', objectiveIds: [], sourceType: 'question-bank', correct: 'A' });
 });
+
+it('retains evidence-verified objective links in future bank sessions',()=>{
+ const questions=prepareQuestionBankQuestions([{id:'q',stem:'Which muscle retains motor innervation after recurrent laryngeal nerve injury?',choices:{A:'Cricothyroid',B:'Other'},correct:'A',lectureId:'l',objectiveIds:['o'],curriculumLinkStatus:'evidence-verified',curriculumMapping:{blockId:'NB',lectureId:'l'}}],{blockId:'NB',filename:'Week 9',lectures:[{id:'l',blockId:'NB'}]});
+ expect(questions[0].objectiveIds).toEqual(['o']);expect(questions[0].lectureId).toBe('l');
+});

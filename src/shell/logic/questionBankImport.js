@@ -1,3 +1,5 @@
+import {classifyObjectiveMapping,reviewCurriculumMapping} from '../../engine/semanticObjectiveMapping.js';
+import {blockProgressProjection} from './blockProgress.js';
 import { archiveQuestionSource } from "../../storageUpload.js";
 import { parseExamPDF } from "../../examParser.js";
 import { callAIJSON, callAIWithImage } from "../../aiClient.js";
@@ -407,6 +409,41 @@ export async function processQuestionBankFiles({
     } catch {
       critiqueFailures += 1;
     }
+  }
+
+  // Imported originals are already saved. Mapping is additive and checkpointed,
+  // so bridge failure cannot lose a bank or change its answer key.
+  if(userId && blockId && report.pendingAnalyses.length){
+    try{
+      const {bridgeAvailable}=await import('../../llmBridge.js');
+      if(await bridgeAvailable()){
+        const {fetchLectureContent}=await import('../../supabase.js');
+        const catalog=blockProgressProjection({blockId,lectures,catalog:objectives,evidence:{}}).linked;
+        const enriched=[];
+        for(const lecture of lectures.filter(l=>l.blockId===blockId)){
+          const content=await fetchLectureContent(userId,lecture.id);
+          enriched.push({...content,...lecture,chunks:content?.chunks || lecture.chunks,id:lecture.id,blockId});
+        }
+        for(const entry of report.pendingAnalyses){
+          const source=questionBanksStore.read(userId)[entry.filename] || [];
+          for(const [i,q] of source.entries()){
+            if(!q.correct || q.answerKeyVerified===false || ['user-confirmed','evidence-verified'].includes(q.curriculumLinkStatus))continue;
+            update(`Mapping ${entry.filename} · question ${i+1}/${source.length} to lecture objectives…`);
+            const patch=await classifyObjectiveMapping({...q,sourceTitle:entry.filename},{lectures:enriched,objectives:catalog,blockId,review:reviewCurriculumMapping,onEvaluation:async classification=>{
+              const current=questionBanksStore.read(userId),list=current[entry.filename];
+              if(!Array.isArray(list))return;
+              await questionBanksStore.writeAwait(userId,{...current,[entry.filename]:list.map(item=>item.stem===q.stem && item.correct===q.correct && JSON.stringify(item.choices)===JSON.stringify(q.choices) && !['user-confirmed','evidence-verified'].includes(item.curriculumLinkStatus)?{...item,curriculumMappingReview:classification}:item)});
+            }});
+            if(!patch)continue;
+            const current=questionBanksStore.read(userId);
+            const list=current[entry.filename];
+            if(!Array.isArray(list))continue;
+            const next=list.map(item=>item.stem===q.stem && item.correct===q.correct && JSON.stringify(item.choices)===JSON.stringify(q.choices) && !['user-confirmed','evidence-verified'].includes(item.curriculumLinkStatus)?{...item,...patch}:item);
+            await questionBanksStore.writeAwait(userId,{...current,[entry.filename]:next});
+          }
+        }
+      }else report.sourceWarnings.push('Objective mapping pending: local AI bridge unavailable');
+    }catch(error){report.sourceWarnings.push('Objective mapping paused; imported originals and completed links are saved');}
   }
 
   const summary = summarizeBankUpload(report.results);

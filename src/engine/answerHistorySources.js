@@ -22,6 +22,6 @@ export function recoverAnswerSource(record, sourceQuestions=[], objectives=[]) {
 export function historySourceQuestions({generated={},banks={},lectures=[],blockId}) {
  const allowed=new Set(lectures.filter(l=>(!l.blockId || l.blockId===blockId)).map(l=>l.id));
  const questions=Object.entries(generated).flatMap(([lectureId,value])=>allowed.has(lectureId)?(value.questions || []).map(q=>({...q,lectureId,sourceFile:q.sourceFile || 'Generated lecture quiz'})):[]);
- for(const [filename,list] of Object.entries(banks)) for(const q of Array.isArray(list)?list:[])questions.push({...q,sourceFile:filename,objectiveIds:q.curriculumLinkStatus==='user-confirmed'?q.objectiveIds:[],objectiveTexts:q.curriculumLinkStatus==='user-confirmed'?q.objectiveTexts:[]});
+ for(const [filename,list] of Object.entries(banks)) for(const q of Array.isArray(list)?list:[])questions.push({...q,sourceFile:filename,objectiveIds:['user-confirmed','evidence-verified'].includes(q.curriculumLinkStatus)?q.objectiveIds:[],objectiveTexts:['user-confirmed','evidence-verified'].includes(q.curriculumLinkStatus)?q.objectiveTexts:[]});
  return questions;
 }

@@ -1,4 +1,4 @@
-import {getLecText} from '../../../lectureText.js';
+import {classifyObjectiveMapping,reviewCurriculumMapping} from '../../../engine/semanticObjectiveMapping.js';
 import {mapAnsweredLectureQuestions,applyAnsweredLectureMappings} from '../../../engine/answerLectureMapping.js';
 import {blockProgressProjection} from '../../logic/blockProgress.js';
 import * as generatedStore from '../../../stores/generatedQuestions.js';
@@ -32,10 +32,29 @@ export function AnswerHistoryAudit({userId,blockId,objectives=[],lectures=[],loa
    for(let start=0;start<lectures.length;start+=4){
     const chunk=await Promise.all(lectures.slice(start,start+4).map(async lecture=>{
      const content=await fetchLectureContent(userId,lecture.id);
-     return {...content,...(content?.meta || {}),...lecture,id:lecture.id,blockId:lecture.blockId,chunks:[...(content?.chunks || lecture.chunks || []),{text:getLecText(content || lecture)}]};
+     return {...content,...(content?.meta || {}),...lecture,id:lecture.id,blockId:lecture.blockId,chunks:[...(content?.chunks || lecture.chunks || []),{text:(content?.chunks || []).map(c=>c.markdown || c.text || c.content || '').join('\n\n') || content?.extractedText || content?.fullText || ''}]};
     }));enriched.push(...chunk);
    }
    const changes=mapAnsweredLectureQuestions(sessions,enriched,blockId);
+   const catalog=blockProgressProjection({blockId,lectures,catalog:objectives,evidence:evidenceStore.read(userId)}).linked;
+   const review=reviewCurriculumMapping;
+   let classified=0,inspected=0;
+   for(const session of sessions){
+    const answered=new Set((session.answers || []).filter(a=>a.value!=null).map(a=>a.questionId));
+    for(const q of applyAnsweredLectureMappings(session,changes).questions || []){
+     if(!answered.has(q.questionId) || q.curriculumLinkStatus==='user-confirmed' || (q.objectiveIds || []).some(id=>catalog.some(o=>o.id===id)))continue;
+     setMappingNotice(`Evaluating saved question ${++inspected} against lecture objectives · ${classified} supported matches saved…`);
+     const patch=await classifyObjectiveMapping({...q,sourceTitle:q.sourceTitle || session.sourceTitle || session.title,weekNumber:q.weekNumber ?? session.weekNumber},{lectures:enriched,objectives:catalog,blockId,review,onEvaluation:async classification=>{
+      await updateExamSessionTransaction(userId,session.sessionId,current=>current?{...current,questions:(current.questions || []).map(item=>item.questionId===q.questionId && !['user-confirmed','evidence-verified'].includes(item.curriculumLinkStatus)?{...item,curriculumMappingReview:classification}:item)}:null);
+     }});
+     if(!patch)continue;
+     const change={sessionId:session.sessionId,questionId:q.questionId,...patch};
+     changes.push(change);
+     // Checkpoint each accepted match: interruption cannot discard earlier work.
+     await updateExamSessionTransaction(userId,session.sessionId,current=>current?applyAnsweredLectureMappings(current,[change]):null);
+     classified++;
+    }
+   }
    for(const id of [...new Set(changes.map(c=>c.sessionId))]) await updateExamSessionTransaction(userId,id,current=>current?applyAnsweredLectureMappings(current,changes):null);
    const savedQuestions=sessions.flatMap(session=>applyAnsweredLectureMappings(session,changes).questions || []).filter(q=>changes.some(c=>c.questionId===q.questionId && c.lectureId===q.lectureId));
    const banks=bankStore.read(userId),nextBanks={...banks};let banksChanged=false;
@@ -44,18 +63,18 @@ export function AnswerHistoryAudit({userId,blockId,objectives=[],lectures=[],loa
     if(!Array.isArray(questions))continue;
     let changed=false;
     const updated=questions.map(q=>{
-     if(q.curriculumLinkStatus==='user-confirmed')return q;
-     const matches=savedQuestions.filter(saved=>normalized(saved.stem).length>=80 && normalized(saved.stem)===normalized(q.stem));
-     if(!matches.length || new Set(matches.map(q=>q.lectureId)).size!==1)return q;
+     if(q.curriculumLinkStatus==='user-confirmed' || (q.blockId && q.blockId!==blockId) || (q.sourceBlockId && q.sourceBlockId!==blockId))return q;
+     const matches=savedQuestions.filter(saved=>(q.blockId===blockId || q.sourceBlockId===blockId || normalized(saved.sourceFile)===normalized(filename)) && normalized(saved.stem).length>=80 && normalized(saved.stem)===normalized(q.stem) && saved.correct===q.correct && JSON.stringify(saved.choices)===JSON.stringify(q.choices));
+     if(!matches.length || new Set(matches.map(q=>JSON.stringify([q.lectureId,[...(q.objectiveIds || [])].sort()]))).size!==1)return q;
      const match=matches[0];changed=true;
-     return {...q,lectureId:match.lectureId,lectureLabel:match.lectureLabel,curriculumLinkStatus:match.curriculumLinkStatus,lectureLinkBasis:match.lectureLinkBasis,lectureLinkEvidence:match.lectureLinkEvidence};
+     return {...q,lectureId:match.lectureId,lectureLabel:match.lectureLabel || '',curriculumLinkStatus:match.curriculumLinkStatus,lectureLinkBasis:match.lectureLinkBasis || match.curriculumMapping?.basis || '',lectureLinkEvidence:match.lectureLinkEvidence || [],...(match.curriculumMapping?{curriculumMapping:match.curriculumMapping}:{}),...(match.curriculumLinkStatus==='evidence-verified'?{objectiveIds:match.objectiveIds}: {})};
     });
     if(changed){nextBanks[filename]=updated;banksChanged=true;}
    }
    if(banksChanged)await bankStore.writeAwait(userId,nextBanks);
-   setMappingNotice(`${changes.length} answered questions linked to lectures from section labels or distinctive content. Objective credit is unchanged unless a specific objective link is supported.`);
+   setMappingNotice(`${classified} source-supported objective mappings saved after two review passes. ${changes.length} total mapping updates. Uncertain questions retain their original answers without additional objective credit.`);
    await run();
-  }catch(e){setError(`Lecture mapping could not finish: ${e.message || String(e)}. Source answers have been preserved.`);}finally{setBusy(false);}
+  }catch(e){await run();setError(`Lecture mapping could not finish: ${e.message || String(e)}. Source answers have been preserved.`);}finally{setBusy(false);}
  }
  async function run(){
   setBusy(true);setError('');
