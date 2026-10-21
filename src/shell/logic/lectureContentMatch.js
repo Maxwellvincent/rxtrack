@@ -9,7 +9,7 @@ const titleOf = lecture => lecture.lectureTitle || lecture.title || lecture.file
 const documentCache = new WeakMap();
 
 export function rankLectureContent(question, lectures = [], blockId) {
-  const query = terms([question.stem, question.topic, question.schoolQuestionTopic, question.schoolLearningOutcomes].filter(Boolean).join(' '));
+  const query = terms([question.stem, question.topic, question.sourceSectionTitle, question.choices?.[question.correct], question.schoolQuestionTopic, question.schoolLearningOutcomes].filter(Boolean).join(' '));
   const frequency = new Map();
   for (const word of query) frequency.set(word, (frequency.get(word) || 0) + 1);
   const documents = lectures.filter(l => (!blockId || !l.blockId || l.blockId === blockId) && !/^(?:DLA|SG|TBL)$/i.test(l.lectureType || '')).map(lecture => {

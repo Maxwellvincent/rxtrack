@@ -58,7 +58,7 @@ it("organizes objectives into an actionable readiness summary", () => {
   expect(view.host.querySelector('[aria-label="Objective readiness summary"]')).not.toBeNull();
   expect(view.host.textContent).toContain("Active objectives2");
   expect(view.host.textContent).toContain("Needs repair1");
-  expect(view.host.textContent).toContain("Untested1");
+  expect(view.host.textContent).toContain("No answer evidence1");
   expect(view.host.textContent).toContain("Reference sources");
   expect(view.host.textContent).not.toContain("Unlinked1");
   expect(view.host.textContent).not.toContain("need lecture match");
@@ -101,7 +101,7 @@ it("counts correct and incorrect linked question evidence as seen without promot
     />
   );
 
-  expect(view.host.textContent).toContain("Untested1");
+  expect(view.host.textContent).toContain("No answer evidence1");
   expect(view.host.textContent).toContain("Developing1");
   expect(view.host.textContent).toContain("Needs repair1");
   const coverageTab = [...view.host.querySelectorAll("button")].find((button) => button.textContent.trim() === "Coverage");
@@ -121,7 +121,7 @@ it("uses the same totals and evidence states as Today, excluding conflicting lec
  expect(counts).toMatchObject({ total: 2, inprogress: 1, untested: 1, unlinked: 1 });
  expect(view.host.textContent).toContain(`Active objectives${counts.total}`);
  expect(view.host.textContent).toContain(`Developing${counts.inprogress}`);
- expect(view.host.textContent).toContain(`Untested${counts.untested}`);
+ expect(view.host.textContent).toContain(`No answer evidence${counts.untested}`);
  expect(view.host.textContent).toContain("1 of 2 linked objectives seen");
  expect(view.host.textContent).toContain("Reference sources");
  view.close();

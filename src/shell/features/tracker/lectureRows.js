@@ -1,3 +1,4 @@
+import {lectureCompletion} from '../../../engine/lectureCompletion.js';
 import { lectureProgressCounts } from "../../logic/blockProgress.js";
 import { studyDayDate } from "../../../studyDay.js";
 import { objectivePracticePlan } from "../../../engine/objectivePractice.js";
@@ -85,6 +86,7 @@ export function scoreLectures(context) {
       lec,
       ...tally,
       practiced,
+      firstPass:lectureCompletion(lecObjs,context?.learnerEvidence),
       avgBloom,
       sessions,
       lastScore,
@@ -121,7 +123,8 @@ export function scoreLectures(context) {
 export function lectureRow(score, { completion = {}, blockId } = {}) {
   const lecture = score.lec || {};
   const entry = completion[`${lecture.id}__${blockId}`] || null;
-  const done = score.total > 0 && score.mastered === score.total;
+  const covered=score.firstPass?.covered ?? score.practiced ?? (score.total-score.untested);
+  const done=score.total>0 && covered>=score.total;
 
   return {
     lectureId: lecture.id,
@@ -142,7 +145,7 @@ export function lectureRow(score, { completion = {}, blockId } = {}) {
     struggling: score.struggling,
     untested: score.untested,
     total: score.total,
-    coverage: score.total > 0 ? Math.round((score.mastered / score.total) * 100) : null,
+    coverage: score.total > 0 ? Math.round((covered / score.total) * 100) : null,
     sessions: score.sessions,
     lastScore: score.lastScore,
     confidence: score.confidence,
@@ -162,6 +165,8 @@ export function lectureRow(score, { completion = {}, blockId } = {}) {
     recommendedSessions: score.recommendedSessions || [],
     studyMode: score.studyMode ?? null,
     topWeakConcepts: score.topWeakConcepts || [],
+    covered,
+    remaining:Math.max(0,score.total-covered),
     done,
   };
 }

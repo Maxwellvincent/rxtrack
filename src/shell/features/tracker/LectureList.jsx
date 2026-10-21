@@ -1,3 +1,4 @@
+import {LectureDashboard} from './LectureDashboard.jsx';
 /**
  * SP1 T4.4 — every lecture in the block, not just Today's six.
  *
@@ -381,12 +382,12 @@ export function LectureList({
       completion: context.completion,
       blockId,
       atomProgress: repairProgress.data,
-      filter: "active",
+      filter: "all",
       activityType: "all",
       search: "",
       sort: "urgency",
-    }).filter((row) => !row.isFuture).slice(0, 6),
-    [scores, context.completion, blockId, repairProgress.data]
+    }).filter((row) => !row.isFuture && (!row.done || row.struggling>0 || row.repairCount>0 || row.nextReview || (questionStats.data?.[row.lectureId]?.answered>0 && questionStats.data[row.lectureId].correct/questionStats.data[row.lectureId].answered<0.8))).slice(0, 6),
+    [scores, context.completion, blockId, repairProgress.data, questionStats.data]
   );
   const counts = useMemo(
     () => lectureCounts(scores, { completion: context.completion, blockId, atomProgress: repairProgress.data }),
@@ -538,7 +539,7 @@ export function LectureList({
           <h2 className="text-2xl font-bold text-text-1">Lectures</h2>
           <div className="text-sm text-text-3">Find the next useful lecture, not another endless list.</div>
         </div>
-        <div className="desk-count-summary text-sm text-text-2"><strong>{counts.active}</strong> active · <strong>{counts.done}</strong> complete · {counts.all} total · <strong>{questionTotals.answered.toLocaleString()}</strong> questions completed{questionAccuracy == null ? "" : ` · ${questionAccuracy}% accuracy`}</div>
+        <div className="desk-count-summary text-sm text-text-2"><strong>{allRows.filter(r=>r.total>0 && r.done).length}</strong> complete · {allRows.filter(r=>r.total>0).length} lectures with objectives · {counts.all} resources · <strong>{questionTotals.answered.toLocaleString()}</strong> questions completed{questionAccuracy == null ? "" : ` · ${questionAccuracy}% accuracy`}</div>
       </div>
 
       {logged && <div className="mb-2 font-mono text-[12px] text-good">{logged}</div>}
@@ -683,29 +684,7 @@ export function LectureList({
           })}
         </div>
       ) : (
-        <div className="desk-lecture-list rounded-xl border border-border bg-bg-elevated px-4">
-          {visibleRows.map((row) => (
-            <Row
-              key={row.lectureId}
-              row={row}
-              stats={{ ...questionStats.data?.[row.lectureId], slideReviews: lectureReviewStats(context.completion?.[`${row.lectureId}__${blockId}`]).count }}
-              busy={quizBusyLectureId}
-              onStudy={onStudyLecture}
-              onQuiz={onQuiz}
-              onLog={onLog}
-              onUpdateDate={onUpdateDate}
-              userId={userId}
-              onPreRead={setPreReadTarget}
-              onDelete={onDelete}
-              deleting={deletingLectureId}
-              focused={row.lectureId === highlightId}
-              rowRef={row.lectureId === focusLectureId ? focusRowRef : undefined}
-              selectable={showAllLectures}
-              selected={selectedLectureIds.has(row.lectureId)}
-              onToggleSelected={toggleSelected}
-            />
-          ))}
-        </div>
+        <LectureDashboard rows={priorityRows} allRows={allRows} stats={questionStats.data || {}} onStudy={onStudyLecture} onQuiz={onQuiz} busy={quizBusyLectureId} focusedLectureId={highlightId} rowRef={focusRowRef} />
       )}
       {showAllLectures && visibleCount < weekRows.length && (
         <button onClick={() => setVisibleCount((n) => n + 30)} className="mt-3 w-full rounded-lg border border-border py-2 font-mono text-[12px] text-text-2 hover:border-accent hover:text-text-1">

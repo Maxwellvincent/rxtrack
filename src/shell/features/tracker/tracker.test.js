@@ -131,13 +131,13 @@ describe("lecture rows", () => {
   it("projects coverage and the completion record onto the row", () => {
     const row = lectureRow(score(), { completion, blockId: "b1" });
     expect(row).toMatchObject({
-      lectureId: "lec1", title: "Cardiac Cycle", coverage: 50,
+      lectureId: "lec1", title: "Cardiac Cycle", coverage: 67,
       lastActivityDate: "2026-07-20", nextReview: "2026-07-27", ankiInRotation: true, done: false,
     });
   });
 
-  it("marks a lecture done only when every objective is mastered", () => {
-    expect(lectureRow(score({ mastered: 6, struggling: 0, untested: 0 }), { blockId: "b1" }).done).toBe(true);
+  it("marks first pass complete once every objective has been encountered", () => {
+    expect(lectureRow(score({ mastered: 0, struggling: 6, untested: 0 }), { blockId: "b1" }).done).toBe(true);
     expect(lectureRow(score({ total: 0, mastered: 0 }), { blockId: "b1" }).done).toBe(false);
   });
 
@@ -183,9 +183,10 @@ describe("scoreLectures", () => {
       { id: "lec2", blockId: "b1", lectureTitle: "Two" },
     ],
     objectives: [
-      { id: "o1", linkedLecId: "lec1", status: "struggling", bloom_level: 3 },
-      { id: "o2", linkedLecId: "lec1", status: "untested", bloom_level: 2 },
+      { id: "o1", objective: "Describe relationship one", linkedLecId: "lec1", status: "struggling", bloom_level: 3 },
+      { id: "o2", objective: "Describe relationship two", linkedLecId: "lec1", status: "untested", bloom_level: 2 },
     ],
+    learnerEvidence:{objectives:{o1:{attempts:2,correct:0,recent:[false,false]}}},
     completion: {},
     reviewedLectures: {},
     lecturePerformance: {},
@@ -205,7 +206,7 @@ describe("scoreLectures", () => {
 
   it("moves an answered objective out of untested using learner evidence without granting mastery", () => {
     const scores = scoreLectures(context({
-      objectives: [{ id: "o1", linkedLecId: "lec1", status: "untested" }],
+      objectives: [{ id: "o1", objective: "Describe relationship one", linkedLecId: "lec1", status: "untested" }],
       learnerEvidence: { objectives: { o1: { attempts: 1, correct: 1, recent: [true] } } },
     }));
     expect(scores[0]).toMatchObject({ mastered: 0, inprogress: 1, struggling: 0, untested: 0, total: 1 });

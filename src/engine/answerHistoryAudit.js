@@ -20,7 +20,7 @@ export function auditAnswerHistory({blockId, objectives=[], evidence={}, calibra
   for(const answer of session.answers || []){
    const q=(session.questions || []).find(q=>q.questionId===answer.questionId);
    if(!q || !answer.value || !q.correct || !(answer.value in (q.choices || {})))continue;
-   candidates.push({...sessionEvidenceEvent(session,q,answer),stem:q.stem,sourceFile:session.sourceFile || q.sourceFile || session.title || "Saved exam/practice session",origin:"Saved school/exam session",originSessionId:session.sessionId});
+   candidates.push({...sessionEvidenceEvent(session,q,answer),stem:q.stem,lectureLabel:q.lectureLabel,sourceFile:session.sourceFile || q.sourceFile || session.title || "Saved exam/practice session",origin:"Saved school/exam session",originSessionId:session.sessionId});
   }
  }
  for(const record of calibration){
@@ -40,7 +40,7 @@ export function auditAnswerHistory({blockId, objectives=[], evidence={}, calibra
   if(!ids.length || !key){
    summary.needsLinking++;group.needsLinking++;
    const reason=!key?'Missing question identity':!candidate.objectiveIds?.length?'No objective link': 'Objective reference outside active lecture catalog';
-   unresolved.push({source:origin,origin:original.origin,sessionId:original.originSessionId || original.sessionKey,lectureId:candidate.lectureId || null,questionKey:candidate.questionKey || null,objectiveIds:candidate.objectiveIds || [],stem:candidate.stem || candidate.concept || '',at:candidate.at,reason,basis,hasFullQuestion:!!candidate.choices});
+   unresolved.push({source:origin,origin:original.origin,sessionId:original.originSessionId || original.sessionKey,lectureId:candidate.lectureId || null,lectureLabel:candidate.lectureLabel || null,questionKey:candidate.questionKey || null,objectiveIds:candidate.objectiveIds || [],stem:candidate.stem || candidate.concept || '',at:candidate.at,reason,basis,hasFullQuestion:!!candidate.choices});
    continue;
   }
   const existing=journal.filter(event=>event.blockId===blockId && questionEvidenceKey(event.questionKey)===key);
