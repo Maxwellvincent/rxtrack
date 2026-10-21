@@ -8,6 +8,7 @@ const filters = [["priority", "Review first"], ["all", "All lectures"], ["untest
 export function WeakAreaDashboard({ rows = [], priorityIds = [], lecturesById = {}, onReviewLecture, unlinkedAnswers = 0, unlinkedReportTopics = [] }) {
   const [filter, setFilter] = useState("priority");
   const [metric, setMetric] = useState("accuracy");
+  const [page, setPage] = useState(0);
   const [selectedId, setSelectedId] = useState(null);
   const priorities = new Set(priorityIds);
   const counts = {
@@ -15,8 +16,10 @@ export function WeakAreaDashboard({ rows = [], priorityIds = [], lecturesById = 
     untested: rows.filter(row => !row.totalQuestions).length,
     links: rows.filter(row => row.objectiveLinksMissing).length,
   };
-  const visible = rows.filter(row => filter === "priority" ? priorities.has(row.lectureId)
+  const matching = rows.filter(row => filter === "priority" ? priorities.has(row.lectureId)
     : filter === "untested" ? !row.totalQuestions : filter === "links" ? row.objectiveLinksMissing : true);
+  const currentPage = Math.min(page, Math.max(0, Math.ceil(matching.length / 6) - 1));
+  const visible = matching.slice(currentPage * 6, currentPage * 6 + 6);
   const selected = visible.find(row => row.lectureId === selectedId) || visible[0];
   const label = row => formatLectureLabel(lecturesById[row.lectureId] || row.lecture);
   const shortLabel = row => {
@@ -41,29 +44,33 @@ export function WeakAreaDashboard({ rows = [], priorityIds = [], lecturesById = 
     </div>
 
     <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-      <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter lectures">{filters.map(([key, title]) => <button key={key} type="button" aria-pressed={filter === key} onClick={() => setFilter(key)} className={`min-h-10 rounded-full border px-3 py-1.5 text-xs font-semibold ${filter === key ? "border-accent bg-accent/10 text-accent" : "border-border text-text-2 hover:bg-bg-elevated"}`}>{title} <span className="ml-1 opacity-70">{counts[key]}</span></button>)}</div>
-      <div className="flex rounded-lg border border-border p-1" role="group" aria-label="Chart metric">{[["accuracy", "Accuracy"], ["coverage", "Objectives seen"]].map(([key, title]) => <button key={key} type="button" aria-pressed={metric === key} onClick={() => setMetric(key)} className={`min-h-9 rounded-md px-3 text-xs font-semibold ${metric === key ? "bg-bg-elevated text-text-1 shadow-sm" : "text-text-3"}`}>{title}</button>)}</div>
+      <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter lectures">{filters.map(([key, title]) => <button key={key} type="button" aria-pressed={filter === key} onClick={() => { setFilter(key); setPage(0); setSelectedId(null); }} className={`min-h-10 rounded-full border px-3 py-1.5 text-xs font-semibold ${filter === key ? "border-accent bg-accent/10 text-accent" : "border-border text-text-2 hover:bg-bg-elevated"}`}>{title} <span className="ml-1 opacity-70">{counts[key]}</span></button>)}</div>
+      <div className="flex rounded-lg border border-border p-1" role="group" aria-label="Chart metric">{[["accuracy", "Accuracy"], ["coverage", "Objectives seen"]].map(([key, title]) => <button key={key} type="button" aria-pressed={metric === key} onClick={() => { setMetric(key); setPage(0); setSelectedId(null); }} className={`min-h-9 rounded-md px-3 text-xs font-semibold ${metric === key ? "bg-bg-elevated text-text-1 shadow-sm" : "text-text-3"}`}>{title}</button>)}</div>
     </div>
 
     <div className="mt-4 rounded-lg border border-border bg-bg-elevated p-3 sm:p-4">
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-text-2">
         <h3 className="font-semibold text-text-1">{metric === "accuracy" ? "Accuracy by lecture" : "Objective exposure by lecture"}</h3>
-        <div className="flex gap-3">{metric === "accuracy" ? <><span><i className="mr-1 inline-block h-2 w-2 rounded-sm bg-accent"/>Recent</span><span><i className="mr-1 inline-block h-2 w-2 rounded-sm bg-status-blue/60"/>Lifetime</span></> : <span>Seen ≠ mastered</span>}</div>
+        <div className="flex gap-3">{metric === "accuracy" ? <><span><i className="mr-1 inline-block h-2 w-2 rounded-sm" style={{backgroundColor:"#0072b2"}}/>Recent (solid)</span><span><i className="mr-1 inline-block h-2 w-2 rounded-sm" style={{background:"repeating-linear-gradient(45deg, #e69f00 0 2px, #17212b 2px 3px)"}}/>Lifetime (striped)</span></> : <span>Seen ≠ mastered</span>}</div>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2" aria-label="Weak-area chart pages">
+       <p className="text-xs font-semibold" aria-live="polite">{matching.length ? currentPage === 0 ? `Top ${visible.length} of ${matching.length} lectures` : `Priorities ${currentPage * 6 + 1}–${currentPage * 6 + visible.length} of ${matching.length}` : "No matching lectures"}</p>
+       {matching.length > 6 && <div className="flex gap-2"><button type="button" className="rounded-md border border-border px-3 py-2 text-xs disabled:opacity-40" disabled={currentPage === 0} onClick={() => { setPage(currentPage - 1); setSelectedId(null); }}>← Previous six</button><button type="button" className="rounded-md border border-border px-3 py-2 text-xs disabled:opacity-40" disabled={(currentPage + 1) * 6 >= matching.length} onClick={() => { setPage(currentPage + 1); setSelectedId(null); }}>Next six →</button></div>}
       </div>
       {visible.length ? <div className="mt-3 flex min-w-0 gap-2">
-        <div className="relative mt-7 h-[180px] w-8 shrink-0 text-[10px] text-text-3" aria-hidden="true">{[100,75,50,25,0].map(value => <span key={value} className="absolute right-0 -translate-y-1/2" style={{top:`${100-value}%`}}>{value}%</span>)}</div>
-        <div className="min-w-0 flex-1 overflow-x-auto pb-2" tabIndex={0} aria-label="Lecture comparison chart; scroll for more lectures">
-          <div className="grid" style={{gridTemplateColumns:`repeat(${visible.length}, minmax(92px, 1fr))`, minWidth:visible.length * 92}}>
+        <div className="relative mt-7 h-[128px] w-8 shrink-0 text-[10px] text-text-3" aria-hidden="true">{[100,75,50,25,0].map(value => <span key={value} className="absolute right-0 -translate-y-1/2" style={{top:`${100-value}%`}}>{value}%</span>)}</div>
+        <div className="min-w-0 flex-1 pb-2" aria-label="Lecture comparison chart; six lectures per page">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
             {visible.map(row => {
               const active = selected?.lectureId === row.lectureId;
               const values = metric === "accuracy" ? [row.recentCount >= 3 ? row.recentAccuracy : null, row.accuracy] : [exposure(row)];
               return <button key={row.lectureId} type="button" aria-pressed={active} aria-label={`Select ${label(row)}. ${metric === "accuracy" ? `Recent ${row.recentCount >= 3 ? percent(row.recentAccuracy) : "insufficient data"}, lifetime ${row.accuracy == null ? "no data" : percent(row.accuracy)}` : `Objectives seen ${exposure(row) == null ? "unavailable" : percent(exposure(row))}`}`} title={label(row)} onClick={() => setSelectedId(row.lectureId)} className={`min-w-0 rounded-md px-1 pb-2 text-center focus-visible:outline-2 focus-visible:outline-accent ${active ? "bg-accent/5 ring-1 ring-inset ring-accent/40" : "hover:bg-panel"}`}>
-                <span className="relative block h-[208px]">
-                  <span className="absolute inset-x-0 bottom-0 h-[180px]" aria-hidden="true">
+                <span className="relative block h-[156px]">
+                  <span className="absolute inset-x-0 bottom-0 h-[128px]" aria-hidden="true">
                     {[0,25,50,75,100].map(value => <span key={value} className="absolute inset-x-0 border-t border-border/60" style={{bottom:`${value}%`}}/>)}
                     <span className="absolute inset-0 flex items-end justify-center gap-3 px-2">{values.map((value,index) => <span key={index} className="relative h-full w-full max-w-6">
                       <span className="absolute inset-x-[-6px] whitespace-nowrap text-[10px] font-semibold text-text-2" style={{bottom:`calc(${(value ?? 0)*100}% + 4px)`}}>{value == null ? "—" : percent(value)}</span>
-                      {value != null ? <span data-bar="vertical" data-value={value} className={`absolute inset-x-0 bottom-0 rounded-t-sm ${metric === "coverage" || index === 0 ? "bg-accent" : "bg-status-blue/60"}`} style={{height:`${value*100}%`}}/> : <span className="absolute inset-x-0 bottom-0 h-1 border-t border-dashed border-text-3/50"/>}
+                      {value != null ? <span data-bar="vertical" data-value={value} className={`absolute inset-x-0 bottom-0 rounded-t-sm ${metric === "coverage" || index === 0 ? "bg-accent" : "bg-status-blue/60"}`} style={{height:`${value*100}%`, backgroundColor: index === 0 ? "#0072b2" : "#e69f00", backgroundImage: index === 0 ? "none" : "repeating-linear-gradient(45deg, transparent 0 4px, #17212b 4px 6px)"}}/> : <span className="absolute inset-x-0 bottom-0 h-1 border-t border-dashed border-text-3/50"/>}
                     </span>)}</span>
                   </span>
                 </span>

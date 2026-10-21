@@ -45,3 +45,23 @@ it("shows genuine zero and 100 percent without manufactured minimum heights",()=
  expect([...ui.host.querySelectorAll('[data-bar]')].map(bar=>bar.style.height)).toEqual(["100%","0%"]);
  ui.done();
 });
+
+it("limits every chart view to six priorities and resets selection and page on filter change", () => {
+ const rows=Array.from({length:14},(_,i)=>row(`l${i}`,{lecture:{id:`l${i}`,lectureType:"LEC",lectureNumber:i+1,lectureTitle:`Topic ${i+1}`}}));
+ const ui=render({rows,priorityIds:rows.map(r=>r.lectureId)});
+ const bars=()=>[...ui.host.querySelectorAll('[aria-label^="Select LEC"]')];
+ expect(bars()).toHaveLength(6);
+ expect(ui.host.textContent).toContain("Top 6 of 14 lectures");
+ expect(ui.host.querySelector('.overflow-x-auto')).toBeNull();
+ ui.click("Next six");
+ expect(bars()).toHaveLength(6);
+ expect(bars()[0].getAttribute("aria-label")).toContain("LEC 7");
+ expect(bars()[0].getAttribute("aria-pressed")).toBe("true");
+ ui.click("Next six"); expect(bars()).toHaveLength(2);
+ ui.click("All lectures"); expect(bars()).toHaveLength(6);
+ expect(bars()[0].getAttribute("aria-label")).toContain("LEC 1");
+ ui.click("Next six"); ui.click("Objectives seen");
+ expect(ui.host.textContent).toContain("Top 6 of 14 lectures");
+ expect(ui.host.querySelectorAll('[data-bar]')).toHaveLength(6);
+ ui.done();
+});
