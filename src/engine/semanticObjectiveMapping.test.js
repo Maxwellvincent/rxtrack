@@ -4,7 +4,7 @@ const quote='The recurrent laryngeal nerve supplies the intrinsic laryngeal musc
 const lectures=[{id:'l',blockId:'NB',termId:'T2',lectureTitle:'Pharynx and Larynx',chunks:[{text:quote}]}];
 const objectives=[{id:'o',blockId:'NB',linkedLecId:'l',objective:'Explain the motor innervation of the larynx'}];
 const question={lectureId:'l',stem:'Which muscle is spared after recurrent laryngeal nerve injury?',choices:{A:'Cricothyroid'},correct:'A'};
-const proposal={decision:'objective',links:[{objectiveId:'o',lectureId:'l',sourceQuote:quote,testedRelationship:'Motor innervation of intrinsic laryngeal muscles'}]};
+const proposal={decision:'objective',links:[{objectiveId:'o',objectiveText:objectives[0].objective,lectureId:'l',sourceQuote:quote,testedRelationship:'Motor innervation of intrinsic laryngeal muscles'}]};
 it('requires two agreeing semantic reviews and preserves quote provenance',async()=>{
  const review=vi.fn().mockResolvedValue(proposal);
  const result=await classifyObjectiveMapping(question,{lectures,objectives,blockId:'NB',review});
@@ -13,7 +13,7 @@ it('requires two agreeing semantic reviews and preserves quote provenance',async
 });
 it('rejects foreign IDs, invented quotations, duplicate links and disagreement',async()=>{
  const context=objectiveMappingContext(question,lectures,objectives,'NB');
- for(const bad of [{...proposal.links[0],objectiveId:'foreign'},{...proposal.links[0],sourceQuote:'An invented sentence about nerve injuries and muscles.'}])expect(validateObjectiveMapping({...proposal,links:[bad]},context)).toBeNull();
+ for(const bad of [{...proposal.links[0],objectiveId:'foreign'},{...proposal.links[0],objectiveText:'An unrelated objective about axonal transection'},{...proposal.links[0],sourceQuote:'An invented sentence about nerve injuries and muscles.'}])expect(validateObjectiveMapping({...proposal,links:[bad]},context)).toBeNull();
  expect(validateObjectiveMapping({...proposal,links:[proposal.links[0],proposal.links[0]]},context)).toBeNull();
  const review=vi.fn().mockResolvedValueOnce(proposal).mockResolvedValueOnce({decision:'unresolved'});
  expect(await classifyObjectiveMapping(question,{lectures,objectives,blockId:'NB',review})).toBeNull();
