@@ -44,7 +44,7 @@ export function parseObjectiveActivityTag(text) {
 
 export const MAX_OBJECTIVE_CHARS = 320;
 
-const OBJECTIVE_START_RE = /(?:^|\s)(summarize|outline|discuss|describe|descibe|identify|explain|list|compare|contrast|define|classify|distinguish|differentiate|diffrentiate|evaluate|analyze|analyse|apply|demonstrate|calculate|interpret|relate|state|give|name|recognize|predict|determine|illustrate|formulate|recall|recap|recapitulate|review|assess|examine|draw|characterize|diagnose|select|solve|use|construct|develop|derive|match|label|locate|perform|understand|appraise|highlight|indicate|justify|correlate|integrate|present|create|generate|generating|microscopically describe|to develop)\b/i;
+export const OBJECTIVE_START_RE = /(?:^|\s)(summarize|outline|discuss|describe|descibe|identify|explain|list|compare|contrast|define|classify|distinguish|differentiate|diffrentiate|evaluate|analyze|analyse|apply|demonstrate|calculate|interpret|relate|state|give|name|recognize|predict|determine|illustrate|formulate|recall|recap|recapitulate|review|assess|examine|draw|characterize|diagnose|select|solve|use|construct|develop|derive|match|label|locate|perform|understand|appraise|highlight|indicate|justify|correlate|integrate|present|create|generate|generating|microscopically describe|to develop)\b/i;
 
 /** Remove curriculum-export furniture without rewriting the school's objective. */
 export function stripObjectiveDocumentBoilerplate(value) {

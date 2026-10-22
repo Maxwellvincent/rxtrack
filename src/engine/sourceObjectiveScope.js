@@ -1,4 +1,4 @@
-import { extractCodeDelimited } from "../ingest/objectives.js";
+import { extractCodeDelimited, OBJECTIVE_START_RE } from "../ingest/objectives.js";
 const codeOf = row => String(row?.code || row?.objectiveCode || "").replace(/\s/g, "").toUpperCase();
 
 /** Conservative screen for reused codes describing unrelated curriculum tasks. */
@@ -13,18 +13,22 @@ export function sourceObjectiveTextConflict(a, b) {
 /** Only an explicit objective page/table can replace links; slide keywords are not authority. */
 export function lectureSourceObjectives(text, lecture, blockId) {
  const source = String(text || "").replace(/\f/g, "\n\f\n");
- const heading = /^[ \t#*]*(?:(?:learning|lecture|DLA)\s+)?objectives[ \t:*#]*$/im.exec(source);
- if (!heading) return [];
- const start = heading.index + heading[0].length;
- const tail = source.slice(start);
- const end = tail.search(/\f|\n[ \t]*#{1,6}[ \t]+/);
- const table = end < 0 ? tail.slice(0, 6000) : tail.slice(0, end);
- // PDF columns can interleave the objective sentence between a SOM prefix
- // and its subject/number on the next line. Rejoin the code before parsing.
- const aligned = table.replace(/(SOM(?:\.[A-Za-z0-9]+)+\.?)[ \t]*([^\n]*)\n[ \t]*([A-Za-z]+\.\d{4})[ \t]*([^\n]*)/g,
-  (_match,prefix,first,suffix,last)=>`${prefix}${suffix}  ${[first,last].filter(Boolean).join(" ")}`);
- const rows = extractCodeDelimited(aligned, lecture, blockId).filter(row => codeOf(row) && /^(?:describe|explain|list|identify|compare|contrast|outline|discuss|define|understand|recognize|distinguish|summarize|trace|relate|state|name|differentiate|predict|interpret|analy[sz]e)\b/i.test(row.objective || row.text || ""));
- return rows.map(row => ({ ...row, id: `source:${lecture.id}:${codeOf(row)}` }));
+ const headings=[...source.matchAll(/^[ \t#*]*(?:(?:learning|lecture|DLA)\s+)?objectives[ \t:*#]*$/gim)];
+ const found=new Map();
+ for(const [index,heading] of headings.entries()){
+  const start=heading.index+heading[0].length;
+  const tail=source.slice(start,headings[index+1]?.index ?? source.length);
+  const end=tail.search(/\f|\n[ \t]*#{1,6}[ \t]+/);
+  const table=end<0?tail.slice(0,6000):tail.slice(0,end);
+  // Rejoin split two-column codes and normalize whitespace within full codes.
+  const aligned=table.replace(/\bBPM\s+(\d)/g,"BPM$1")
+   .replace(/SOM\s*\.\s*[A-Za-z0-9]+(?:\s*\.\s*[A-Za-z0-9]+)+\s*\.\s*\d{4}/gi,code=>code.replace(/\s/g,""))
+   .replace(/(SOM(?:\.[A-Za-z0-9]+)+\.?)[ \t]*([^\n]*)\n[ \t]*([A-Za-z]+\.\d{4})[ \t]*([^\n]*)/g,
+    (_match,prefix,first,suffix,last)=>`${prefix}${suffix}  ${[first,last].filter(Boolean).join(" ")}`);
+  const rows=extractCodeDelimited(aligned,lecture,blockId).filter(row=>codeOf(row) && OBJECTIVE_START_RE.test(String(row.objective || row.text || "").slice(0,40)));
+  for(const row of rows)if(!found.has(codeOf(row)))found.set(codeOf(row),{...row,id:`source:${lecture.id}:${codeOf(row)}`});
+ }
+ return [...found.values()];
 }
 
 /** Preserve all records and evidence; detach unsupported links without guessing a destination. */
