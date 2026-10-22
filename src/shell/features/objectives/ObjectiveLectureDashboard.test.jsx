@@ -1,0 +1,20 @@
+import React,{act} from 'react';
+import {createRoot} from 'react-dom/client';
+import {it,expect,vi} from 'vitest';
+import {ObjectiveLectureDashboard} from './ObjectiveLectureDashboard.jsx';
+import {installDomStorage} from '../../../stores/testEnv.js';
+globalThis.IS_REACT_ACT_ENVIRONMENT=true;
+it('pages six bars, selects visible lecture actions, and clamps a shortened result set',()=>{
+ installDomStorage();const host=document.createElement('div');document.body.append(host);const root=createRoot(host),study=vi.fn(),quiz=vi.fn();
+ const rows=Array.from({length:8},(_,i)=>({lec:{id:'l'+i,lectureNumber:i+1,lectureTitle:'Topic '+(i+1)},total:4,tested:2,coverage:50,m:0,ip:1,st:1,ut:2,questionAttempts:3}));
+ const render=r=>act(()=>root.render(<ObjectiveLectureDashboard title="Status dashboard" rows={r} metric="st" metricLabel="need repair" onStudy={study} onQuiz={quiz} objectives={[{id:'o7',linkedLecId:'l6'}]} blockId="NB"/>));
+ render(rows);const bars=()=>host.querySelector('[aria-label="Six lecture objective bars"]').querySelectorAll('button');
+ expect(bars()).toHaveLength(6);expect(host.textContent).toContain('Lectures 1–6 of 8');
+ act(()=>[...host.querySelectorAll('button')].find(b=>b.textContent==='Next six →').click());
+ expect(bars()).toHaveLength(2);expect(host.textContent).toContain('Lectures 7–8 of 8');
+ act(()=>[...host.querySelectorAll('button')].find(b=>b.textContent==='Review lecture →').click());expect(study).toHaveBeenCalledWith('l6');
+ act(()=>[...host.querySelectorAll('button')].find(b=>b.textContent==='Quiz lecture →').click());expect(quiz.mock.calls[0][0]).toEqual([{id:'o7',linkedLecId:'l6'}]);
+ render(rows.slice(0,2));expect(host.textContent).toContain('Lectures 1–2 of 2');expect(bars()).toHaveLength(2);
+ expect(host.querySelector('[aria-label="Objective chart legend"]').textContent).toContain('! Needs review');
+ act(()=>root.unmount());host.remove();
+});

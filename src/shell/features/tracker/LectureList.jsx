@@ -639,6 +639,14 @@ export function LectureList({
         </button>
       </section>
 
+
+
+      {displayRows.length === 0 ? (
+        <div className="rounded-lg border border-border p-3 text-xs text-text-3">{showAllLectures ? "Nothing matches that filter." : "No released lectures need focus right now."}</div>
+      ) : showAllLectures ? (
+        <div>
+        <LectureDashboard key={[blockId,filter,activityType,search,sort,week].join(":")} rows={weekRows} allRows={allRows} stats={questionStats.data || {}} onStudy={onStudyLecture} onQuiz={onQuiz} busy={quizBusyLectureId} focusedLectureId={highlightId} rowRef={focusRowRef}/>
+        <details className="mt-4 rounded-xl border border-border p-3"><summary className="cursor-pointer font-semibold">Manage lecture dates, logs and selection</summary>
       {showAllLectures && weekRows.length > 0 && <div className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-border bg-bg-elevated p-3">
         <label className="flex items-center gap-2 text-sm text-text-2">
           <input type="checkbox" checked={weekRows.every((row) => selectedLectureIds.has(row.lectureId))} onChange={selectAllInView} aria-label={`Select all ${weekRows.length} lectures in this view`} className="h-4 w-4 accent-accent" />
@@ -650,10 +658,6 @@ export function LectureList({
         </button>
         {selectedLectureIds.size > 0 && <button type="button" onClick={() => setSelectedLectureIds(new Set())} className="text-sm text-text-3 hover:text-text-1">Clear selection</button>}
       </div>}
-
-      {displayRows.length === 0 ? (
-        <div className="rounded-lg border border-border p-3 text-xs text-text-3">{showAllLectures ? "Nothing matches that filter." : "No released lectures need focus right now."}</div>
-      ) : showAllLectures ? (
         <div className="space-y-3" aria-label="Lecture library grouped by week">
           {libraryGroups.map((group) => {
             const readyCount = group.rows.filter((row) => row.total > 0 && row.mastered >= row.total).length;
@@ -678,7 +682,7 @@ export function LectureList({
                   onDelete={onDelete}
                   deleting={deletingLectureId}
                   focused={row.lectureId === highlightId}
-                  rowRef={row.lectureId === focusLectureId ? focusRowRef : undefined}
+                  rowRef={undefined}
                   selectable
                   selected={selectedLectureIds.has(row.lectureId)}
                   onToggleSelected={toggleSelected}
@@ -687,14 +691,17 @@ export function LectureList({
             </details>;
           })}
         </div>
-      ) : (
-        <LectureDashboard rows={priorityRows} allRows={allRows} stats={questionStats.data || {}} onStudy={onStudyLecture} onQuiz={onQuiz} busy={quizBusyLectureId} focusedLectureId={highlightId} rowRef={focusRowRef} />
-      )}
       {showAllLectures && visibleCount < weekRows.length && (
         <button onClick={() => setVisibleCount((n) => n + 30)} className="mt-3 w-full rounded-lg border border-border py-2 font-mono text-[12px] text-text-2 hover:border-accent hover:text-text-1">
           Show next 30 · {weekRows.length - visibleCount} remaining
         </button>
       )}
+        </details>
+        </div>
+      ) : (
+        <LectureDashboard rows={priorityRows} allRows={allRows} stats={questionStats.data || {}} onStudy={onStudyLecture} onQuiz={onQuiz} busy={quizBusyLectureId} focusedLectureId={highlightId} rowRef={focusRowRef} />
+      )}
+
 
       {preReadTarget && (
         <PreReadModal

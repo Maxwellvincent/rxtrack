@@ -2,13 +2,13 @@ import {blockReviewPolicy} from '../../../engine/blockReviewPolicy.js';
 import { useEffect, useMemo, useState } from "react";
 import { formatLectureLabel } from "../../../lectureTitle.js";
 import { lectureReviewTiming, reviewDateLabel } from "./lectureReviewTiming.js";
-const segments = [
+export const segments = [
  { key: "m", label: "Mastered", symbol: "✓", color: "#0072b2", pattern: "none" },
  { key: "ip", label: "Learning", symbol: "~", color: "#e69f00", pattern: "repeating-linear-gradient(0deg, transparent 0 6px, #17212b 6px 8px)" },
  { key: "st", label: "Needs review", symbol: "!", color: "#cc79a7", pattern: "repeating-linear-gradient(45deg, transparent 0 6px, #17212b 6px 8px)" },
  { key: "ut", label: "Not yet tested", symbol: "○", color: "#f3f4f6", pattern: "radial-gradient(#536171 1px, transparent 1px)", size: "6px 6px" },
 ];
-const segmentStyle = segment => ({ backgroundColor: segment.color, backgroundImage: segment.pattern, backgroundSize: segment.size, borderTop: "1px solid #17212b" });
+export const segmentStyle = segment => ({ backgroundColor: segment.color, backgroundImage: segment.pattern, backgroundSize: segment.size, borderTop: "1px solid #17212b" });
 export function lectureReviewAccuracy(lecture, evidence = {}, getLecPerf, blockId) {
  const stats = evidence.lectures?.[lecture.id];
  if (stats?.recent?.length >= 3) return stats.recent.filter(Boolean).length / stats.recent.length;

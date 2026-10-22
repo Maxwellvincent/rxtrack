@@ -13,3 +13,14 @@ it('keeps six vertical choices visible and selects a lecture for actions',()=>{
  act(()=>[...host.querySelectorAll('button')].find(b=>b.textContent==='Study →').click());
  expect(study).toHaveBeenCalledWith('l2');act(()=>[...host.querySelectorAll('button')].find(b=>b.textContent==='Quiz →').click());expect(quiz).toHaveBeenCalledWith(rows[2]);expect(host.textContent).toContain('Completion means every objective');act(()=>root.unmount());
 });
+
+it('browses the full library in six-card pages and keeps study selection on the current page',()=>{
+ const host=document.createElement('div');document.body.append(host);const root=createRoot(host),study=vi.fn();
+ const rows=Array.from({length:13},(_,i)=>({lectureId:'l'+i,type:'LEC',number:i+1,title:'Lecture '+(i+1),total:4,covered:2,remaining:2}));
+ act(()=>root.render(<LectureDashboard rows={rows} allRows={rows} onStudy={study} onQuiz={vi.fn()}/>));
+ const bars=()=>host.querySelectorAll('.lecture-dashboard-bar-card');expect(bars()).toHaveLength(6);
+ act(()=>[...host.querySelectorAll('button')].find(b=>b.textContent==='Next six →').click());expect(host.textContent).toContain('Lectures 7–12 of 13');
+ act(()=>bars()[1].click());act(()=>[...host.querySelectorAll('button')].find(b=>b.textContent==='Study →').click());expect(study).toHaveBeenCalledWith('l7');
+ act(()=>[...host.querySelectorAll('button')].find(b=>b.textContent==='Next six →').click());expect(bars()).toHaveLength(1);expect(host.textContent).toContain('Lectures 13–13 of 13');
+ act(()=>root.unmount());host.remove();
+});

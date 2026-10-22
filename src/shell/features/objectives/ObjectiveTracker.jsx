@@ -1,3 +1,4 @@
+import {ObjectiveLectureDashboard} from "./ObjectiveLectureDashboard.jsx";
 import { LectureProgressDashboard } from "./LectureProgressDashboard.jsx";
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useTheme, getObjStatusColor } from "../../../theme";
@@ -117,37 +118,6 @@ function countByStatus(objs) {
     else ut++;
   }
   return { m, ip, st, ut, t: (objs || []).length };
-}
-
-/** Inline width % segments — avoids flex rounding showing all gray */
-function SegmentedPctBar({ masteredPct, inprogressPct, strugglingPct, untestedPct, width = 120, height = 6 }) {
-  const bg = "var(--color-background-tertiary, #e5e5e5)";
-  return (
-    <div
-      style={{
-        display: "flex",
-        width,
-        height,
-        borderRadius: 3,
-        overflow: "hidden",
-        background: bg,
-        flexShrink: 0,
-      }}
-    >
-      {masteredPct > 0 && (
-        <div style={{ width: masteredPct + "%", flexShrink: 0, background: "#639922", height: "100%" }} />
-      )}
-      {inprogressPct > 0 && (
-        <div style={{ width: inprogressPct + "%", flexShrink: 0, background: "#BA7517", height: "100%" }} />
-      )}
-      {strugglingPct > 0 && (
-        <div style={{ width: strugglingPct + "%", flexShrink: 0, background: "#E24B4A", height: "100%" }} />
-      )}
-      {untestedPct > 0 && (
-        <div style={{ width: untestedPct + "%", flexShrink: 0, background: "#c4c4c4", height: "100%" }} />
-      )}
-    </div>
-  );
 }
 
 function sortGroupObjectives(filter, objs) {
@@ -876,10 +846,9 @@ export default function ObjectiveTracker({
   const totalAll = linkedObjectives.length;
 
   const [statusFilter, setStatusFilter] = useState("untested");
-  const [coverageSort, setCoverageSort] = useState("struggling");
+  const [coverageSort, setCoverageSort] = useState("coverage_asc");
   const [openGroups, setOpenGroups] = useState({});
   const [untestedShowAll, setUntestedShowAll] = useState({});
-  const [covDetailOpen, setCovDetailOpen] = useState({});
   const [hoverObjId, setHoverObjId] = useState(null);
   const [unlinkedFilter, setUnlinkedFilter] = useState("all");
   const [unlinkedSearch, setUnlinkedSearch] = useState("");
@@ -914,8 +883,7 @@ export default function ObjectiveTracker({
   useEffect(() => {
     setOpenGroups({});
     setUntestedShowAll({});
-    setCovDetailOpen({});
-    setCoverageSort("struggling");
+    setCoverageSort("coverage_asc");
     setDeleteConfirm(false);
     setUnlinkedSearch("");
     setUnlinkedFilter("all");
@@ -1000,7 +968,6 @@ export default function ObjectiveTracker({
     return rows;
   }, [filteredByStatus, blockLectures]);
 
-  const globalCounts = useMemo(() => countByStatus(covSrc), [covSrc]);
 
   const coverageRows = useMemo(() => {
     const lecs = [...blockLectures].sort(sortLecturesForObjectives);
@@ -1807,8 +1774,9 @@ export default function ObjectiveTracker({
             {statusFilter === "all" &&
               `Showing ${totalAll} objectives across ${statusGroups.length} lectures`}
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: "70vh", overflow: "auto" }}>
-            {statusGroups.map(({ lecId, lec, objs }) => {
+          <ObjectiveLectureDashboard key={statusFilter} rows={coverageRows.filter(row=>statusGroups.some(group=>group.lecId===row.lec.id)).sort((a,b)=>{const k=({struggling:"st",inprogress:"ip",untested:"ut",mastered:"m"})[statusFilter] || "total";return b[k]-a[k] || b[k]/b.total-a[k]/a.total;})} title="Objectives by status" description="Lectures with the most objectives in the selected status come first. Select a bar, then inspect its objectives or start a review." metric={({struggling:"st",inprogress:"ip",untested:"ut",mastered:"m"})[statusFilter] || "total"} metricLabel={({struggling:"need repair",inprogress:"developing",untested:"without answers",mastered:"mastered"})[statusFilter] || "objectives"} onStudy={onStudyLecture} onQuiz={onStartObjectiveQuiz} objectives={covSrc} blockId={blockId}>{selected=>(
+          <details><summary className="cursor-pointer text-sm font-semibold">Inspect objectives for this lecture</summary><div className="mt-3">
+            {statusGroups.filter(group=>group.lecId===selected.lec.id).map(({ lecId, lec, objs }) => {
               const n = objs.length;
               const expanded =
                 openGroups[lecId] !== undefined ? openGroups[lecId] : defaultGroupExpanded(statusFilter, objs);
@@ -2191,270 +2159,16 @@ export default function ObjectiveTracker({
             {statusGroups.length === 0 && (
               <p style={{ fontFamily: MONO, color: T.text3, fontSize: 14 }}>No objectives in this filter.</p>
             )}
-          </div>
+          </div></details>
+          )}</ObjectiveLectureDashboard>
         </div>
       )}
 
-      {subView === "coverage" && (
-        <div>
-          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 8, alignItems: "center" }}>
-            <span style={{ fontFamily: MONO, fontSize: 12, fontWeight: 600, color: "#639922" }}>
-              ✓ {globalCounts.m} mastered
-              {totalAll > 0 ? " — " + Math.round((globalCounts.m / totalAll) * 100) + "%" : ""}
-            </span>
-            <span style={{ fontFamily: MONO, fontSize: 12, fontWeight: 600, color: "#BA7517" }}>
-              △ {globalCounts.ip} in progress
-            </span>
-            <span style={{ fontFamily: MONO, fontSize: 12, fontWeight: 600, color: "#E24B4A" }}>
-              ⚠ {globalCounts.st} struggling
-            </span>
-            <span style={{ fontFamily: MONO, fontSize: 12, fontWeight: 600, color: T.text3 }}>
-              ○ {globalCounts.ut} untested
-            </span>
-          </div>
-          <div
-            style={{
-              display: "flex",
-              height: 8,
-              borderRadius: 4,
-              overflow: "hidden",
-              marginBottom: 16,
-              width: "100%",
-              maxWidth: 560,
-            }}
-          >
-            {globalCounts.t > 0 &&
-              [
-                { n: globalCounts.m, bg: "#639922" },
-                { n: globalCounts.ip, bg: "#BA7517" },
-                { n: globalCounts.st, bg: "#E24B4A" },
-                { n: globalCounts.ut, bg: "#d1d5db" },
-              ]
-                .filter((x) => x.n > 0)
-                .map((x, i, arr) => (
-                  <div
-                    key={i}
-                    style={{
-                      flex: x.n,
-                      minWidth: 2,
-                      background: x.bg,
-                      borderTopLeftRadius: i === 0 ? 4 : 0,
-                      borderBottomLeftRadius: i === 0 ? 4 : 0,
-                      borderTopRightRadius: i === arr.length - 1 ? 4 : 0,
-                      borderBottomRightRadius: i === arr.length - 1 ? 4 : 0,
-                    }}
-                  />
-                ))}
-          </div>
-          <p style={{ fontFamily: MONO, fontSize: 11, color: T.text3, margin: "-8px 0 12px" }}>
-            Seen = at least one answered question linked to the objective, or a recorded status. The bar includes misses as seen; colors show the latest state, not mastery from exposure alone.
-          </p>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-            {[
-              { k: "struggling", label: "Most struggling" },
-              { k: "coverage_asc", label: "Coverage ↑" },
-              { k: "coverage_desc", label: "Coverage ↓" },
-              { k: "lecture_order", label: "Lecture order" },
-              { k: "untested", label: "Most untested" },
-            ].map((b) => (
-              <button
-                key={b.k}
-                type="button"
-                onClick={() => setCoverageSort(b.k)}
-                style={{
-                  fontFamily: MONO,
-                  fontSize: 11,
-                  padding: "4px 10px",
-                  borderRadius: 6,
-                  border: "1px solid " + (coverageSort === b.k ? color : T.border1),
-                  background: coverageSort === b.k ? color + "18" : T.inputBg,
-                  color: coverageSort === b.k ? color : T.text3,
-                  cursor: "pointer",
-                }}
-              >
-                {b.label}
-              </button>
-            ))}
-          </div>
-          <div style={{ display: "flex", flexDirection: "column" }}>
-            {sortedCoverageRows.map((row) => {
-              const lec = row.lec;
-              const lid = lec.id;
-              const isOpen = !!covDetailOpen[lid];
-              let typeKey = (lec?.lectureType || "LEC").toUpperCase();
-              if (typeKey === "LECTURE" || typeKey.startsWith("LECT")) typeKey = "LEC";
-              else typeKey = typeKey.slice(0, 4);
-              const title = (lec?.lectureTitle || "").slice(0, 48);
-              const cov = row.coverage;
-              const showCoveragePct = row.total > 0 && cov > 0;
-              const covColor = showCoveragePct
-                ? cov >= 70
-                  ? "#639922"
-                  : cov >= 40
-                    ? "#BA7517"
-                    : "#E24B4A"
-                : T.text3;
-              const numer = row.tested;
-              return (
-                <div key={String(lid)}>
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
-                      padding: "8px 10px",
-                      borderBottom: "0.5px solid var(--color-border-tertiary, " + T.border2 + ")",
-                      cursor: "pointer",
-                    }}
-                    onClick={() => setCovDetailOpen((d) => ({ ...d, [lid]: !isOpen }))}
-                  >
-                    <span
-                      style={{
-                        fontFamily: MONO,
-                        fontSize: 10,
-                        fontWeight: 600,
-                        width: 40,
-                        flexShrink: 0,
-                        textAlign: "center",
-                        padding: "2px 4px",
-                        borderRadius: 4,
-                        background: T.pillBg,
-                        color: T.text2,
-                      }}
-                    >
-                      {typeKey}
-                    </span>
-                    <span style={{ fontFamily: MONO, fontSize: 11, color: T.text3, width: 28, flexShrink: 0 }}>
-                      {lec?.lectureNumber ?? "—"}
-                    </span>
-                    <span
-                      style={{
-                        flex: 1,
-                        fontSize: 12,
-                        color: T.text1,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                        minWidth: 0,
-                        fontFamily: MONO,
-                      }}
-                    >
-                      {title}
-                    </span>
-                    <SegmentedPctBar
-                      masteredPct={row.masteredPct}
-                      inprogressPct={row.inprogressPct}
-                      strugglingPct={row.strugglingPct}
-                      untestedPct={row.untestedPct}
-                      width={120}
-                      height={6}
-                    />
-                    <span
-                      style={{
-                        fontFamily: MONO,
-                        fontSize: 11,
-                        color: T.text3,
-                        width: 44,
-                        textAlign: "right",
-                        flexShrink: 0,
-                      }}
-                    >
-                      {row.total > 0 ? `${numer}/${row.total} seen` : "—"}
-                    </span>
-                    <span
-                      style={{
-                        fontFamily: MONO,
-                        fontSize: 11,
-                        width: 40,
-                        textAlign: "right",
-                        flexShrink: 0,
-                        color: covColor,
-                      }}
-                    >
-                      {showCoveragePct ? cov + "%" : "—"}
-                    </span>
-                  </div>
-                  {isOpen && (
-                    <div
-                      style={{
-                        display: "flex",
-                        gap: 8,
-                        flexWrap: "wrap",
-                        padding: "8px 10px 10px 48px",
-                        borderBottom: "0.5px solid var(--color-border-tertiary, " + T.border2 + ")",
-                      }}
-                    >
-                      <span
-                        style={{
-                          fontFamily: MONO,
-                          fontSize: 10,
-                          padding: "2px 8px",
-                          borderRadius: 4,
-                          background: "#63992222",
-                          color: "#639922",
-                        }}
-                      >
-                        ✓ {row.m} mastered
-                      </span>
-                      <span
-                        style={{
-                          fontFamily: MONO,
-                          fontSize: 10,
-                          padding: "2px 8px",
-                          borderRadius: 4,
-                          background: "#BA751722",
-                          color: "#633806",
-                        }}
-                      >
-                        △ {row.ip} in progress
-                      </span>
-                      <span
-                        style={{
-                          fontFamily: MONO,
-                          fontSize: 10,
-                          padding: "2px 8px",
-                          borderRadius: 4,
-                          background: T.pillBg,
-                          color: T.text2,
-                        }}
-                      >
-                        {row.questionAttempts} linked question attempts
-                      </span>
-                      <span
-                        style={{
-                          fontFamily: MONO,
-                          fontSize: 10,
-                          padding: "2px 8px",
-                          borderRadius: 4,
-                          background: "#E24B4A22",
-                          color: "#E24B4A",
-                        }}
-                      >
-                        ⚠ {row.st} struggling
-                      </span>
-                      <span
-                        style={{
-                          fontFamily: MONO,
-                          fontSize: 10,
-                          padding: "2px 8px",
-                          borderRadius: 4,
-                          background: T.pillBg,
-                          color: T.text3,
-                        }}
-                      >
-                        ○ {row.ut} untested
-                      </span>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-          {byLecture.length === 0 && (
-            <p style={{ fontFamily: MONO, color: T.text3, fontSize: 14 }}>No objectives to display.</p>
-          )}
-        </div>
-      )}
+      {subView === "coverage" && <div>
+        <div className="mb-3 flex flex-wrap gap-2">{[["coverage_asc","Least covered"],["coverage_desc","Most covered"],["untested","Most without answers"],["struggling","Most struggling"],["lecture_order","Lecture order"]].map(([key,label])=><button type="button" key={key} aria-pressed={coverageSort===key} onClick={()=>setCoverageSort(key)} className={`rounded-lg border px-3 py-2 text-sm ${coverageSort===key?"border-accent bg-accent/10":"border-border"}`}>{label}</button>)}</div>
+        <ObjectiveLectureDashboard key={coverageSort} rows={sortedCoverageRows.filter(r=>r.total>0)} title="Lecture coverage" description="Six lectures at a time. Each bar shows the objective states within that lecture. Choose a lecture to review or test it." onStudy={onStudyLecture} onQuiz={onStartObjectiveQuiz} objectives={covSrc} blockId={blockId}/>
+      </div>}
+
     </div>
   );
 }
