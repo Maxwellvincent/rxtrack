@@ -57,9 +57,9 @@ export function repairSourceObjectiveLinks(objectives, lecture, sourceObjectives
     changed = true;
     return { ...row, linkedLecId: null, sourceFile: null, lectureLinkRepair: { previousLectureId: row.linkedLecId, reason: "source-code-wording-conflict", sourceObjective: source.objective } };
    }
-   if (row.linkedLecId === lecture.id) return row;
+   if (row.linkedLecId === lecture.id && (lecture.lectureNumber == null || Number(row.lectureNumber) === Number(lecture.lectureNumber))) return row;
    changed = true;
-   return { ...row, linkedLecId: lecture.id, sourceFile: lecture.id };
+   return { ...row, linkedLecId: lecture.id, sourceFile: lecture.id, ...(lecture.lectureNumber != null ? {lectureNumber:lecture.lectureNumber} : {}) };
   }
   if (row.linkedLecId !== lecture.id) return row;
   changed = true;

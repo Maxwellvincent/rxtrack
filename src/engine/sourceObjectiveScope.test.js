@@ -64,3 +64,9 @@ it("includes later objective pages across PDF page boundaries",()=>{
  const source=lectureSourceObjectives("Objectives\nSOM.MK.I.BPM2.1.NB.1.NSCI.0001 Give the first function.\fSlide content\fObjectives\nSOM.MK.I.BPM2.1.NB.1.NSCI.0002 Correlate the second relationship.\fBody",lecture,"NB");
  expect(source.map(o=>o.code.slice(-4))).toEqual(["0001","0002"]);
 });
+it("updates the stale lecture number when a source-backed objective moves to its correct lecture",()=>{
+ const ear={id:"ear",lectureNumber:22},code="SOM.MK.I.BPM2.4.NB.1.HCB.1381",objective="Describe the histological structure of the cochlear hair cells";
+ const row={id:"practiced",code,objective,linkedLecId:"eye",lectureNumber:20,attempts:4};
+ const result=repairSourceObjectiveLinks([row],ear,[{code,objective}]);
+ expect(result[0]).toMatchObject({id:"practiced",linkedLecId:"ear",lectureNumber:22,attempts:4});
+});
