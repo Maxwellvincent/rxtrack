@@ -24,7 +24,7 @@ import * as questionRatingsStore from "../../../stores/questionRatings.js";
  * component — Task 5 already filtered table-shaped choices out before a
  * session is ever created.
  */
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { quietBackgroundJobs } from "../../backgroundJobs.js";
 import { ExamPreparationStatus } from "./ExamPreparationStatus.jsx";
 import { linkSourceLecture, lectureReviewSummary } from "./questionBankLinks.js";
@@ -46,6 +46,34 @@ import { classifyQuestionOrder, QUESTION_ORDER_LABELS } from "../../../engine/qu
 import { callAIJSON } from "../../../aiClient.js";
 import { diagnoseQuestionMiss, MISS_TYPE_LABELS } from "../../../engine/questionReasoning.js";
 import { recordMissType } from "../../../stores/learnerEvidence.js";
+
+export function sittingAnswers(session, baseline = []) {
+  const prior = new Map(baseline.map(answer => [answer.questionId, answer.value]));
+  return (session.answers || []).filter(answer => answer.value != null && prior.get(answer.questionId) !== answer.value);
+}
+
+function SavedPracticeSummary({ session, baseline, userId, labels, onExit, onResume, onNavigateToLecture }) {
+  const answers = sittingAnswers(session, baseline);
+  const scoped = protectSessionScoring({ ...session, answers }, questionRatingsStore.read(userId).ratings);
+  const answered = (scoped.questions || []).filter(q => pickedFor(scoped, q.questionId) != null);
+  const correct = answered.filter(q => pickedFor(scoped, q.questionId) === q.correct).length;
+  const missed = answered.length - correct;
+  const rows = lectureReviewSummary(scoped, labels).filter(row => row.misses > 0);
+  const unlinked = answered.filter(q => !q.lectureId && pickedFor(scoped, q.questionId) !== q.correct).length;
+  const total = (session.questions || []).filter(q => pickedFor(session, q.questionId) != null).length;
+  return <section aria-label="Saved sitting summary" className="space-y-4 rounded-lg border border-border bg-bg-elevated p-4">
+    <h2 className="text-lg font-bold">Progress saved · this sitting</h2>
+    <p className="text-sm text-text-2">New or changed answers since you opened this practice session. Your homework remains resumable.</p>
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">{[["Answered", answers.length], ["Correct", correct], ["Wrong", missed], ["Accuracy", answered.length ? `${Math.round(correct / answered.length * 100)}%` : "—"]].map(([label,value]) => <div key={label} className="rounded border border-border p-3"><strong className="block text-2xl">{value}</strong><span>{label}</span></div>)}</div>
+    {answers.length > answered.length && <p>{answers.length - answered.length} excluded from scoring.</p>}
+    <p>Whole set: {total}/{session.questions?.length || 0} answered · {Math.max(0, (session.questions?.length || 0) - total)} remaining.</p>
+    <h3 className="font-semibold">Lectures to revisit from this sitting</h3>
+    {!missed && <p>{answered.length ? "No scored misses this sitting." : "No new scored answers this sitting."}</p>}
+    <ul className="space-y-2">{rows.map(row => <li key={row.lectureId}><strong>{row.label}</strong> · {row.misses} wrong of {row.answered} answered{onNavigateToLecture && <button className="ml-2 underline" onClick={() => onNavigateToLecture(row.lectureId)}>Review lecture</button>}</li>)}</ul>
+    {unlinked > 0 && <p>{unlinked} missed questions have no confirmed lecture link yet; they still count toward your score.</p>}
+    <div className="flex gap-2"><Button onClick={onExit}>Done · exit to question banks</Button><Button variant="outline" onClick={onResume}>Continue practice</Button></div>
+  </section>;
+}
 
 function sessionLabel(session) {
   if (session.sourceType !== "question-bank") return "Exam";
@@ -641,8 +669,13 @@ export function ExamSessionRunner({
 }) {
   const controller = useExamSessionController(sessionId, userId);
   const [savingExit, setSavingExit] = useState(false);
+  const [savedSitting, setSavedSitting] = useState(null);
+  const sittingBaseline = useRef(null);
   const [exitError, setExitError] = useState(null);
   const { session: storedSession, loading, error, submit, abandon, submitResult, submitting, syncStatus } = controller;
+  useEffect(() => {
+    if (storedSession && sittingBaseline.current?.sessionId !== sessionId) sittingBaseline.current = { sessionId, answers: (storedSession.answers || []).map(a => ({ ...a })) };
+  }, [storedSession, sessionId]);
   useEffect(() => {
     if (storedSession?.status === "submitted") onSubmitted?.(storedSession);
   }, [storedSession, onSubmitted]);
@@ -684,6 +717,8 @@ export function ExamSessionRunner({
   if (loading) return <div className="text-sm text-text-3">Loading session…</div>;
   if (error) return <div className="text-sm text-bad">{error}</div>;
   if (!session) return <div className="text-sm text-text-3">Session not found.</div>;
+
+  if (savedSitting && savedSitting.sessionId === sessionId) return <SavedPracticeSummary session={savedSitting} baseline={sittingBaseline.current?.answers || []} userId={userId} labels={lectureLabelsByLectureId} onExit={onExit} onResume={() => { sittingBaseline.current = { sessionId, answers: (savedSitting.answers || []).map(a => ({ ...a })) }; setSavedSitting(null); }} onNavigateToLecture={onNavigateToLecture} />;
 
   if (session.status === "finalizing") {
     // A prior finalize call can fail resumably (network blip, a transient
@@ -765,7 +800,11 @@ export function ExamSessionRunner({
           {exitError && <p role="alert" className="text-sm text-bad">{exitError}</p>}
           {onExit && <Button variant="outline" disabled={savingExit} onClick={async () => {
             setSavingExit(true); setExitError(null);
-            try { await controller.saveProgress(submitOpts); onExit(); }
+            try {
+              const saved = await controller.saveProgress(submitOpts);
+              if (session.sourceType === "question-bank" && session.format === "practice") setSavedSitting(saved || session);
+              else onExit();
+            }
             catch (error) { setExitError(error?.message || "Could not save your position. Please retry."); }
             finally { setSavingExit(false); }
           }}>{savingExit ? "Saving…" : "Save & exit"}</Button>}

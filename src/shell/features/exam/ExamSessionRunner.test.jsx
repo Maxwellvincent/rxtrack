@@ -23,7 +23,7 @@ vi.mock("./useTutorExplanation.js", () => ({
   useTutorExplanation: (...args) => tutorHookMock(...args),
 }));
 
-const { ExamSessionRunner, uniqueQuestionLinks } = await import("./ExamSessionRunner.jsx");
+const { ExamSessionRunner, uniqueQuestionLinks, sittingAnswers } = await import("./ExamSessionRunner.jsx");
 
 function makeQuestion(questionId, letter = "A") {
   return {
@@ -182,6 +182,30 @@ describe("ExamSessionRunner", () => {
     expect(onExit).toHaveBeenCalledOnce();
     expect(controller.abandon).not.toHaveBeenCalled();
     unmount();
+  });
+
+  it("summarizes only this sitting after saving homework, keeping the set resumable", async () => {
+    const controller = baseController();
+    controller.session = { ...controller.session, sourceType: "question-bank", format: "practice", answers: [{ questionId: "q1", value: "A" }] };
+    const saved = { ...controller.session, answers: [...controller.session.answers, { questionId: "q2", value: "B" }] };
+    controller.saveProgress = vi.fn(async () => saved);
+    controllerMock.mockReturnValue(controller);
+    const onExit = vi.fn();
+    const { host, unmount } = render(<ExamSessionRunner sessionId="s1" userId="u1" onExit={onExit} lectureLabelsByLectureId={{ "lec-1": "Cranial nerves" }} />);
+    await act(async () => [...host.querySelectorAll("button")].find(b => b.textContent === "Save & exit").click());
+    expect(onExit).not.toHaveBeenCalled();
+    expect(host.textContent).toContain("Progress saved · this sitting");
+    expect(host.textContent).toContain("1Answered0Correct1Wrong0%Accuracy");
+    expect(host.textContent).toContain("Whole set: 2/2 answered");
+    expect(host.textContent).toContain("Cranial nerves");
+    expect(host.textContent).toContain("1 wrong of 1 answered");
+    await act(async () => [...host.querySelectorAll("button")].find(b => b.textContent === "Done · exit to question banks").click());
+    expect(onExit).toHaveBeenCalledOnce();
+    unmount();
+  });
+
+  it("does not count unchanged resumed answers as new work", () => {
+    expect(sittingAnswers({ answers: [{questionId:"a",value:"A"},{questionId:"b",value:"B"},{questionId:"c",value:null}] }, [{questionId:"a",value:"A"},{questionId:"b",value:"A"}])).toEqual([{questionId:"b",value:"B"}]);
   });
 
   it("waits for a durable save before exiting", async () => {
