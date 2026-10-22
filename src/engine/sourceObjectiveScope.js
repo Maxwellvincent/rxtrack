@@ -32,6 +32,16 @@ export function repairSourceObjectiveLinks(objectives, lecture, sourceObjectives
  if (!lecture?.id || !sourceObjectives.length) return objectives;
  const supported = new Set(sourceObjectives.map(codeOf));
  const sourceByCode = new Map(sourceObjectives.map(row => [codeOf(row), row]));
+ // School exports sometimes differ only in the Bloom-level segment of a
+ // code. Preserve the practiced identity when the exact objective wording,
+ // remaining curriculum code, and prior lecture assignment all agree.
+ const codeWithoutBloom=row=>codeOf(row).replace(/^SOM\.MK(?:\.[IVX]+|[IVX]+)\./,"SOM.MK.");
+ const normalizedText=row=>String(row.objective || row.text || "").toLowerCase().replace(/\s+/g," ").replace(/[. -]+$/g,"").trim();
+ for(const row of objectives){
+  if(supported.has(codeOf(row)) || !(row.linkedLecId===lecture.id || row.lectureLinkRepair?.previousLectureId===lecture.id))continue;
+  const matches=sourceObjectives.filter(source=>normalizedText(source)===normalizedText(row) && codeWithoutBloom(source)===codeWithoutBloom(row));
+  if(matches.length===1){supported.add(codeOf(row));sourceByCode.set(codeOf(row),matches[0]);}
+ }
  let changed = false;
  const next = objectives.map(row => {
   if (row.manuallyAligned) return row;
@@ -51,7 +61,7 @@ export function repairSourceObjectiveLinks(objectives, lecture, sourceObjectives
   changed = true;
   return { ...row, linkedLecId: null, sourceFile: null, lectureLinkRepair: { previousLectureId: lecture.id, reason: "explicit-source-objective-mismatch" } };
  });
- const existingCodes = new Set(next.filter(row => !sourceObjectiveTextConflict(row, sourceByCode.get(codeOf(row)))).map(codeOf));
+ const existingCodes = new Set(next.filter(row => !sourceObjectiveTextConflict(row, sourceByCode.get(codeOf(row)))).flatMap(row=>[codeOf(row),...(sourceByCode.has(codeOf(row))?[codeOf(sourceByCode.get(codeOf(row)))]:[])]));
  for (const row of sourceObjectives) if (!existingCodes.has(codeOf(row))) { next.push(row); changed = true; }
  return changed ? next : objectives;
 }

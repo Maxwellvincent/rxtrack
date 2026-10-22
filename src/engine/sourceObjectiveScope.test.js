@@ -43,3 +43,11 @@ it("keeps every wrapped synaptic objective paired with its own code",()=>{
  const restored=repairSourceObjectiveLinks(existing,lecture,source);
  expect(restored).toHaveLength(9);expect(restored.every(o=>o.linkedLecId===lecture.id && o.attempts===2)).toBe(true);
 });
+it("preserves a practiced school identity when only the Bloom code differs from the exact slide objective",()=>{
+ const lecture={id:"synapse",blockId:"NB"},objective="Explain the effects of select substances on release of transmitters";
+ const row={id:"practiced",code:"SOM.MK.IV.BPM2.1.NB.1.NSCI.0098",objective,linkedLecId:null,lectureLinkRepair:{previousLectureId:"synapse",reason:"explicit-source-objective-mismatch"},attempts:4};
+ const source={id:"source",code:"SOM.MK.I.BPM2.1.NB.1.NSCI.0098",objective,linkedLecId:"synapse"};
+ const restored=repairSourceObjectiveLinks([row],lecture,[source]);
+ expect(restored).toHaveLength(1);expect(restored[0]).toMatchObject({id:"practiced",code:row.code,linkedLecId:"synapse",attempts:4});
+ expect(repairSourceObjectiveLinks([{...row,objective:"Describe quantal release of neurotransmitters"}],lecture,[source])[0].linkedLecId).toBe(null);
+});
