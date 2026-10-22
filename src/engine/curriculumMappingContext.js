@@ -1,6 +1,6 @@
 /** Schedule hints narrow attribution; they never establish objective coverage. */
 export function curriculumSourceContext(question = {}) {
- const labels=[question.sourceSectionTitle,question.sourceSection,question.sourceTitle,question.sourceFilename,question.filename,question.bankName].filter(Boolean).join(' ');
+ const labels=[question.sourceSectionTitle,question.sourceSection,question.sourceTitle,question.sourceFilename,question.sourceFile,question.filename,question.bankName].filter(Boolean).join(' ');
  const weeks=[...labels.matchAll(/\bweek\s*0*(\d+)\b/gi)].map(m=>Number(m[1]));
  if(question.weekNumber!=null)weeks.push(Number(question.weekNumber));
  const unique=[...new Set(weeks.filter(Number.isFinite))];

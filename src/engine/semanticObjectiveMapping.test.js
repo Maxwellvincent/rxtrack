@@ -30,3 +30,13 @@ it('retrieves the keyed glial-cell relationship despite long unrelated lecture s
  expect(excerpt).toContain('Astrocytes: key functions include maintaining the blood-brain barrier');
  expect(excerpt.length).toBeLessThanOrEqual(2800);
 });
+
+it('ranks the clinical teaching context ahead of an old general lecture assignment',()=>{
+ const source='The eye has a corneal reflex and adduction is mediated by the medial rectus and oculomotor nerve. These nerves traverse the superior orbital fissure.';
+ const local=[{id:'general',blockId:'NB',weekNumber:8,lectureTitle:'Skull Foramina',chunks:[{text:'The superior orbital fissure transmits several nerves.'}]},{id:'eye',blockId:'NB',weekNumber:10,lectureTitle:'Eye Anatomy',chunks:[{text:source}]}];
+ const targets=local.map(l=>({id:`obj-${l.id}`,blockId:'NB',linkedLecId:l.id,objective:'Explain nerve pathways'}));
+ const context=objectiveMappingContext({lectureId:'general',sourceFile:'Week 10 Homework.pdf',sourceSectionTitle:'Eye Anatomy',stem:'Double vision with inability to adduct the eye and loss of the corneal reflex.',correct:'A',choices:{A:'Superior orbital fissure'}},local,targets,'NB');
+ expect(context.candidates[0].lectureId).toBe('eye');
+ expect(context.question.sourceContext.weekNumber).toBe(10);
+ expect(context.candidates[0].weekNumber).toBe(10);
+});
