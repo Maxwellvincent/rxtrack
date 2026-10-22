@@ -10,6 +10,12 @@ export function sourceObjectiveTextConflict(a, b) {
  return overlap / Math.min(left.size, right.size) < .25;
 }
 
+const codeWithoutBloom=row=>codeOf(row).replace(/^SOM\.MK(?:\.[IVX]+|[IVX]+)\./,"SOM.MK.");
+const normalizedText=row=>String(row.objective || row.text || "").toLowerCase().replace(/\s+/g," ").replace(/[. -]+$/g,"").trim();
+export function sourceObjectiveMatch(row,source){
+ return codeOf(row)===codeOf(source)?!sourceObjectiveTextConflict(row,source):codeWithoutBloom(row)===codeWithoutBloom(source) && normalizedText(row)===normalizedText(source);
+}
+
 /** Only an explicit objective page/table can replace links; slide keywords are not authority. */
 export function lectureSourceObjectives(text, lecture, blockId) {
  const source = String(text || "").replace(/\f/g, "\n\f\n");
@@ -39,8 +45,6 @@ export function repairSourceObjectiveLinks(objectives, lecture, sourceObjectives
  // School exports sometimes differ only in the Bloom-level segment of a
  // code. Preserve the practiced identity when the exact objective wording,
  // remaining curriculum code, and prior lecture assignment all agree.
- const codeWithoutBloom=row=>codeOf(row).replace(/^SOM\.MK(?:\.[IVX]+|[IVX]+)\./,"SOM.MK.");
- const normalizedText=row=>String(row.objective || row.text || "").toLowerCase().replace(/\s+/g," ").replace(/[. -]+$/g,"").trim();
  for(const row of objectives){
   if(supported.has(codeOf(row)) || !(row.linkedLecId===lecture.id || row.lectureLinkRepair?.previousLectureId===lecture.id))continue;
   const matches=sourceObjectives.filter(source=>normalizedText(source)===normalizedText(row) && codeWithoutBloom(source)===codeWithoutBloom(row));

@@ -1023,3 +1023,8 @@ it("covers four selected untested objectives in a 15-question first pass",()=>{
  const plan=buildAdaptiveObjectivePlan(Array.from({length:4},(_,i)=>({id:`new${i}`,status:"untested"})),15);
  expect(plan.map(o=>o._targetQuestionCount)).toEqual([4,4,4,3]);
 });
+it("keeps a practiced source objective in the quiz when only its Bloom-level code differs",async()=>{
+ const callAIJSON=vi.fn().mockResolvedValue({questions:[]}),objective="Explain the effects of select substances on release of transmitters";
+ await startObjectiveQuiz({lectureIdHint:"synapse",blockId:"nb",objectives:[{id:"practiced-identity",code:"SOM.MK.IV.BPM2.1.NB.1.NSCI.0098",objective,linkedLecId:"synapse"}],lectureText:`# Objectives\nSOM.MK.I.BPM2.1.NB.1.NSCI.0098 ${objective}\n# Lecture\nCalcium influx into the terminal triggers synaptic vesicle fusion and transmitter release.`,questionCount:1},{callAIJSON,skipQuestionAudit:true});
+ expect(callAIJSON.mock.calls.map(call=>String(call[1])).join("\n")).toContain("practiced-identity");
+});
