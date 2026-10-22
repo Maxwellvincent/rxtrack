@@ -19,7 +19,11 @@ export function lectureSourceObjectives(text, lecture, blockId) {
  const tail = source.slice(start);
  const end = tail.search(/\f|\n[ \t]*#{1,6}[ \t]+/);
  const table = end < 0 ? tail.slice(0, 6000) : tail.slice(0, end);
- const rows = extractCodeDelimited(table, lecture, blockId).filter(row => codeOf(row) && /^(?:describe|explain|list|identify|compare|outline|discuss|define|understand|recognize|distinguish|summarize|trace|relate|state|name|differentiate|predict|interpret|analy[sz]e)\b/i.test(row.objective || row.text || ""));
+ // PDF columns can interleave the objective sentence between a SOM prefix
+ // and its subject/number on the next line. Rejoin the code before parsing.
+ const aligned = table.replace(/(SOM(?:\.[A-Za-z0-9]+)+\.?)[ \t]*([^\n]*)\n[ \t]*([A-Za-z]+\.\d{4})[ \t]*([^\n]*)/g,
+  (_match,prefix,first,suffix,last)=>`${prefix}${suffix}  ${[first,last].filter(Boolean).join(" ")}`);
+ const rows = extractCodeDelimited(aligned, lecture, blockId).filter(row => codeOf(row) && /^(?:describe|explain|list|identify|compare|contrast|outline|discuss|define|understand|recognize|distinguish|summarize|trace|relate|state|name|differentiate|predict|interpret|analy[sz]e)\b/i.test(row.objective || row.text || ""));
  return rows.map(row => ({ ...row, id: `source:${lecture.id}:${codeOf(row)}` }));
 }
 

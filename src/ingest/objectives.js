@@ -415,7 +415,7 @@ export function extractCodeDelimited(text, lec, blockId) {
 
     // A new verb-led indented cell is the beginning of the next spreadsheet
     // row. Lines after it remain part of that pending prefix until its code.
-    if (OBJECTIVE_START_RE.test(cell)) {
+    if (OBJECTIVE_START_RE.test(cell) && current.parts.length) {
       prefixForNext = [cell];
     } else if (prefixForNext.length) {
       prefixForNext.push(cell);

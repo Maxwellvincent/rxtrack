@@ -30,3 +30,16 @@ it("quarantines reused codes with unrelated wording and recovers the actual slid
  expect(repaired.filter(row=>row.linkedLecId==="skull")).toEqual(source);
  expect(repairSourceObjectiveLinks(repaired,skull,source)).toBe(repaired);
 });
+
+it("keeps every wrapped synaptic objective paired with its own code",()=>{
+ const lecture={id:"synapse",blockId:"NB",lectureType:"LEC",lectureNumber:8};
+ const source=lectureSourceObjectives("Lecture Objectives\nSOM.MK.I.BPM2.1.NB.1. Describe the morphological and functional characteristics of\nNSCI.0092             the various types of synapses\nSOM.MK.I.BPM2.1.NB.1.\nNSCI.0093\n                      Contrast ionotropic and metabotropic receptors\nSOM.MK.I.BPM2.1.NB.1.\nNSCI.0094\n                      List five steps in the life cycles of small-molecule transmitters\nSOM.MK.I.BPM2.1.NB.1.\nNSCI.0095\n                      List five steps in the life cycles of neuroactive peptides\n                        List five events that underlie the interval between a\nSOM.MK.I.BPM2.1.NB.1.\nNSCI.0096\n                      presynaptic impulse and postsynaptic responses to\n                        neurotransmitter\nSOM.MK.I.BPM2.1.NB.1.\nNSCI.0097\n                      Describe quantal release of neurotransmitters\nSOM.MK.I.BPM2.1.NB.1. Explain the effects of select substances on release of\nNSCI.0098             transmitters\nSOM.MK.I.BPM2.1.NB.1.\nNSCI.0099\n                      Explain decrement and summation of postsynaptic potentials\nSOM.MK.I.BPM2.1.NB.1. Explain mechanisms for destruction/removal of\nNSCI.0100             neurotransmitter from the synapse\n",lecture,"NB");
+ expect(source.map(o=>o.code.slice(-4))).toEqual(["0092","0093","0094","0095","0096","0097","0098","0099","0100"]);
+ expect(source[1].objective).toBe("Contrast ionotropic and metabotropic receptors");
+ expect(source[2].objective).toContain("small-molecule transmitters");
+ expect(source[3].objective).toBe("List five steps in the life cycles of neuroactive peptides");
+ expect(source[4].objective).toMatch(/^List five events/);
+ const existing=source.map((o,i)=>({...o,id:"original"+i,linkedLecId:null,attempts:2}));
+ const restored=repairSourceObjectiveLinks(existing,lecture,source);
+ expect(restored).toHaveLength(9);expect(restored.every(o=>o.linkedLecId===lecture.id && o.attempts===2)).toBe(true);
+});
