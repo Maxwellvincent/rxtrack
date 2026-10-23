@@ -20,13 +20,15 @@ export function questionProgress(studyAnswers = [], sessions = [], range = {}, m
   const seen = new Set();
   for (const session of sessions) {
     if (session.status && session.status !== 'submitted' && !session.isCheckpoint) continue;
-    if (!inRange(session.submittedAt)) continue;
     const id = session.sessionId || session.id;
     if (id && seen.has(id)) continue;
     if (id) seen.add(id);
     const questions = new Map((session.questions || []).map(q => [q.questionId, q]));
-    const answers = new Map((session.answers || []).map(a => [a.questionId, a.value]));
-    for (const [questionId, value] of answers) {
+    const answers = new Map((session.answers || []).map(a => [a.questionId, a]));
+    for (const [questionId, answer] of answers) {
+      const value = answer.value;
+      const at = answer.answeredAt ?? session.submittedAt;
+      if ((range.startAt != null || range.endAt != null || range.start || range.end) && (!Number.isFinite(at) || !inRange(at))) continue;
       const question = questions.get(questionId);
       if (!question || value == null || !Object.hasOwn(question.choices || {}, value)) continue;
       const school = session.sourceType === 'question-bank' || question.sourceType === 'question-bank';
@@ -35,12 +37,18 @@ export function questionProgress(studyAnswers = [], sessions = [], range = {}, m
     }
   }
   let manualAnswered = 0;
+  let manualGraded = 0;
   for (const entry of manualEntries || []) {
     const ts = Number(entry?.completedAt);
     const count = Number(entry?.questionCount);
-    if (Number.isFinite(ts) && Number.isInteger(count) && count > 0 && inRange(ts)) manualAnswered += count;
+    if (Number.isFinite(ts) && Number.isInteger(count) && count > 0 && inRange(ts)) {
+      manualAnswered += count;
+      if (entry.correctCount != null && entry.correctCount !== '' && Number.isInteger(Number(entry.correctCount)) && Number(entry.correctCount) >= 0 && Number(entry.correctCount) <= count) {
+        manualGraded += count; correct += Number(entry.correctCount);
+      }
+    }
   }
-  const gradedAnswered = lectureAnswered + schoolAnswered + examAnswered;
-  const answered = gradedAnswered + manualAnswered;
+  const gradedAnswered = lectureAnswered + schoolAnswered + examAnswered + manualGraded;
+  const answered = lectureAnswered + schoolAnswered + examAnswered + manualAnswered;
   return {answered, correct, lectureAnswered, schoolAnswered, examAnswered, manualAnswered, gradedAnswered, accuracy: gradedAnswered ? correct / gradedAnswered : null};
 }

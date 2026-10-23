@@ -5,6 +5,7 @@ import { Button } from "../../../ui/Button.jsx";
 import { useToday } from "./useToday.js";
 import { ModelRetrievalCard } from "./ModelRetrievalCard.jsx";
 import { SchoolReviewCard } from "./SchoolReviewCard.jsx";
+import { ExamSprintCard } from "./ExamSprintCard.jsx";
 import { DailyQuestionScore } from "./DailyQuestionScore.jsx";
 import { CompactQuestionProgress } from "./BlockPracticeCard.jsx";
 import { PreReadModal } from "../lectures/PreReadModal.jsx";
@@ -1201,6 +1202,8 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
           <button onClick={() => setModePickerOpen((open) => !open)} className="today-text-button">{modePickerOpen ? "Hide modes" : "Change mode"}</button>
         </div>
       </section>
+
+      <ExamSprintCard key={blockId} context={context} userId={userId} daysLeft={daysLeft} onStudy={onStudy} onQuiz={onQuiz} busy={quizBusyLectureId} />
 
       {modePickerOpen && <DayModePicker mode={dayMode} onChange={handleDayMode} suggested={suggestedMode} />}
 

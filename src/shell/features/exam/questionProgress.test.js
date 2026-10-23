@@ -33,3 +33,13 @@ describe('overall practice counter', () => {
     expect(questionProgress([], [])).toMatchObject({answered:0,accuracy:null});
   });
 });
+
+it('uses saved per-answer dates so resaving homework does not move old work into today',()=>{
+ const s={...session('homework'),submittedAt:200,answers:[{questionId:'a',value:'A',answeredAt:100},{questionId:'b',value:'B',answeredAt:200}]};
+ expect(questionProgress([],[s],{startAt:150,endAt:250})).toMatchObject({answered:1,correct:0});
+ expect(questionProgress([],[s],{startAt:50,endAt:150})).toMatchObject({answered:1,correct:1});
+});
+it('includes zero and positive self-reported scores but never assumes unknown scores are wrong',()=>{
+ const entries=[{completedAt:10,questionCount:20,correctCount:16},{completedAt:10,questionCount:5,correctCount:0},{completedAt:10,questionCount:10},{completedAt:10,questionCount:3,correctCount:4}];
+ expect(questionProgress([],[],{},entries)).toMatchObject({answered:38,manualAnswered:38,gradedAnswered:25,correct:16,accuracy:16/25});
+});

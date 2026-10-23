@@ -1,0 +1,23 @@
+import React from 'react';
+import {createRoot} from 'react-dom/client';
+import {act} from 'react';
+import {beforeEach,it,expect,vi} from 'vitest';
+import {installDomStorage} from '../../../stores/testEnv.js';
+const write=vi.hoisted(()=>vi.fn(async()=>{}));
+vi.mock('../../../stores/manualPractice.js',()=>({manualPracticeStore:{read:()=>({}),write,subscribe:()=>()=>{},isHydrated:()=>true,readError:()=>null}}));
+vi.mock('../../../stores/practiceGoal.js',()=>({practiceGoalStore:{read:()=>({}),write:vi.fn(),subscribe:()=>()=>{}}}));
+import {PracticeGoal} from './PracticeGoal.jsx';
+globalThis.IS_REACT_ACT_ENVIRONMENT=true;
+beforeEach(()=>{installDomStorage();write.mockClear();vi.stubGlobal('FormData',window.FormData);});
+it('saves an outside score including zero correctly and refuses scores above attempted',async()=>{
+ const host=document.createElement('div');document.body.append(host);const root=createRoot(host);
+ act(()=>root.render(<PracticeGoal userId="u" blockId="b" studyAnswers={[]} sessions={[]}/>));
+ const form=host.querySelector('form');
+ form.elements.questionCount.value='20';form.elements.correctCount.value='21';
+ await act(async()=>form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})));
+ expect(write).not.toHaveBeenCalled();expect(host.textContent).toContain('between zero and questions attempted');
+ form.elements.correctCount.value='0';
+ await act(async()=>form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})));
+ expect(write.mock.calls[0][1].b[0]).toMatchObject({questionCount:20,correctCount:0});
+ act(()=>root.unmount());vi.unstubAllGlobals();
+});

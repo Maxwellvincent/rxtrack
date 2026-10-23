@@ -14,6 +14,7 @@ vi.mock("../../../stores/calibrationByBlock.js", () => ({
 }));
 vi.mock("../../../supabase.js", () => ({ listExamSessions: (...args) => listExamSessionsMock(...args) }));
 
+vi.mock("../../../stores/manualPractice.js", () => ({ manualPracticeStore: {read:()=>({}),subscribe:()=>()=>{},isHydrated:()=>true,readError:()=>null} }));
 const { DailyQuestionScore } = await import("./DailyQuestionScore.jsx");
 
 function mount() {
@@ -55,6 +56,15 @@ describe("DailyQuestionScore", () => {
     expect(host.textContent).toContain("3 graded questions · 2 correct · 67% average");
     expect(host.textContent).toContain("Daily target · 80%");
     expect(host.textContent).toContain("13 percentage points");
+    unmount();
+  });
+
+  it("includes saved unfinished homework without waiting for final submission", async () => {
+    const today=Date.now();
+    listExamSessionsMock.mockResolvedValue([{sessionId:"homework",status:"in_progress",sourceType:"question-bank",progressSavedAt:today,questions:[{questionId:"q",choices:{A:"Yes"},correct:"A"}],answers:[{questionId:"q",value:"A"}],checkpointAnswers:[{questionId:"q",value:"A",answeredAt:today}]}]);
+    const {host,unmount}=mount();await flush();
+    expect(host.textContent).toContain("1 graded question · 1 correct · 100% average");
+    expect(listExamSessionsMock).toHaveBeenCalledWith("u1","b1");
     unmount();
   });
 
