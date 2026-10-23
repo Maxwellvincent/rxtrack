@@ -3,12 +3,13 @@ import {createRoot} from 'react-dom/client';
 import {act} from 'react';
 import {beforeEach,it,expect,vi} from 'vitest';
 import {installDomStorage} from '../../../stores/testEnv.js';
+const state=vi.hoisted(()=>({data:{}}));
 const write=vi.hoisted(()=>vi.fn(async()=>{}));
-vi.mock('../../../stores/manualPractice.js',()=>({manualPracticeStore:{read:()=>({}),write,subscribe:()=>()=>{},isHydrated:()=>true,readError:()=>null}}));
+vi.mock('../../../stores/manualPractice.js',()=>({manualPracticeStore:{read:()=>state.data,write,subscribe:()=>()=>{},isHydrated:()=>true,readError:()=>null}}));
 vi.mock('../../../stores/practiceGoal.js',()=>({practiceGoalStore:{read:()=>({}),write:vi.fn(),subscribe:()=>()=>{}}}));
 import {PracticeGoal} from './PracticeGoal.jsx';
 globalThis.IS_REACT_ACT_ENVIRONMENT=true;
-beforeEach(()=>{installDomStorage();write.mockClear();vi.stubGlobal('FormData',window.FormData);});
+beforeEach(()=>{installDomStorage();state.data={};write.mockClear();vi.stubGlobal('FormData',window.FormData);});
 it('saves an outside score including zero correctly and refuses scores above attempted',async()=>{
  const host=document.createElement('div');document.body.append(host);const root=createRoot(host);
  act(()=>root.render(<PracticeGoal userId="u" blockId="b" studyAnswers={[]} sessions={[]}/>));
@@ -19,5 +20,27 @@ it('saves an outside score including zero correctly and refuses scores above att
  form.elements.correctCount.value='0';
  await act(async()=>form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})));
  expect(write.mock.calls[0][1].b[0]).toMatchObject({questionCount:20,correctCount:0});
+ act(()=>root.unmount());vi.unstubAllGlobals();
+});
+
+it('updates an older unscored entry in place using a percentage, preserving other history',async()=>{
+ state.data={other:[{id:'other'}],b:Array.from({length:6},(_,i)=>({id:`entry-${i}`,questionCount:60,completedAt:i,date:'2026-10-20',source:'iPad',label:'Anatomy'}))};
+ const host=document.createElement('div');document.body.append(host);const root=createRoot(host);
+ act(()=>root.render(<PracticeGoal userId="u" blockId="b" studyAnswers={[]} sessions={[]}/>));
+ const click=text=>{const button=[...host.querySelectorAll('button')].find(b=>b.textContent===text);act(()=>button.click());};
+ click('Show all 6 entries');
+ const rows=host.querySelectorAll('li');
+ act(()=>[...rows[5].querySelectorAll('button')].find(b=>b.textContent==='Add score').click());
+ const select=host.querySelector('[aria-label="Score format"]');
+ act(()=>{select.value='percent';select.dispatchEvent(new Event('change',{bubbles:true}));});
+ const input=host.querySelector('[aria-label="Percent correct"]');
+ act(()=>{Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set.call(input,'80');input.dispatchEvent(new Event('input',{bubbles:true}));});
+ await act(async()=>input.closest('form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})));
+ const saved=write.mock.calls[0][1];
+ expect(saved.b).toHaveLength(6);
+ expect(saved.b[0]).toMatchObject({...state.data.b[0],correctCount:48});
+ expect(saved.other).toEqual(state.data.other);
+ expect(saved.b[1]).toEqual(state.data.b[1]);
+ expect(host.textContent).toContain('Your question count is unchanged');
  act(()=>root.unmount());vi.unstubAllGlobals();
 });

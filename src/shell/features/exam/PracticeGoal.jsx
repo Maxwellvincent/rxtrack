@@ -10,6 +10,7 @@ export function PracticeGoal({userId,blockId,studyAnswers,sessions,historicalStu
  const manualResource=useStoreResource(manualPracticeStore,userId);
  const goal=resource.data?.[blockId];
  const [busy,setBusy]=useState(false),[notice,setNotice]=useState('');
+ const [editingId,setEditingId]=useState(null),[showAll,setShowAll]=useState(false);
  const manualEntries=manualResource.data?.[blockId]||[];
  const progress=questionProgress(studyAnswers,sessions,goal||{},manualEntries,historicalStudy);
  async function save(next){setBusy(true);setNotice('');try{await practiceGoalStore.write(userId,{...practiceGoalStore.read(userId),[blockId]:next});setNotice('Goal saved.');}catch(e){setNotice(`Could not save: ${e.message}`);}finally{setBusy(false);}}
@@ -24,6 +25,15 @@ export function PracticeGoal({userId,blockId,studyAnswers,sessions,historicalStu
   const next={...(manualPracticeStore.read(userId)||{}),[blockId]:[...manualEntries,entry]};
   setBusy(true);setNotice('');try{await manualPracticeStore.write(userId,next);form.reset();setNotice('Outside-app practice logged and added to your total.');}catch(e){setNotice(`Could not log practice: ${e.message}`);}finally{setBusy(false);}
  }
+ async function editManualScore(id,correctCount){
+  const current=manualPracticeStore.read(userId)||{};
+  const entries=current[blockId]||[];
+  if(!entries.some(entry=>entry.id===id)){setNotice('This entry is no longer available.');return;}
+  const next={...current,[blockId]:entries.map(entry=>entry.id===id?{...entry,correctCount,updatedAt:Date.now()}:entry)};
+  setBusy(true);setNotice('');
+  try{await manualPracticeStore.write(userId,next);setEditingId(null);setNotice('Score updated. Your question count is unchanged.');}
+  catch(e){setNotice(`Could not update score: ${e.message}`);}finally{setBusy(false);}
+ }
  async function removeManualEntry(id){
   const next={...(manualPracticeStore.read(userId)||{}),[blockId]:manualEntries.filter(entry=>entry.id!==id)};
   setBusy(true);setNotice('');try{await manualPracticeStore.write(userId,next);setNotice('Practice entry removed.');}catch(e){setNotice(`Could not remove entry: ${e.message}`);}finally{setBusy(false);}
@@ -32,7 +42,7 @@ export function PracticeGoal({userId,blockId,studyAnswers,sessions,historicalStu
  const todayValue=studyDayKey(today,userId);
  return <div className="mt-3 border-t border-border pt-3">
   {goal && <><p className="text-sm font-semibold">Personal goal · {goal.start} – {goal.end}: {progress.answered.toLocaleString()} / {goal.target.toLocaleString()}</p><progress className="mt-2 h-3 w-full accent-accent" max={goal.target} value={Math.min(goal.target,progress.answered)} aria-label="Personal question goal"/><p className="text-sm">{Math.max(0,goal.target-progress.answered)} remaining · {Math.round(progress.answered/goal.target*100)}% of goal</p></>}
-  <details className="mt-2 rounded-lg border border-border p-3"><summary className="cursor-pointer text-sm font-semibold">Log questions completed outside RXTrack</summary>
+  <details className="mt-2 rounded-lg border border-border p-3"><summary className="cursor-pointer text-sm font-semibold">Log or edit outside practice</summary>
    <p className="mt-2 text-xs text-text-3">For iPad or other question-bank work. Attempted questions count toward volume and your goal. Enter correct answers to include this self-reported result in accuracy. Do not log work already completed inside RXTrack.</p>
    <form className="mt-3 flex flex-wrap items-end gap-3" onSubmit={e=>{e.preventDefault();logOutsidePractice(e.currentTarget);}}>
     <label className="text-sm">Questions<input name="questionCount" type="number" min="1" step="1" required className="mt-1 block w-28 rounded border border-border bg-panel p-2" placeholder="e.g. 20"/></label>
@@ -43,7 +53,17 @@ export function PracticeGoal({userId,blockId,studyAnswers,sessions,historicalStu
     <button disabled={busy||manualResource.loading||!!manualResource.error} className="rounded bg-accent px-3 py-2 font-semibold text-white">Add to total</button>
    </form>
    {manualResource.error&&<p role="alert" className="mt-2 text-sm text-bad">Outside practice could not sync. Your existing total is unchanged.</p>}
-   {!!manualEntries.length&&<ul className="mt-3 space-y-1 text-sm">{[...manualEntries].sort((a,b)=>b.completedAt-a.completedAt).slice(0,5).map(entry=><li key={entry.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-2"><span>{entry.questionCount} questions{entry.correctCount!=null?` · ${entry.correctCount} correct (${Math.round(entry.correctCount/entry.questionCount*100)}%)`:" · score not entered"} · {entry.date} · {entry.source}{entry.label?` · ${entry.label}`:''}</span><button type="button" className="text-text-3 underline" disabled={busy} onClick={()=>removeManualEntry(entry.id)}>Remove</button></li>)}</ul>}
+   {!!manualEntries.length&&<>
+    <h4 className="mt-4 text-sm font-semibold">Saved outside practice</h4>
+    <ul className="mt-2 space-y-2 text-sm">{[...manualEntries].sort((a,b)=>b.completedAt-a.completedAt).slice(0,showAll?undefined:5).map(entry=><li key={entry.id} className="border-t border-border pt-2">
+     <div className="flex flex-wrap items-center justify-between gap-2"><span>{entry.questionCount} questions{entry.correctCount!=null?` · ${entry.correctCount} correct (${Math.round(entry.correctCount/entry.questionCount*100)}%)`:" · score not entered"} · {entry.date} · {entry.source}{entry.label?` · ${entry.label}`:''}</span>
+      <div className="flex gap-3"><button type="button" className="font-semibold underline" disabled={busy||manualResource.loading||!!manualResource.error} onClick={()=>setEditingId(entry.id)}>{entry.correctCount==null?'Add score':'Edit score'}</button><button type="button" className="text-text-3 underline" disabled={busy||manualResource.loading||!!manualResource.error} onClick={()=>removeManualEntry(entry.id)}>Remove</button></div>
+     </div>
+     {editingId===entry.id&&<OutsideScoreEditor key={entry.id} entry={entry} busy={busy||manualResource.loading||!!manualResource.error} onSave={correct=>editManualScore(entry.id,correct)} onCancel={()=>setEditingId(null)}/>}
+    </li>)}</ul>
+    {manualEntries.length>5&&<button type="button" className="mt-3 text-sm underline" onClick={()=>setShowAll(!showAll)}>{showAll?'Show latest five':`Show all ${manualEntries.length} entries`}</button>}
+   </>}
+
   </details>
   <details><summary className="cursor-pointer py-2 text-sm">{goal?'Edit personal goal':'Set an optional personal goal'}</summary>
    <form key={JSON.stringify(goal)} className="flex flex-wrap items-end gap-3" onSubmit={e=>{e.preventDefault();const form=new FormData(e.currentTarget);const next={target:Number(form.get('target')),start:String(form.get('start')),end:String(form.get('end'))};if(!Number.isInteger(next.target)||next.target<1||next.start>next.end){setNotice('Choose a positive target and an end date after the start date.');return;}save(next);}}>
@@ -55,4 +75,19 @@ export function PracticeGoal({userId,blockId,studyAnswers,sessions,historicalStu
    </form><p className="mt-2 text-xs text-text-3">Includes lecture/objective quizzes, school practice and integrated exams in this block. Saved session answers use the answer date when available, otherwise the save/submission date. This goal does not repeat automatically.</p>
   </details>{notice&&<p role="status" className="mt-2 text-sm">{notice}</p>}{resource.error&&<p role="alert">Goal settings could not sync.</p>}
  </div>;
+}
+
+function OutsideScoreEditor({entry,busy,onSave,onCancel}){
+ const [mode,setMode]=useState('count');
+ const [value,setValue]=useState(entry.correctCount==null?'':String(entry.correctCount));
+ const number=value.trim()===''?null:Number(value);
+ const valid=number!=null&&Number.isFinite(number)&&number>=0&&(mode==='count'?Number.isInteger(number)&&number<=entry.questionCount:number<=100);
+ const correct=valid?(mode==='count'?number:Math.round(entry.questionCount*number/100)):null;
+ return <form className="mt-3 flex flex-wrap items-end gap-3 rounded border border-border p-3" onSubmit={e=>{e.preventDefault();if(valid)onSave(correct);}}>
+  <label>Score format<select aria-label="Score format" value={mode} className="mt-1 block rounded border border-border bg-panel p-2" disabled={busy} onChange={e=>{setMode(e.target.value);setValue('');}}><option value="count">Number correct</option><option value="percent">Percentage correct</option></select></label>
+  <label>{mode==='count'?'Correct answers':'Percent correct'}<input aria-label={mode==='count'?'Correct answers':'Percent correct'} type="number" min="0" max={mode==='count'?entry.questionCount:100} step={mode==='count'?'1':'any'} required value={value} disabled={busy} onInput={e=>setValue(e.currentTarget.value)} className="mt-1 block w-32 rounded border border-border bg-panel p-2"/></label>
+  {valid&&<p>{correct}/{entry.questionCount} correct · {(correct/entry.questionCount*100).toFixed(1)}%{mode==='percent'?' (rounded to whole questions)':''}</p>}
+  <button disabled={busy||!valid} className="rounded bg-accent px-3 py-2 font-semibold text-white">Save score</button>
+  <button type="button" disabled={busy} className="rounded border border-border px-3 py-2" onClick={onCancel}>Cancel</button>
+ </form>;
 }
