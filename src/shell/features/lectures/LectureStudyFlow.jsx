@@ -1413,11 +1413,6 @@ export function LectureStudyFlow({
       .map(question => question.stem));
     const validReserve = new Set(locallyValidClinicalQuestions(priorQuestions));
     const adaptivePlan = buildAdaptiveObjectivePlan(quizObjectives, count);
-    if (!continuing) {
-      const firstPass = adaptivePlan.filter(objective => objective._adaptiveStatus === "untested").length;
-      const integration = adaptivePlan.filter(objective => objective._targetOrder === "third-order").length;
-      setObjectiveNotice(`This set targets ${firstPass} objectives without answer evidence${integration ? ` and supported integration on ${integration} practiced objectives` : ""}. Other slots reinforce practiced relationships; coverage updates when linked questions are answered.`);
-    }
     const adaptiveRank = new Map(adaptivePlan.map((objective, index) => [objective.id || objective.code, index]));
     const reserveCounts = new Map();
     const reservedForVariety = [];
