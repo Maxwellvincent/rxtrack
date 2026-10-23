@@ -1,3 +1,4 @@
+import { exceedsAnswerConcentration } from "../../../engine/questionSimilarity.js";
 import { latestLearningRecords } from "../../../engine/learningLoop.js";
 import { ObjectiveLearningReport } from "../../../ui/ObjectiveLearningReport.jsx";
 import { lectureSourceObjectives } from "../../../engine/sourceObjectiveScope.js";
@@ -1412,8 +1413,14 @@ export function LectureStudyFlow({
       .map(question => question.stem));
     const validReserve = new Set(locallyValidClinicalQuestions(priorQuestions));
     const adaptivePlan = buildAdaptiveObjectivePlan(quizObjectives, count);
+    if (!continuing) {
+      const firstPass = adaptivePlan.filter(objective => objective._adaptiveStatus === "untested").length;
+      const integration = adaptivePlan.filter(objective => objective._targetOrder === "third-order").length;
+      setObjectiveNotice(`This set targets ${firstPass} objectives without answer evidence${integration ? ` and supported integration on ${integration} practiced objectives` : ""}. Other slots reinforce practiced relationships; coverage updates when linked questions are answered.`);
+    }
     const adaptiveRank = new Map(adaptivePlan.map((objective, index) => [objective.id || objective.code, index]));
     const reserveCounts = new Map();
+    const reservedForVariety = [];
     const seedQuestions = (Array.isArray(startingQuestions) ? startingQuestions : [])
       .filter((question) => question?.stem && (continuing || hasCurrentReasoningAudit(question)))
       .slice(0, count);
@@ -1438,11 +1445,14 @@ export function LectureStudyFlow({
       .filter(question => !seedStems.has(String(question.stem).trim().toLowerCase()))
       .filter(question => {
         const objective = adaptivePlan.find(item => question.objectiveIds?.includes(item.id || item.code));
-        if (!objective || (question.difficultyCalibration !== "school" && ["first-order", "second-order", "third-order"].indexOf(question.orderLevel) < ["first-order", "second-order", "third-order"].indexOf(objective._targetOrder || "second-order"))) return false;
+        if (!objective || ((question.difficultyCalibration !== "school" || objective._targetOrder === "third-order") && ["first-order", "second-order", "third-order"].indexOf(question.orderLevel) < ["first-order", "second-order", "third-order"].indexOf(objective._targetOrder || "second-order"))) return false;
+        if (objective._targetOrder === "third-order" && question.reasoningAudit?.orderLevel !== "third-order") return false;
         const id = objective.id || objective.code;
         const used = reserveCounts.get(id) || 0;
         if (used >= objective._targetQuestionCount) return false;
+        if (exceedsAnswerConcentration(question, [...seedQuestions, ...reservedForVariety], count)) return false;
         reserveCounts.set(id, used + 1);
+        reservedForVariety.push(question);
         return true;
       })]
       .slice(0, count);

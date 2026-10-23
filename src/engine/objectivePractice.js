@@ -26,6 +26,7 @@ function normalizedEvidence(objective, entry) {
     attempts,
     correct,
     latestCorrect,
+    recentAccuracy: recent.length >= 3 ? recent.filter(Boolean).length / recent.length : null,
     sessionCount: useEvidence ? (entry?.sessions || []).length : 0,
     taskTypeCount: useEvidence ? countKeys(entry?.taskTypes) : 0,
     sources: useEvidence ? entry?.sources || {} : {},
@@ -67,7 +68,7 @@ export function objectivePracticePlan(objectives = [], evidenceModel = {}) {
     const profile = objectiveOrderProfile(objective);
     const demonstrated = Object.entries(progress.orderLevels).filter(([, stats]) => stats.correct > 0).map(([order]) => order);
     const secondOrder = progress.orderLevels["second-order"];
-    const applicationSecure = secondOrder?.correct > 0 && secondOrder.correct / Math.max(1, secondOrder.attempts || 0) >= OBJECTIVE_MIN_ACCURACY;
+    const applicationSecure = secondOrder?.correct >= 2 && (secondOrder.correct / Math.max(1, secondOrder.attempts || 0) >= OBJECTIVE_MIN_ACCURACY || progress.recentAccuracy >= OBJECTIVE_MIN_ACCURACY);
     const targetOrder = profile.allowed.includes("third-order") && applicationSecure && progress.latestCorrect
       ? "third-order" : "second-order";
     const missingRequirements = [

@@ -51,3 +51,24 @@ export function uniqueQuestions(questions = [], existing = []) {
   }
   return accepted;
 }
+
+/** Letter balance is not conceptual variety: compare the keyed answer text. */
+export function questionAnswerKey(question = {}) {
+  const value = question.choices?.[question.correct];
+  return (typeof value === 'string' ? value : '').toLowerCase().replace(/[^a-z0-9]+/g,' ').replace(/^the /,'').trim();
+}
+export function exceedsAnswerConcentration(question, accepted = [], plannedCount = 15) {
+  const key = questionAnswerKey(question);
+  if (!key) return false;
+  const limit = Math.max(2, Math.ceil(Math.max(1, Number(plannedCount) || 1) * .2));
+  return accepted.filter(item => questionAnswerKey(item) === key).length >= limit;
+}
+export function repeatedSuccessfulAnswerGuidance(history = []) {
+  const counts = new Map();
+  for (const question of history) {
+    const key = questionAnswerKey(question);
+    if (key && question.lastCorrect === true && Number(question.timesCorrect) > 0) counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  const repeated = [...counts].filter(([,count])=>count>=2).slice(0,8).map(([answer,count])=>({answer,correctQuestions:count}));
+  return repeated.length ? `RECENTLY REPEATED SUCCESSFUL ANSWERS (learner history, not factual authority): ${JSON.stringify(repeated)}. Avoid another easy question asking for these same answers from the same findings. Use a different source-supported endpoint, supported integration when allocated, or the other allocated objectives. Do not invent relationships to increase difficulty.` : '';
+}

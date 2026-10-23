@@ -65,7 +65,7 @@ describe("evidence-driven objective progression", () => {
   });
   it("requests integration after successful separately reviewed application", () => {
     const [row] = objectivePracticePlan([{ id: "o1", bloom_level: 3 }], { objectives: { o1: {
-      attempts: 1, correct: 1, recent: [true], orderLevels: { "second-order": { attempts: 1, correct: 1 } },
+      attempts: 2, correct: 2, recent: [true,true], orderLevels: { "second-order": { attempts: 2, correct: 2 } },
     } } }).rows;
     expect(row.targetOrder).toBe("third-order");
     expect(row.demonstrated).toEqual(["second-order"]);
@@ -81,4 +81,13 @@ describe("evidence-driven objective progression", () => {
     expect(row.attempts).toBe(0);
     expect(row.ready).toBe(false);
   });
+});
+
+it('advances supported integration after recent recovery without erasing earlier misses',()=>{
+ const [row]=objectivePracticePlan([{id:'o',bloom_level:3}],{objectives:{o:{attempts:10,correct:5,recent:[true,true,true,true,true],orderLevels:{'second-order':{attempts:10,correct:5}}}}}).rows;
+ expect(row.targetOrder).toBe('third-order');expect(row.ready).toBe(false);expect(row.accuracy).toBe(.5);
+});
+it('does not promote to integration on one correct application',()=>{
+ const [row]=objectivePracticePlan([{id:'o',bloom_level:3}],{objectives:{o:{attempts:1,correct:1,recent:[true],orderLevels:{'second-order':{attempts:1,correct:1}}}}}).rows;
+ expect(row.targetOrder).toBe('second-order');
 });

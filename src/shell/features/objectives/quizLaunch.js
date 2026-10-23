@@ -25,7 +25,7 @@ import * as questionBankAnalysisStore from "../../../stores/questionBankAnalysis
 import * as questionStyleProfileStore from "../../../stores/questionStyleProfile.js";
 import { getLecText } from "../../../lectureText.js";
 import { selectAtomsForQuiz } from "../lectures/lectureStudy.js";
-import { areNearDuplicateQuestions } from "../../../engine/questionSimilarity.js";
+import { areNearDuplicateQuestions, exceedsAnswerConcentration, repeatedSuccessfulAnswerGuidance, questionAnswerKey } from "../../../engine/questionSimilarity.js";
 import { buildClinicalCorrelateLibrary } from "../../../engine/clinicalCorrelates.js";
 import { objectivesWithPracticeEvidence } from "../../../engine/objectivePractice.js";
 import { read as readLearnerEvidence } from "../../../stores/learnerEvidence.js";
@@ -76,9 +76,9 @@ function objectiveStatus(objective) {
 }
 
 /**
- * A new quiz is intentionally concentrated, not evenly smeared over the lecture.
- * Roughly two thirds of available slots go to repair, then developing objectives;
- * untested/mastered objectives receive remaining coverage. A single objective is
+ * Reserve a first-pass share for unseen objectives before repair/consolidation.
+ * Until coverage is complete, 60% of slots go to distinct untested objectives
+ * when available; weaknesses use the rest. A single objective is
  * capped before the plan cycles so one label cannot consume the whole quiz.
  */
 export function buildAdaptiveObjectivePlan(objectives, questionCount) {
@@ -104,6 +104,10 @@ export function buildAdaptiveObjectivePlan(objectives, questionCount) {
   let remaining = count;
   // A selected scope gets a first pass before extra repair questions when it fits.
   if (count >= ordered.length) remaining -= addRoundRobin(ordered, ordered.length, 1);
+  // Weak/developing objectives used to consume every slot when the lecture
+  // contained more objectives than questions, starving first-pass coverage.
+  const unseen = ordered.filter(objective => objectiveStatus(objective) === "untested" && !targets.has(objective.id || objective.code));
+  if (remaining && unseen.length) remaining -= addRoundRobin(unseen, Math.min(remaining, Math.ceil(count * 0.6), unseen.length), 1);
   const focused = ordered.filter((objective) => Number(objective?._focusPriority) === 0);
   if (focused.length) {
     const focusSlots = Math.min(remaining, Math.max(focused.length, Math.ceil(count * 0.6)), focused.length * 3);
@@ -121,7 +125,8 @@ export function buildAdaptiveObjectivePlan(objectives, questionCount) {
 
   for (const [status, cap] of [["developing", 2], ["untested", 1], ["mastered", 1]]) {
     if (!remaining) break;
-    const group = ordered.filter((objective) => notAlreadyFocused(objective) && objectiveStatus(objective) === status);
+    const group = ordered.filter((objective) => notAlreadyFocused(objective) && objectiveStatus(objective) === status)
+      .sort((a,b) => (targets.get(a.id || a.code) || 0) - (targets.get(b.id || b.code) || 0));
     remaining -= addRoundRobin(group, remaining, cap);
   }
 
@@ -139,7 +144,8 @@ export function buildAdaptiveObjectivePlan(objectives, questionCount) {
     remaining -= added;
   }
 
-  return ordered
+  const presentationOrder = count < ordered.length && unseen.length ? [...ordered].sort((a,b) => Number(unseen.includes(b)) - Number(unseen.includes(a))) : ordered;
+  return presentationOrder
     .map((objective) => {
       const id = objective?.id || objective?.code;
       const target = targets.get(id) || 0;
@@ -385,7 +391,7 @@ export function buildQuizConfig({
         String(focusNotes || "").trim(),
         learningFocus({objectives:selected,evidence:learnerModel,blockId,lectureId:lecture?.id || lectureIdHint,tutorProfile:getLearnerProfile(userId)}),
         selected.length
-          ? `ADAPTIVE OBJECTIVE ALLOCATION — follow these item counts before broad coverage:\n${selected.map((objective) => `- [${objective.id || objective.code}] ${objective._adaptiveStatus}: ${objective._targetQuestionCount} question${objective._targetQuestionCount === 1 ? "" : "s"}; ${reasoningPolicy === "challenge" ? "required" : "suggested"} ${objective._targetOrder || "second-order"}; ${objective._neededTaskTypes?.length ? `use a different task from ${objective._neededTaskTypes.join(", ")}` : "vary the final ask"}`).join("\n")}`
+          ? `ADAPTIVE OBJECTIVE ALLOCATION — follow these item counts before broad coverage:\n${selected.map((objective) => `- [${objective.id || objective.code}] ${objective._adaptiveStatus}: ${objective._targetQuestionCount} question${objective._targetQuestionCount === 1 ? "" : "s"}; ${reasoningPolicy === "challenge" || objective._targetOrder === "third-order" ? "required" : "suggested"} ${objective._targetOrder || "second-order"}; ${objective._neededTaskTypes?.length ? `use a different task from ${objective._neededTaskTypes.join(", ")}` : "vary the final ask"}`).join("\n")}`
           : "",
       ].filter(Boolean).join("\n\n"),
     },
@@ -737,6 +743,9 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
         questionCount: candidateCount,
         focusNotes: [args.focusNotes || "", focusedRefill ? (challenge ? "FOCUSED FINAL-SLOT REFILL: Write one independently verifiable item for the allocated objective. Use only supplied source relationships. Build one unambiguous key and same-category distractors that require the intended inference. Address the prior rejection feedback without adding unsupported facts or weakening the requested order." : "FOCUSED FINAL-SLOT REFILL: Write one independently verifiable, school-calibrated item for the allocated objective. Use the supplied lecture evidence and school examples. A clear school-level recognition item or one supported clinical application is acceptable under the school policy; prefer application when supported, but do not invent a new experiment or obscure extra step merely to fill this slot. Keep a distinct tested fact or relationship, one unambiguous key and same-category distractors. Address rejection feedback; all factual, source and answer-key checks still apply.") : "", currentScaffolds.length ? `VERIFIED OBJECTIVE RELATIONSHIPS: ${JSON.stringify(currentScaffolds.filter(plan => batchAllocation.some(objective => String(objective.id || objective.code) === plan.objectiveId)))}. ${challenge ? "Build a fresh causal intervention and endpoint from these relationships" : "Use these relationships for a clear, distinct school-style question; do not force a new causal experiment when the lecture supports a simpler focused ask"}; never reuse an old scenario or assume that a previous approval validates this new question. All new questions require independent review.` : "", ...rejectionFeedback.filter(feedback => !enforceAllocation || !feedback.objectiveIds.length || batchAllocation.some(objective => feedback.objectiveIds.includes(objective.id || objective.code))).slice(-6).map(feedback => feedback.text),
           candidateInstruction,
+          repeatedSuccessfulAnswerGuidance(avoidedQuestions),
+          `CURRENT QUIZ ANSWER CONCEPTS (maximum ${Math.max(2, Math.ceil((args.plannedCount || requested)*.2))} per concept): ${JSON.stringify([...(args.initialQuestions || []), ...accepted].map(questionAnswerKey).filter(Boolean))}. Choose different source-supported keyed concepts for the missing slots.`,
+          "ANSWER VARIETY: Do not repeatedly ask for the same correct structure or answer concept. Change the tested relationship and endpoint across the allocated objectives. Changing age, sex or wording is not a new task. When supported integration is required, use connected lecture relationships rather than another recognition vignette.",
           ...avoidedQuestions.filter(q => q.questionPlan && q.objectiveIds?.some(id => batchAllocation.some(objective => id === (objective.id || objective.code)))).slice(-6).map(q => `Previously presented route (use a different source-supported intervention or endpoint, not a demographic paraphrase): ${JSON.stringify({ objectiveIds: q.objectiveIds, perturbation: q.questionPlan.perturbation, endpoint: q.questionPlan.endpoint })}`),
           ...accepted.slice(-10).filter(q => q.questionPlan).map(q => `Already accepted task (do not reuse its perturbation-to-endpoint route): ${JSON.stringify({ objectiveIds: q.objectiveIds, perturbation: q.questionPlan.perturbation, endpoint: q.questionPlan.endpoint })}`),
         ].filter(Boolean).join("\n"),
@@ -801,13 +810,15 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
         if (enforceAllocation) {
           const target = remainingObjectiveAllocation(allocationPlan, [...(args.initialQuestions || []), ...accepted], requested).find(objective => question.objectiveIds?.[0] === (objective.id || objective.code));
           const levels = ["first-order", "second-order", "third-order"];
-          if (!target || !hasCurrentReasoningAudit(question) || (args.reasoningPolicy === "challenge" && levels.indexOf(question.orderLevel) < levels.indexOf(target._targetOrder || "second-order"))) { reject("allocation_or_reasoning_depth"); continue; }
+          if (!target || !hasCurrentReasoningAudit(question) || ((args.reasoningPolicy === "challenge" || target._targetOrder === "third-order") && levels.indexOf(question.orderLevel) < levels.indexOf(target._targetOrder || "second-order"))) { reject("allocation_or_reasoning_depth"); continue; }
         }
+        if (enforceAllocation && question.orderLevel === "third-order" && question.reasoningAudit?.orderLevel !== "third-order") { reject("unverified_integration_depth"); continue; }
         const repeatsPriorQuestion = avoidedQuestions.some((other) => areNearDuplicateQuestions(question, other));
         // Repeated practice of one topic/objective is valid: a quiz count is a hard
         // request. Reject duplicate or near-duplicate questions, not distinct tasks
         // solely because they share an atom/topic label.
         if (!key || seen.has(key) || avoidedStemKeys.has(key) || repeatsPriorQuestion || accepted.some((other) => areNearDuplicateQuestions(question, other))) { reject("duplicate_or_recognizable_question"); continue; }
+        if (exceedsAnswerConcentration(question, [...(args.initialQuestions || []), ...accepted], args.plannedCount || requested)) { reject("repeated_answer_concept"); continue; }
         seen.add(key);
         accepted.push(question);
         newlyAccepted.push(question);

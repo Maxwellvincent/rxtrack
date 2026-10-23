@@ -474,14 +474,14 @@ describe("prepareObjectiveQuiz", () => {
     expect(result.questions).toHaveLength(3);
   });
 
-  it("fills the requested count with distinct applications of a repeated topic", async () => {
+  it("keeps distinct answer concepts within a shared topic", async () => {
     const questions = [
       "A patient with the first clinical presentation is evaluated. Which mechanism best explains the finding?",
       "A patient with a second clinical presentation is evaluated. Which mechanism best explains the finding?",
       "A patient with a third clinical presentation is evaluated. Which mechanism best explains the finding?",
     ].map((stem, index) => ({
       stem,
-      choices: { A: "Mechanism A", B: "Mechanism B", C: "Mechanism C", D: "Mechanism D" },
+      choices: { A: ["Receptor activation", "Second messenger degradation", "Downstream protein phosphorylation"][index], B: "Mechanism B", C: "Mechanism C", D: "Mechanism D" },
       correct: "A",
       objectiveIds: ["o1"],
       topic: "shared metabolic pathway",
@@ -1027,4 +1027,21 @@ it("keeps a practiced source objective in the quiz when only its Bloom-level cod
  const callAIJSON=vi.fn().mockResolvedValue({questions:[]}),objective="Explain the effects of select substances on release of transmitters";
  await startObjectiveQuiz({lectureIdHint:"synapse",blockId:"nb",objectives:[{id:"practiced-identity",code:"SOM.MK.IV.BPM2.1.NB.1.NSCI.0098",objective,linkedLecId:"synapse"}],lectureText:`# Objectives\nSOM.MK.I.BPM2.1.NB.1.NSCI.0098 ${objective}\n# Lecture\nCalcium influx into the terminal triggers synaptic vesicle fusion and transmitter release.`,questionCount:1},{callAIJSON,skipQuestionAudit:true});
  expect(callAIJSON.mock.calls.map(call=>String(call[1])).join("\n")).toContain("practiced-identity");
+});
+
+it("reserves nine distinct untested objectives in a 15-question lecture retake rather than starving coverage",()=>{
+ const objectives=[{id:'weak',status:'struggling'},...Array.from({length:7},(_,i)=>({id:`seen${i}`,status:'developing'})),...Array.from({length:15},(_,i)=>({id:`unseen${i}`,status:'untested'}))];
+ const plan=buildAdaptiveObjectivePlan(objectives,15);
+ const unseen=plan.filter(o=>o.status==='untested');
+ expect(unseen).toHaveLength(9);expect(unseen.every(o=>o._targetQuestionCount===1)).toBe(true);
+ expect(plan.slice(0,9).every(o=>o.status==='untested')).toBe(true);
+ expect(plan.reduce((n,o)=>n+o._targetQuestionCount,0)).toBe(15);
+ const next=buildAdaptiveObjectivePlan(objectives.map(o=>unseen.some(n=>n.id===o.id)?{...o,status:'developing'}:o),15);
+ expect(next.filter(o=>o.status==='untested')).toHaveLength(6);
+});
+it("does not refill a third-order slot with a school-calibrated second-order item",async()=>{
+ const question={stem:'After an intervention a supplied downstream response occurs. Which mechanism explains this clinical finding?',choices:{A:'Supported outcome',B:'Other outcome',C:'Third outcome',D:'Fourth outcome'},correct:'A',objectiveIds:['o'],orderLevel:'second-order',difficultyCalibration:'school',reasoningAudit:{status:'verified',version:2,connectedChain:true,singleEndpoint:true,choiceShortcut:false,orderLevel:'second-order'}};
+ const result=await prepareObjectiveQuiz({objectives:[{id:'o',objective:'Apply a source relationship',bloom_level:3}],evidenceModel:{objectives:{o:{attempts:3,correct:3,recent:[true,true,true],orderLevels:{'second-order':{attempts:3,correct:3}}}}},atoms:[{term:'Source',content:'A supported source relationship.'}],generationVersion:'v2',questionCount:1},{callAIJSON:vi.fn().mockResolvedValue({questions:[question]}),skipQuestionAudit:true,maxPrepareAttempts:1});
+ expect(result.questions).toHaveLength(0);
+ expect(result.diagnostics.rejections.allocation_or_reasoning_depth).toBeGreaterThan(0);
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { areNearDuplicateQuestions, questionSimilarity, uniqueQuestions } from "./questionSimilarity.js";
+import { areNearDuplicateQuestions, questionSimilarity, uniqueQuestions, exceedsAnswerConcentration, repeatedSuccessfulAnswerGuidance } from "./questionSimilarity.js";
 
 const first = {
   stem: "A 45-year-old male presents with intermittent abdominal pain. Examination shows tenderness in the upper mid-abdomen. Which of the following best describes the location of the peritoneum in this patient?",
@@ -49,4 +49,12 @@ it("recognizes substituted tracer labels without collapsing distinct experimenta
   expect(uniqueQuestions([make("tracer"), make("fluorescent marker"), make("tagged molecule")])).toHaveLength(1);
   const different = { stem: "After selective inhibition of anterograde movement, newly made vesicles accumulate near the soma. What happens to delivery of secretory cargo at the terminal?", objectiveIds: ["axonal-transport"], choices: { A: "Decreased delivery", B: "Increased delivery", C: "Unchanged delivery" }, correct: "A" };
   expect(areNearDuplicateQuestions(make("tracer"), different)).toBe(false);
+});
+
+it('caps repeated answer concepts independent of option letter without banning the topic',()=>{
+ const q={correct:'A',choices:{A:'Spinal accessory nerve'}};
+ const same={correct:'E',choices:{E:'Spinal accessory nerve'}};
+ expect(exceedsAnswerConcentration(same,[q,q,q],15)).toBe(true);
+ expect(exceedsAnswerConcentration({correct:'A',choices:{A:'Ansa cervicalis'}},[q,q,q],15)).toBe(false);
+ expect(repeatedSuccessfulAnswerGuidance([{...q,lastCorrect:true,timesCorrect:1},{...same,lastCorrect:true,timesCorrect:1}])).toContain('spinal accessory nerve');
 });
