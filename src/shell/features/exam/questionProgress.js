@@ -1,7 +1,7 @@
 /** Use the study-answer log plus saved sessions, never the mixed lecture
  * counters that already include integrated exams (and older deleted attempts).
  */
-export function questionProgress(studyAnswers = [], sessions = [], range = {}, manualEntries = []) {
+export function questionProgress(studyAnswers = [], sessions = [], range = {}, manualEntries = [], historicalStudy = {}) {
   const inRange = ts => (range.startAt == null || ts >= range.startAt) && (range.endAt == null || ts <= range.endAt) && (!range.start || ts >= new Date(`${range.start}T00:00:00`).getTime()) && (!range.end || ts <= new Date(`${range.end}T23:59:59.999`).getTime());
   let lectureAnswered = 0;
   let correct = 0;
@@ -14,6 +14,12 @@ export function questionProgress(studyAnswers = [], sessions = [], range = {}, m
     studySeen.add(key);
     lectureAnswered++;
     if (answer.correct) correct++;
+  }
+  // Legacy baseline has no reliable per-answer dates. Include it only in
+  // lifetime totals; never move old aggregate history into today's score.
+  if (range.startAt == null && range.endAt == null && !range.start && !range.end) {
+    const count=Math.max(0,Number(historicalStudy.answered)||0);
+    lectureAnswered+=count;correct+=Math.min(count,Math.max(0,Number(historicalStudy.correct)||0));
   }
   let schoolAnswered = 0;
   let examAnswered = 0;

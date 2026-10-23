@@ -15,6 +15,7 @@ vi.mock("../../../stores/calibrationByBlock.js", () => ({
 vi.mock("../../../supabase.js", () => ({ listExamSessions: (...args) => listExamSessionsMock(...args) }));
 
 vi.mock("../../../stores/manualPractice.js", () => ({ manualPracticeStore: {read:()=>({}),subscribe:()=>()=>{},isHydrated:()=>true,readError:()=>null} }));
+vi.mock("../../hooks/useStudyAnswerHistory.js",()=>({useStudyAnswerHistory:()=>({studyAnswers:readBlockMock(),historicalStudy:{answered:0,correct:0},loading:false,error:null})}));
 const { DailyQuestionScore } = await import("./DailyQuestionScore.jsx");
 
 function mount() {

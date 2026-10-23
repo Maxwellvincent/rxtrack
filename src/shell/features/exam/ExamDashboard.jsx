@@ -19,7 +19,7 @@ import { evaluateSessionForLecture } from "./finalizeLogic.js";
 import * as learnerEvidenceStore from "../../../stores/learnerEvidence.js";
 import { MISS_TYPE_LABELS, REASONING_DEPTHS } from "../../../engine/questionReasoning.js";
 import { ERROR_REASONS } from "./questionReading.js";
-import * as calibrationStore from "../../../stores/calibrationByBlock.js";
+import {useStudyAnswerHistory} from "../../hooks/useStudyAnswerHistory.js";
 import { questionProgress } from "./questionProgress.js";
 import { PracticeGoal } from './PracticeGoal.jsx';
 import { manualPracticeStore } from '../../../stores/manualPractice.js';
@@ -265,14 +265,10 @@ export function ExamDashboard({ blockId, userId, lectures = [], questionStats = 
   const [qualityRevision, setQualityRevision] = useState(0);
   useEffect(() => subscribeWeakConcepts(() => setQualityRevision(n => n + 1)), []);
   useEffect(() => questionRatings.subscribe(() => setQualityRevision(n => n + 1)), []);
-  const [studyAnswers, setStudyAnswers] = useState(() => calibrationStore.readBlock(userId, blockId));
-  useEffect(() => {
-    setStudyAnswers(calibrationStore.readBlock(userId, blockId));
-    return calibrationStore.subscribe(() => setStudyAnswers(calibrationStore.readBlock(userId, blockId)));
-  }, [userId, blockId]);
+  const {studyAnswers,historicalStudy}=useStudyAnswerHistory(userId,blockId);
   const manualPractice = useStoreResource(manualPracticeStore, userId);
   const manualEntries = manualPractice.data?.[blockId] || EMPTY_MANUAL_ENTRIES;
-  const progress = useMemo(() => questionProgress(studyAnswers, sessions, {}, manualEntries), [studyAnswers, sessions, manualEntries]);
+  const progress = useMemo(() => questionProgress(studyAnswers, sessions, {}, manualEntries, historicalStudy), [studyAnswers, sessions, manualEntries, historicalStudy]);
   const modelActivity=useStoreResource(modelImpactStore,userId);
   const atomActivity=useStoreResource(atomProgressStore,userId);
 
@@ -430,7 +426,7 @@ export function ExamDashboard({ blockId, userId, lectures = [], questionStats = 
           <span>Overall accuracy: {progress.accuracy == null ? '—' : `${Math.round(progress.accuracy * 100)}%`} · {progress.correct.toLocaleString()} correct</span>
         </div>
         <p className="mt-2 text-sm text-text-2">{progress.lectureAnswered.toLocaleString()} study / lecture / objective quiz answers · {progress.schoolAnswered.toLocaleString()} school homework / exam answers · {progress.examAnswered.toLocaleString()} integrated-exam answers · {progress.manualAnswered.toLocaleString()} logged outside-app answers</p>
-        <PracticeGoal key={`${userId}:${blockId}`} userId={userId} blockId={blockId} studyAnswers={studyAnswers} sessions={sessions}/>
+        <PracticeGoal historicalStudy={historicalStudy} key={`${userId}:${blockId}`} userId={userId} blockId={blockId} studyAnswers={studyAnswers} sessions={sessions}/>
         <p className="mt-2 text-xs text-text-3">Cumulative recorded practice in this block. Repeat attempts count; unanswered items do not. Exam and homework answers count after Save & exit or submission; deleted sessions are excluded. Integrated-exam accuracy stays separate below; practice volume is not a predicted exam grade.</p>
       </section>
       <ConfidenceCalibration records={studyAnswers}/>

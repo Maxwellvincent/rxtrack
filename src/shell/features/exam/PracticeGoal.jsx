@@ -5,13 +5,13 @@ import {practiceGoalStore} from '../../../stores/practiceGoal.js';
 import {manualPracticeStore} from '../../../stores/manualPractice.js';
 import {questionProgress} from './questionProgress.js';
 
-export function PracticeGoal({userId,blockId,studyAnswers,sessions}) {
+export function PracticeGoal({userId,blockId,studyAnswers,sessions,historicalStudy}) {
  const resource=useStoreResource(practiceGoalStore,userId);
  const manualResource=useStoreResource(manualPracticeStore,userId);
  const goal=resource.data?.[blockId];
  const [busy,setBusy]=useState(false),[notice,setNotice]=useState('');
  const manualEntries=manualResource.data?.[blockId]||[];
- const progress=questionProgress(studyAnswers,sessions,goal||{},manualEntries);
+ const progress=questionProgress(studyAnswers,sessions,goal||{},manualEntries,historicalStudy);
  async function save(next){setBusy(true);setNotice('');try{await practiceGoalStore.write(userId,{...practiceGoalStore.read(userId),[blockId]:next});setNotice('Goal saved.');}catch(e){setNotice(`Could not save: ${e.message}`);}finally{setBusy(false);}}
  async function logOutsidePractice(form){
   const data=new FormData(form),questionCount=Number(data.get('questionCount')),date=String(data.get('date')||''),source=String(data.get('source')||'').trim(),label=String(data.get('label')||'').trim();

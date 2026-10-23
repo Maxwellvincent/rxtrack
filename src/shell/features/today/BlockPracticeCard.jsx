@@ -11,8 +11,8 @@ import {questionProgress} from "../exam/questionProgress.js";
 
 const percent = (n) => n == null ? "—" : `${(n * 100).toFixed(1)}%`;
 export function CompactQuestionProgress({ blockId, userId }) {
-  const {studyAnswers,sessions,manualEntries,loading,error}=useQuestionPractice(userId,blockId);
-  const result=questionProgress(studyAnswers,sessions,{},manualEntries);
+  const {studyAnswers,sessions,manualEntries,historicalStudy,loading,error}=useQuestionPractice(userId,blockId);
+  const result=questionProgress(studyAnswers,sessions,{},manualEntries,historicalStudy);
   return <section aria-label="Block question progress" className="desk-practice rounded-lg border border-border bg-bg-elevated p-4">
     <div className="flex items-start justify-between gap-3">
       <div><div className="today-eyebrow">Practice pulse</div><h3 className="mt-1 text-base font-semibold">Questions completed</h3></div>
@@ -20,9 +20,11 @@ export function CompactQuestionProgress({ blockId, userId }) {
     </div>
     <div className="today-mini-metrics mt-3">
       <div><strong>{loading ? "—" : result.answered.toLocaleString()}</strong><span>completed</span></div>
-      <div><strong>{loading ? "—" : result.correct.toLocaleString()}</strong><span>correct</span></div>
-      <div><strong>{loading ? "—" : percent(result.accuracy)}</strong><span>accuracy</span></div>
+      <div><strong>{loading ? "—" : result.correct.toLocaleString()}</strong><span>correct scored answers</span></div>
+      <div><strong>{loading ? "—" : percent(result.accuracy)}</strong><span>scored accuracy</span></div>
     </div>
+    {!loading && <><p className="mt-2 text-sm">{result.correct} correct of {result.gradedAnswered} scored · {result.answered-result.gradedAnswered} without a score.</p>
+    <details className="mt-2 text-xs text-text-2"><summary className="cursor-pointer py-2">Question-count breakdown</summary><ul><li>{result.lectureAnswered-(historicalStudy?.answered||0)} dated lecture-quiz answers</li><li>{historicalStudy?.answered||0} older recorded practice answers</li><li>{result.schoolAnswered} saved homework / school-bank answers</li><li>{result.examAnswered} saved integrated-exam answers</li><li>{result.manualAnswered} outside-practice questions</li></ul><p>Mirrored answer logs count once. Later retakes count again. Older aggregate history is included in lifetime totals only, because its individual answer dates are unavailable.</p></details></>}
     {error && <p role="alert">Some practice history could not load. Totals may be incomplete.</p>}
     <p className="mt-2 text-xs text-text-2">Saved lecture quizzes, homework, exam answers and outside practice. Retakes count; repeat saves do not. Accuracy uses only questions with a score.</p>
   </section>;

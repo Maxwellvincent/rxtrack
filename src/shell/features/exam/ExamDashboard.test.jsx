@@ -30,6 +30,7 @@ vi.mock("../../../stores/weakConcepts.js", () => ({
 }));
 
 vi.mock("../../../stores/learnerEvidence.js", () => ({
+  isHydrated:()=>true,readError:()=>null,
   read: (...args) => readLearnerEvidenceMock(...args),
   subscribe: () => () => {},
 }));
@@ -37,6 +38,8 @@ vi.mock("../../../stores/calibrationByBlock.js", () => ({
   readBlock: () => [{ts:1,concept:'Study question',correct:true}],
   subscribe: () => () => {},
 }));
+
+vi.mock("../../hooks/useLectures.js",()=>({useLectures:()=>({data:[],loading:false,error:null})}));
 
 const { ExamDashboard, computeObjectiveReadiness, computePacingMetrics, buildLectureRepairContext } = await import("./ExamDashboard.jsx");
 
