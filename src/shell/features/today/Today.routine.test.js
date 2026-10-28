@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildFocusPlan, completedLectureQuizIdsToday, computeSchedule, selectExamPrepTasks, suggestedDayMode } from "./Today.jsx";
+import { buildFocusPlan, completedLectureQuizIdsToday, computeSchedule, selectExamPrepTasks, suggestedDayMode, reconcileScheduledFocusPlan } from "./Today.jsx";
 
 describe("optimized daily routine", () => {
   it("keeps completed focus rows ahead of scheduler backfill", () => {
@@ -77,4 +77,10 @@ it('automatically selects lecture days without asking for wake time',()=>{
  expect(suggestedDayMode(19,null,{todayKey:'2026-10-28',lectureDates:['2026-10-29']})).toBe('review');
  expect(suggestedDayMode(2,null,{todayKey:'2026-10-28',lectureDates:['2026-10-28']})).toBe('exam');
  expect(suggestedDayMode(null,null,{todayKey:'2026-10-28'})).toBe('lecture');
+});
+
+it('adds newly imported scheduled lectures without replacing completed daily work',()=>{
+ const tasks=[{lec:{id:'old'},matchReason:'scheduled-day'},{lec:{id:'new'},matchReason:'scheduled-day'},{lec:{id:'review'},matchReason:'spaced-rep-due'}];
+ expect(reconcileScheduledFocusPlan(['old'],tasks)).toEqual(['old','new']);
+ expect(reconcileScheduledFocusPlan(['old','new'],tasks)).toEqual(['old','new']);
 });

@@ -322,6 +322,10 @@ function writeFocusPlan(blockId, todayKey, mode, ids) {
 }
 
 /** Freeze today's initial workload; completed rows count before any scheduler backfill. */
+export function reconcileScheduledFocusPlan(stored = [], tasks = []) {
+  return [...new Set([...stored, ...tasks.filter(task => task.matchReason === 'scheduled-day').map(task => task.lec?.id).filter(Boolean)])];
+}
+
 export function buildFocusPlan(candidateIds = [], checkedIds = []) {
   const candidates = [...new Set(candidateIds.filter(Boolean))];
   const completed = [...new Set(checkedIds.filter(Boolean))];
@@ -1107,7 +1111,7 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
     const mode = effectiveMode;
     if (!mode) return todayTasks;
     if (mode === "lecture") {
-      const scheduled = todayTasks.filter((t) => t.matchReason === "scheduled-day").slice(0, 2);
+      const scheduled = todayTasks.filter((t) => t.matchReason === "scheduled-day");
       const due = todayTasks.filter((t) => t.matchReason === "spaced-rep-due").slice(0, 2);
       const catchUp = todayTasks.filter((t) => t.matchReason === "catch-up").slice(0, Math.max(0, 2 - due.length));
       return [...scheduled, ...due, ...catchUp];
@@ -1133,7 +1137,9 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
   useEffect(() => {
     const stored = readFocusPlan(blockId, todayKey, effectiveMode);
     if (stored) {
-      setFocusPlan({ key: planStorageKey, ids: stored });
+      const ids = reconcileScheduledFocusPlan(stored, candidateTasks);
+      if (ids.length !== stored.length) writeFocusPlan(blockId, todayKey, effectiveMode, ids);
+      setFocusPlan({ key: planStorageKey, ids });
       return;
     }
     const ids = buildFocusPlan(candidateTasks.map((task) => task.lec.id), [...checkedForToday]);

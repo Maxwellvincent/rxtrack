@@ -301,3 +301,11 @@ it('does not create a synthetic review horizon for a completed block',()=>{
  const result=buildTodaySchedule({blockId:'done',blockMeta:{status:'complete'},now:new Date(2026,9,21),lectures:[{id:'l',blockId:'done'}]});
  expect(result.reviewsSuspended).toBe(true);expect(result.schedule).toEqual([]);expect(result.lecScores).toEqual([]);
 });
+
+it('includes a newly dated lecture even when the daily workload already contains another',()=>{
+ const old={lec:{id:'old'},matchReason:'scheduled-day'};
+ const added={lec:{id:'new'},availableDate:new Date(2026,9,28),recommendedSessions:[]};
+ const result=todayTasks({schedule:[{daysFromNow:0,tasks:[old]}],lecScores:[added]},{todayStr:'2026-10-28'});
+ expect(result.tasks.map(t=>t.lec.id)).toEqual(['old','new']);
+ expect(result.tasks[1].matchReason).toBe('scheduled-day');
+});

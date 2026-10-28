@@ -71,7 +71,13 @@ export function scheduledToday(daily) {
  * @returns {{tasks: object[], reason: "scheduled"|"urgency-fallback"|"none"}}
  */
 export function todayTasks(daily, { limit = FALLBACK_LIMIT, todayStr } = {}) {
-  const scheduled = scheduledToday(daily);
+  const scheduled = [...scheduledToday(daily)];
+  // An explicit lecture date is an assignment, even when the workload scorer
+  // has already filled today's limited recommendation slots.
+  if (todayStr) for (const row of daily?.lecScores || []) {
+    if (!row.availableDate || !row.lec?.id || localDateKey(row.availableDate) !== todayStr || scheduled.some(task => task.lec?.id === row.lec.id)) continue;
+    scheduled.push({...row,dateStr:todayStr,matchReason:'scheduled-day'});
+  }
   if (scheduled.length) {
     const scheduledIds = new Set(scheduled.map((task) => task.lec?.id));
     const room = Math.max(0, limit - scheduled.length);
