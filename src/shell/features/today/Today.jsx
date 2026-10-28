@@ -26,8 +26,8 @@ const DAY_MODES = [
 ];
 
 function dayModeKey(blockId, todayKey) { return `rxt-day-mode-${blockId}-${todayKey}`; }
-function readDayMode(blockId, todayKey) { return readPreference(dayModeKey(blockId, todayKey)) || null; }
-function writeDayMode(blockId, todayKey, mode) { return writePreference(dayModeKey(blockId, todayKey), mode); }
+function readDayMode(blockId, todayKey) { const saved = readPreference(dayModeKey(blockId, todayKey)); return DAY_MODES.some(mode => mode.id === saved) ? saved : null; }
+function writeDayMode(blockId, todayKey, mode) { return writePreference(dayModeKey(blockId, todayKey), mode || ""); }
 
 function sleepWakeKey(blockId) { return `rxt-sleepwake-${blockId}-${studyDayDate().toDateString()}`; }
 function readSleepWake(blockId) {
@@ -35,19 +35,16 @@ function readSleepWake(blockId) {
   catch { return {}; }
 }
 
-// Wake time "HH:MM" → suggested mode
-function wakeTimeMode(wakeStr) {
-  if (!wakeStr) return null;
-  const h = parseInt(wakeStr.split(":")[0], 10);
-  if (h < 8)  return "lecture";   // before 8am → default (5am wake = lecture day)
-  if (h < 10) return "review";    // 8–10am → compressed
-  return "triage";                // 10am+ → salvage/triage
-}
-
-export function suggestedDayMode(daysLeft, wakeTime) {
-  const remaining = Number(daysLeft);
+// Schedule determines the automatic day type; wake time changes available time,
+// not whether lectures are scheduled. Manual choices remain scoped to this day.
+export function suggestedDayMode(daysLeft, _wakeTime, {todayKey, lectureDates = []} = {}) {
+  const remaining = daysLeft == null ? NaN : Number(daysLeft);
   if (Number.isFinite(remaining) && remaining >= 0 && remaining <= 3) return "exam";
-  return wakeTimeMode(wakeTime);
+  if (todayKey && lectureDates.includes(todayKey)) return "lecture";
+  const dated = lectureDates.filter(Boolean);
+  if (todayKey && dated.length) return "review";
+  const date = todayKey ? new Date(`${todayKey}T12:00:00`) : studyDayDate();
+  return [0,6].includes(date.getDay()) ? "review" : "lecture";
 }
 
 // ─── Lecture config (block-scoped — same every day for the term) ──────────────
@@ -965,7 +962,7 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
 
   const [storageNotice, setStorageNotice] = useState("");
   const [dayMode, setDayMode] = useState(() => readDayMode(blockId, todayKey));
-  const [modePickerOpen, setModePickerOpen] = useState(() => !readDayMode(blockId, todayKey));
+  const [modePickerOpen, setModePickerOpen] = useState(false);
   const [checked, setChecked] = useState(() => readChecked(blockId));
   const [sessionCounts, setSessionCounts] = useState(() => readSessionCounts(blockId));
   const [wakeTime, setWakeTime] = useState(() => readSleepWake(blockId).wakeTime ?? null);
@@ -994,10 +991,13 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
     setWakeTime(readSleepWake(blockId).wakeTime ?? null);
     const savedMode = readDayMode(blockId, todayKey);
     setDayMode(savedMode);
-    setModePickerOpen(!savedMode);
+    setModePickerOpen(false);
   }
 
-  const suggestedMode = useMemo(() => suggestedDayMode(daysLeft, wakeTime), [daysLeft, wakeTime]);
+  const suggestedMode = useMemo(() => suggestedDayMode(daysLeft, wakeTime, {
+    todayKey,
+    lectureDates: (daily?.lecScores || []).filter(row => row.availableDate).map(row => studyDayKey(row.availableDate, userId)),
+  }), [daysLeft, wakeTime, todayKey, daily?.lecScores, userId]);
   const effectiveMode = dayMode ?? suggestedMode;
 
   // Sync when the Daily Plan Settings modal saves new values
@@ -1200,12 +1200,13 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
         <div className="today-hero-actions">
           <span className="today-mode-pill"><span className="today-mode-dot" style={{ background: MODE_COLORS[effectiveMode] }} />{effectiveMode ? DAY_MODES.find((m) => m.id === effectiveMode)?.label : "Set day type"}</span>
           <button onClick={() => setModePickerOpen((open) => !open)} className="today-text-button">{modePickerOpen ? "Hide modes" : "Change mode"}</button>
+          {!dayMode && <span className="text-xs text-text-3">Automatic · based on schedule</span>}
         </div>
       </section>
 
       <ExamSprintCard key={blockId} context={context} userId={userId} daysLeft={daysLeft} onStudy={onStudy} onQuiz={onQuiz} busy={quizBusyLectureId} />
 
-      {modePickerOpen && <DayModePicker mode={dayMode} onChange={handleDayMode} suggested={suggestedMode} />}
+      {modePickerOpen && <div><DayModePicker mode={effectiveMode} onChange={handleDayMode} suggested={suggestedMode} />{dayMode && <button className="today-text-button mt-2" onClick={()=>handleDayMode(null)}>Use automatic day type</button>}</div>}
 
       <div className="today-layout">
         <main className="today-main-column">
