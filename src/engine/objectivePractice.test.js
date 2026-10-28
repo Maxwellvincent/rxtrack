@@ -91,3 +91,13 @@ it('does not promote to integration on one correct application',()=>{
  const [row]=objectivePracticePlan([{id:'o',bloom_level:3}],{objectives:{o:{attempts:1,correct:1,recent:[true],orderLevels:{'second-order':{attempts:1,correct:1}}}}}).rows;
  expect(row.targetOrder).toBe('second-order');
 });
+
+it('boosts a fresh verified confident application without granting mastery',()=>{
+ const entry={attempts:1,correct:1,recent:[true],lastFreshAnswer:{correct:true,confidence:5,orderLevel:'second-order',reasoningVerified:true}};
+ const plan=e=>objectivePracticePlan([{id:'boost',bloom_level:3}],{objectives:{boost:e}}).rows[0];
+ expect(plan(entry)).toMatchObject({targetOrder:'third-order',ready:false});
+ expect(plan({...entry,lastFreshAnswer:{...entry.lastFreshAnswer,correct:false}}).targetOrder).toBe('second-order');
+ expect(plan({...entry,lastFreshAnswer:{...entry.lastFreshAnswer,reasoningVerified:false}}).targetOrder).toBe('second-order');
+ expect(plan({...entry,lastFreshAnswer:{...entry.lastFreshAnswer,confidence:4}}).targetOrder).toBe('second-order');
+ expect(objectivePracticePlan([{id:'boost',bloom_level:2}],{objectives:{boost:entry}}).rows[0].targetOrder).toBe('second-order');
+});

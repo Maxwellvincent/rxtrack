@@ -660,9 +660,9 @@ export function TaskRow({ task, checked, isNext, sessionCount, nextReviewDate, p
                 <button
                   className={[
                     "text-left text-base font-semibold leading-snug hover:underline",
-                    checked ? "line-through text-text-3" : "text-text-1",
+                    "text-text-1",
                   ].join(" ")}
-                  onClick={() => !checked && onStudy(task.lec.id)}
+                  onClick={() => onStudy(task.lec.id)}
                   title="Open lecture"
                 >
                   {task.studyMode?.icon ? `${task.studyMode.icon} ` : ""}{title}
@@ -704,9 +704,9 @@ export function TaskRow({ task, checked, isNext, sessionCount, nextReviewDate, p
               </div>
             </div>
 
-            {!checked && (
+            {(
               <div className="flex flex-shrink-0 gap-1.5">
-                <Button onClick={() => onStudy(task.lec.id)} title="Study rounds">Study →</Button>
+                <Button onClick={() => onStudy(task.lec.id)} title="Open lecture and notes">{checked ? "Open / review →" : "Study →"}</Button>
                 <Button variant="outline" onClick={() => onQuiz(task)} disabled={busy === task.lec.id}>
                   {busy === task.lec.id ? "…" : "Quiz"}
                 </Button>

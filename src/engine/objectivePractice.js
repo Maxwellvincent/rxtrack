@@ -31,6 +31,7 @@ function normalizedEvidence(objective, entry) {
     taskTypeCount: useEvidence ? countKeys(entry?.taskTypes) : 0,
     sources: useEvidence ? entry?.sources || {} : {},
     taskTypes: useEvidence ? entry?.taskTypes || {} : {},
+    lastFreshAnswer: useEvidence ? entry?.lastFreshAnswer || null : null,
     orderLevels: useEvidence ? entry?.orderLevels || {} : {},
   };
 }
@@ -69,7 +70,8 @@ export function objectivePracticePlan(objectives = [], evidenceModel = {}) {
     const demonstrated = Object.entries(progress.orderLevels).filter(([, stats]) => stats.correct > 0).map(([order]) => order);
     const secondOrder = progress.orderLevels["second-order"];
     const applicationSecure = secondOrder?.correct >= 2 && (secondOrder.correct / Math.max(1, secondOrder.attempts || 0) >= OBJECTIVE_MIN_ACCURACY || progress.recentAccuracy >= OBJECTIVE_MIN_ACCURACY);
-    const targetOrder = profile.allowed.includes("third-order") && applicationSecure && progress.latestCorrect
+    const confidentApplication = progress.lastFreshAnswer?.correct === true && Number(progress.lastFreshAnswer.confidence) === 5 && progress.lastFreshAnswer.reasoningVerified === true && ["second-order", "third-order"].includes(progress.lastFreshAnswer.orderLevel);
+    const targetOrder = profile.allowed.includes("third-order") && (applicationSecure || confidentApplication) && progress.latestCorrect
       ? "third-order" : "second-order";
     const missingRequirements = [
       ...(progress.attempts < OBJECTIVE_MIN_ATTEMPTS ? ["more distinct questions"] : []),

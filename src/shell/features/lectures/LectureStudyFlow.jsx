@@ -1002,6 +1002,7 @@ export function LectureStudyFlow({
     if (referenceDetailsRef.current) referenceDetailsRef.current.open = true;
     if (atomsDetailsRef.current) atomsDetailsRef.current.open = true;
     const el = document.getElementById(`atom-${reviewAtomKey}`);
+    for (let parent = el?.parentElement; parent; parent = parent.parentElement) { if (parent.tagName === "DETAILS") parent.open = true; }
     el?.scrollIntoView({ behavior: "smooth", block: "center" });
     const t = setTimeout(() => setReviewAtomKey(null), 3000);
     return () => clearTimeout(t);
@@ -2736,17 +2737,18 @@ export function LectureStudyFlow({
             Reference atoms <span className="text-sm font-normal text-text-3">· {atoms.length} supporting facts</span>
           </summary>
           <div className="mt-3 space-y-4">
-          {HY_TYPES.map((type) => {
-            const list = annotatedAtoms.filter((a) => a.type === type);
-            if (!list.length) return null;
-            const meta = TYPE_META[type];
+          {Array.from(new Set(annotatedAtoms.map(a => a.objectiveIds?.[0] || a.parentTerm || a.type))).map((groupKey) => {
+            const list = annotatedAtoms.filter(a => (a.objectiveIds?.[0] || a.parentTerm || a.type) === groupKey);
+            const objective = objectiveById.get(groupKey);
+            const groupTitle = objective?.objective || objective?.text || objective?.title || list[0]?.parentTerm || TYPE_META[list[0]?.type]?.label || 'Supporting facts';
             return (
-              <div key={type}>
-                <div className="mb-1.5 text-sm font-semibold text-text-1">
-                  {meta.label} <span className="font-normal text-text-3">· {meta.hint} · {list.length}</span>
-                </div>
+              <details key={groupKey} className="rounded-lg border border-border p-3">
+                <summary className="cursor-pointer text-sm font-semibold text-text-1">
+                  {groupTitle} <span className="font-normal text-text-3">· {list.length} supporting facts</span>
+                </summary>
                 <div className="flex flex-col gap-1.5">
                   {list.map((a, i) => {
+                    const meta = TYPE_META[a.type] || TYPE_META.definition;
                     const atomKey = normAtomKey(a.term);
                     const isTarget = reviewAtomKey === atomKey;
                     return (
@@ -2800,7 +2802,7 @@ export function LectureStudyFlow({
                     );
                   })}
                 </div>
-              </div>
+              </details>
             );
           })}
           </div>

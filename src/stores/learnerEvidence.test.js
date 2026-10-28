@@ -97,3 +97,13 @@ it("records order performance only for separately verified, distinct questions",
   const unverified = applyEvidence(repeat, { ...event, questionKey: "q2", reasoningVerified: false, orderLevel: "third-order" });
   expect(unverified.objectives.o1.orderLevels["third-order"]).toBeUndefined();
 });
+
+it('keeps the latest fresh confidence for progression without boosting from repeat answers',()=>{
+ const first={source:'quiz',lectureId:'l',objectiveIds:['o'],questionKey:'q1',correct:true,confidence:5,orderLevel:'second-order',reasoningVerified:true,at:1};
+ const model=applyEvidence(null,first);
+ expect(model.objectives.o.lastFreshAnswer).toMatchObject({correct:true,confidence:5,reasoningVerified:true});
+ const repeat=applyEvidence(model,{...first,confidence:1,at:2});
+ expect(repeat.objectives.o.lastFreshAnswer.confidence).toBe(5);
+ const wrong=applyEvidence(repeat,{...first,questionKey:'q2',correct:false,at:3});
+ expect(wrong.objectives.o.lastFreshAnswer.correct).toBe(false);
+});

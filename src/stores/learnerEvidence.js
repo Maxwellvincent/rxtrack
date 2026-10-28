@@ -99,7 +99,7 @@ function bumpObjective(bucket, id, event) {
     const prior = orderLevels[event.orderLevel] || { attempts: 0, correct: 0 };
     orderLevels[event.orderLevel] = { attempts: prior.attempts + 1, correct: prior.correct + (event.correct ? 1 : 0) };
   }
-  return { ...next, [id]: { ...entry, sessions, taskTypes, sources, questionKeys: nextQuestionKeys, orderLevels } };
+  return { ...next, [id]: { ...entry, sessions, taskTypes, sources, questionKeys: nextQuestionKeys, orderLevels, lastFreshAnswer: {correct:event.correct,confidence:event.confidence ?? null,orderLevel:event.orderLevel ?? null,reasoningVerified:event.reasoningVerified === true} } };
 }
 
 export function applyEvidence(model, rawEvent) {
