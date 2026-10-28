@@ -1001,3 +1001,14 @@ describe("school-anchored variants", () => {
   }
  });
 });
+
+it('requires linked-concept clue and ambiguity checks in compact and full review',()=>{
+ const cfg={linkedConceptTargets:[{term:'Medial lemniscus',content:'Crossed sensory pathway.',objectiveIds:['o']}],objectives:[{id:'o',text:'Explain sensory pathways'}]};
+ for(const promptProfile of ['compact','full']){
+  const prompt=buildQuestionAuditPrompt([],{...cfg,promptProfile});
+  expect(prompt).toContain('LINKED CONCEPT REVIEW');
+  expect(prompt).toContain('Medial lemniscus');
+  expect(prompt).toContain('insufficient_clues');
+  expect(prompt).toContain('ambiguous_choices');
+ }
+});

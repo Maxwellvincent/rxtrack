@@ -1,3 +1,5 @@
+import {normAtomKey} from '../../../engine/atomNorm.js';
+import {linkedConceptPlan, linkedConceptInstruction, attributeLinkedConcept} from '../../../engine/linkedConceptCoverage.js';
 import { learningFocus } from "../../../engine/learningLoop.js";
 import { getLearnerProfile } from "../../../stores/tutorSessions.js";
 import { feedbackFor } from "../../../stores/questionRatings.js";
@@ -510,8 +512,8 @@ export function buildGroundedRecallQuestions({ atoms = [], objectives = [], coun
  * Build the config, then generate. `deps.callAIJSON` is the AI transport, so a
  * test drives the whole path without a network call.
  *
- * Objectives are the quiz contract. Atoms are supporting lecture evidence only; they must never
- * determine which questions are selected or force one question per definition/mechanism. This
+ * Objectives are the quiz contract. Linked atoms rotate supporting concepts within objective quotas, never
+ * replacing those quotas or forcing one recall question per definition. This
  * keeps objective comparison/prediction tasks visible even when extraction produced many atoms.
  */
 function sourceScopedQuizArgs(args) {
@@ -545,11 +547,18 @@ export async function startObjectiveQuiz(args, deps = {}) {
     // Keep each request small and fast: atoms are retrieval evidence, not one-question-per-atom
     // targets. Preparation rotates this bounded evidence window across batches.
     const selectedIds = new Set(config.objectives.map(objective => objective.id || objective.code));
-    const relevantAtoms = [...atoms.filter(atom => atom.objectiveIds?.some(id => selectedIds.has(id))), ...atoms.filter(atom => !atom.objectiveIds?.some(id => selectedIds.has(id)))];
+    const coverageEvidence = args.evidenceModel || readLearnerEvidence(args.userId);
+    const linkedTargets = linkedConceptPlan(atoms, config.objectives, {...coverageEvidence, learningJournal: [
+      ...(coverageEvidence.learningJournal || coverageEvidence.evidenceJournal || []),
+      ...(args.conceptCoverageQuestions || []).map(question=>({sourceConceptKeys:question.sourceConceptKeys || [],at:Date.now()})),
+    ]}, config.count);
+    const targetKeys = new Set(linkedTargets.map(atom => atom.coverageKey));
+    const relevantAtoms = [...linkedTargets, ...atoms.filter(atom => !targetKeys.has(normAtomKey(atom.term)) && atom.objectiveIds?.some(id => selectedIds.has(id))), ...atoms.filter(atom => !atom.objectiveIds?.some(id => selectedIds.has(id)))];
     const evidenceAtoms = atoms.length
       ? relevantAtoms.slice(0, selectedIds.size ? Math.max(12, config.count * 4) : Math.max(1, config.count))
       : [];
-    const result = await generateMcqs({ ...config, atoms: evidenceAtoms, generationVersion: args.generationVersion }, deps);
+    const result = await generateMcqs({ ...config, atoms: evidenceAtoms, linkedConceptTargets: linkedTargets, focusNotes: [config.focusNotes, linkedConceptInstruction(linkedTargets)].filter(Boolean).join("\n\n"), generationVersion: args.generationVersion }, deps);
+    result.questions = (result.questions || []).map(question => attributeLinkedConcept(question, linkedTargets));
     return { ...result, lectureId };
   }
 
@@ -737,6 +746,7 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
         : "";
       const draftArgs = {
         ...args,
+        conceptCoverageQuestions: [...(args.initialQuestions || []), ...accepted],
         atoms: rotate(sourceAtoms),
         objectives: enforceAllocation ? candidateAllocation : rotate((args.objectives || []).filter(o => !unsupportedObjectiveIds.has(String(o.id || o.code)))),
         objectiveAllocation: enforceAllocation ? candidateAllocation : null,

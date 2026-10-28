@@ -147,6 +147,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
       atomKey: q.atomKey || null,
       correct: isCorrect,
       confidence: level,
+      sourceConceptKeys: q.sourceConceptKeys || [],
       difficulty: q.difficulty || null,
       ...(!isCorrect ? {learningContext: questionLearningContext(q, picked)} : {}),
       misconception: !isCorrect ? (level >= 4 ? "landmine" : "knowledge-gap") : null,
