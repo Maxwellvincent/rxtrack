@@ -82,3 +82,11 @@ it('keeps tied matches, generic cases, explicit conflicting labels and other blo
  expect(linkSourceLecture({ ...larynxQuestion, sourceSection: 'NB 99', sourceSectionTitle: 'Other source' }, larynxLectures, 'nb1').lectureId).toBeUndefined();
  expect(linkSourceLecture({ ...larynxQuestion, lectureId: 'l1', curriculumLinkStatus: 'user-confirmed' }, larynxLectures, 'nb1').lectureId).toBe('l1');
 });
+
+it('retains combined source lecture candidates without inventing objective credit',()=>{
+ const lectures=[{id:'28',blockId:'b',lectureNumber:28,lectureTitle:'NB 28 Somatosensory System'},{id:'29',blockId:'b',lectureNumber:29,lectureTitle:'NB 29 Touch'},{id:'99',blockId:'b',lectureNumber:99,lectureTitle:'NB 99 Other'}];
+ const result=linkSourceLecture({stem:'Which finding is expected?',sourceSection:'NB 28 / NB 29',sourceLectureNumbers:[28,29]},lectures,'b');
+ expect(result.lectureId).toBeUndefined();
+ expect(result.candidateLectureLinks.map(l=>l.id)).toEqual(['28','29']);
+ expect(result.objectiveIds).toBeUndefined();
+});

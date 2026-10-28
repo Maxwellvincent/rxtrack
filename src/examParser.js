@@ -267,9 +267,10 @@ export function parseLectureCompilationText(fullText, examTitle = "") {
   const split = source.search(/Questions with Answers(?: and Explanations)?/i);
   if (split < 0) return null;
   const sections = (text) => {
-    const headings = [...text.matchAll(/(?:^|[\n\f])[ \t]*(NB[ \t]+\d{2})[ \t]*[–—-][ \t]*([^\n\f]+)/g)];
+    const headings = [...text.matchAll(/(?:^|[\n\f])[ \t]*(NB[ \t]+\d{1,3}(?:[ \t]*(?:,[ \t]*(?:and[ \t]+)?|&[ \t]*|and[ \t]+)(?:NB[ \t]*)?\d{1,3})*)[ \t]*[–—-][ \t]*([^\n\f]+)/g)];
     return headings.map((heading, index) => ({
-      code: heading[1].replace(/\s+/g, " ").trim(), title: heading[2].trim(),
+      code: [...heading[1].matchAll(/\d+/g)].map(m => `NB ${m[0].padStart(2, '0')}`).join(' / '),
+      lectureNumbers: [...heading[1].matchAll(/\d+/g)].map(m => Number(m[0])), title: heading[2].trim(),
       offset: heading.index + heading[0].length,
       body: text.slice(heading.index + heading[0].length, headings[index + 1]?.index ?? text.length),
     }));
@@ -292,20 +293,29 @@ export function parseLectureCompilationText(fullText, examTitle = "") {
     }
     for (const block of originalsForSection) {
       const matches = answers.filter((answer) => answer.num === block.num);
-      const keys = matches.map((answer) => answer.body.match(/\bAnswer:[ \t]*([A-H])\./i)?.[1]?.toUpperCase()).filter(Boolean);
-      const correct = keys.length === 1 ? keys[0] : null;
+      const keys = matches.map((answer) => answer.body.match(/\bAnswer:[ \t]*([A-H])(?:\.|(?=[ \t]*(?:[\n\f]|$)))/i)?.[1]?.toUpperCase()).filter(Boolean);
+      let correct = keys.length === 1 ? keys[0] : null;
       const question = parseNumberedQuestionBankText(`1. ${block.body}\n${correct ? `Answer Key: 1 ${correct}` : ""}`, examTitle,
         { singleSet: true, allowSingle: true, skipLectureSections: true })[0];
       if (!question) throw new Error(`Incomplete source question: ${section.code} Q${block.num}`);
-      const originalStem = block.body.split(/(?:^|[\n\f])[ \t]*A[.)][ \t]*/)[0].replace(/\s+/g, " ").trim();
-      const answerStem = matches[0]?.body.split(/\bAnswer:/i)[0].split(/(?:^|[\n\f])[ \t]*A[.)][ \t]*/)[0].replace(/\s+/g, " ").trim();
-      if (correct && originalStem !== answerStem) throw new Error(`Source/key stem mismatch: ${section.code} Q${block.num}`);
+      // Page-layout artifacts (wrapped hyphens and isolated figure labels) are not stem changes.
+      const comparisonStem = body => body.normalize("NFKC").split(/\bAnswer:/i)[0]
+        .replace(/(?:^|[\n\f])[ \t]*[A-H]\.[ \t]*(?=[\n\f]|$)/g, '\n')
+        .split(/(?:^|[\n\f])[ \t]*A[.)][ \t]*/)[0]
+        .replace(/-[ \t]*[\n\f]+[ \t]*/g, '-')
+        .replace(/\s+/g, ' ').trim();
+      const originalStem = comparisonStem(block.body);
+      const answerStem = comparisonStem(matches[0]?.body || '');
+      const stemMismatch = !!correct && originalStem !== answerStem;
+      const sourceKeyCandidate = correct;
+      if (stemMismatch) correct = null;
       const page = source.slice(0, section.offset + block.start).split("\f").length;
-      result.push({ ...question, id: `${section.code.replace(/ /g, "").toLowerCase()}-q${block.num}`,
+      result.push({ ...question, id: `${section.code.replace(/[^a-z0-9]/gi, "").toLowerCase()}-q${block.num}`,
         num: result.length + 1, sourceQuestionNumber: block.num, sourceSection: section.code,
-        sourceSectionTitle: section.title, sourcePage: page,
+        sourceSectionTitle: section.title, sourceLectureNumbers: section.lectureNumbers, sourcePage: page,
         sourceEndPage: page + block.body.trimEnd().split("\f").length - 1, correct,
-        explanation: matches[0]?.body.match(/\bAnswer:[^\n]*\n([\s\S]*)/i)?.[1]?.replace(/\s+/g, " ").trim() || null });
+        ...(stemMismatch ? {sourceKeyCandidate,sourceKeyReviewStatus:"stem-mismatch",sourceKeyCritique:"Question-only and keyed stems differ; verify the source key before scoring."} : {}),
+        explanation: !stemMismatch && matches[0]?.body.match(/\bAnswer:[^\n]*\n([\s\S]*)/i)?.[1]?.replace(/\s+/g, " ").trim() || null });
     }
   }
   return result;
@@ -623,7 +633,7 @@ export function parseNumberedQuestionBankText(fullText, examTitle = "", options 
       choices[embedded[1].toUpperCase()] = embedded[2].trim();
     }
     const visualOnly = Object.keys(choices).length < 2 && answer?.correct
-      && /\b(?:graph|figures?|images?|micrograph|photomicrograph|histolog|slide|shown|arrow|labeled)\b/i.test(`${stem} ${body}`);
+      && /\b(?:graph|figures?|images?|diagrams?|MRI|micrograph|photomicrograph|histolog|slide|shown|arrow|labeled)\b/i.test(`${stem} ${body}`);
     if (visualOnly) {
       const finalLetter = Math.max(4, "ABCDEFGH".indexOf(answer.correct));
       for (let optionIndex = 0; optionIndex <= finalLetter; optionIndex++) {

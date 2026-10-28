@@ -40,8 +40,8 @@ function attachCurriculumHints(question, item, index) {
     candidateLectureLinks: titleMatches.length ? titleMatches : links,
     candidateObjectiveLinks: item?.objectiveLinks || [],
     candidateLinkBasis: item?.objectiveBasis || (links.length ? "lecture-content-overlap" : null),
-    sourceKeyReviewStatus: item?.correctnessStatus || null,
-    sourceKeyCritique: Array.isArray(item?.critique) ? item.critique[0] : item?.critique || null,
+    sourceKeyReviewStatus: question.sourceKeyReviewStatus || item?.correctnessStatus || null,
+    sourceKeyCritique: question.sourceKeyCritique || (Array.isArray(item?.critique) ? item.critique[0] : item?.critique || null),
     sourceQuestionNumber: question?.sourceQuestionNumber ?? question?.num ?? index + 1,
   };
 }
@@ -102,6 +102,17 @@ export function scoreAnsweredQuestions(session) {
 export function linkSourceLecture(question, lectures = [], blockId) {
   question = cleanSchoolQuestion(question);
   if (["user-confirmed", "evidence-verified"].includes(question.curriculumLinkStatus) && lectures.some(l => l.id === question.lectureId && (!l.blockId || l.blockId === blockId))) return question;
+  const groupedNumbers = question.sourceLectureNumbers || (/^NB\s*\d+(?:\s*\/\s*NB\s*\d+)+$/i.test(question.sourceSection || '') ? [...question.sourceSection.matchAll(/\d+/g)].map(m=>Number(m[0])) : []);
+  if (groupedNumbers.length > 1) {
+    const candidates = lectures.filter(l => {
+      if (l.blockId && l.blockId !== blockId || /^(?:DLA|SG|TBL)$/i.test(l.lectureType || '')) return false;
+      const number = l.lectureNumber ?? String(l.lectureTitle || l.title || '').match(/^(?:NB|LEC|LECTURE)\s*0*(\d+)\b/i)?.[1];
+      return groupedNumbers.includes(Number(number));
+    });
+    const match = automaticLectureContentMatch(question, candidates, blockId);
+    if (!match) return {...question,candidateLectureLinks:candidates.map(l=>({id:l.id,label:formatLectureLabel(l)})),candidateLinkBasis:'explicit-source-lecture-group'};
+    return {...question,lectureId:match.lecture.id,lectureLabel:formatLectureLabel(match.lecture),curriculumLinkStatus:'content-matched',lectureLinkBasis:'source-lecture-group-and-content',lectureLinkEvidence:match.titleEvidence,curriculumMapping:curriculumMappingProvenance(question,match.lecture,blockId,'source-lecture-group-and-content')};
+  }
   const clue = sourceLectureClue(question);
   if (!clue) {
     const localLectures = lectures.filter(l => !l.blockId || l.blockId === blockId);
