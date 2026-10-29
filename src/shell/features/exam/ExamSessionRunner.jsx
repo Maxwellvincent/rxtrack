@@ -1,3 +1,4 @@
+import { restoreVisualChoices } from "../../../engine/visualChoiceLabels.js";
 import { ObjectiveLearningReport } from "../../../ui/ObjectiveLearningReport.jsx";
 import { questionLearningContext } from "../../../engine/learningLoop.js";
 import * as learnerEvidenceStore from "../../../stores/learnerEvidence.js";
@@ -366,7 +367,7 @@ function ExamFormat({ controller, submitOpts, objectivesById, lectureLabelsByLec
   const { session, currentIndex, setCurrentIndex, remainingMs, answerQuestion, submit, submitting } =
     controller;
   const questions = session.questions || [];
-  const q = questions[currentIndex];
+  const q = restoreVisualChoices(questions[currentIndex]);
   const answeredCount = (session.answers || []).filter(answer => answer.value != null).length;
 
   return (
@@ -446,7 +447,7 @@ function ExamFormat({ controller, submitOpts, objectivesById, lectureLabelsByLec
 function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, userId, objectivesById, lectureLabelsByLectureId, onNavigateToLecture }) {
   const { session, currentIndex, setCurrentIndex, answerQuestion, submit, submitting } = controller;
   const questions = session.questions || [];
-  const q = questions[currentIndex];
+  const q = restoreVisualChoices(questions[currentIndex]);
   const picked = q ? pickedFor(session, q.questionId) : null;
   const savedAnswer = (session.answers || []).find(answer => answer.questionId === q?.questionId);
   const revealed = picked != null && savedAnswer?.revealed !== false;

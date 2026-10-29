@@ -41,8 +41,8 @@ export function suggestedDayMode(daysLeft, _wakeTime, {todayKey, lectureDates = 
   const remaining = daysLeft == null ? NaN : Number(daysLeft);
   if (Number.isFinite(remaining) && remaining >= 0 && remaining <= 3) return "exam";
   if (todayKey && lectureDates.includes(todayKey)) return "lecture";
-  const dated = lectureDates.filter(Boolean);
-  if (todayKey && dated.length) return "review";
+  // Uploaded lectures are a partial catalogue, not an authoritative timetable.
+  // A missing date must not turn an ordinary weekday into a review-only day.
   const date = todayKey ? new Date(`${todayKey}T12:00:00`) : studyDayDate();
   return [0,6].includes(date.getDay()) ? "review" : "lecture";
 }

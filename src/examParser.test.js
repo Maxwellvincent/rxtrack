@@ -119,6 +119,13 @@ Answer Key: C`;
     expect(questions[0].choices).toEqual({ A: "Visual option A", B: "Visual option B", C: "Visual option C", D: "Visual option D", E: "Visual option E" });
   });
 
+  it("preserves F from isolated source figure labels even when the key is D", () => {
+    const source = "1. Which labeled MRI site is affected?\nA\nF\nAnswer Key: 1 D";
+    const questions = parseNumberedQuestionBankText(source, "Figure", {allowSingle:true,singleSet:true});
+    expect(questions[0].choices.F).toBe("Visual option F");
+    expect(questions[0].correct).toBe("D");
+  });
+
   it("does not turn a numbered Word footer into a question", () => {
     const source = '1Click here to enter text.\n' + [1,2,3].map(n => `${n}. A patient has a distinct finding ${n}. Which mechanism explains it?\nA. First mechanism\nB. Second mechanism`).join('\n') + '\nAnswer Key: 1 A, 2 B, 3 A';
     const questions = parseNumberedQuestionBankText(source);

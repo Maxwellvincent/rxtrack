@@ -643,7 +643,8 @@ export function parseNumberedQuestionBankText(fullText, examTitle = "", options 
     const visualOnly = Object.keys(choices).length < 2 && answer?.correct
       && /\b(?:graph|figures?|images?|diagrams?|MRI|micrograph|photomicrograph|histolog|slide|shown|arrow|labeled)\b/i.test(`${stem} ${body}`);
     if (visualOnly) {
-      const finalLetter = Math.max(4, "ABCDEFGH".indexOf(answer.correct));
+      const sourceLabels = [...body.matchAll(/(?:^|[\n\f])[ \t]*([A-H])[ \t]*(?=[\n\f]|$)/g)].map(match => "ABCDEFGH".indexOf(match[1]));
+      const finalLetter = Math.max(4, "ABCDEFGH".indexOf(answer.correct), ...sourceLabels);
       for (let optionIndex = 0; optionIndex <= finalLetter; optionIndex++) {
         const optionLetter = "ABCDEFGH"[optionIndex];
         choices[optionLetter] = `Visual option ${optionLetter}`;

@@ -74,7 +74,7 @@ it('automatically selects lecture days without asking for wake time',()=>{
  expect(suggestedDayMode(19,'11:00',{todayKey:'2026-10-28',lectureDates:['2026-10-28']})).toBe('lecture');
  expect(suggestedDayMode(19,null,{todayKey:'2026-10-31',lectureDates:['2026-10-31']})).toBe('lecture');
  expect(suggestedDayMode(19,null,{todayKey:'2026-10-31'})).toBe('review');
- expect(suggestedDayMode(19,null,{todayKey:'2026-10-28',lectureDates:['2026-10-29']})).toBe('review');
+ expect(suggestedDayMode(19,null,{todayKey:'2026-10-28',lectureDates:['2026-10-29']})).toBe('lecture');
  expect(suggestedDayMode(2,null,{todayKey:'2026-10-28',lectureDates:['2026-10-28']})).toBe('exam');
  expect(suggestedDayMode(null,null,{todayKey:'2026-10-28'})).toBe('lecture');
 });

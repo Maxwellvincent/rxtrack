@@ -1,3 +1,4 @@
+import { restoreVisualChoices } from "../../../engine/visualChoiceLabels.js";
 import {schoolQuestionIdentity} from './schoolSourceIdentity.js';
 import * as questionFigures from "../../../stores/questionFigures.js";
 import { questionReferencesVisual } from "../../../engine/questionVisual.js";
@@ -26,7 +27,7 @@ export function validBankQuestion(question) {
 export function prepareQuestionBankQuestions(questions, { blockId, filename, analysis = null, lectures = [] }) {
   const { questions: distinctQuestions } = prepareBankQuestionSet(questions || [], analysis);
   return distinctQuestions.map((sourceQuestion, index) => {
-    const question = linkSourceLecture(sourceQuestion, lectures, blockId);
+    const question = restoreVisualChoices(linkSourceLecture(sourceQuestion, lectures, blockId));
     return {
     ...question,
     questionKey:question.questionKey || question.poolId || schoolQuestionIdentity(question),
