@@ -1,7 +1,7 @@
 import { objectivePracticePlan } from "./objectivePractice.js";
 const compact = (value, limit=220) => (value && typeof value === "object" ? JSON.stringify(value) : String(value || "")).replace(/\s+/g," ").trim().slice(0,limit);
 export function questionLearningContext(question={}, selected) {
- return { topic:compact(question.objectiveFacet || question.topic), selected:compact(question.choices?.[selected]), keyed:compact(question.choices?.[question.correct]),
+ return { stem:String(question.stem || ""), choices:question.choices || {}, correctLetter:question.correct, selectedLetter:selected, explanation:question.explanation || null, topic:compact(question.objectiveFacet || question.topic), selected:compact(question.choices?.[selected]), keyed:compact(question.choices?.[question.correct]),
   sourceCue:compact(question.reasoningAudit?.sourceQuotes?.[0],350) };
 }
 /** Only observed answer contrasts and explicitly saved learning notes; never infer a diagnosis. */
@@ -24,10 +24,13 @@ export function objectiveLearningReport(objectives=[], evidence={}, records=[]) 
  const plan=objectivePracticePlan(objectives,evidence);
  return plan.rows.filter(row=>!records.length || touched.has(row.id)).map(row=>{
   const session=records.filter(record=>record.objectiveIds?.includes(row.id));
-  const misses=session.filter(record=>!record.correct);
+  const latest=new Map();
+  session.forEach((record,index)=>latest.set(record.questionKey || record.questionId || record.eventId || `record:${index}`,record));
+  const misses=[...latest.values()].filter(record=>record.correct === false);
   const repair=misses.length>0 || row.worked && (!row.latestCorrect || row.accuracy<.8);
   return {...row,label:row.ready?"Consistently demonstrated":repair?"Needs repair":row.worked?(row.attempts<3?"Practiced":"Ready for retest"):"Not yet practiced",
    sessionCorrect:session.filter(record=>record.correct).length,sessionTotal:session.length,
+   sessionMisses:misses.length,
    contrasts:misses.map(record=>record.learningContext).filter(Boolean),
    sourceCue:session.map(record=>record.learningContext?.sourceCue).find(Boolean)||null};
  });

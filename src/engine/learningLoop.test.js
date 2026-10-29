@@ -31,3 +31,10 @@ it("restores the latest practice session after leaving the lecture, without dupl
  expect(latestLearningRecords({learningJournal:events},"l","NB")).toHaveLength(1);
  expect(latestLearningRecords({learningJournal:events},"l","NB")[0].sessionKey).toBe("new");
 });
+
+it("clears a repeated question from session misses after a correct answer without clearing other misses",()=>{
+ const records=[{questionKey:"a",objectiveIds:["o0"],correct:false},{questionKey:"a",objectiveIds:["o0"],correct:true},{questionKey:"b",objectiveIds:["o1"],correct:false}];
+ const report=objectiveLearningReport(objectives,evidence,records);
+ expect(report.find(r=>r.id==="o0").sessionMisses).toBe(0);
+ expect(report.find(r=>r.id==="o1").sessionMisses).toBe(1);
+});
