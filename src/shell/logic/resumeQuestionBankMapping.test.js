@@ -11,7 +11,7 @@ it('saves the provider failure and resumes after the durable per-question checkp
  expect(bank.file[0].correct).toBe('A');
  classify.mockResolvedValueOnce({objectiveIds:['p'],curriculumLinkStatus:'evidence-verified'});
  const second=await resumeQuestionBankMapping(args,deps);
- expect(second).toMatchObject({status:'complete',error:null,evaluated:2,linked:3});
+ expect(second).toMatchObject({status:'complete',error:null,evaluated:2,linked:3,lastFailure:{reason:'ollama-cloud HTTP 402',questionKey:'q2'}});
  expect(classify).toHaveBeenCalledTimes(3);
  expect(classify.mock.calls[2][0].id).toBe('q2');
  expect(bank.file[2].curriculumLinkStatus).toBe('user-confirmed');

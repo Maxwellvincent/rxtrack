@@ -47,7 +47,7 @@ async function run({userId,blockId,filename,lectures=[],objectives=[],onProgress
    }
   }
   state.status='complete';state.currentQuestion=null;
- }catch(error){state.status='paused';state.error=mappingFailureReason(error);}
+ }catch(error){state.status='paused';state.error=mappingFailureReason(error);state.lastFailure={reason:state.error,at:Date.now(),questionKey:state.currentQuestion || null};}
  state.linked=(readBanks(userId)?.[filename]||[]).filter(q=>['user-confirmed','evidence-verified'].includes(q.curriculumLinkStatus)).length;
  await save();return state;
 }
