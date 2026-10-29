@@ -293,15 +293,23 @@ export function parseLectureCompilationText(fullText, examTitle = "") {
     }
     for (const block of originalsForSection) {
       const matches = answers.filter((answer) => answer.num === block.num);
-      const keys = matches.map((answer) => answer.body.match(/\bAnswer:[ \t]*([A-H])(?:\.|(?=[ \t]*(?:[\n\f]|$)))/i)?.[1]?.toUpperCase()).filter(Boolean);
+      const keys = matches.map((answer) => answer.body.match(/\bAnswer(?: Key)?:[ \t]*([A-H])(?:\.|(?=[ \t]*(?:[\n\f]|$)))/i)?.[1]?.toUpperCase()).filter(Boolean);
       let correct = keys.length === 1 ? keys[0] : null;
+      if (!correct && matches.length === 1) {
+        const answerText = matches[0].body.match(/\bAnswer Key:[ \t]*([^\n\f]+)/i)?.[1]?.normalize('NFKC').trim();
+        if (answerText) {
+          const options = [...block.body.matchAll(/(?:^|[\n\f])[ \t]*([A-H])[.)][ \t]*([^\n\f]+)/g)]
+            .filter(m => m[2].normalize('NFKC').trim() === answerText);
+          if (options.length === 1) correct = options[0][1];
+        }
+      }
       const question = parseNumberedQuestionBankText(`1. ${block.body}\n${correct ? `Answer Key: 1 ${correct}` : ""}`, examTitle,
         { singleSet: true, allowSingle: true, skipLectureSections: true })[0];
       if (!question) throw new Error(`Incomplete source question: ${section.code} Q${block.num}`);
       // Page-layout artifacts (wrapped hyphens and isolated figure labels) are not stem changes.
-      const comparisonStem = body => body.normalize("NFKC").split(/\bAnswer:/i)[0]
+      const comparisonStem = body => body.normalize("NFKC").split(/\bAnswer(?: Key)?:/i)[0]
         .replace(/(?:^|[\n\f])[ \t]*[A-H]\.[ \t]*(?=[\n\f]|$)/g, '\n')
-        .split(/(?:^|[\n\f])[ \t]*A[.)][ \t]*/)[0]
+        .split(/(?:^|[\n\f])[ \t]*[A-M][.)][ \t]+/)[0]
         .replace(/-[ \t]*[\n\f]+[ \t]*/g, '-')
         .replace(/\s+/g, ' ').trim();
       const originalStem = comparisonStem(block.body);
@@ -315,7 +323,7 @@ export function parseLectureCompilationText(fullText, examTitle = "") {
         sourceSectionTitle: section.title, sourceLectureNumbers: section.lectureNumbers, sourcePage: page,
         sourceEndPage: page + block.body.trimEnd().split("\f").length - 1, correct,
         ...(stemMismatch ? {sourceKeyCandidate,sourceKeyReviewStatus:"stem-mismatch",sourceKeyCritique:"Question-only and keyed stems differ; verify the source key before scoring."} : {}),
-        explanation: !stemMismatch && matches[0]?.body.match(/\bAnswer:[^\n]*\n([\s\S]*)/i)?.[1]?.replace(/\s+/g, " ").trim() || null });
+        explanation: !stemMismatch && matches[0]?.body.match(/\bAnswer(?: Key)?:[^\n]*\n([\s\S]*)/i)?.[1]?.replace(/\s+/g, " ").trim() || null });
     }
   }
   return result;
@@ -745,6 +753,9 @@ export function mergePdfQuestionCandidates(candidateLists = []) {
     const key = keyFor(question);
     const words = wordsFor(question);
     return result.find((existing) => {
+      if (question.sourceSection && existing.sourceSection) {
+        return question.sourceSection === existing.sourceSection && question.sourceQuestionNumber === existing.sourceQuestionNumber;
+      }
       const existingKey = keyFor(existing);
       if (key && existingKey && (key.includes(existingKey) || existingKey.includes(key))) return true;
       const existingWords = wordsFor(existing);
@@ -755,9 +766,9 @@ export function mergePdfQuestionCandidates(candidateLists = []) {
   for (const [listIndex, list] of candidateLists.entries()) {
     for (const question of list || []) {
       const key = keyFor(question);
-      const sameNumberNearLength = listIndex > 0 && candidateLists[0]?.length && Math.abs(candidateLists[0].length - list.length) <= 3
+      const sameNumberNearLength = !question.sourceSection && listIndex > 0 && candidateLists[0]?.length && Math.abs(candidateLists[0].length - list.length) <= 3
         && result.some((existing) => existing.num === question.num);
-      if (!key || sameNumberNearLength || duplicateOf(question) || !question.correct || !question.choices?.[question.correct]) continue;
+      if (!key || sameNumberNearLength || duplicateOf(question) || (!question.correct && !question.sourceKeyCandidate) || (question.correct && !question.choices?.[question.correct])) continue;
       result.push(question);
     }
   }
@@ -1748,10 +1759,10 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
   // parser's self-reported output. Never overwrite a good bank with a silent
   // partial import (the 30-question ExamSoft file previously landed as 17).
   const keyedCount = questions.filter((question) => question.correct && question.choices?.[question.correct]).length;
-  if (expectedFromKey && (questions.length < expectedFromKey || keyedCount < expectedFromKey)) {
+  const accountedKeys = rows => rows.filter(q => q.correct && q.choices?.[q.correct] || q.sourceKeyReviewStatus === 'stem-mismatch' && q.sourceKeyCandidate && q.choices?.[q.sourceKeyCandidate]).length;
+  if (expectedFromKey && (questions.length < expectedFromKey || accountedKeys(questions) < expectedFromKey)) {
     const recovered = parseNumberedQuestionBankText(fullText, examTitle);
-    const recoveredKeyed = recovered.filter((question) => question.correct && question.choices?.[question.correct]).length;
-    if (recovered.length >= expectedFromKey && recoveredKeyed >= expectedFromKey) {
+    if (recovered.length >= expectedFromKey && accountedKeys(recovered) >= expectedFromKey) {
       questions = attachImagesToExamQuestions(recovered, slideImages);
       onProgress?.(`✓ Recovered all ${expectedFromKey} questions from the answer key`);
     } else {
@@ -1774,7 +1785,7 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
     format,
     fullText,
     chunks,
-    sourceIssues: pairedSource?.sourceIssues || [],
+    sourceIssues: [...(pairedSource?.sourceIssues || []), ...questions.filter(q=>q.sourceKeyReviewStatus==='stem-mismatch').map(q=>({questionId:q.id,issue:'source-key-review',message:`${q.sourceSection} Q${q.sourceQuestionNumber}: source wording differs; answer held for review.`}))],
     lectureNumber: detectLectureNumber(examTitle || ""),
     lectureTitle: examTitle || "",
   };
