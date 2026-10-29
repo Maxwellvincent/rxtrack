@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { objectiveLearningReport, shortRetestPlan } from "../engine/learningLoop.js";
 export function ObjectiveLearningReport({objectives=[],evidence={},records=[],onRetest,onReviewNotes,busy=false}) {
+ const detailGroup=useId();
  const [page,setPage]=useState(0);
  const [showSuccessful,setShowSuccessful]=useState(false);
  const allRows=objectiveLearningReport(objectives,evidence,records);
@@ -18,8 +19,8 @@ export function ObjectiveLearningReport({objectives=[],evidence={},records=[],on
  <ul className="mt-3 space-y-3">{visible.map(row=><li key={row.id} className="rounded border border-border p-3">
  <p className="text-xs font-semibold">{row.sessionMisses>0?"Revisit":"Answered correctly"} · {row.sessionCorrect}/{row.sessionTotal} correct this session</p>
  <p className="mt-1 text-sm font-semibold">{row.text || row.code}</p>
- {row.contrasts.length>0 && <p className="mt-1 text-sm text-text-2">Concepts: {[...new Set(row.contrasts.map(item=>item.topic).filter(Boolean))].join(" · ") || "Review the distinctions within this objective."}</p>}
- <details className="mt-2 text-sm"><summary className="cursor-pointer">See questions and answer details</summary>
+ {row.contrasts.length>0 && <p className="mt-1 text-sm text-text-2">Concepts: {[...new Set(row.contrasts.map(item=>item.topic).filter(Boolean))].slice(0,3).join(" · ") || "Review the distinctions within this objective."}</p>}
+ <details name={detailGroup} className="mt-2 text-sm"><summary className="cursor-pointer">See questions and answer details</summary>
  {row.contrasts.map((item,i)=><div key={i} className="mt-3 border-t border-border pt-2">
  {item.stem ? <><p>{item.stem}</p><ul>{Object.entries(item.choices || {}).map(([letter,text])=><li key={letter}>{letter}. {text}</li>)}</ul></> : <p>Full question text was not retained in this older summary.</p>}
  <p>Your answer: {item.selected || "Not recorded"}</p><p>Keyed answer: {item.keyed || "Not recorded"}</p>

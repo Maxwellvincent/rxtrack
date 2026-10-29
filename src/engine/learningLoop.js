@@ -31,7 +31,7 @@ export function objectiveLearningReport(objectives=[], evidence={}, records=[]) 
   return {...row,label:row.ready?"Consistently demonstrated":repair?"Needs repair":row.worked?(row.attempts<3?"Practiced":"Ready for retest"):"Not yet practiced",
    sessionCorrect:session.filter(record=>record.correct).length,sessionTotal:session.length,
    sessionMisses:misses.length,
-   contrasts:misses.map(record=>record.learningContext).filter(Boolean),
+   contrasts:[...new Map(misses.map(record=>record.learningContext).filter(Boolean).map(context=>[JSON.stringify([context.stem || context.topic,context.selected,context.keyed]),context])).values()],
    sourceCue:session.map(record=>record.learningContext?.sourceCue).find(Boolean)||null};
  });
 }
