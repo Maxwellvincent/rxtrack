@@ -78,6 +78,7 @@ vi.mock("../../../stores/questionBankMeta.js", () => ({
   newestForBlock: () => null,
   subscribe: () => () => {},
   isHydrated: () => true,
+  readError: () => null,
 }));
 
 vi.mock("./ExamLaunchModal.jsx", () => ({

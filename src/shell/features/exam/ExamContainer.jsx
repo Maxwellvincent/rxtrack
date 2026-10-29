@@ -1,3 +1,4 @@
+import {QuestionBankMappingStatus} from './QuestionBankMappingStatus.jsx';
 import { blockBlueprintContext, blockBlueprintBanks } from "./blueprintScope.js";
 import { BpmBlueprintDashboard } from "./BpmBlueprintDashboard.jsx";
 import { recoverExamPreparation } from "./preparationRecovery.js";
@@ -908,6 +909,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[13px] font-medium text-text-1">{bank.displayName || cleanLectureTitle(bank.filename)}</div>
                     <div className="font-mono text-[11px] text-text-3">{distinctQuestionSet.questions.length} distinct questions{distinctQuestionSet.removedDuplicateCount ? ` · ${distinctQuestionSet.removedDuplicateCount} repeats skipped` : ""} · {minutes} min timed · {sourceLabel(bank.sourceKind, bank.filename)}{bank.assignedDate ? ` · assigned ${bank.assignedDate}` : ""} · {stats.attempts} attempt{stats.attempts === 1 ? "" : "s"}{stats.latest ? ` · latest ${stats.latest.score}%` : ""}{stats.improvement != null ? ` · ${stats.improvement >= 0 ? "+" : ""}${stats.improvement}% change` : ""}</div>
+                    <QuestionBankMappingStatus userId={userId} blockId={blockId} filename={bank.filename} lectures={lectures} objectives={objectives}/>
                     {analysis && <div className="mt-1 text-[11px] text-text-2">Analysis: {analysis.clinicalQuestionCount || 0} clinical cue item{analysis.clinicalQuestionCount === 1 ? "" : "s"} · {analysis.objectiveCount || 0} objective link{analysis.objectiveCount === 1 ? "" : "s"}{focusSummary ? ` · ${focusSummary}` : ""} · {analysis.status === "reviewed" ? "reviewed" : "source-key review ready"}</div>}
                     {stats.latest?.missed?.length > 0 && <div className="mt-1 text-[11px] text-text-2">Mental-model repair: {stats.latest.missed.length} missed concept{stats.latest.missed.length === 1 ? "" : "s"}</div>}
                     {resumableBankSession && partialScore && <div className="mt-1 text-[11px] text-accent-text">In progress · {partialScore.answered}/{resumableBankSession.questions?.length || 0} answered{partialScore.accuracy != null ? ` · ${partialScore.accuracy}% so far (${partialScore.correct} right, ${partialScore.incorrect} wrong)` : ""}</div>}
