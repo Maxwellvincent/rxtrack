@@ -51,7 +51,11 @@ export async function launchQuestionBankSession(
   if (!sourceQuestions.length) return { ok: false, error: "This question bank is empty." };
   const figures = await (deps.loadFigures || questionFigures.load)(userId, filename);
   const withFigures = sourceQuestions.map(q => questionFigures.apply(q, figures));
-  const invalidCount = withFigures.filter((question) => !validBankQuestion(question)).length;
+  const held = withFigures.filter(q => q.sourceKeyReviewStatus === 'stem-mismatch' && !q.correct && q.sourceKeyCandidate);
+  const heldSet = new Set(held);
+  const eligible = withFigures.filter(q => !heldSet.has(q));
+  if (!eligible.length && held.length) return {ok:false,error:'All questions in this bank are awaiting source-key review. No answers have been inferred.'};
+  const invalidCount = eligible.filter((question) => !validBankQuestion(question)).length;
   if (invalidCount) {
     return {
       ok: false,
@@ -60,7 +64,7 @@ export async function launchQuestionBankSession(
   }
 
   const sessionId = makeSessionId();
-  const prepared = prepareQuestionBankQuestions(withFigures, { blockId, filename, analysis, lectures });
+  const prepared = prepareQuestionBankQuestions(eligible, { blockId, filename, analysis, lectures });
   const startedAt = format === "exam" ? Date.now() : null;
   const session = createSessionShape({
     sessionId,
@@ -73,7 +77,8 @@ export async function launchQuestionBankSession(
     sourceType: "question-bank",
     sourceFile: filename,
   });
+  if (held.length) session.sourceExclusions = held.map(q => ({id:q.id || null,section:q.sourceSection || '',number:q.sourceQuestionNumber || q.num || null,reason:'source-key-review'}));
   const result = await create(userId, session);
   if (!result?.ok) return { ok: false, error: result?.error || "Could not create the quiz session." };
-  return { ok: true, sessionId, questionCount: prepared.length, removedDuplicateCount, deadline: session.deadline };
+  return { ok: true, sessionId, questionCount: prepared.length, heldForReviewCount: held.length, removedDuplicateCount, deadline: session.deadline };
 }

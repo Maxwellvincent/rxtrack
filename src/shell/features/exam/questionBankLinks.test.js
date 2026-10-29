@@ -90,3 +90,9 @@ it('retains combined source lecture candidates without inventing objective credi
  expect(result.candidateLectureLinks.map(l=>l.id)).toEqual(['28','29']);
  expect(result.objectiveIds).toBeUndefined();
 });
+
+it('preserves separately numbered source questions even with similar stems',()=>{
+ const stem='A patient has loss of vibration in the right hand with preserved pain and temperature. Which pathway is affected?';
+ const result=prepareBankQuestionSet([{id:'a',sourceSection:'NB 28',sourceQuestionNumber:1,stem},{id:'b',sourceSection:'NB 28',sourceQuestionNumber:2,stem}]);
+ expect(result.questions).toHaveLength(2);expect(result.removedDuplicateCount).toBe(0);
+});

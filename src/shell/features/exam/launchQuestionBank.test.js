@@ -101,3 +101,14 @@ it('retains evidence-verified objective links in future bank sessions',()=>{
  const questions=prepareQuestionBankQuestions([{id:'q',stem:'Which muscle retains motor innervation after recurrent laryngeal nerve injury?',choices:{A:'Cricothyroid',B:'Other'},correct:'A',lectureId:'l',objectiveIds:['o'],curriculumLinkStatus:'evidence-verified',curriculumMapping:{blockId:'NB',lectureId:'l'}}],{blockId:'NB',filename:'Week 9',lectures:[{id:'l',blockId:'NB'}]});
  expect(questions[0].objectiveIds).toEqual(['o']);expect(questions[0].lectureId).toBe('l');
 });
+
+it('starts complete items while retaining explicitly held source keys outside scoring',async()=>{
+ const createExamSession=vi.fn().mockResolvedValue({ok:true});
+ const held={...QUESTIONS[1],correct:null,sourceKeyCandidate:'B',sourceKeyReviewStatus:'stem-mismatch',sourceSection:'NB 28 / NB 29 / NB 30',sourceQuestionNumber:10};
+ const result=await launchQuestionBankSession({userId:'u',blockId:'b',filename:'Week12',questions:[QUESTIONS[0],held],format:'practice'},{createExamSession});
+ expect(result).toMatchObject({ok:true,questionCount:1,heldForReviewCount:1});
+ const session=createExamSession.mock.calls[0][1];
+ expect(session.questions).toHaveLength(1);
+ expect(session.sourceExclusions).toEqual([expect.objectContaining({number:10,reason:'source-key-review'})]);
+ expect(held.correct).toBeNull();
+});

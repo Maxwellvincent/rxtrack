@@ -58,6 +58,7 @@ export function prepareBankQuestionSet(questions = [], analysis = null) {
     // bank with shared choices), so only deduplicate sufficiently informative
     // clinical/source stems.
     const likelyDuplicate = stemSize >= 90 && unique.some((other) =>
+      !(question.sourceSection && other.sourceSection && (question.sourceSection !== other.sourceSection || question.sourceQuestionNumber !== other.sourceQuestionNumber)) &&
       normalize(other?.stem).length >= 90 && areNearDuplicateQuestions(question, other, 0.92)
     );
     if (!likelyDuplicate) unique.push(question);

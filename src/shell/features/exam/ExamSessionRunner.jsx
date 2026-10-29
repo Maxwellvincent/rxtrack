@@ -82,7 +82,9 @@ function sessionLabel(session) {
 
 function SessionTitle({ session }) {
   if (session.sourceType !== "question-bank") return session.title ? <h2 className="text-lg font-semibold text-text-1">{session.title}</h2> : null;
-  return <h2 className="text-lg font-semibold text-text-1">{String(session.sourceFile || "School homework").replace(/\.(pdf|md|txt)$/i, "").replace(/[+_]+/g, " ")}</h2>;
+  return <div><h2 className="text-lg font-semibold text-text-1">{String(session.sourceFile || "School homework").replace(/\.(pdf|md|txt)$/i, "").replace(/[+_]+/g, " ")}</h2>
+    {!!session.sourceExclusions?.length && <details className="mt-2 text-sm text-text-2"><summary>{session.sourceExclusions.length} source questions held for key review · excluded from this session and score</summary><ul>{session.sourceExclusions.map((q,i)=><li key={q.id || i}>{q.section} · Question {q.number ?? 'unknown'}</li>)}</ul></details>}
+  </div>;
 }
 
 // Task 12, Part B1 — additive tutor-mode mount. Each instance owns its own
