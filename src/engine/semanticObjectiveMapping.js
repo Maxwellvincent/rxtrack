@@ -71,7 +71,7 @@ export async function classifyObjectiveMapping(question,{lectures,objectives,blo
  return {lectureId:lecture.id,lectureLabel:formatLectureLabel(lecture),lectureLinkBasis:'two-pass-source-verified',objectiveIds:verified.map(l=>l.objectiveId),curriculumLinkStatus:'evidence-verified',curriculumMapping:{...curriculumMappingProvenance(question,lecture,blockId,'two-pass-source-verified'),version:MAPPING_VERSION,decision:'objective',links:verified}};
 }
 
-/** Approved quality route, with a separate $5 ceiling for each mapping batch. */
+/** Codex subscription route, retaining a conservative per-run processing ceiling. */
 export function createCurriculumReviewer({budgetUsd=5}={}){
  let spentUsd=0;
  return async (system,prompt,signal)=>{
@@ -80,7 +80,7 @@ export function createCurriculumReviewer({budgetUsd=5}={}){
   if(spentUsd+reserve>budgetUsd)throw new Error('Objective mapping paused at its processing budget. Completed links are saved.');
   const {bridgeComplete,parseBridgeJSON}=await import('../llmBridge.js');
   let cost=reserve;
-  const text=await bridgeComplete({system,prompt,json:true,maxTokens:2500,backend:'ollama-cloud',backendOnly:true,modelTier:'quality',timeoutMs:90000,signal,onUsage:usage=>{if(Number.isFinite(usage?.costUsd) && usage.costUsd>=0)cost=usage.costUsd;}});
+  const text=await bridgeComplete({system,prompt,json:true,maxTokens:2500,backend:'codex',backendOnly:true,modelTier:'quality',timeoutMs:90000,signal,onUsage:usage=>{if(Number.isFinite(usage?.costUsd) && usage.costUsd>=0)cost=usage.costUsd;}});
   spentUsd+=cost;
   if(text==null)throw new Error('Approved quality bridge is unavailable. Completed mappings are preserved.');
   return parseBridgeJSON(text);
