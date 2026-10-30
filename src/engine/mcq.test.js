@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { vi } from "vitest";
-import { explanationOnlyReplacement, questionMatchesObjectiveDomain, normalizeQuestions, buildMcqPrompt, generateMcqs, buildExemplarParsePrompt, parseExemplarsFromMd, buildAtomQuestionsPrompt, generateFromAtoms, selectStyleExemplars, exemplarSourceTier, buildQuestionAuditPrompt, auditGeneratedQuestions, locallyValidClinicalQuestions, locallyUsableQuestions, buildStyleFingerprint, questionEndingTask, diversifyQuestionEndings, buildQuestionSourceBlueprint, styleProfilePrompt } from "./mcq.js";
+import { buildSchoolTemplatePlan, explanationOnlyReplacement, questionMatchesObjectiveDomain, normalizeQuestions, buildMcqPrompt, generateMcqs, buildExemplarParsePrompt, parseExemplarsFromMd, buildAtomQuestionsPrompt, generateFromAtoms, selectStyleExemplars, exemplarSourceTier, buildQuestionAuditPrompt, auditGeneratedQuestions, locallyValidClinicalQuestions, locallyUsableQuestions, buildStyleFingerprint, questionEndingTask, diversifyQuestionEndings, buildQuestionSourceBlueprint, styleProfilePrompt } from "./mcq.js";
 import { buildClinicalCorrelateLibrary } from "./clinicalCorrelates.js";
 
 describe("normalizeQuestions", () => {
@@ -1064,5 +1064,35 @@ describe("objective-balanced school examples", () => {
     const figure = { ...examples[3], hasImage: true };
     const chosen = selectStyleExemplars([examples[0], broken, figure], 3, "medium", { objectives });
     expect(chosen).toEqual([examples[0]]);
+  });
+});
+
+
+describe("example-first question construction", () => {
+  const objective = { id: "eye", code: "SOM.ANAT.0042", objective: "Localize orbital nerve injuries", _targetOrder: "second-order" };
+  const example = { id: "school-eye", sourceFile: "Week 12 Homework.pdf", schoolObjectiveCode: objective.code, stem: "A patient has double vision and loss of a reflex. Which orbital opening is involved?", choices: { A: "Opening one", B: "Opening two", C: "Opening three", D: "Opening four" }, correct: "A" };
+  it("assigns a relevant template to its objective without treating its answer as factual authority", () => {
+    const [row] = buildSchoolTemplatePlan({ objectives: [objective], examples: [example] });
+    expect(row).toMatchObject({ objectiveId: "eye", targetOrder: "second-order", templateId: expect.stringMatching(/^T-/), example: { sourceQuestionId: "school-eye", stem: example.stem } });
+    expect(row.example).not.toHaveProperty("correct");
+    expect(row.example.candidateObjectiveLinks).toContainEqual({ objectiveId: "eye", basis: "school-code" });
+  });
+  it("allows complete text clickers as task scaffolds without inventing a key", () => {
+    const clicker = { ...example, sourceFile: "Clicker Questions.pdf", correct: undefined };
+    expect(buildSchoolTemplatePlan({ objectives: [objective], examples: [clicker] })[0]).toMatchObject({ templateId: expect.stringMatching(/^T-/), example: { sourceKind: "clicker" } });
+    expect(buildSchoolTemplatePlan({ objectives: [objective], examples: [{ ...clicker, hasImage: true }] })[0].templateId).toBeNull();
+  });
+  it("does not assign unrelated school items to an uncovered objective", () => {
+    const [row] = buildSchoolTemplatePlan({ objectives: [{ id: "other", objective: "Explain renal glomerular filtration pressure" }], examples: [example] });
+    expect(row.templateId).toBeNull();
+    expect(row).not.toHaveProperty("example");
+  });
+  it("preserves template adaptation claims for independent review without granting approval", () => {
+    const [question] = normalizeQuestions([{ ...example, questionPlan: { templateId: "T1", retainedPattern: "Symptoms then localization", changedRelationship: "A different supported deficit" } }]);
+    expect(question.questionPlan).toMatchObject({ templateId: "T1", retainedPattern: "Symptoms then localization" });
+    expect(question).not.toHaveProperty("qualityAudit");
+    const prompt = buildQuestionAuditPrompt([question], { objectives: [objective], examples: [example], promptProfile: "compact" });
+    expect(prompt).toContain("Check the claimed templateId");
+    expect(prompt).toContain("These claims are not proof");
   });
 });

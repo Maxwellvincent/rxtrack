@@ -75,3 +75,29 @@ of only the first topic. This verifies prompt construction, not an improvement i
 medical accuracy or patient-vignette quality. Evaluate fresh output separately for
 necessary source-supported clues, homogeneous distractors, one best answer, actual
 reasoning depth, and a new relationship rather than a repeated answer route.
+
+
+## Example-first construction
+
+The shared writer/reviewer context now assigns a matching textual example to
+each allocated objective rather than leaving the model to choose from an unlabeled
+style list. A stable content-derived template ID survives subset/reordering. The
+assignment exposes the original stem, option structure, source kind and candidate
+match basis without treating a school key as lecture evidence. Complete textual
+clickers may provide a task scaffold; unavailable figures and incomplete originals
+remain excluded. Unmatched objectives explicitly have no assigned school template;
+broader examples are labeled general style only.
+
+Writers may reuse sentence scaffolding, familiar phrases, clue sequence and lead-in
+format. A fresh adaptation must change a meaningful relationship, observation or
+endpoint; an unchanged original stays original-bank practice. The drafting plan
+can retain templateId, retainedPattern and changedRelationship for independent
+review. These model-authored claims are not approval or proof of use. Existing
+plans without these fields remain valid legacy records. All keys, clues and
+explanations still require lecture support. Topic-specific synthesis/transport
+warnings are included only for matching subject/objective/atom context, reducing
+irrelevant material in other compact prompts.
+
+Tests cover example assignment, unkeyed text clickers, missing matches and
+preserving untrusted adaptation claims. Passing these tests does not demonstrate
+fresh model output quality. Live evaluation remains a separate boundary.
