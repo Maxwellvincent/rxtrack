@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { vi } from "vitest";
-import { buildSchoolTemplatePlan, explanationOnlyReplacement, questionMatchesObjectiveDomain, normalizeQuestions, buildMcqPrompt, generateMcqs, buildExemplarParsePrompt, parseExemplarsFromMd, buildAtomQuestionsPrompt, generateFromAtoms, selectStyleExemplars, exemplarSourceTier, buildQuestionAuditPrompt, auditGeneratedQuestions, locallyValidClinicalQuestions, locallyUsableQuestions, buildStyleFingerprint, questionEndingTask, diversifyQuestionEndings, buildQuestionSourceBlueprint, styleProfilePrompt } from "./mcq.js";
+import { buildRepairPrompt, buildSchoolTemplatePlan, explanationOnlyReplacement, questionMatchesObjectiveDomain, normalizeQuestions, buildMcqPrompt, generateMcqs, buildExemplarParsePrompt, parseExemplarsFromMd, buildAtomQuestionsPrompt, generateFromAtoms, selectStyleExemplars, exemplarSourceTier, buildQuestionAuditPrompt, auditGeneratedQuestions, locallyValidClinicalQuestions, locallyUsableQuestions, buildStyleFingerprint, questionEndingTask, diversifyQuestionEndings, buildQuestionSourceBlueprint, styleProfilePrompt } from "./mcq.js";
 import { buildClinicalCorrelateLibrary } from "./clinicalCorrelates.js";
 
 describe("normalizeQuestions", () => {
@@ -599,6 +599,23 @@ describe("independent generated-question audit", () => {
     expect(result.warning).toMatch(/structural checks/i);
   });
 
+  it.each([true, false])("repairs only rejected items and rechecks them while preserving accepted work (%s)", async (repairApproved) => {
+    const bad = { stem: "A 68-year-old man has weakness of the right hand after an interruption of descending motor output. The downstream connection to muscle remains intact. Which of the following neuronal populations most directly produces contraction of the hand muscles?", choices: { A: "Spinal motor neurons", B: "Cerebral neurons", C: "Sensory neurons", D: "Thalamic neurons", E: "Bulbar neurons" }, correct: "A", objectiveIds: [], explanation: "The direct spinal motor output contracts hand muscle." };
+    const repaired = { ...bad, stem: "A patient develops hand weakness. Examination identifies a source-supported finding that distinguishes the affected motor pathway from its closest alternative. Which neuronal population accounts for this pattern in the supplied case?", questionPlan: { templateId: "T-kept", retainedPattern: "weakness then classification", changedRelationship: "replace answer giveaway" } };
+    const reviewAIJSON = vi.fn()
+      .mockResolvedValueOnce({ reviews: [{ index: 0, approved: true, issues: [] }, { index: 1, approved: false, issues: ["answer_leak"], rationale: "The final ask repeats the named connection." }] })
+      .mockResolvedValueOnce({ reviews: [{ index: 0, approved: repairApproved, issues: repairApproved ? [] : ["unsupported_fact"] }] });
+    const repairAIJSON = vi.fn().mockResolvedValue({ questions: [repaired] });
+    const result = await auditGeneratedQuestions([questions[0], bad], {}, { reviewBatchSize: 2, reviewAIJSON, repairAIJSON });
+    expect(repairAIJSON).toHaveBeenCalledOnce();
+    expect(repairAIJSON.mock.calls[0][1]).toContain(bad.stem);
+    expect(repairAIJSON.mock.calls[0][1]).not.toContain(questions[0].stem);
+    expect(reviewAIJSON).toHaveBeenCalledTimes(2);
+    expect(result.questions.some(q => q.stem === questions[0].stem)).toBe(true);
+    expect(result.questions.some(q => q.stem === repaired.stem)).toBe(repairApproved);
+    expect(result.questions).toHaveLength(repairApproved ? 2 : 1);
+  });
+
   it("repairs a rejected batch before falling back", async () => {
     const repair = vi.fn().mockResolvedValue({ questions });
     const audit = vi.fn()
@@ -1115,4 +1132,14 @@ it("retrieves distinctive template phrases from the full bank without changing o
   const reordered = buildSchoolTemplatePlan({ objectives: [...objectives].reverse(), examples });
   expect(reordered.find(row => row.objectiveId === "map").templateId).toBe(plan[0].templateId);
   expect(buildSchoolTemplatePlan({ objectives, examples: [{ ...examples[8], hasImage: true }] })[0].templateId).toBeNull();
+});
+
+
+it("constrains repairs to the assigned case and distinguishes source-supported fixes from fabricated clues", () => {
+  const prompt = buildRepairPrompt([{ question: { questionPlan: { templateId: "T-source" } }, issues: ["ambiguous_key"], reviewRationale: "Adjacent alternatives overlap." }]);
+  expect(prompt).toContain("smallest source-supported correction");
+  expect(prompt).toContain("patient setting");
+  expect(prompt).toContain("do not invent a normal finding");
+  expect(prompt).toContain("independent reviewer will verify each repair");
+  expect(prompt).toContain("T-source");
 });

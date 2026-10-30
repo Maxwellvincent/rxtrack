@@ -643,8 +643,10 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
   } : call;
   const boundedDeps = {
     ...deps,
-    // Replace rejected candidates using their feedback instead of repairing a whole batch.
-    skipRepair: deps.skipRepair ?? true,
+    // Preserve accepted work and repair only rejected candidates from partial batches.
+    // Wholly rejected batches still use fresh refills within the shared deadline.
+    skipRepair: deps.skipRepair ?? false,
+    repairPartialOnly: deps.repairPartialOnly ?? true,
     callAIJSON: boundCall(deps.callAIJSON, "draft"),
     reviewAIJSON: boundCall(deps.reviewAIJSON, "review"),
     repairAIJSON: boundCall(deps.repairAIJSON, "repair"),
@@ -761,7 +763,7 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
         ].filter(Boolean).join("\n"),
         avoidStems: [...(args.avoidStems || []), ...accepted.map(question => question.stem)],
       };
-      const draftDeps = focusedRefill ? { ...boundedDeps, skipRepair: false } : boundedDeps;
+      const draftDeps = focusedRefill ? { ...boundedDeps, skipRepair: false, repairPartialOnly: false } : boundedDeps;
       const promise = startObjectiveQuiz(draftArgs, draftDeps).then(async result => {
         // Some writers return an empty list rather than a smaller usable batch when
         // asked for spare candidates. Retry once at the exact reserved-slot count;

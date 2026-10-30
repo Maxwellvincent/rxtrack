@@ -957,11 +957,11 @@ export function buildQuestionAuditPrompt(questions, cfg = {}) {
   );
 }
 
-function buildRepairPrompt(items, cfg = {}) {
+export function buildRepairPrompt(items, cfg = {}) {
   const objectives = (cfg.objectives || []).map((o) => ({ id: o.id || o.code, text: o.objective || o.text, targetOrder: o._targetOrder, suggestedOrder: o._suggestedOrder }));
   const atoms = (cfg.atoms || []).map((a) => ({ term: a.term, content: a.content, objectiveIds: a.objectiveIds || [] }));
   const examples = selectStyleExemplars(cfg.examples || [], cfg.promptProfile === "compact" ? 2 : 6, cfg.difficulty, { objectives: cfg.objectives, atoms: cfg.atoms }).map((q) => ({ stem: q.stem, choices: q.choices, correct: q.correct }));
-  return `Repair every rejected question below. Preserve the tested objective when it is valid, but change the stem, choices, key, explanation, and objectiveIds as needed to correct every listed issue. Use only the supplied lecture facts/objectives; do not add outside medical facts. Match the concise clinical/anatomic SGU ExamSoft/IMCQ style and use plausible same-category distractors. Return exactly one repaired question for each input item in the same order.
+  return `Repair every rejected question below. Preserve each valid objective, assigned templateId, patient setting, tested relationship and focused endpoint. Make the smallest source-supported correction to the listed failure. Do not replace the case with an experiment or switch to an easier objective. Change the key only if it is incorrect; any changed key still needs independent verification. For answer_leak or answer_choice_shortcut, remove the answer-repeating phrase and substitute source-supported distinguishing findings. For ambiguous_key or non_discriminating_clues, add a source-supported discriminator or replace overlapping alternatives; do not invent a normal finding merely to force the key. Use only the supplied lecture facts/objectives; do not add outside medical facts. Match the concise clinical/anatomic SGU ExamSoft/IMCQ style and use plausible same-category distractors. Return exactly one repaired question for each input item in the same order.
 ${CONNECTED_REASONING_CONTRACT}
 ${QUESTION_PLAN_CONTRACT}
 ${schoolApplicationPrompt(cfg)}
@@ -1323,9 +1323,11 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
     // checks and label them for later review instead of silently discarding the
     // whole batch.
     if (!distinctApproved.length && raw.error) return keepLocallyValidated(raw.error);
-    if (!distinctApproved.length && deps.skipRepair !== true) {
+    if (distinctApproved.length < questions.length && deps.skipRepair !== true
+      && (distinctApproved.length > 0 || deps.repairPartialOnly !== true)) {
       const repairer = withQuestionAIRouting(deps.repairAIJSON || deps.callAIJSON);
       if (typeof repairer === "function") {
+        const retainedStems = new Set(distinctApproved.map(question => question.stem));
         const rejectedItems = questions.map((question, index) => ({
           index,
           question: auditQuestionPayload(question),
@@ -1333,13 +1335,18 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
           reviewRationale: byIndex.get(index)?.rationale || "",
           requiredOrder: (cfg.objectives || []).find(o => (question.objectiveIds || []).includes(String(o.id || o.code)))?._targetOrder || "",
           reviewedOrder: byIndex.get(index)?.reasoning?.orderLevel || "",
-        }));
+        })).filter(item => !retainedStems.has(item.question.stem));
         try {
           const repairedRaw = await repairer(REPAIR_SYSTEM, buildRepairPrompt(rejectedItems, cfg), { questions: [] }, deps.repairMaxTokens || 6000);
           const repaired = stampQuestionOrders(ensureObjectiveAttribution(normalizeQuestions(repairedRaw), cfg.objectives || []), cfg.objectives || []).map((question) => ({ ...question, generationVersion: "v2" }));
           if (repaired.length) {
             const repairedAudit = await auditGeneratedQuestions(repaired, cfg, { ...deps, skipRepair: true });
-            if (repairedAudit.questions?.length) return repairedAudit;
+            if (repairedAudit.questions?.length) {
+              const combined = uniqueQuestions([...distinctApproved, ...repairedAudit.questions]).slice(0, questions.length);
+              return { ...repairedAudit, questions: combined, rejections: [...rejections, ...(repairedAudit.rejections || [])],
+                rejectedCount: Math.max(0, questions.length - combined.length), error: null,
+                warning: combined.length < questions.length ? `${questions.length - combined.length} question(s) remain unavailable after targeted repair.` : null };
+            }
           }
         } catch (repairError) {
           // Fall through to deterministic validation; a repair transport failure
@@ -1347,7 +1354,7 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
         }
       }
       const reasons = [...new Set(rejections.flatMap(item => item.issues || []))].slice(0, 4).join(", ");
-      return { ...keepLocallyValidated(`reviewer rejected the batch after repair${reasons ? `: ${reasons}` : ""}`), rejections };
+      if (!distinctApproved.length) return { ...keepLocallyValidated(`reviewer rejected the batch after repair${reasons ? `: ${reasons}` : ""}`), rejections };
     }
     return {
       questions: distinctApproved,

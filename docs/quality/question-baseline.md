@@ -112,3 +112,22 @@ and lateral corticospinal cases missed by the whole-objective overlap threshold.
 It does not loosen persistent school/objective alignment rules or award coverage.
 The local NB31 fixture now assigns examples to all three allocated objectives;
 this is reference retrieval verification, not fresh-output quality validation.
+
+
+## Bounded targeted repair
+
+Preparation enables one targeted repair pass for partially accepted batches.
+Only rejected items enter that request; already accepted stems are retained.
+Repair instructions preserve the valid objective, template, patient setting and
+endpoint, and target the reported giveaway or ambiguity with source-supported
+changes. Missing discriminators cannot be fabricated to force the key. Every
+repair is independently re-reviewed with recursive repair disabled. A failed
+repair leaves previously accepted work intact. Wholly rejected batches use fresh
+refill feedback by default; focused final-slot preparation retains its existing
+repair capability. Explicit skipRepair remains respected, and all calls share the
+preparation deadline.
+
+Regression tests cover both an accepted repair and a rejected repair in a mixed
+batch, ensuring only the rejected item is sent and accepted work survives. They
+verify control flow, not model-generated clinical quality. No additional live
+provider run was performed for this implementation.
