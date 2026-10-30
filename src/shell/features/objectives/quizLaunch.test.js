@@ -971,7 +971,7 @@ it("uses bounded final-slot recovery after a productive batch reaches its ordina
 });
 
 
-it.each([["school", 1], ["challenge", 0]])("keeps independently verified recall only in %s preparation policy", async (reasoningPolicy, expected) => {
+it.each([["school", 0], ["challenge", 0]])("withholds recall below the assigned target in %s preparation policy", async (reasoningPolicy, expected) => {
   const source = "The ophthalmic division of the trigeminal nerve passes through the superior orbital fissure.";
   const question = { stem: "Through which opening does the ophthalmic division of the trigeminal nerve pass?", choices: { A: "Superior orbital fissure", B: "Foramen rotundum", C: "Foramen ovale", D: "Optic canal" }, correct: "A", explanation: source, objectiveIds: ["o1"], orderLevel: "first-order" };
   const callAIJSON = vi.fn(async (_system, prompt) => prompt.includes("Independently audit")

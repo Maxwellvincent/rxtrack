@@ -393,7 +393,7 @@ export function buildQuizConfig({
         String(focusNotes || "").trim(),
         learningFocus({objectives:selected,evidence:learnerModel,blockId,lectureId:lecture?.id || lectureIdHint,tutorProfile:getLearnerProfile(userId)}),
         selected.length
-          ? `ADAPTIVE OBJECTIVE ALLOCATION — follow these item counts before broad coverage:\n${selected.map((objective) => `- [${objective.id || objective.code}] ${objective._adaptiveStatus}: ${objective._targetQuestionCount} question${objective._targetQuestionCount === 1 ? "" : "s"}; ${reasoningPolicy === "challenge" || objective._targetOrder === "third-order" ? "required" : "suggested"} ${objective._targetOrder || "second-order"}; ${objective._neededTaskTypes?.length ? `use a different task from ${objective._neededTaskTypes.join(", ")}` : "vary the final ask"}`).join("\n")}`
+          ? `ADAPTIVE OBJECTIVE ALLOCATION — follow these item counts before broad coverage:\n${selected.map((objective) => `- [${objective.id || objective.code}] ${objective._adaptiveStatus}: ${objective._targetQuestionCount} question${objective._targetQuestionCount === 1 ? "" : "s"}; required ${objective._targetOrder || "second-order"}; ${objective._neededTaskTypes?.length ? `use a different task from ${objective._neededTaskTypes.join(", ")}` : "vary the final ask"}`).join("\n")}`
           : "",
       ].filter(Boolean).join("\n\n"),
     },
@@ -820,7 +820,7 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
         if (enforceAllocation) {
           const target = remainingObjectiveAllocation(allocationPlan, [...(args.initialQuestions || []), ...accepted], requested).find(objective => question.objectiveIds?.[0] === (objective.id || objective.code));
           const levels = ["first-order", "second-order", "third-order"];
-          if (!target || !hasCurrentReasoningAudit(question) || ((args.reasoningPolicy === "challenge" || target._targetOrder === "third-order") && levels.indexOf(question.orderLevel) < levels.indexOf(target._targetOrder || "second-order"))) { reject("allocation_or_reasoning_depth"); continue; }
+          if (!target || !hasCurrentReasoningAudit(question) || (target._targetOrder && levels.indexOf(question.orderLevel) < levels.indexOf(target._targetOrder))) { reject("allocation_or_reasoning_depth"); continue; }
         }
         if (enforceAllocation && question.orderLevel === "third-order" && question.reasoningAudit?.orderLevel !== "third-order") { reject("unverified_integration_depth"); continue; }
         const repeatsPriorQuestion = avoidedQuestions.some((other) => areNearDuplicateQuestions(question, other));
