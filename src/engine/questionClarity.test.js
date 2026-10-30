@@ -80,3 +80,17 @@ it('does not credit complete-inventory subtraction as application even after a m
  expect(hasCurrentReasoningAudit({...question,reasoningAudit:reasoning})).toBe(false);
  expect(classifyQuestionOrder({stem:'An inventory confirms a removed tissue layer. Which functional deficit follows this removal?',orderLevel:'second-order'})).toBe('second-order');
 });
+
+
+it("withholds the two live NB31 lookup shortcuts despite a claimed application audit", () => {
+  const motorMap = { stem: "During an operation, brief electrical stimulation of one region of the primary motor cortex produces movement of the contralateral hand without movement of the face or leg. Which of the following cortical regions was most likely stimulated?", choices: { A: "Dorsolateral", B: "Ventrolateral", C: "Ventromedial", D: "Primary sensory cortex", E: "Dorsomedial" }, orderLevel: "second-order" };
+  const route = { stem: "Imaging of a patient with impaired voluntary movement shows a focal interruption of descending corticospinal fibers. The fibers are intact while passing through the corona radiata but are disrupted before reaching the crus cerebri. Which of the following structures is most likely damaged?", choices: { A: "Internal capsule", B: "Cerebral cortex", C: "Corona radiata", D: "Medullary pyramid", E: "Basilar pons" }, orderLevel: "second-order" };
+  const reasoning = { status: "verified", version: 2, orderLevel: "second-order", connectedChain: true, singleEndpoint: true, choiceShortcut: false, allStepsRequired: true, steps: ["Interpret the observation", "Recall the location"], sourceQuotes: ["The supplied source supports the named mapping relationship."] };
+  for (const question of [motorMap, route]) {
+    expect(classifyQuestionOrder(question)).toBe("first-order");
+    expect(verifyReasoningReview({ reasoning }, question, {})).toBeNull();
+    expect(hasCurrentReasoningAudit({ ...question, reasoningAudit: reasoning })).toBe(false);
+  }
+  expect(classifyQuestionOrder({ ...motorMap, stem: "After a motor cortex lesion, a patient develops weakness. Which additional finding best distinguishes cortical from peripheral injury?" })).toBe("second-order");
+  expect(classifyQuestionOrder({ ...route, stem: "A corticospinal lesion causes contralateral weakness and an additional source-supported finding. Which structure explains the combined pattern?" })).toBe("second-order");
+});

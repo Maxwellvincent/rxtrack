@@ -51,4 +51,25 @@ export function isClosedSetInventoryRecall(question = {}) {
   && /\b(?:layers?|tunics?|components?|structures?)\b/i.test(ask)
   && !/\b(?:function|finding|symptom|consequence|effect|change|deficit|explain\w*|cause\w*|predict\w*|result\w*|impair\w*|contraction)\b/i.test(ask);
 }
-export const isDemonstratedRecall = question => isPairedCartilageRecall(question) || isClosedSetInventoryRecall(question);
+/** Narrow regressions from live NB31 tests, not a general localization classifier. */
+export function isMotorMapLookup(question = {}) {
+  const stem = String(question.stem || "");
+  return /primary motor cortex/i.test(stem)
+    && /electrical stimulation/i.test(stem)
+    && /produces movement of (?:the |a |patient.s )*(?:contralateral )?(?:hand|foot|leg|face|arm)\b/i.test(stem)
+    && /which (?:of the following )?cortical regions?[^?]*stimulated\?/i.test(stem);
+}
+
+export function isNamedMotorRouteLookup(question = {}) {
+  const stem = String(question.stem || "");
+  const choices = Object.values(question.choices || {}).map(value => String(value).trim());
+  return /corticospinal/i.test(stem)
+    && /intact[^.!?]*corona radiata/i.test(stem)
+    && /(?:before reaching|before entering)[^.!?]*crus cerebri/i.test(stem)
+    && /which (?:of the following )?structures?[^?]*(?:damaged|interrupted)\?/i.test(stem)
+    && choices.length >= 3
+    && choices.every(value => /^(?:internal capsule|cerebral cortex|corona radiata|medullary pyramid|basilar pons|crus cerebri)$/i.test(value));
+}
+
+export const isDemonstratedRecall = question => isPairedCartilageRecall(question)
+  || isClosedSetInventoryRecall(question) || isMotorMapLookup(question) || isNamedMotorRouteLookup(question);
