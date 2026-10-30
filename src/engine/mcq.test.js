@@ -249,14 +249,16 @@ describe("question ending analysis", () => {
     expect(questionEndingTask("Which diagnosis is most likely?")).toBe("diagnosis");
   });
 
-  it("records ending families and second-order signal in the style fingerprint", () => {
+  it("records descriptive ending families without inferring reasoning depth in the style fingerprint", () => {
     const fingerprint = buildStyleFingerprint([
       { stem: "A patient has a defect. Which mechanism best explains the findings?", choices: { A: "a", B: "b" } },
       { stem: "A patient has a defect. What additional laboratory finding would be expected?", choices: { A: "a", B: "b" } },
       { stem: "A patient has a lesion. Which enzyme is deficient?", choices: { A: "a", B: "b" } },
     ]);
     expect(fingerprint.endingFamilies.map(({ family }) => family)).toEqual(expect.arrayContaining(["mechanism", "prediction", "identification"]));
-    expect(fingerprint.secondOrderRate).toBeGreaterThanOrEqual(2 / 3);
+    expect(fingerprint.reasoningDepth).toBe("not-assessed");
+    expect(fingerprint).not.toHaveProperty("secondOrderRate");
+    expect(fingerprint).not.toHaveProperty("thirdOrderRate");
     expect(fingerprint.medianStemWords).toBeGreaterThan(0);
     expect(fingerprint.medianSentences).toBeGreaterThan(0);
   });
@@ -1011,4 +1013,22 @@ it('requires linked-concept clue and ambiguity checks in compact and full review
   expect(prompt).toContain('insufficient_clues');
   expect(prompt).toContain('ambiguous_choices');
  }
+});
+
+describe('truthful school calibration',()=>{
+ it('does not infer advanced reasoning from a long patient story or causal word',()=>{
+  const profile=buildStyleFingerprint([{stem:'A patient comes because of weakness. History is obtained. Which nerve innervates this muscle?',choices:{A:'a',B:'b'}}]);
+  expect(profile).not.toHaveProperty('thirdOrderRate');expect(profile.reasoningDepth).toBe('not-assessed');
+ });
+ it('strips obsolete reasoning percentages from every persisted style group',()=>{
+  const old={sampleSize:30,thirdOrderRate:.99,secondOrderRate:.9};
+  const prompt=styleProfilePrompt({sampleSize:90,officialStyle:old,homeworkStyle:old,clickerStyle:old});
+  expect(prompt).not.toContain('thirdOrderRate');expect(prompt).not.toContain('secondOrderRate');
+  expect(prompt).toContain('not-assessed');
+ });
+ it('recognizes school localization wording and plural structure asks',()=>{
+  expect(questionEndingTask('Where is the most likely location of this lesion?')).toBe('localization');
+  expect(questionEndingTask('Which of the following structures is affected?')).toBe('identification');
+  expect(questionEndingTask('The spinal cord is hemisected at which of the following levels?')).toBe('localization');
+ });
 });

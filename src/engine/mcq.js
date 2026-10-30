@@ -94,14 +94,20 @@ export function styleProfilePrompt(profile, questionCount = null) {
   // request made a five-question prompt tens of thousands of characters larger
   // and materially slowed the local bridge. Only the compact style aggregates
   // and the bounded weak-outcome sample below affect generation.
+  // Old saved profiles can still contain keyword-derived depth percentages.
+  // Strip them at the request boundary too; never treat these as assessment.
+  const descriptive = value => {
+    const features = Object.fromEntries(Object.entries(value || {}).filter(([key]) => !["secondOrderRate", "thirdOrderRate"].includes(key)));
+    return { ...features, reasoningDepth: "not-assessed" };
+  };
   const promptProfile = {
     version: profile.version,
     sampleSize: profile.sampleSize,
     sourceCounts: profile.sourceCounts || {},
     optionCounts: profile.optionCounts || {},
-    officialStyle: profile.officialStyle || {},
-    homeworkStyle: profile.homeworkStyle || {},
-    clickerStyle: profile.clickerStyle || {},
+    officialStyle: descriptive(profile.officialStyle),
+    homeworkStyle: descriptive(profile.homeworkStyle),
+    clickerStyle: descriptive(profile.clickerStyle),
   };
   const weakness = weakOutcomes.length
     ? `\nREPORT-DERIVED LEARNER GAPS (the learner previously missed items tagged to these school outcomes): ${JSON.stringify(weakOutcomes)}. Prioritize these only when they map to the requested lecture objectives and supplied lecture evidence supports the tested relationship; do not expand scope or copy source questions.\n`
@@ -142,6 +148,7 @@ export function exemplarSourceTier(question) {
 }
 
 const TASK_FAMILY_LABELS = {
+  localization: "anatomic location or lesion localization",
   mechanism: "mechanism or explanation",
   prediction: "predicted finding, lab, hormone, pathway, or physiologic change",
   identification: "structure, enzyme, receptor, cell, pathway, or component identification",
@@ -156,22 +163,14 @@ export function questionEndingTask(stem = "") {
   const text = String(stem).replace(/\s+/g, " ").trim().replace(/[?!.]+$/, "").toLowerCase();
   const lastSentence = text.split(/(?<=[.!?])\s+/).at(-1) || text;
   const ask = lastSentence;
+  if (/\b(where|location|localiz(?:e|ation)|sites?|regions?|spinal levels?)\b/.test(ask) || /\bat which\b[^?]*\blevels?\b/.test(ask)) return "localization";
   if (/\b(next step|treatment|management|intervention|administered|should be done)\b/.test(ask)) return "decision";
   if (/\b(best explain|explains|mechanism|responsible for|cause of|due to|why does|why is|pathogenesis)\b/.test(ask)) return "mechanism";
   if (/\b(additional|expected|observed|finding|laboratory|lab|concentration|level|acid-base|physiologic effect|alteration|change|increased|decreased|result|associated with|would occur|would be expected)\b/.test(ask)) return "prediction";
   if (/\b(diagnosis|diagnose|condition|disorder|process)\b/.test(ask)) return "diagnosis";
   if (/\b(best describe|best characteriz|relationship|statement|compare|comparison|normal course|chemical nature)\b/.test(ask)) return "relationship";
-  if (/\b(structure|nerve|vessel|enzyme|hormone|cell|receptor|intermediate|pathway|component|layer|ligament|muscle|gene|transporter|coenzyme)\b/.test(ask)) return "identification";
+  if (/\b(structures?|nerves?|vessels?|enzymes?|hormones?|cells?|receptors?|intermediates?|pathways?|components?|layers?|ligaments?|muscles?|genes?|transporters?|coenzymes?)\b/.test(ask)) return "identification";
   return "other";
-}
-
-function isSecondOrderStem(stem = "") {
-  return ["mechanism", "prediction", "relationship", "decision"].includes(questionEndingTask(stem));
-}
-
-function isThirdOrderStem(stem = "") {
-  const sentenceCount = String(stem).split(/[.!?]+/).filter(Boolean).length;
-  return sentenceCount >= 3 && /\b(after|because|therefore|consequently|downstream|if .*blocked|in addition|combined with|both .* and|which change would result|what would be expected next)\b/i.test(stem);
 }
 
 function taskFamilyCounts(stems = []) {
@@ -186,7 +185,7 @@ function taskVariationPrompt(styleFingerprint, difficulty, batchLabel = "batch")
   const diff = String(difficulty).toLowerCase();
   const secondOrderTarget = diff === "easy" ? "at least 40%" : "at least 60%";
   const observed = styleFingerprint?.sampleSize
-    ? `Observed school ending families: ${JSON.stringify(styleFingerprint.endingFamilies)}; observed second-order signal: ${Math.round((styleFingerprint.secondOrderRate || 0) * 100)}%.`
+    ? `Observed school ending families: ${JSON.stringify(styleFingerprint.endingFamilies)}; these are wording categories, not assessed reasoning depth.`
     : "No school ending fingerprint was available; use the distribution below.";
   return `\n\nQUESTION-TASK VARIATION (${batchLabel}): ${observed}\n` +
     `- The school questions may often begin with "Which," but their final task varies. Do not repeat the generic phrase "Which of the following" as the complete template; use it no more than twice in a batch and vary the noun being requested.\n` +
@@ -242,8 +241,7 @@ export function buildStyleFingerprint(examples = []) {
     }, {})).sort(([a], [b]) => Number(a) - Number(b)).map(([options, count]) => ({ options: Number(options), count })),
     commonLeadIns: [...new Set(leadIns)].slice(0, 6),
     endingFamilies: Object.entries(endingCounts).sort((a, b) => b[1] - a[1]).map(([family, count]) => ({ family, label: TASK_FAMILY_LABELS[family], count })),
-    secondOrderRate: stems.filter(isSecondOrderStem).length / stems.length,
-    thirdOrderRate: stems.filter(isThirdOrderStem).length / stems.length,
+    reasoningDepth: "not-assessed",
     scenarioTypes: scenarioTypes.sort((a, b) => b.count - a.count).slice(0, 6),
     formatSignals,
   };
@@ -298,7 +296,7 @@ function homeworkEvidencePrompt(examples = [], targets = {}) {
   if (!homework.length) return "";
   const blueprint = buildStyleFingerprint(homework);
   return `\n\nHOMEWORK PRACTICE REFERENCE (requested structure and difficulty, not official exam calibration or answer authority):\n` +
-    `Observed task families: ${JSON.stringify(blueprint.endingFamilies || [])}; observed second-order signal: ${Math.round((blueprint.secondOrderRate || 0) * 100)}%.\n` +
+    `Observed task families: ${JSON.stringify(blueprint.endingFamilies || [])}; these are wording categories, not assessed reasoning depth.\n` +
     homework.map((question, index) => `HOMEWORK ${index + 1} [${question.sourceSection || ""} ${question.sourceSectionTitle || ""}]: ${question.stem}\n${renderChoices(question.choices)}`).join("\n") +
     `\nUse Homework to include the relationships, misconception patterns, and problem types your assignments actually practice. Preserve their focused lead-in, clue density, plausible distractor structure, and causal difficulty in NEW questions; do not copy wording, import unsupported facts, or treat a homework key as an independent medical audit. Objectives still determine what may be tested.\n`;
 }
