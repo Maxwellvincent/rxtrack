@@ -20,6 +20,9 @@ import {
   selectExemplarsForBlock,
 } from "./quizLaunch.js";
 
+import { applyEvidence } from "../../../stores/learnerEvidence.js";
+import { schoolCalibratedConfig } from "../../../engine/schoolDifficulty.js";
+
 const LECTURE_BODY = "Brachial plexus anatomy. ".repeat(20); // well over the 150-char floor
 
 const lectures = [
@@ -1044,4 +1047,41 @@ it("does not refill a third-order slot with a school-calibrated second-order ite
  const result=await prepareObjectiveQuiz({objectives:[{id:'o',objective:'Apply a source relationship',bloom_level:3}],evidenceModel:{objectives:{o:{attempts:3,correct:3,recent:[true,true,true],orderLevels:{'second-order':{attempts:3,correct:3}}}}},atoms:[{term:'Source',content:'A supported source relationship.'}],generationVersion:'v2',questionCount:1},{callAIJSON:vi.fn().mockResolvedValue({questions:[question]}),skipQuestionAudit:true,maxPrepareAttempts:1});
  expect(result.questions).toHaveLength(0);
  expect(result.diagnostics.rejections.allocation_or_reasoning_depth).toBeGreaterThan(0);
+});
+
+
+describe("answer history through the next school quiz", () => {
+  const objective = { id: "integration", objective: "Apply motor pathway relationships", bloom_level: 3 };
+  const answer = { source: "quiz", objectiveIds: [objective.id], questionKey: "fresh-application", sessionKey: "session-1", correct: true, confidence: 5, orderLevel: "second-order", reasoningVerified: true, at: 1 };
+  const nextConfig = (evidenceModel, objectives = [objective], questionCount = 1) => schoolCalibratedConfig(buildQuizConfig({ objectives, evidenceModel, questionCount }).config);
+
+  it("carries a verified confident success into a required integration target, without granting mastery", () => {
+    const model = applyEvidence(null, answer);
+    const config = nextConfig(model);
+    expect(config.objectives[0]).toMatchObject({ id: objective.id, status: "developing", _targetOrder: "third-order" });
+    expect(config.orderBlueprint.targets["third-order"]).toBe(1);
+    const ordinary = applyEvidence(null, { ...answer, confidence: 4 });
+    expect(nextConfig(ordinary).objectives[0]._targetOrder).toBe("second-order");
+    const repeated = applyEvidence(ordinary, { ...answer, at: 2 });
+    expect(nextConfig(repeated).objectives[0]._targetOrder).toBe("second-order");
+    const missed = applyEvidence(model, { ...answer, questionKey: "fresh-miss", correct: false, at: 3 });
+    expect(nextConfig(missed).objectives[0]._targetOrder).toBe("second-order");
+    const unverified = applyEvidence(null, { ...answer, reasoningVerified: false });
+    expect(nextConfig(unverified).objectives[0]._targetOrder).toBe("second-order");
+  });
+
+  it("moves through unseen objectives across retakes using actual saved-answer evidence", () => {
+    const objectives = Array.from({ length: 23 }, (_, i) => ({ id: `coverage-${i}`, objective: `Apply source relationship ${i}`, bloom_level: 2 }));
+    let model = null;
+    const first = nextConfig(model, objectives, 15);
+    expect(first.objectives).toHaveLength(15);
+    for (const item of first.objectives) model = applyEvidence(model, { ...answer, objectiveIds: [item.id], questionKey: `first-${item.id}` });
+    const second = nextConfig(model, objectives, 15);
+    const remaining = second.objectives.filter(item => item.status === "untested");
+    expect(remaining).toHaveLength(8);
+    expect(remaining.every(item => !first.objectives.some(previous => previous.id === item.id))).toBe(true);
+    for (const item of remaining) model = applyEvidence(model, { ...answer, objectiveIds: [item.id], questionKey: `second-${item.id}` });
+    expect(Object.values(model.objectives).filter(item => item.attempts > 0)).toHaveLength(23);
+    expect(nextConfig(model, objectives, 15).objectives.some(item => item.status === "untested")).toBe(false);
+  });
 });
