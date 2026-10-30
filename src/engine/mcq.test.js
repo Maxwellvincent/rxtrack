@@ -1143,3 +1143,18 @@ it("constrains repairs to the assigned case and distinguishes source-supported f
   expect(prompt).toContain("independent reviewer will verify each repair");
   expect(prompt).toContain("T-source");
 });
+
+
+it("keeps relevant ESoft, homework, IMCQ and in-class templates together despite homework volume", () => {
+  const objective = { id: "motor-mix", code: "SOM.NSCI.0137", objective: "Contrast upper and lower motor neurons" };
+  const make = (id, sourceKind) => ({ id, sourceKind, schoolObjectiveCode: objective.code, stem: `${id}: A patient has progressive hand weakness. Which neuron population explains the findings?`, choices: { A: "Upper motor", B: "Lower motor", C: "Sensory", D: "Other" }, correct: "A" });
+  const examples = [...Array.from({ length: 12 }, (_, i) => make(`homework-${i}`, "homework")), make("faculty", "examsoft"), make("integrated", "imcq"), make("discussion", "in_class")];
+  const [row] = buildSchoolTemplatePlan({ objectives: [objective], examples });
+  expect(row.example.sourceKind).toBe("examsoft");
+  expect(new Set([row.example, ...row.supportingExamples].map(q => q.sourceKind))).toEqual(new Set(["examsoft", "homework", "imcq", "clicker"]));
+  expect(row.supportingExamples).toHaveLength(3);
+  expect(row.supportingExamples.every(q => !Object.hasOwn(q, "correct"))).toBe(true);
+  const unrelated = { ...make("unrelated", "examsoft"), schoolObjectiveCode: "OTHER", stem: "A renal filtration question?", choices: { A: "Water", B: "Sodium" } };
+  expect(buildSchoolTemplatePlan({ objectives: [objective], examples: [unrelated] })[0].templateId).toBeNull();
+  expect(exemplarSourceTier({ sourceFile: "In Class Questions.pdf" })).toBe("clicker");
+});

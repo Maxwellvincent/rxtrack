@@ -143,3 +143,23 @@ candidates. Omit `--allow-repair` to keep the diagnostic repair-free. Direct loc
 Ollama remains the default; `--bridge --backend codex` deliberately opts into the
 configured external service and requires authorization for the private payload.
 The shared budget still applies; this bounded run is not production refill yield.
+
+
+## Mixed-source template context
+
+The app's source loader includes the lifetime bank library, including ESoft,
+IMCQ, homework and in-class uploads. Template matching now considers the full
+eligible bank before prompt budgeting. Each objective retains a primary reference
+(preferring a relevant ESoft/school example), plus relevant supporting examples
+from distinct source kinds. Primary plus supporting references are bounded to
+eight across the plan; unrelated examples are never forced in to meet a source
+quota. In-class spelling/metadata aliases and explicit homework metadata are
+recognized. Clickers remain task-pattern evidence, not inferred key authority.
+
+New generationEvidence.templateReferences records which source kinds and template
+IDs were supplied, separately from a model's claimed template choice. It is prompt
+provenance, not independent verification or proof that every reference was used.
+A mixed-source regression includes many homework examples before a relevant ESoft,
+IMCQ and in-class item and checks that all four types reach the plan. Prior NB31
+and the separately authorized NB28 live fixtures contain only Week12 homework;
+those runs cannot establish mixed-source live performance.
