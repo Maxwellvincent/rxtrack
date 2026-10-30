@@ -101,3 +101,14 @@ irrelevant material in other compact prompts.
 Tests cover example assignment, unkeyed text clickers, missing matches and
 preserving untrusted adaptation claims. Passing these tests does not demonstrate
 fresh model output quality. Live evaluation remains a separate boundary.
+
+
+Template retrieval additionally searches the full eligible textual bank for
+specific contiguous objective phrases, using the stem and keyed option rather
+than all distractors. It requires three content words, or two with a distinctive
+long term, and records candidate-template-phrase separately from school-code and
+candidate-overlap evidence. This recovers examples such as primary motor cortex
+and lateral corticospinal cases missed by the whole-objective overlap threshold.
+It does not loosen persistent school/objective alignment rules or award coverage.
+The local NB31 fixture now assigns examples to all three allocated objectives;
+this is reference retrieval verification, not fresh-output quality validation.

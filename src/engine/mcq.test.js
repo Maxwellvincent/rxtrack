@@ -1096,3 +1096,23 @@ describe("example-first question construction", () => {
     expect(prompt).toContain("These claims are not proof");
   });
 });
+
+
+it("retrieves distinctive template phrases from the full bank without changing objective mapping rules", () => {
+  const objectives = [
+    { id: "map", objective: "Describe the somatotopic organization and the outputs of the primary motor cortex." },
+    { id: "tract", objective: "Describe the origin, route, and termination of the lateral corticospinal pathway." },
+  ];
+  const choices = { A: "Left hyperreflexia", B: "Right hyporeflexia", C: "Another finding", D: "Fourth finding" };
+  const unrelated = Array.from({ length: 8 }, (_, i) => ({ id: `broad-${i}`, stem: `General motor question ${i}?`, choices, correct: "A" }));
+  const examples = [...unrelated,
+    { id: "cortex-case", stem: "A patient has hand weakness. MRI shows a lesion in the primary motor cortex. Which region is involved?", choices, correct: "A" },
+    { id: "tract-case", stem: "A patient has a lesion of the lateral corticospinal tract. Which additional finding follows?", choices, correct: "A" },
+  ];
+  const plan = buildSchoolTemplatePlan({ objectives, examples });
+  expect(plan.map(row => row.example.sourceQuestionId)).toEqual(["cortex-case", "tract-case"]);
+  expect(plan[0].example.candidateObjectiveLinks).toContainEqual({ objectiveId: "map", basis: "candidate-template-phrase" });
+  const reordered = buildSchoolTemplatePlan({ objectives: [...objectives].reverse(), examples });
+  expect(reordered.find(row => row.objectiveId === "map").templateId).toBe(plan[0].templateId);
+  expect(buildSchoolTemplatePlan({ objectives, examples: [{ ...examples[8], hasImage: true }] })[0].templateId).toBeNull();
+});

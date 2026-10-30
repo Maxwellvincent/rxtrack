@@ -328,10 +328,29 @@ function clinicalTemplates(cfg, requireObjectiveMatch = false) {
 }
 export function buildSchoolTemplatePlan(cfg = {}) {
   const ranked = selectStyleExemplars(cfg.examples || [], 6, cfg.difficulty, { objectives: cfg.objectives, atoms: cfg.atoms });
-  // Complete textual clickers may supply a task scaffold even without a key.
-  // Never turn an unkeyed discussion prompt into factual answer authority.
-  const clickers = (cfg.examples || []).filter(q => exemplarSourceTier(q) === "clicker" && usableSchoolExemplar(q) && !q.hasImage);
-  const candidates = [...ranked, ...clickers];
+  const eligible = (cfg.examples || []).filter(q => usableSchoolExemplar(q) && !q.hasImage);
+  const phraseMatch = (question, objective) => {
+    const normalize = text => String(text || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    const words = normalize(objective.objective || objective.text).split(" ");
+    const generic = new Set("describe explain contrast identify list compare define discuss origin route termination organization outputs signs symptoms clinical anatomy anatomical function functions of the and versus within through from into".split(" "));
+    const text = ` ${normalize(`${question.stem} ${question.choices?.[question.correct] || ""}`)} `;
+    for (const size of [4, 3, 2]) for (let i = 0; i <= words.length - size; i++) {
+      const terms = words.slice(i, i + size);
+      if (terms.some(word => generic.has(word) || word.length < 4)) continue;
+      // Two-word matches need a distinctive long term; generic pairs such as
+      // "motor cortex" must not impose a false objective assignment.
+      if (size === 2 && !terms.some(word => word.length >= 9)) continue;
+      const phrase = terms.join(" ");
+      if (text.includes(` ${phrase} `)) return { targetId: objective.id || objective.code, kind: "objective", basis: "candidate-template-phrase", evidence: [phrase], score: size };
+    }
+    return null;
+  };
+  const phraseCandidates = (cfg.objectives || []).flatMap(objective => {
+    const matches = eligible.map(question => ({ question, match: phraseMatch(question, objective) })).filter(row => row.match);
+    matches.sort((a, b) => b.match.score - a.match.score);
+    return matches.slice(0, 1).map(row => row.question);
+  });
+  const candidates = [...new Set([...ranked, ...phraseCandidates, ...eligible.filter(q => exemplarSourceTier(q) === "clicker")])];
   const aligned = alignSchoolQuestions(candidates, cfg.objectives || [], []);
   const templateKey = question => {
     const identity = JSON.stringify([question.sourceQuestionId || question.id || null, question.sourceFile || null, question.stem, question.choices]);
@@ -339,7 +358,7 @@ export function buildSchoolTemplatePlan(cfg = {}) {
     for (const char of identity) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619) >>> 0;
     return `T-${hash.toString(36)}`;
   };
-  const references = candidates.map(question => ({ question, templateId: templateKey(question), links: aligned.find(row => row.question === question)?.links || [] }));
+  const references = candidates.map(question => ({ question, templateId: templateKey(question), links: [...(aligned.find(row => row.question === question)?.links || []), ...(cfg.objectives || []).map(objective => phraseMatch(question, objective)).filter(Boolean)] }));
   return (cfg.objectives || []).slice(0, 6).map(objective => {
     const objectiveId = objective.id || objective.code;
     const matching = references.filter(row => row.links.some(link => link.kind === "objective" && link.targetId === objectiveId));
