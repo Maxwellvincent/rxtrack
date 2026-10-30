@@ -56,3 +56,22 @@ remain labeled separately in the review catalog. Facts-only sources without an
 available lecture retain their existing behavior; this is not equivalent to
 original-lecture verification. Existing historical approval stamps are not a claim
 that every previously stored item has been re-reviewed under the new source gate.
+
+
+## Objective-balanced construction references
+
+Compact drafting and review reserve examples across the allocated objectives before
+repeating a topic. Their example budget grows from two to at most six for multi-
+objective batches. The shared selector retains source eligibility checks and
+relevance ranking; incomplete and image-dependent references cannot fill a gap.
+Each compact example carries candidate objective links and their basis so the
+model can distinguish a school-code match from vocabulary overlap. These links
+are retrieval hints, not saved curriculum mappings or evidence of medical truth.
+Original lecture evidence remains the factual authority.
+
+Regression coverage demonstrates that three distinct objective references reach
+both compact writer and reviewer even when the input begins with several examples
+of only the first topic. This verifies prompt construction, not an improvement in
+medical accuracy or patient-vignette quality. Evaluate fresh output separately for
+necessary source-supported clues, homogeneous distractors, one best answer, actual
+reasoning depth, and a new relationship rather than a repeated answer route.

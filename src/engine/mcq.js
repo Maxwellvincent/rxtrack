@@ -651,7 +651,9 @@ function renderChoices(choices) {
  */
 export function selectStyleExemplars(examples = [], limit = 5, _difficulty = "medium", targets = {}) {
   if (limit <= 0) return [];
-  const relevance = new Map(alignSchoolQuestions(examples, targets.objectives, targets.atoms).map(x => [x.question,x.score]));
+  const aligned = alignSchoolQuestions(examples, targets.objectives, targets.atoms);
+  const relevance = new Map(aligned.map(x => [x.question,x.score]));
+  const links = new Map(aligned.map(x => [x.question, x.links]));
   // Homework is an explicit practice-style reference alongside school exams.
   // Rank relevant lecture/objective examples before broader style references.
   const candidates = examples.filter(usableSchoolExemplar).filter((q) => {
@@ -675,8 +677,28 @@ export function selectStyleExemplars(examples = [], limit = 5, _difficulty = "me
     });
   // Keep concept matches in the actual prompt. Option-count variety and broad
   // bank sampling must never displace a relevant homework/ExamSoft example.
-  const selected = valid.filter(q => (relevance.get(q) || 0) > 0).slice(0, limit);
-  const selectedSet = new Set(selected);
+  const selected = [];
+  const selectedSet = new Set();
+  const coveredObjectives = new Set();
+  // Reserve examples for distinct allocated objectives before high-scoring
+  // examples from one topic exhaust the prompt. Overlap links are retrieval
+  // candidates, not validated curriculum mappings or factual authority.
+  for (const objective of targets.objectives || []) {
+    const id = objective.id || objective.code;
+    if (!id || coveredObjectives.has(id) || selected.length >= limit) continue;
+    const matching = valid.filter(q => !selectedSet.has(q) && (links.get(q) || []).some(link => link.kind === "objective" && link.targetId === id));
+    const best = matching.sort((a, b) => {
+      const score = q => (links.get(q) || []).find(link => link.kind === "objective" && link.targetId === id)?.score || 0;
+      return score(b) - score(a);
+    })[0];
+    if (!best) continue;
+    selected.push(best); selectedSet.add(best);
+    for (const link of links.get(best) || []) if (link.kind === "objective") coveredObjectives.add(link.targetId);
+  }
+  for (const q of valid) {
+    if (selected.length >= limit) break;
+    if ((relevance.get(q) || 0) > 0 && !selectedSet.has(q)) { selected.push(q); selectedSet.add(q); }
+  }
   const seenCounts = new Set(selected.map(q => Object.keys(q.choices).length));
   for (const q of valid) {
     if (selected.length >= limit) break;
@@ -1325,10 +1347,12 @@ function compactObjectives(cfg) {
 }
 
 function compactStyle(cfg) {
-  const examples = selectStyleExemplars(cfg.examples || [], 2, cfg.difficulty, { objectives: cfg.objectives, atoms: cfg.atoms });
+  const exampleLimit = Math.min(6, Math.max(2, (cfg.objectives || []).length));
+  const examples = selectStyleExemplars(cfg.examples || [], exampleLimit, cfg.difficulty, { objectives: cfg.objectives, atoms: cfg.atoms });
+  const matches = new Map(alignSchoolQuestions(examples, cfg.objectives || [], []).map(row => [row.question, row.links]));
   const fingerprint = buildStyleFingerprint(selectStyleExemplars(cfg.examples || [], STYLE_FINGERPRINT_LIMIT, cfg.difficulty, { objectives: cfg.objectives, atoms: cfg.atoms }));
   const blueprint = buildQuestionSourceBlueprint(cfg.examples || [], cfg.objectives || [], cfg.count || 5);
-  return `SCHOOL AND HOMEWORK STYLE (structure and practice difficulty only, never factual authority):\n${JSON.stringify(examples.map(q => ({ sourceKind: exemplarSourceTier(q), stem: q.stem, choices: q.choices })))}\nSOURCE TASK PATTERNS (homework also guides practice difficulty; clickers are task evidence only):\n${JSON.stringify({ homework: blueprint.homeworkTypes, clickers: blueprint.clickerTypes })}\nSTYLE FINGERPRINT:\n${JSON.stringify(fingerprint)}`;
+  return `SCHOOL AND HOMEWORK STYLE (structure and practice difficulty only, never factual authority):\n${JSON.stringify(examples.map(q => ({ sourceKind: exemplarSourceTier(q), stem: q.stem, choices: q.choices, candidateObjectiveLinks: (matches.get(q) || []).map(link => ({ objectiveId: link.targetId, basis: link.basis })) })))}\nSOURCE TASK PATTERNS (homework also guides practice difficulty; clickers are task evidence only):\n${JSON.stringify({ homework: blueprint.homeworkTypes, clickers: blueprint.clickerTypes })}\nSTYLE FINGERPRINT:\n${JSON.stringify(fingerprint)}`;
 }
 
 const QUESTION_PLAN_CONTRACT = `Before drafting EACH item, build its questionPlan from the supplied lecture evidence in the same response (no separate request). Identify: relationship (the taught causal rule), perturbation (what changes or is observed), inference (the required hidden intermediate and its downstream effect), endpoint (ONE thing the lead-in asks), nearestDistractor (a plausible competing explanation), discriminator (the observation that separates it from the key), and sourceQuotes (short exact contiguous lecture/fact excerpts supporting the relationships). First match the endpoint and inferential burden of the relevant school examples. A direct association is valid when that is what the school tests; use causal prediction only where that depth is appropriate. Only then write the stem and choices from that plan. Do not select a definition and decorate it with a patient or experiment.

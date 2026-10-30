@@ -1032,3 +1032,37 @@ describe('truthful school calibration',()=>{
   expect(questionEndingTask('The spinal cord is hemisected at which of the following levels?')).toBe('localization');
  });
 });
+
+
+describe("objective-balanced school examples", () => {
+  const objectives = [
+    { id: "motor", code: "SOM.NSCI.0137", objective: "Contrast upper and lower motor neurons" },
+    { id: "cortex", code: "SOM.NSCI.0145", objective: "Describe primary motor cortex outputs" },
+    { id: "tract", code: "SOM.NSCI.0149", objective: "Describe lateral corticospinal pathway termination" },
+  ];
+  const example = (id, index) => ({ id, schoolObjectiveCode: objectives[index].code, sourceFile: "Week 12 Homework.pdf", stem: `${id}: Which relationship explains the observed finding?`, choices: { A: "First endpoint", B: "Second endpoint", C: "Third endpoint", D: "Fourth endpoint" }, correct: "A" });
+  const examples = [example("motor-first", 0), example("motor-repeat", 0), example("motor-third", 0), example("cortical-example", 1), example("tract-example", 2)];
+
+  it("reserves a relevant example for each objective before repeating one topic", () => {
+    expect(selectStyleExemplars(examples, 3, "medium", { objectives }).map(q => q.id)).toEqual(["motor-first", "cortical-example", "tract-example"]);
+    expect(selectStyleExemplars(examples, 1, "medium", { objectives })).toHaveLength(1);
+  });
+
+  it("includes all three topic references and their retrieval links in compact drafting and review", () => {
+    const cfg = { objectives, examples, count: 3, promptProfile: "compact" };
+    for (const prompt of [buildMcqPrompt(cfg), buildQuestionAuditPrompt([], cfg)]) {
+      expect(prompt).toContain("motor-first");
+      expect(prompt).toContain("cortical-example");
+      expect(prompt).toContain("tract-example");
+      expect(prompt).toContain("candidateObjectiveLinks");
+      expect(prompt).toContain('"objectiveId":"tract"');
+    }
+  });
+
+  it("does not revive incomplete or image-dependent examples to fill an objective gap", () => {
+    const broken = { ...examples[4], answerKeyVerified: false };
+    const figure = { ...examples[3], hasImage: true };
+    const chosen = selectStyleExemplars([examples[0], broken, figure], 3, "medium", { objectives });
+    expect(chosen).toEqual([examples[0]]);
+  });
+});
