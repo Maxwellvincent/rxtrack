@@ -72,3 +72,13 @@ describe("reasoning verification", () => {
     expect(verifyReasoningReview(review, question, { ...cfg, objectives: [{ id: "o1", bloom_level: 1 }] })).toBeNull();
   });
 });
+
+it('requires original lecture support when derived atoms disagree with an available source',()=>{
+ const source='The retropharyngeal space lies between the buccopharyngeal fascia and the visceral prevertebral layer of deep cervical fascia. It is a potential passageway for spread of infection into the mediastinum.';
+ const atom='Retropharyngeal space is continuous with the prevertebral fascia.';
+ const question={objectiveIds:['o']};
+ const reasoning={orderLevel:'second-order',allStepsRequired:true,connectedChain:true,singleEndpoint:true,choiceShortcut:false,steps:['Interpret location','Apply fascial relationship'],sourceQuotes:[atom]};
+ const cfg={lectureText:source,atoms:[{content:atom}],objectives:[{id:'o',bloom_level:2}]};
+ expect(verifyReasoningReview({reasoning},question,cfg)).toBeNull();
+ expect(verifyReasoningReview({reasoning:{...reasoning,sourceQuotes:[source]}},question,cfg)).toMatchObject({status:'verified'});
+});

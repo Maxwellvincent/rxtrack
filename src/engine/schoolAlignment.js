@@ -1,3 +1,4 @@
+import { usableSchoolExemplar } from "./schoolSourceIntegrity.js";
 // Evidence retrieval, not a claim of semantic equivalence or exam probability.
 const STOP = new Set('which following patient most likely normal shows describe explain identify clinical function functions hormone hormones study question objective increased decreased concentration serum blood history examination findings changes cells tissue role effects including associated production secretion'.split(' '));
 const tokens = (s) => new Set((String(s || '').toLowerCase().match(/[a-z][a-z0-9-]{3,}/g) || []).filter(x => !STOP.has(x)));
@@ -8,7 +9,7 @@ export function alignSchoolQuestions(examples = [], objectives = [], atoms = [])
   const targets = [...objectives.map(o => ({ id: o.id || o.code, code: o.code, text: textOf(o), kind: 'objective' })),
     ...atoms.map(a => ({ id: a.term, code: (a.objectiveIds || []).join(' '), text: `${a.term || ''} ${a.content || ''}`, kind: 'atom' }))]
     .map(t=>({...t,words:tokens(t.text),codes:codes(`${t.code || ''} ${t.id || ''} ${t.text}`)}));
-  return examples.filter(q => q?.stem && q?.choices && q.answerKeyVerified !== false).map(q => {
+  return examples.filter(usableSchoolExemplar).filter(q => q?.stem && q?.choices && q.answerKeyVerified !== false).map(q => {
     const sourceCodes = new Set(codes([q.schoolObjectiveCode, ...(q.schoolObjectiveCodes || []), q.schoolObjective].join(' ')));
     const sourceTokens = tokens(`${q.schoolObjective || ''} ${q.sourceSectionTitle || ''} ${q.stem} ${Object.values(q.choices).join(' ')}`);
     const links = targets.flatMap(t => {

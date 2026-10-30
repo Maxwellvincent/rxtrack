@@ -22,3 +22,9 @@ it('does not export account details, signed figure URLs, embedded images or answ
 it('supports empty retained stores without fabricating samples or order estimates',()=>{
  const packet=buildQuestionAuditBaseline();expect(packet.samples).toEqual([]);expect(packet.population.generated).toBe(0);
 });
+
+it('does not call a continuation-only original an eligible reference sample',()=>{
+ const packet=buildQuestionAuditBaseline({banks:{'IMCQ.pdf':[q('fragment',{stem:'that is being ablated, which structure is involved?'}),q('complete')]}});
+ expect(packet.population).toMatchObject({originals:2,eligibleOriginals:1,excludedOriginals:1});
+ expect(packet.sampled.imcq).toBe(1);
+});

@@ -28,3 +28,9 @@ describe("numbered source evidence", () => {
     expect(verifyReasoningReview({ ...review, reasoning: { ...review.reasoning, choiceShortcut: true } }, {}, { lectureText: source })).toBeNull();
   });
 });
+
+it('labels an extracted fact separately from an actual lecture span',()=>{
+ const lecture='The original lecture describes a specific supported anatomical relationship.';
+ const prompt=numberedAuditEvidence({lectureText:lecture,atoms:[{term:'Derived label',content:'A derived claim not present in the original lecture.'}]},`[Lecture excerpt 1]\n${lecture}`);
+ expect(prompt).toContain('"origin":"lecture"');expect(prompt).toContain('"origin":"extracted-fact"');
+});

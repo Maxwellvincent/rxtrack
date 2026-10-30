@@ -1,3 +1,4 @@
+import { usableSchoolExemplar } from "./schoolSourceIntegrity.js";
 import { buildStyleFingerprint, exemplarSourceTier } from './mcq.js';
 
 export const BASELINE_VERSION = 1;
@@ -37,8 +38,9 @@ function reviewItem(q,role) {
   explanation:q.explanation || null, whyWrong:q.whyWrong || {},
   figureRequired:!!(q.hasImage || q.imageQuestion || q.imageDependent),
   figureIncluded:false, generationVersion:q.generationVersion || null,
+  reviewedAt:q.qualityAudit?.reviewedAt || null,
   claimedOrder:q.orderLevel || null,
-  reasoningAudit:q.reasoningAudit ? {status:q.reasoningAudit.status,version:q.reasoningAudit.version,orderLevel:q.reasoningAudit.orderLevel,steps:q.reasoningAudit.steps || [],sourceQuotes:q.reasoningAudit.sourceQuotes || []} : null,
+  reasoningAudit:q.reasoningAudit ? {status:q.reasoningAudit.status,version:q.reasoningAudit.version,reviewPolicy:q.reasoningAudit.reviewPolicy || null,sourceBasis:q.reasoningAudit.sourceBasis || null,orderLevel:q.reasoningAudit.orderLevel,steps:q.reasoningAudit.steps || [],sourceQuotes:q.reasoningAudit.sourceQuotes || []} : null,
   review:{verdict:null,actualReasoning:null,patientCluesSufficient:null,sourceSupported:null,singleBestAnswer:null,schoolWordingFit:null,closestDistractorPlausible:null,issueCodes:[],notes:''},
  };
 }
@@ -49,7 +51,7 @@ export function buildQuestionAuditBaseline({generated={},banks={},generatedLimit
  const generatedRows=unique(Object.entries(generated).flatMap(([lectureId,entry])=>(entry?.questions || []).filter(usable).map(q=>({...q,lectureId:q.lectureId || lectureId}))));
  const originals=unique(Object.entries(banks).flatMap(([filename,qs])=>(Array.isArray(qs)?qs:[]).filter(usable).map(q=>({...q,sourceFile:q.sourceFile || filename}))));
  const limits={generated:Math.min(100,Math.max(0,Math.floor(Number(generatedLimit)||0))),source:Math.min(30,Math.max(0,Math.floor(Number(sourceLimit)||0)))};
- const eligible=originals.filter(q=>q.correct && q.answerKeyVerified!==false && !q.sourceKeyReviewStatus && q.sourceRepresentation!=='answer-explanation-summary');
+ const eligible=originals.filter(usableSchoolExemplar).filter(q=>q.correct && q.answerKeyVerified!==false && !q.sourceKeyReviewStatus && q.sourceRepresentation!=='answer-explanation-summary');
  const roles=['homework','examsoft','imcq'];
  const samples=[...balancedSample(generatedRows,limits.generated).map(q=>reviewItem(q,'generated')),
   ...roles.flatMap(role=>balancedSample(eligible.filter(q=>exemplarSourceTier(q)===role),limits.source).map(q=>reviewItem(q,role)))];

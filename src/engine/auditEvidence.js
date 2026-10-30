@@ -2,8 +2,8 @@ const START = "SOURCE EVIDENCE CATALOG:\n";
 const END = "\nEND SOURCE EVIDENCE CATALOG";
 const normalize = value => String(value || "").toLowerCase().replace(/\s+/g, " ").trim();
 
-// Only actual source spans enter the catalog. Retrieval labels, objective-only
-// scope statements and generator-provided quotations are not evidence.
+// Lecture spans must occur in the original text. Extracted facts are labeled
+// separately; retrieval labels and objective-only statements are not evidence.
 export function numberedAuditEvidence(cfg, retrieved) {
   const lecture = normalize(cfg.lectureText);
   const objectiveTexts = new Set((cfg.objectives || []).map(o => normalize(o.objective || o.text)));
@@ -14,7 +14,7 @@ export function numberedAuditEvidence(cfg, retrieved) {
     if (text.length >= 16 && !objectiveTexts.has(normalize(text))) spans.push(text);
   }
   const unique = [...new Map(spans.map(text => [normalize(text), text])).values()];
-  return START + JSON.stringify(unique.map((text, index) => ({ id: `E${index + 1}`, text }))) + END;
+  return START + JSON.stringify(unique.map((text, index) => ({ id: `E${index + 1}`, origin: lecture.includes(normalize(text)) ? "lecture" : "extracted-fact", text }))) + END;
 }
 
 export function resolveAuditEvidence(result, prompt) {

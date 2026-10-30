@@ -71,3 +71,12 @@ it("requires source-supported differentiating clues in standard and compact audi
   expect(prompt).toContain("never attribute additional symptoms");
  }
 });
+
+it('does not credit complete-inventory subtraction as application even after a model approval',()=>{
+ const question={stem:'An ocular pathology specimen is separated into its complete tissue layers. The inventory confirms that the fibrous tunic and vascular tunic were recovered intact. One additional layer is missing, and the original specimen contained every layer of the eyeball. Which of the following is the missing layer?',orderLevel:'second-order'};
+ const reasoning={status:'verified',version:2,orderLevel:'second-order',connectedChain:true,singleEndpoint:true,choiceShortcut:false,allStepsRequired:true,steps:['Identify complete tunics','Subtract recovered layers'],sourceQuotes:['The eyeball consists of fibrous, vascular and retinal tunics.']};
+ expect(classifyQuestionOrder(question)).toBe('first-order');
+ expect(verifyReasoningReview({reasoning},question,{lectureText:reasoning.sourceQuotes[0]})).toBeNull();
+ expect(hasCurrentReasoningAudit({...question,reasoningAudit:reasoning})).toBe(false);
+ expect(classifyQuestionOrder({stem:'An inventory confirms a removed tissue layer. Which functional deficit follows this removal?',orderLevel:'second-order'})).toBe('second-order');
+});

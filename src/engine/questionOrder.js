@@ -1,5 +1,7 @@
 import { getBloomLevel } from "../bloomsTaxonomy.js";
 
+export const REASONING_REVIEW_POLICY = "2026-10-30-source-grounding";
+
 export const QUESTION_ORDER_LEVELS = ["first-order", "second-order", "third-order"];
 
 export const QUESTION_ORDER_LABELS = {
@@ -90,7 +92,7 @@ export function buildOrderBlueprint({ objectives = [], count = 10 } = {}) {
 
 /** Best-effort structural classification used for analytics and display, not medical validation. */
 export function classifyQuestionOrder(question = {}, objective = null) {
-  if (isPairedCartilageRecall(question)) return "first-order";
+  if (isDemonstratedRecall(question)) return "first-order";
   const explicit = normalizeQuestionOrder(question?.orderLevel || question?.questionOrder);
   if (explicit) return explicit;
   const stem = String(question?.stem || "").replace(/\s+/g, " ").trim();
@@ -121,7 +123,7 @@ export function stampQuestionOrders(questions = [], objectives = []) {
 export function verifyReasoningReview(review, question, cfg = {}) {
   const reasoning = review?.reasoning;
   const orderLevel = normalizeQuestionOrder(reasoning?.orderLevel);
-  if (orderLevel !== "first-order" && isPairedCartilageRecall(question)) return null;
+  if (orderLevel !== "first-order" && isDemonstratedRecall(question)) return null;
   const required = { "first-order": 1, "second-order": 2, "third-order": 3 }[orderLevel];
   const steps = Array.isArray(reasoning?.steps) ? reasoning.steps.map(String).map(step => step.trim()).filter(Boolean) : [];
   const quotes = Array.isArray(reasoning?.sourceQuotes) ? reasoning.sourceQuotes.map(String).map(quote => quote.trim()).filter(Boolean) : [];
@@ -134,14 +136,18 @@ export function verifyReasoningReview(review, question, cfg = {}) {
   const quoteFloor = orderLevel === "third-order" ? 2 : 1;
   const supportedQuotes = [...new Set(quotes.map(normalize))].filter(quote => quote.length >= 16 && source.includes(quote));
   if (supportedQuotes.length < quoteFloor || supportedQuotes.length !== new Set(quotes.map(normalize)).size) return null;
-  return { status: "verified", version: 2, connectedChain: true, singleEndpoint: true, choiceShortcut: false, orderLevel, steps: steps.slice(0, 6), sourceQuotes: quotes.slice(0, 6) };
+  // When the original lecture is available, derived atoms alone cannot certify it.
+  // A mistaken atom must not become its own evidence, as in the audited fascia item.
+  const lecture = normalize(cfg.lectureText);
+  if (lecture.length >= 150 && supportedQuotes.filter(quote => lecture.includes(quote)).length < quoteFloor) return null;
+  return { status: "verified", version: 2, reviewPolicy: REASONING_REVIEW_POLICY, sourceBasis: supportedQuotes.some(quote => lecture.includes(quote)) ? "lecture" : "facts-only", connectedChain: true, singleEndpoint: true, choiceShortcut: false, orderLevel, steps: steps.slice(0, 6), sourceQuotes: quotes.slice(0, 6) };
 }
 
 /** Old saved questions remain stored, but cannot bypass the updated advanced-reasoning gate. */
 export function hasCurrentReasoningAudit(question) {
   const audit = question?.reasoningAudit;
-  if (isPairedCartilageRecall(question) && normalizeQuestionOrder(audit?.orderLevel) !== "first-order") return false;
+  if (isDemonstratedRecall(question) && normalizeQuestionOrder(audit?.orderLevel) !== "first-order") return false;
   return audit?.status === "verified" && audit.version >= 2 && audit.connectedChain === true
     && audit.singleEndpoint === true && audit.choiceShortcut === false;
 }
-import { isPairedCartilageRecall } from "./questionClarity.js";
+import { isDemonstratedRecall } from "./questionClarity.js";

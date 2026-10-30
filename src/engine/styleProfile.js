@@ -1,6 +1,7 @@
+import { usableSchoolExemplar } from "./schoolSourceIntegrity.js";
 import { buildStyleFingerprint, exemplarSourceTier } from "./mcq.js";
 
-export const STYLE_PROFILE_VERSION = 4;
+export const STYLE_PROFILE_VERSION = 5;
 
 const broadOutcome = /^(?:school of medicine|basic sciences|content outline\s*\/\s*systems|physician tasks\s*\/\s*competencies|disciplines|medical knowledge: applying foundational science concepts|basic principles of medicine.*)$/i;
 
@@ -28,7 +29,7 @@ function reportOutcomePerformance(questions) {
 
 /** Build a compact, cumulative style profile from every verified upload. */
 export function buildStyleProfile(examples = [], { now = Date.now() } = {}) {
-  const usable = (examples || []).filter((question) =>
+  const usable = (examples || []).filter(usableSchoolExemplar).filter((question) =>
     question?.stem && question?.choices && question.sourceRepresentation !== "answer-explanation-summary" && question.answerKeyVerified !== false
   );
   const official = usable.filter((question) => {

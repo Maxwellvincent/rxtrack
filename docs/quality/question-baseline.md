@@ -34,7 +34,25 @@ future examples explicitly before using them as held-out evaluation. Never label
 previously used reference set “unseen.” No learner answers count toward reviewing
 question quality, and no review changes historical scores automatically.
 
-Style profile version 4 removes keyword-derived order percentages. The prompt
+Style profile version 5 removes keyword-derived order percentages. The prompt
 boundary strips those fields from older persisted profiles as well, preserving
 ordinary descriptive features and existing source/outcome metadata. Localization
 and plural structure lead-ins are descriptive task categories, not depth judgments.
+
+## First sampled failure regressions
+
+The downloaded 2026-10-30 packet contained 48 generated items from 30 lecture
+pools and 36 original reference samples. It represents retained history, not only
+the latest generation policy. Private item-level editorial findings remain outside
+the repository; no learner scores were changed.
+
+A continuation-only original and a reference to an unavailable prior question now
+fail style-reference eligibility. These originals remain stored. Complete-inventory
+subtraction (recover two tissue layers and identify the missing one) is direct
+recall even if a reviewer claims otherwise. When at least 150 normalized characters
+of lecture text are available, reasoning verification requires original-lecture
+support: one quote for first/second order and two for third order. Extracted facts
+remain labeled separately in the review catalog. Facts-only sources without an
+available lecture retain their existing behavior; this is not equivalent to
+original-lecture verification. Existing historical approval stamps are not a claim
+that every previously stored item has been re-reviewed under the new source gate.
