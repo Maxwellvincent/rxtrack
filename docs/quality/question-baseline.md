@@ -131,3 +131,15 @@ Regression tests cover both an accepted repair and a rejected repair in a mixed
 batch, ensuring only the rejected item is sent and accepted work survives. They
 verify control flow, not model-generated clinical quality. No additional live
 provider run was performed for this implementation.
+
+
+## Repeatable complete-flow diagnostic
+
+`scripts/benchmark-question-generation.mjs` uses Vite SSR loading for the real app
+module graph, including JSON/JSX dependencies. It writes only a private local audit
+report. `--prepare --production-policy --allow-repair --count 3 --max-attempts 1`
+exercises a bounded draft/review/partial-repair/re-review attempt with zero spare
+candidates. Omit `--allow-repair` to keep the diagnostic repair-free. Direct local
+Ollama remains the default; `--bridge --backend codex` deliberately opts into the
+configured external service and requires authorization for the private payload.
+The shared budget still applies; this bounded run is not production refill yield.

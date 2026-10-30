@@ -3,8 +3,24 @@
 // Does not save questions or learner progress into the app.
 import { readFile, writeFile } from "node:fs/promises";
 import { performance } from "node:perf_hooks";
-import { generateMcqs, auditGeneratedQuestions } from "../src/engine/mcq.js";
-import { parseBridgeJSON } from "../src/llmBridge.js";
+import { fileURLToPath } from "node:url";
+import { createServer } from "vite";
+
+// Use the same JSON/JSX module loading as the app. Native Node imports cannot
+// load the complete preparation graph (including lecture JSON and UI helpers).
+const server = await createServer({
+  root: fileURLToPath(new URL("..", import.meta.url)),
+  server: { middlewareMode: true, hmr: false }, appType: "custom",
+  optimizeDeps: { noDiscovery: true, include: [] },
+});
+let generateMcqs, auditGeneratedQuestions, parseBridgeJSON, prepareObjectiveQuiz;
+try {
+  ({ generateMcqs, auditGeneratedQuestions } = await server.ssrLoadModule("/src/engine/mcq.js"));
+  ({ parseBridgeJSON } = await server.ssrLoadModule("/src/llmBridge.js"));
+  if (process.argv.includes("--prepare")) ({ prepareObjectiveQuiz } = await server.ssrLoadModule("/src/shell/features/objectives/quizLaunch.js"));
+} finally {
+  await server.close();
+}
 
 const option = (name, fallback) => {
   const index = process.argv.indexOf(name);
@@ -81,15 +97,14 @@ const prepare = process.argv.includes("--prepare");
 const requested = Number(option("--count", cfg.count));
 let result;
 if (prepare) {
-  const { prepareObjectiveQuiz } = await import("../src/shell/features/objectives/quizLaunch.js");
   result = initialQuestions.length >= requested ? { questions: [], incomplete: false } : await prepareObjectiveQuiz({
     lectureTitle: cfg.subject, lectureIdHint: "benchmark-private", blockId: "benchmark-private",
     lectures: [{ id: "benchmark-private", blockId: "benchmark-private", lectureTitle: cfg.subject, chunks: [{ markdown: cfg.lectureText }] }],
     objectives: cfg.objectives, atoms: cfg.atoms || [], exemplars: cfg.examples || [],
     questionCount: Math.max(0, requested - initialQuestions.length), plannedCount: requested, initialQuestions, avoidQuestions: initialQuestions, avoidStems: initialQuestions.map(q => q.stem), generationVersion: "v2", difficulty: cfg.difficulty || "medium",
     evidenceModel: {}, clinicalCorrelateLibrary: cfg.clinicalCorrelateLibrary || [],
-  }, { callAIJSON, reviewAIJSON: callAIJSON, repairAIJSON: callAIJSON, maxPreparationMs: budget, prepareConcurrency: Number(option("--concurrency", "1")),
-    ...(process.argv.includes("--production-policy") ? { prepareBatchSize: 3, reviewBatchSize: 3, prepareSpareCandidates: 2, continueAfterEmptyRounds: true, focusedRefill: true, skipRepair: true } : {}),
+  }, { callAIJSON, reviewAIJSON: callAIJSON, repairAIJSON: callAIJSON, maxPreparationMs: budget, maxPrepareAttempts: Number(option("--max-attempts", "1")), skipRepair: !process.argv.includes("--allow-repair"), prepareConcurrency: Number(option("--concurrency", "1")),
+    ...(process.argv.includes("--production-policy") ? { prepareBatchSize: 3, reviewBatchSize: 3, prepareSpareCandidates: 0, continueAfterEmptyRounds: true, focusedRefill: true } : {}),
   }, progress => console.log(JSON.stringify({ event: "progress", ...progress })));
 } else {
   result = reviewFile
