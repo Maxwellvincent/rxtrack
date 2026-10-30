@@ -678,7 +678,7 @@ describe("prepareObjectiveQuiz", () => {
   it("treats unverifiable claimed approvals as retryable quality failures", async () => {
     const q = { stem: "A patient's aqueduct is narrowed while cerebrospinal fluid production continues. Imaging demonstrates upstream pressure. Which ventricular change is expected?", choices: { A: "Upstream expansion", B: "Upstream collapse", C: "No change", D: "Isolated fourth ventricle expansion" }, correct: "A", objectiveIds: ["o1"] };
     const callAIJSON = vi.fn(async (_system, prompt) => prompt.startsWith("Independently audit")
-      ? { reviews: [{ index: 0, approved: true, issues: [], reasoning: { orderLevel: "second-order", connectedChain: true, singleEndpoint: true, choiceShortcut: false, allStepsRequired: true, steps: ["Locate obstruction", "Predict upstream enlargement"], sourceQuotes: ["A fabricated quotation absent from the lecture"] } }] }
+      ? { reviews: [{ index: 0, approved: true, objectiveAligned: true, issues: [], reasoning: { orderLevel: "second-order", connectedChain: true, singleEndpoint: true, choiceShortcut: false, allStepsRequired: true, steps: ["Locate obstruction", "Predict upstream enlargement"], sourceQuotes: ["A fabricated quotation absent from the lecture"] } }] }
       : { questions: [q] });
     const result = await prepareObjectiveQuiz({ objectives: [{ id: "o1", objective: "Analyze CSF obstruction" }], atoms: [{ term: "Aqueduct", content: "Aqueduct obstruction prevents passage into the fourth ventricle." }], questionCount: 3, generationVersion: "v2" }, { callAIJSON, maxPrepareAttempts: 2 });
     const drafts = callAIJSON.mock.calls.map(c => c[1]).filter(p => !p.startsWith("Independently audit"));

@@ -163,3 +163,24 @@ A mixed-source regression includes many homework examples before a relevant ESof
 IMCQ and in-class item and checks that all four types reach the plan. Prior NB31
 and the separately authorized NB28 live fixtures contain only Week12 homework;
 those runs cannot establish mixed-source live performance.
+
+
+## Objective ownership validation
+
+Writing and review context now includes the lecture's explicit objective inventory,
+including unallocated neighboring objectives, labeled as scope rather than factual
+evidence. Reviewers are asked to quote the assigned objective clause and describe
+the actual tested relationship. Shared lecture vocabulary or a relevant template
+does not establish ownership. This addresses drift between adjacent tasks such as
+receptor characteristics and fiber classification without inventing a remapping.
+
+For objective-linked strict review, an approved question requires an explicit
+positive alignment verdict. A negative verdict is blocking even when other checks
+pass. When a structured clause claim is returned, its ID must match the question,
+its clause must occur in the assigned objective, and its tested relationship must
+be nonempty. Accepted structured claims are stored as bounded review metadata.
+This validates the claim's reference, not its semantic truth; legacy reviewers may
+still provide only the explicit positive verdict. Historical questions, answers,
+counts and objective links are not rewritten. Tests cover negative/missing verdicts,
+neighboring-clause errors and source inventory inclusion. No fresh live model
+validation was performed for this change.

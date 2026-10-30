@@ -514,6 +514,16 @@ describe("independent generated-question audit", () => {
     topic: "insulin deficiency",
   }];
 
+  it("withholds an otherwise valid question when the reviewer explicitly rejects its objective ownership", async () => {
+    const quote = questions[0].explanation;
+    const result = await auditGeneratedQuestions(questions, { requireReasoningAudit: true, objectives: [{ id: "o1", objective: "Explain insulin deficiency" }], atoms: [{ term: "Insulin", content: quote }] }, {
+      skipRepair: true,
+      reviewAIJSON: async () => ({ reviews: [{ index: 0, approved: true, objectiveAligned: false, issues: [], reasoning: { orderLevel: "first-order", steps: ["Interpret the supplied finding"], sourceQuotes: [quote], allStepsRequired: true, connectedChain: true, singleEndpoint: true, choiceShortcut: false } }] }),
+    });
+    expect(result.questions).toEqual([]);
+    expect(result.rejections[0].issues).toContain("objective_mismatch");
+  });
+
   it("provides curriculum evidence and requires a separate explicit verdict", () => {
     const prompt = buildQuestionAuditPrompt(questions, {
       objectives: [{ id: "o1", objective: "Explain insulin deficiency" }],
@@ -897,7 +907,7 @@ describe("separate reasoning review gate", () => {
     expect(result.questions).toEqual([]);
   });
   it("batches a capable reviewer while withholding missing item verdicts", async () => {
-    const review = { index: 0, approved: true, issues: [], reasoning: {
+    const review = { index: 0, approved: true, objectiveAligned: true, issues: [], reasoning: {
       orderLevel: "third-order", steps: ["Localize obstruction", "Trace the fluid path", "Predict upstream expansion"], sourceQuotes: cfg.atoms.map(a => a.content), allStepsRequired: true, connectedChain: true, singleEndpoint: true, choiceShortcut: false,
     } };
     const reviewer = vi.fn().mockResolvedValue({ reviews: [review] });
@@ -911,15 +921,15 @@ describe("separate reasoning review gate", () => {
   it("rechecks a partially grounded quotation once without accepting paraphrased evidence", async () => {
     const reasoning = { orderLevel: "third-order", steps: ["Localize obstruction", "Trace fluid passage", "Predict upstream expansion"], sourceQuotes: cfg.atoms.map(a => a.content), allStepsRequired: true, connectedChain: true, singleEndpoint: true, choiceShortcut: false };
     const reviewer = vi.fn()
-      .mockResolvedValueOnce({ reviews: [{ index: 0, approved: true, issues: [], reasoning: { ...reasoning, sourceQuotes: [cfg.atoms[0].content, "Continued production makes the ventricles bigger"] } }] })
-      .mockResolvedValueOnce({ reviews: [{ index: 0, approved: true, issues: [], reasoning }] });
+      .mockResolvedValueOnce({ reviews: [{ index: 0, approved: true, objectiveAligned: true, issues: [], reasoning: { ...reasoning, sourceQuotes: [cfg.atoms[0].content, "Continued production makes the ventricles bigger"] } }] })
+      .mockResolvedValueOnce({ reviews: [{ index: 0, approved: true, objectiveAligned: true, issues: [], reasoning }] });
     const result = await auditGeneratedQuestions([question], { ...cfg, promptProfile: "compact" }, { reviewAIJSON: reviewer, skipRepair: true });
     expect(reviewer).toHaveBeenCalledTimes(2);
     expect(result.questions[0]?.reasoningAudit.sourceQuotes).toEqual(cfg.atoms.map(a => a.content));
   });
 
   it("attaches the separately verified chain and actual order to accepted questions", async () => {
-    const result = await auditGeneratedQuestions([question], cfg, { reviewAIJSON: async () => ({ reviews: [{ index: 0, approved: true, issues: [], reasoning: {
+    const result = await auditGeneratedQuestions([question], cfg, { reviewAIJSON: async () => ({ reviews: [{ index: 0, approved: true, objectiveAligned: true, issues: [], reasoning: {
       orderLevel: "third-order", steps: ["Localize aqueduct obstruction", "Trace the upstream CSF route", "Predict expansion with continuing secretion"],
       sourceQuotes: cfg.atoms.map(atom => atom.content), allStepsRequired: true, connectedChain: true, singleEndpoint: true, choiceShortcut: false,
     } }] }), skipRepair: true });
