@@ -4,7 +4,7 @@ import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { generateExamQuestions, alreadyUsed } from "./generation.js";
 const generate = vi.hoisted(() => vi.fn());
 vi.mock("../objectives/quizLaunch.js", () => ({ startObjectiveQuiz: (...a) => generate(...a), readClinicalAnalysesForBlock: () => [], readExemplarsForBlock: () => [], resolveDefaultDifficulty: () => "medium" }));
-const q = stem => ({ generationVersion: "v2", orderLevel: "second-order", qualityAudit: { status: "approved", reviewPolicy: QUESTION_REUSE_REVIEW_POLICY, reviewedAt: "2026-10-31T12:00:00Z" }, reasoningAudit: { status: "verified", version: 2, reviewPolicy: REASONING_REVIEW_POLICY, orderLevel: "second-order", connectedChain: true, singleEndpoint: true, choiceShortcut: false }, stem, choices: { A: "yes", B: "no" }, correct: "A" });
+const q = stem => ({ generationVersion: "v2", orderLevel: "second-order", qualityAudit: { discrimination: { closestAlternative: "B", stemClue: stem, whyAlternativeFails: "The alternative contradicts the supplied finding.", keyUniquelySupported: true, alternativeAlsoCorrect: false }, status: "approved", reviewPolicy: QUESTION_REUSE_REVIEW_POLICY, reviewedAt: "2026-10-31T12:00:00Z" }, reasoningAudit: { status: "verified", version: 2, reviewPolicy: REASONING_REVIEW_POLICY, orderLevel: "second-order", connectedChain: true, singleEndpoint: true, choiceShortcut: false }, stem, choices: { A: "yes", B: "no" }, correct: "A" });
 const args = { allocation: { l1: 1, l2: 1, l3: 1 }, lecturesById: Object.fromEntries(["l1", "l2", "l3"].map(id => [id, { id, fullText: "Supplied lecture factual evidence. ".repeat(20) }])), objectivesByLecture: {}, atomsByLecture: {}, blockId: "b", lectures: [], userId: null, generationId: "g" };
 const pool = () => ({ history: vi.fn(async () => []), ready: vi.fn(async () => []), save: vi.fn(async question => ({ ...question, poolId: question.questionId })) });
 beforeEach(() => { generate.mockReset(); });
@@ -27,8 +27,8 @@ describe("parallel generation with durable reuse", () => {
   });
   it("uses prepared questions without AI and persists newly generated questions", async () => {
     const storage = pool();
-    storage.ready.mockResolvedValueOnce([{ ...q("Stored"), poolId: "saved", lectureId: "l1" }]);
-    generate.mockResolvedValue({ questions: [q("Fresh")] });
+    storage.ready.mockResolvedValueOnce([{ ...q("Stored finding"), poolId: "saved", lectureId: "l1" }]);
+    generate.mockResolvedValue({ questions: [q("Fresh finding")] });
     const result = await generateExamQuestions({ ...args, allocation: { l1: 1, l2: 1 } }, { pool: storage });
     expect(generate).toHaveBeenCalledTimes(1);
     expect(storage.save).toHaveBeenCalledTimes(1);
@@ -48,7 +48,7 @@ describe("parallel generation with durable reuse", () => {
   });
   it("does not award a sole objective to an untagged saved question without reviewed ownership", async () => {
     const storage = pool();
-    const original = { ...q("Stored"), poolId: "saved", lectureId: "l1" };
+    const original = { ...q("Stored finding"), poolId: "saved", lectureId: "l1" };
     storage.ready.mockResolvedValueOnce([original]);
     const result = await generateExamQuestions({ ...args, allocation: { l1: 1 }, objectivesByLecture: { l1: [{ id: "obj1" }] } }, { pool: storage, savedOnly: true });
     expect(result.questions).toEqual([]);

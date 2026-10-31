@@ -2,9 +2,9 @@ import { expect, it } from "vitest";
 import { hasCurrentReasoningAudit, REASONING_REVIEW_POLICY } from "./questionOrder.js";
 import { hasReusableQuestionReview, isReusableForObjective, QUESTION_REUSE_REVIEW_POLICY } from "./questionReuse.js";
 
-const current = () => ({ generationVersion: "v2", objectiveIds: ["o"], orderLevel: "second-order",
+const current = () => ({ stem: "The response persists after upstream input is blocked.", choices: { A: "Local response", B: "Upstream response" }, correct: "A", generationVersion: "v2", objectiveIds: ["o"], orderLevel: "second-order",
   reasoningAudit: { status: "verified", version: 2, reviewPolicy: REASONING_REVIEW_POLICY, orderLevel: "second-order", connectedChain: true, singleEndpoint: true, choiceShortcut: false },
-  qualityAudit: { status: "approved", reviewPolicy: QUESTION_REUSE_REVIEW_POLICY, reviewedAt: "2026-10-31T12:00:00Z", semanticObjectiveAlignment: true, objectiveId: "o" },
+  qualityAudit: { discrimination: { closestAlternative: "B", stemClue: "persists after upstream input is blocked", whyAlternativeFails: "The response does not depend on the blocked input.", keyUniquelySupported: true, alternativeAlsoCorrect: false }, status: "approved", reviewPolicy: QUESTION_REUSE_REVIEW_POLICY, reviewedAt: "2026-10-31T12:00:00Z", semanticObjectiveAlignment: true, objectiveId: "o" },
 });
 
 it("separates new-set eligibility from historical reasoning evidence without mutating a record", () => {

@@ -1,6 +1,7 @@
+import { verifiedDiscrimination } from "./questionDiscrimination.js";
 import { hasCurrentReasoningAudit, normalizeQuestionOrder, REASONING_REVIEW_POLICY } from "./questionOrder.js";
 
-export const QUESTION_REUSE_REVIEW_POLICY = "2026-10-31-reuse-eligibility";
+export const QUESTION_REUSE_REVIEW_POLICY = "2026-10-31-discriminator-review";
 
 /** Eligibility for a NEW generated set, never a rewrite of historical evidence. */
 export function hasReusableQuestionReview(question = {}) {
@@ -10,6 +11,7 @@ export function hasReusableQuestionReview(question = {}) {
   if (!normalizeQuestionOrder(question.orderLevel) || normalizeQuestionOrder(question.orderLevel) !== normalizeQuestionOrder(question.reasoningAudit.orderLevel)) return false;
   if (!quality || quality.reviewPolicy !== QUESTION_REUSE_REVIEW_POLICY
     || !["approved", "approved-with-notes"].includes(quality.status) || !Number.isFinite(Date.parse(quality.reviewedAt))) return false;
+  if (!verifiedDiscrimination(quality.discrimination, question)) return false;
   const ids = question.objectiveIds || [];
   return ids.length === 0 || (ids.length === 1 && quality.semanticObjectiveAlignment === true && quality.objectiveId === ids[0]);
 }

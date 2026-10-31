@@ -1168,3 +1168,16 @@ it("keeps relevant ESoft, homework, IMCQ and in-class templates together despite
   expect(buildSchoolTemplatePlan({ objectives: [objective], examples: [unrelated] })[0].templateId).toBeNull();
   expect(exemplarSourceTier({ sourceFile: "In Class Questions.pdf" })).toBe("clicker");
 });
+
+it('requires a final-stem discriminator on strict launches and retains the reviewed distinction',async()=>{
+ const question={stem:'A patient has weakness after an upstream input is blocked. The local response persists despite this interruption. Which mechanism explains the preserved response?',choices:{A:'Local response mechanism',B:'Upstream input mechanism',C:'Absent response',D:'Unrelated response'},correct:'A',explanation:'The preserved response is independent of the blocked upstream input.'};
+ const cfg={requireDiscriminationAudit:true};
+ const review={index:0,approved:true,issues:[]};
+ const withheld=await auditGeneratedQuestions([question],cfg,{skipRepair:true,reviewAIJSON:async()=>({reviews:[review]})});
+ expect(withheld.questions).toEqual([]);
+ expect(withheld.rejections[0].issues).toContain('unverified_discriminator');
+ const discrimination={closestAlternative:'B',stemClue:'The local response persists despite this interruption.',whyAlternativeFails:'The upstream input is blocked while the local response persists.',keyUniquelySupported:true,alternativeAlsoCorrect:false};
+ const accepted=await auditGeneratedQuestions([question],cfg,{skipRepair:true,reviewAIJSON:async()=>({reviews:[{...review,discrimination}]})});
+ expect(accepted.questions).toHaveLength(1);
+ expect(accepted.questions[0].qualityAudit.discrimination).toEqual(discrimination);
+});

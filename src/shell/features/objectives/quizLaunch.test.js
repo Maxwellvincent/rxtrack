@@ -879,6 +879,7 @@ describe("live evidence allocation", () => {
       } } });
     expect(result.config.objectives.map(objective => objective.id)).toEqual(["gap"]);
     expect(result.config.requireReasoningAudit).toBe(true);
+    expect(result.config.requireDiscriminationAudit).toBe(true);
     expect(result.config.orderBlueprint.targets["first-order"]).toBe(0);
   });
 });

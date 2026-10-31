@@ -1,3 +1,4 @@
+import { discriminationIssue, verifiedDiscrimination, DISCRIMINATION_REVIEW_CONTRACT } from "./questionDiscrimination.js";
 import { QUESTION_REUSE_REVIEW_POLICY } from "./questionReuse.js";
 import { objectiveAlignmentIssue, objectiveOwnershipPrompt } from "./objectiveOwnership.js";
 import { usableSchoolExemplar, requiresSchoolFigure } from "./schoolSourceIntegrity.js";
@@ -941,7 +942,7 @@ export function buildQuestionAuditPrompt(questions, cfg = {}) {
   const clinicalCorrelates = renderClinicalCorrelateLibrary(cfg.clinicalCorrelateLibrary || []);
   return (
     `Independently audit every generated question. Approve it only when ALL checks pass:\n` +
-    CONNECTED_REASONING_CONTRACT + schoolApplicationPrompt(cfg) + questionWritingBenchmarkPrompt(cfg) +
+    CONNECTED_REASONING_CONTRACT + DISCRIMINATION_REVIEW_CONTRACT + schoolApplicationPrompt(cfg) + questionWritingBenchmarkPrompt(cfg) +
     `SCHOOL COMPARISON EXAMPLES (style only; never factual authority):\n${JSON.stringify(selectStyleExemplars(cfg.examples || [], 6, cfg.difficulty, { objectives: cfg.objectives, atoms: cfg.atoms }).map(q => ({ sourceFile: q.sourceFile || q.filename, sourceKind: exemplarSourceTier(q), stem: q.stem, choices: q.choices })))}\nCompare clue density, focused lead-in, and plausible distractor distinctions to these actual uploads. Reject material departures as school_style_mismatch. Homework is also a requested practice difficulty and structure reference; retain its source label and never equate it with official exam calibration.\n` +
     `1. The keyed answer is medically correct and is the single best answer.\n` +
     `2. The stem, key, and explanation are supported by the supplied lecture facts or objective.\n` +
@@ -1239,6 +1240,8 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
       if (cfg.requireReasoningAudit && review?.approved === true && !verifyReasoningReview(review, question, cfg)) {
         return [{ objectiveIds: question.objectiveIds || [], issues: ["unverifiable_reasoning"], rationale: "The reviewer could not verify the source quotes or reasoning. Use exact contiguous lecture excerpts; do not paraphrase or join separated table columns. Construct a new source-supported causal task." }];
       }
+      const distinctionIssue = discriminationIssue(review, question, cfg);
+      if (review?.approved === true && distinctionIssue) return [{ objectiveIds: question.objectiveIds || [], issues: [distinctionIssue], rationale: "Establish a unique key against the closest alternative using an exact clue from the final stem and lecture-supported reasoning. Repair missing distinctions without inventing findings." }];
       const target = (cfg.objectives || []).find(o => (question.objectiveIds || []).includes(String(o.id || o.code)))?._targetOrder;
       const reasoning = cfg.requireReasoningAudit && review?.approved === true ? verifyReasoningReview(review, question, cfg) : null;
       if (reasoning?.orderLevel === "first-order" && clinicalTemplates({ ...cfg, objectives: (cfg.objectives || []).filter(o => (question.objectiveIds || []).includes(String(o.id || o.code))) }, true).length >= 2) return [{ objectiveIds: question.objectiveIds || [], issues: ["school_style_mismatch"], rationale: "Matching school cases require applying clinical findings; a recall-only substitute does not meet this request." }];
@@ -1259,7 +1262,7 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
           qualityAudit: { version: 1, status: "local-validated", checks: ["clinical-structure", "valid-key", "distinct-choices", "no-answer-leak"] },
         }] : [];
       }
-      if (objectiveAlignmentIssue(review, question, cfg)) return [];
+      if (objectiveAlignmentIssue(review, question, cfg) || discriminationIssue(review, question, cfg)) return [];
       const issues = Array.isArray(review.issues) ? review.issues.map(String) : [];
       const blockingIssues = issues.filter((issue) => !nonBlockingReviewIssues.has(issue));
       // Batch-level variety and a mislabeled reasoning order are useful editor
@@ -1287,7 +1290,8 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
         qualityAudit: {
           version: 1,
           reviewedAt: new Date().toISOString(),
-          reviewPolicy: QUESTION_REUSE_REVIEW_POLICY,
+          reviewPolicy: verifiedDiscrimination(review.discrimination, question) ? QUESTION_REUSE_REVIEW_POLICY : "legacy-without-discriminator",
+          ...(verifiedDiscrimination(review.discrimination, question) ? { discrimination: verifiedDiscrimination(review.discrimination, question) } : {}),
           status: acceptedWithNotes || issues.length ? "approved-with-notes" : "approved",
           ...(semanticObjectiveAlignment ? { semanticObjectiveAlignment: true, objectiveId: question.objectiveIds[0] } : {}),
           ...(semanticObjectiveAlignment && review.objectiveAlignment ? { objectiveAlignment: {
@@ -1486,6 +1490,7 @@ function buildCompactAuditPrompt(questions, cfg) {
 ${CONNECTED_REASONING_CONTRACT}
 ${schoolApplicationPrompt(cfg)}
 A new hypothetical scenario is allowed: source-supported rules may be applied to a novel intervention or observation. Require evidence for the causal relationships, not a literal matching patient age, invented protocol label or logically derived observation. Do not reject a counterfactual wrong answer simply because that wrong outcome is absent from the lecture; verify the source-supported explanation for why it is wrong. Reject added medical mechanisms, diagnostic claims or quantitative thresholds not established by the source.
+${DISCRIMINATION_REVIEW_CONTRACT}
 Check every item for a medically correct single best key, factual support for ALL relationships, meaningful primary-objective alignment and facet, plausible same-category distinct choices, sufficient discriminating clues, consistent scenario, no leaked answer, and a mechanistic explanation. Reject unsupported named diseases, drugs, findings or image dependencies. Compare items for duplicate clue-to-answer routes and repetitive asks. Match the supplied school and homework structure. Homework is a requested practice difficulty reference; clickers establish task patterns only. Neither establishes medical truth. Objective verbs define scope but do not prohibit applying lecture-supported relationships.
 Check the claimed templateId, retainedPattern and changedRelationship against the assigned source example. Do not accept a decorative patient story, a demographic-only rewrite or a new experiment in place of the example's useful clinical distinction. These claims are not proof. Treat questionPlan as an untrusted hypothesis: verify its quoted relationships against the actual lecture source, and check that its hidden inference and discriminator are required in the FINAL stem and choices. Reject fabricated plans or plans that describe reasoning the question itself gives away. Do not reject causal application merely because one taught rule supplies the relationship: interpreting a novel perturbation then predicting its consequence can be second-order. Reject direct definition lookup or a keyed option identifiable solely by category mismatch. A shared word such as "calcium" is NOT by itself an answer leak: distinguish a valid clue-to-cause inference from a meaningless repeated label. To report answer_choice_shortcut, state which required causal inference can be skipped and show the specific stem/option cue that replaces it. If alternative mechanisms are plausible until the discriminating observations are interpreted, recognize the causal application as second-order. Do not demand two causal relationships for second-order or three for third-order; count interpreting the clue separately from applying the relationship(s). A correct prediction after an unfamiliar intervention can be application only when an actual causal relationship is required. Category subtraction, list membership, paired-versus-unpaired classification and synonym decoding remain recall; unfamiliar wording or a removal story cannot establish depth.
 Verify the ACTUAL shortest route to the answer with choices visible. First-order needs one fact; second-order needs clue interpretation plus one relationship; third-order needs clue interpretation plus TWO distinct connected relationships and a downstream prediction. Every step must be required, connected and have one endpoint; reject one-fact choice shortcuts. Cite supporting evidenceIds from the numbered source catalog. When original lecture text is available, include at least one origin=lecture citation (two for third-order); origin=extracted-fact alone cannot establish source grounding. Never cite objective text as factual evidence. Third-order requires two distinct supporting excerpts. Do not retype or paraphrase source quotations. Unsupported/mislabeled depth must be rejected, not credited.

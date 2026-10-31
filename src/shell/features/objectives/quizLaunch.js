@@ -389,6 +389,7 @@ export function buildQuizConfig({
       clinicalCorrelateLibrary: recurringClinicalCorrelates,
       orderBlueprint: buildOrderBlueprint({ objectives: selected, count }),
       requireReasoningAudit: true,
+      requireDiscriminationAudit: true,
       focusNotes: [
         String(focusNotes || "").trim(),
         learningFocus({objectives:selected,evidence:learnerModel,blockId,lectureId:lecture?.id || lectureIdHint,tutorProfile:getLearnerProfile(userId)}),
