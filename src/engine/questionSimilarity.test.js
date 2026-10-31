@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { areNearDuplicateQuestions, questionSimilarity, uniqueQuestions, exceedsAnswerConcentration, repeatedSuccessfulAnswerGuidance } from "./questionSimilarity.js";
+import { areNearDuplicateQuestions, questionSimilarity, uniqueQuestions, exceedsAnswerConcentration, repeatedSuccessfulAnswerGuidance, objectiveFacetHistoryGuidance } from "./questionSimilarity.js";
 
 const first = {
   stem: "A 45-year-old male presents with intermittent abdominal pain. Examination shows tenderness in the upper mid-abdomen. Which of the following best describes the location of the peritoneum in this patient?",
@@ -57,4 +57,18 @@ it('caps repeated answer concepts independent of option letter without banning t
  expect(exceedsAnswerConcentration(same,[q,q,q],15)).toBe(true);
  expect(exceedsAnswerConcentration({correct:'A',choices:{A:'Ansa cervicalis'}},[q,q,q],15)).toBe(false);
  expect(repeatedSuccessfulAnswerGuidance([{...q,lastCorrect:true,timesCorrect:1},{...same,lastCorrect:true,timesCorrect:1}])).toContain('spinal accessory nerve');
+});
+
+it('recognizes repeated success on a single question without counting duplicate history rows twice',()=>{
+ const q={id:'same',stem:'Known route',correct:'A',choices:{A:'Accessory nerve'},lastCorrect:true,timesCorrect:3};
+ expect(repeatedSuccessfulAnswerGuidance([q,q])).toContain('"correctAttempts":3');
+ expect(repeatedSuccessfulAnswerGuidance([{...q,lastCorrect:false}])).toBe('');
+});
+it('provides only observed facets in the allocated objective scope, without inventing coverage',()=>{
+ const q={objectiveIds:['o'],objectiveFacet:'Nerve course',timesAnswered:1,lastCorrect:true,correct:'A',choices:{A:'Accessory nerve'}};
+ const history=[q,{...q,objectiveIds:['other'],objectiveFacet:'Other lecture'},{...q,timesAnswered:0,lastCorrect:undefined,objectiveFacet:'Prepared but unanswered'}];
+ const text=objectiveFacetHistoryGuidance(history,[{id:'o'}]);
+ expect(text).toContain('Nerve course');expect(text).not.toContain('Other lecture');expect(text).not.toContain('Prepared but unanswered');
+ expect(text).toContain('not medical authority or complete coverage');
+ expect(objectiveFacetHistoryGuidance(history,[{id:'absent'}])).toBe('');
 });
