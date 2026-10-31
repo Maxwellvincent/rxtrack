@@ -5,7 +5,7 @@ it('samples across lectures and source roles deterministically without mutating 
  const input={generated:{a:{questions:Array.from({length:20},(_,i)=>q(`a${i}`))},b:{questions:[q('b1'),q('b2')]}},banks:{'Homework Week12.pdf':[q('h')],'ESoft.pdf':[q('e')],'IMCQ.pdf':[q('i')]},generatedLimit:4,now:0};
  const before=JSON.stringify(input),a=buildQuestionAuditBaseline(input),b=buildQuestionAuditBaseline(input);
  expect(a).toEqual(b);expect(JSON.stringify(input)).toBe(before);
- expect(a.sampled).toEqual({generated:4,homework:1,examsoft:1,imcq:1});
+ expect(a.sampled).toEqual({generated:4,homework:1,examsoft:1,imcq:1,clicker:0});
  expect(a.samples.filter(x=>x.lectureId==='b')).toHaveLength(2);
  expect(a.samples.every(x=>x.review.verdict===null)).toBe(true);
 });
@@ -27,4 +27,23 @@ it('does not call a continuation-only original an eligible reference sample',()=
  const packet=buildQuestionAuditBaseline({banks:{'IMCQ.pdf':[q('fragment',{stem:'that is being ablated, which structure is involved?'}),q('complete')]}});
  expect(packet.population).toMatchObject({originals:2,eligibleOriginals:1,excludedOriginals:1});
  expect(packet.sampled.imcq).toBe(1);
+});
+
+
+it('includes in-class examples without inventing keys or claiming unseen exposure',()=>{
+ const packet=buildQuestionAuditBaseline({banks:{'In Class Questions.pdf':[q('keyed'),q('unkeyed',{correct:null}),q('held',{sourceKeyReviewStatus:'stem-mismatch'})]}});
+ expect(packet.version).toBe(2);
+ expect(packet.sampled.clicker).toBe(2);
+ const item=packet.samples.find(row=>row.originalId==='unkeyed');
+ expect(item).toMatchObject({role:'clicker',correct:null,answerKeyAvailable:false,referenceUse:'construction-only',exposureToGeneration:'unknown'});
+ expect(item.review.verdict).toBeNull();
+ expect(packet.samples.some(row=>row.originalId==='held')).toBe(false);
+});
+
+it('exports only allowlisted review and template provenance metadata',()=>{
+ const packet=buildQuestionAuditBaseline({generated:{a:{questions:[q('new',{qualityAudit:{reviewPolicy:'current',objectiveId:'o',objectiveAlignment:{objectiveClause:'Apply the supplied pathway'}},generationEvidence:{templateReferences:[{templateId:'t',sourceKind:'examsoft',sourceFile:'School.pdf',userId:'hidden-user',token:'hidden-token'}]}})]}}});
+ expect(packet.samples[0]).toMatchObject({qualityReviewPolicy:'current',reviewedObjectiveId:'o',reviewedObjectiveClause:'Apply the supplied pathway'});
+ expect(packet.samples[0].suppliedTemplateReferences[0].sourceKind).toBe('examsoft');
+ expect(JSON.stringify(packet)).not.toContain('hidden-user');
+ expect(JSON.stringify(packet)).not.toContain('hidden-token');
 });

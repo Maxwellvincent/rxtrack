@@ -1,7 +1,7 @@
 import { usableSchoolExemplar } from "./schoolSourceIntegrity.js";
 import { buildStyleFingerprint, exemplarSourceTier } from './mcq.js';
 
-export const BASELINE_VERSION = 1;
+export const BASELINE_VERSION = 2;
 const stableKey = q => JSON.stringify([q.sourceFile || '', q.lectureId || '', q.id || q.questionId || '', q.stem || '']);
 // Reproducible spread, not newest-only or highest-scoring selection.
 function rank(value) {
@@ -29,6 +29,9 @@ function reviewItem(q,role) {
  // Explicit allowlist: no account IDs, signed URLs, tokens, prompts, or answer history.
  return {
   auditId:`${role}:${rank(stableKey(q)).toString(36)}`, role,
+  exposureToGeneration:role === 'generated' ? 'already-generated' : 'unknown',
+  referenceUse:role === 'clicker' && !q.correct ? 'construction-only' : 'construction-and-key-review',
+  answerKeyAvailable:!!q.correct,
   originalId:q.id || q.questionId || null, lectureId:q.lectureId || null,
   sourceFile:q.sourceFile || null, sourceSection:q.sourceSection || null,
   sourcePage:q.sourcePage || null, sourceQuestionNumber:q.sourceQuestionNumber || q.num || null,
@@ -39,9 +42,13 @@ function reviewItem(q,role) {
   figureRequired:!!(q.hasImage || q.imageQuestion || q.imageDependent),
   figureIncluded:false, generationVersion:q.generationVersion || null,
   reviewedAt:q.qualityAudit?.reviewedAt || null,
+  qualityReviewPolicy:q.qualityAudit?.reviewPolicy || null,
+  reviewedObjectiveId:q.qualityAudit?.objectiveId || null,
+  reviewedObjectiveClause:q.qualityAudit?.objectiveAlignment?.objectiveClause || null,
+  suppliedTemplateReferences:(q.generationEvidence?.templateReferences || []).map(ref=>({templateId:ref.templateId || null,objectiveId:ref.objectiveId || null,sourceKind:ref.sourceKind || null,sourceFile:ref.sourceFile || null,sourceQuestionId:ref.sourceQuestionId || null})),
   claimedOrder:q.orderLevel || null,
   reasoningAudit:q.reasoningAudit ? {status:q.reasoningAudit.status,version:q.reasoningAudit.version,reviewPolicy:q.reasoningAudit.reviewPolicy || null,sourceBasis:q.reasoningAudit.sourceBasis || null,orderLevel:q.reasoningAudit.orderLevel,steps:q.reasoningAudit.steps || [],sourceQuotes:q.reasoningAudit.sourceQuotes || []} : null,
-  review:{verdict:null,actualReasoning:null,patientCluesSufficient:null,sourceSupported:null,singleBestAnswer:null,schoolWordingFit:null,closestDistractorPlausible:null,issueCodes:[],notes:''},
+  review:{verdict:null,actualReasoning:null,patientCluesSufficient:null,sourceSupported:null,singleBestAnswer:null,schoolWordingFit:null,closestDistractorPlausible:null,figureChecked:null,issueCodes:[],notes:''},
  };
 }
 /** Local review packet only. This neither trains a model nor certifies an item. */
@@ -51,13 +58,13 @@ export function buildQuestionAuditBaseline({generated={},banks={},generatedLimit
  const generatedRows=unique(Object.entries(generated).flatMap(([lectureId,entry])=>(entry?.questions || []).filter(usable).map(q=>({...q,lectureId:q.lectureId || lectureId}))));
  const originals=unique(Object.entries(banks).flatMap(([filename,qs])=>(Array.isArray(qs)?qs:[]).filter(usable).map(q=>({...q,sourceFile:q.sourceFile || filename}))));
  const limits={generated:Math.min(100,Math.max(0,Math.floor(Number(generatedLimit)||0))),source:Math.min(30,Math.max(0,Math.floor(Number(sourceLimit)||0)))};
- const eligible=originals.filter(usableSchoolExemplar).filter(q=>q.correct && q.answerKeyVerified!==false && !q.sourceKeyReviewStatus && q.sourceRepresentation!=='answer-explanation-summary');
- const roles=['homework','examsoft','imcq'];
+ const eligible=originals.filter(usableSchoolExemplar).filter(q=>(q.correct || exemplarSourceTier(q)==='clicker') && q.answerKeyVerified!==false && !q.sourceKeyReviewStatus && q.sourceRepresentation!=='answer-explanation-summary');
+ const roles=['homework','examsoft','imcq','clicker'];
  const samples=[...balancedSample(generatedRows,limits.generated).map(q=>reviewItem(q,'generated')),
   ...roles.flatMap(role=>balancedSample(eligible.filter(q=>exemplarSourceTier(q)===role),limits.source).map(q=>reviewItem(q,role)))];
  return {version:BASELINE_VERSION,createdAt:new Date(now).toISOString(),
   purpose:'Manual quality baseline; no medical validation, training or held-out assessment implied.',
-  limitations:['Figures are referenced by source page, not embedded; review them in the original source.','Existing originals may already have been supplied to generation. These are reference samples, not an unseen holdout.','Sampling covers the currently loaded retained stores, not a complete lifetime archive.','Automated wording statistics do not measure reasoning depth or exam equivalence.'],
+  limitations:['Figures are referenced by source page, not embedded; review them in the original source.','Existing originals may already have been supplied to generation. These are reference samples, not an unseen holdout.','Unkeyed in-class examples are construction-only references; no answer key is inferred.','Sampling covers the currently loaded retained stores, not a complete lifetime archive.','Automated wording statistics do not measure reasoning depth or exam equivalence.'],
   population:{generated:generatedRows.length,originals:originals.length,eligibleOriginals:eligible.length,excludedOriginals:originals.length-eligible.length},
   sampled:Object.fromEntries(['generated',...roles].map(role=>[role,samples.filter(q=>q.role===role).length])),
   descriptiveProfiles:Object.fromEntries(['generated',...roles].map(role=>[role,buildStyleFingerprint(samples.filter(q=>q.role===role))])),samples};

@@ -10,7 +10,7 @@ function BaselineExport({userId}) {
  const error=generated.error || banks.error;
  return <details className="mb-5 rounded-lg border border-border p-4">
   <summary className="cursor-pointer font-semibold">Question quality baseline</summary>
-  <p className="mt-2 text-sm text-text-2">Download a local review sample: up to 48 saved generated questions and 12 each from homework, ESoft and IMCQ. No questions or progress are changed. Figures remain in their original sources.</p>
+  <p className="mt-2 text-sm text-text-2">Download a local review sample: up to 48 saved generated questions and 12 each from homework, ESoft, IMCQ and in-class questions. Unkeyed in-class examples are marked for wording review only. No questions or progress are changed. Figures remain in their original sources.</p>
   <button type="button" disabled={loading || !!error} onClick={()=>downloadQuestionAuditBaseline(buildQuestionAuditBaseline({generated:generated.data,banks:banks.data}))} className="mt-3 rounded border border-border px-3 py-2 text-sm disabled:opacity-40">{loading?"Loading saved questions…":"Download review sample"}</button>
   {error && <p role="alert" className="mt-2 text-sm">Saved questions could not be loaded. Retry after reconnecting; an incomplete sample was not exported.</p>}
  </details>;

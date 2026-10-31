@@ -3,7 +3,8 @@
 The owner-only More → Admin diagnostics → Question quality baseline tool downloads
 an allowlisted local packet from hydrated retained generated-question and school-bank
 stores. It samples up to 48 generated items, spread across lectures, and up to 12
-each from homework, ESoft and IMCQ. It does not write to study stores or call an AI
+each from homework, ESoft, IMCQ and in-class questions. Unkeyed in-class
+items are retained as construction-only references; their keys are not inferred. It does not write to study stores or call an AI
 provider. Contested/abbreviated originals are excluded from reference sampling;
 generated defects remain available for review. Figures must be checked in the
 original source. A local packet is not a medical approval or an unseen holdout.
@@ -204,3 +205,10 @@ for background model review. Ready counts reflect this stricter reuse eligibilit
 The UI's current-standard statement uses the same predicate. Targeted tests cover
 current versus stale policy, negative ownership, order mismatch and preserving
 untagged originals without awarding fabricated coverage.
+
+
+Baseline export version 2 includes all four source roles, unknown exposure labels,
+figure-check status and allowlisted current review/template provenance. It remains
+a retrospective reference sample, not a held-out release test. Historical version-1
+packets keep their original populations and conclusions; do not imply they included
+in-class items or current review-policy evidence.
