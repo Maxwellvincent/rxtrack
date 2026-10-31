@@ -43,3 +43,15 @@ it('includes zero and positive self-reported scores but never assumes unknown sc
  const entries=[{completedAt:10,questionCount:20,correctCount:16},{completedAt:10,questionCount:5,correctCount:0},{completedAt:10,questionCount:10},{completedAt:10,questionCount:3,correctCount:4}];
  expect(questionProgress([],[],{},entries)).toMatchObject({answered:38,manualAnswered:38,gradedAnswered:25,correct:16,accuracy:16/25});
 });
+
+it('does not collapse distinct questions sharing a timestamp and concept, or distinct retake sessions',()=>{
+ const a={ts:100,concept:'Same objective',correct:true,questionKey:'q1',sessionKey:'first'};
+ const b={...a,questionKey:'q2',correct:false};
+ expect(questionProgress([a,a,b,{...a,sessionKey:'retake'}])).toMatchObject({answered:3,correct:2,gradedAnswered:3});
+});
+it('counts valid saved picks without a usable key as volume only',()=>{
+ const s=session('unkeyed');s.questions[0].correct=null;
+ expect(questionProgress([],[s])).toMatchObject({answered:1,schoolAnswered:1,gradedAnswered:0,correct:0,accuracy:null});
+ s.questions[0].correct='Z';
+ expect(questionProgress([],[s])).toMatchObject({answered:1,gradedAnswered:0,accuracy:null});
+});

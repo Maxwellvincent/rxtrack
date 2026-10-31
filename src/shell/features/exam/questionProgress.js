@@ -9,7 +9,8 @@ export function questionProgress(studyAnswers = [], sessions = [], range = {}, m
   for (const answer of studyAnswers) {
     if (!answer || typeof answer.correct !== 'boolean' || !Number.isFinite(answer.ts) || !answer.concept) continue;
     if (!inRange(answer.ts)) continue;
-    const key = JSON.stringify([answer.ts, answer.concept]);
+    const identity = answer.eventId || answer.answerId || answer.questionKey || answer.questionId;
+    const key = identity ? JSON.stringify([identity, answer.sessionKey || answer.sessionId || null, answer.ts]) : JSON.stringify([answer.ts, answer.concept]);
     if (studySeen.has(key)) continue;
     studySeen.add(key);
     lectureAnswered++;
@@ -23,6 +24,7 @@ export function questionProgress(studyAnswers = [], sessions = [], range = {}, m
   }
   let schoolAnswered = 0;
   let examAnswered = 0;
+  let sessionGraded = 0;
   const seen = new Set();
   for (const session of sessions) {
     if (session.status && session.status !== 'submitted' && !session.isCheckpoint) continue;
@@ -39,7 +41,10 @@ export function questionProgress(studyAnswers = [], sessions = [], range = {}, m
       if (!question || value == null || !Object.hasOwn(question.choices || {}, value)) continue;
       const school = session.sourceType === 'question-bank' || question.sourceType === 'question-bank';
       if (school) schoolAnswered++; else examAnswered++;
-      if (value === question.correct) correct++;
+      if (Object.hasOwn(question.choices || {}, question.correct)) {
+        sessionGraded++;
+        if (value === question.correct) correct++;
+      }
     }
   }
   let manualAnswered = 0;
@@ -54,7 +59,7 @@ export function questionProgress(studyAnswers = [], sessions = [], range = {}, m
       }
     }
   }
-  const gradedAnswered = lectureAnswered + schoolAnswered + examAnswered + manualGraded;
+  const gradedAnswered = lectureAnswered + sessionGraded + manualGraded;
   const answered = lectureAnswered + schoolAnswered + examAnswered + manualAnswered;
   return {answered, correct, lectureAnswered, schoolAnswered, examAnswered, manualAnswered, gradedAnswered, accuracy: gradedAnswered ? correct / gradedAnswered : null};
 }
