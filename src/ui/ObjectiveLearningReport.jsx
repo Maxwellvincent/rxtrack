@@ -9,11 +9,17 @@ export function ObjectiveLearningReport({objectives=[],evidence={},records=[],on
  const rows=showSuccessful?allRows:missedRows;
  const currentPage=Math.min(page,Math.max(0,Math.ceil(rows.length/6)-1));
  const visible=rows.slice(currentPage*6,currentPage*6+6);
+ const concepts=[...new Map(missedRows.flatMap(row=>{
+  const topics=row.contrasts.map(item=>item.topic).filter(Boolean);
+  return (topics.length?topics:[row.text || row.code || "Review this objective"]).map(text=>[text.toLowerCase().replace(/[^a-z0-9]+/g," ").trim(),text]);
+ })).values()];
  const retest=shortRetestPlan(showSuccessful?objectives:objectives.filter(objective=>missedRows.some(row=>row.id===objective.id)),evidence,records);
  if(!records.length || !allRows.length)return null;
  return <section aria-label="Objective learning results" className="rounded-lg border border-border bg-bg-elevated p-4">
- <h3 className="font-bold">What this session showed</h3><p className="mt-1 text-sm text-text-2">Focus on concepts missed this session. Correct answers and longer-term readiness are tracked separately.</p>
- <p className="mt-2 text-sm">{missedRows.length ? `${missedRows.length} objectives to revisit` : "No unresolved misses in this session."}</p>
+ <h3 className="font-bold">Concepts to review</h3>
+ <p className="mt-1 text-sm text-text-2">From unresolved misses in this session.</p>
+ {concepts.length ? <ul aria-label="Review concepts" className="mt-3 grid gap-x-6 gap-y-2 sm:grid-cols-2">{concepts.map(concept=><li key={concept} className="flex gap-2 text-sm"><span aria-hidden="true">↻</span><span>{concept}</span></li>)}</ul> : <p className="mt-2 text-sm">No unresolved misses in this session.</p>}
+ <details className="mt-4 text-sm"><summary className="cursor-pointer">Previous missed questions and objective details</summary>
  <button type="button" className="mt-2 text-sm underline" onClick={()=>{setShowSuccessful(!showSuccessful);setPage(0);}}>{showSuccessful?"Show misses only":"Show all practiced objectives"}</button>
  {rows.length>6 && <div className="mt-2 flex flex-wrap items-center gap-2 text-xs"><span>Objectives {currentPage*6+1}–{currentPage*6+visible.length} of {rows.length}</span><button type="button" disabled={currentPage===0} onClick={()=>setPage(currentPage-1)} className="rounded border border-border p-2 disabled:opacity-40">Previous six objectives</button><button type="button" disabled={(currentPage+1)*6>=rows.length} onClick={()=>setPage(currentPage+1)} className="rounded border border-border p-2 disabled:opacity-40">Next six objectives</button></div>}
  <ul className="mt-3 space-y-3">{visible.map(row=><li key={row.id} className="rounded border border-border p-3">
@@ -31,6 +37,7 @@ export function ObjectiveLearningReport({objectives=[],evidence={},records=[],on
  {row.sourceCue && <details className="mt-2 text-xs"><summary className="cursor-pointer">Supporting source excerpt</summary><p className="mt-1">{row.sourceCue}</p></details>}
  </details>
  </li>)}</ul>
+ </details>
  <div className="mt-3 flex flex-wrap gap-2">
  {onReviewNotes && <button type="button" onClick={onReviewNotes} className="rounded border border-border px-3 py-2 text-sm">Review or consolidate notes →</button>}
  {retest.count>0 && onRetest && <button type="button" disabled={busy} onClick={()=>onRetest(retest)} className="rounded bg-accent px-3 py-2 text-sm font-semibold text-white disabled:opacity-40">Fresh {retest.count}-question targeted retest →</button>}

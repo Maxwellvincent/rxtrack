@@ -27,6 +27,7 @@ it("shows only missed objectives initially and keeps complete question detail be
  expect(host.textContent).toContain('Contrast motor pathways');
  expect(host.textContent).toContain('UMN versus LMN');
  expect(host.textContent).not.toContain('Recall cortical outputs');
+ const concepts=host.querySelector('[aria-label="Review concepts"]');expect(concepts.textContent).toContain('UMN versus LMN');expect(concepts.textContent).not.toContain('Contrast motor pathways');
  const detail=host.querySelector('details');expect(detail.open).toBe(false);
  expect(detail.textContent).toContain('A patient has weakness. Which neuron?');
  expect(detail.textContent).toContain('B. Lower motor neuron');
