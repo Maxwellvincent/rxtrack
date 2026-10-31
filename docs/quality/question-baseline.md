@@ -184,3 +184,23 @@ still provide only the explicit positive verdict. Historical questions, answers,
 counts and objective links are not rewritten. Tests cover negative/missing verdicts,
 neighboring-clause errors and source inventory inclusion. No fresh live model
 validation was performed for this change.
+
+
+## New-set reuse versus historical evidence
+
+A separate questionReuse eligibility check now guards fresh lecture reserves,
+offline fallback and quality-enforced exam caches. It requires V2, current source
+reasoning policy, a matching actual order, current quality-review policy and time,
+and explicit reviewed ownership for an objective-linked item. School calibration
+cannot lower an assigned depth floor. Offline fallback uses the already allocated
+reserve rather than a broader unreviewed pool. Untagged saved exam items cannot
+receive a sole objective merely because only one target exists after resolution.
+
+Older records remain stored and saved-session continuation remains available.
+The historical reasoning-evidence predicate is unchanged; no old attempts,
+mastery counters or source links are rewritten. Questions lacking the new quality
+stamp need a fresh review before NEW-set reuse; none are deleted or silently sent
+for background model review. Ready counts reflect this stricter reuse eligibility.
+The UI's current-standard statement uses the same predicate. Targeted tests cover
+current versus stale policy, negative ownership, order mismatch and preserving
+untagged originals without awarding fabricated coverage.

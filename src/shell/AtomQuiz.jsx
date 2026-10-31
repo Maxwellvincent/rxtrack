@@ -1,3 +1,4 @@
+import { hasReusableQuestionReview } from "../engine/questionReuse.js";
 import { questionLearningContext } from "../engine/learningLoop.js";
 import { LearningGapNote } from "../ui/LearningGapNote.jsx";
 import * as questionRatingsStore from "../stores/questionRatings.js";
@@ -371,7 +372,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
                 <ol className="mt-2 list-decimal space-y-1 pl-5 text-text-2">
                   {q.reasoningAudit.steps.map((step, index) => <li key={index}>{step}</li>)}
                 </ol>
-                <p className="mt-2 text-xs text-text-3">{q.sourceType === "question-bank" ? `Original school question from ${q.sourceFile || "your uploaded bank"}. Its source key is preserved; it has not been relabeled as independently reviewed advanced practice.` : hasCurrentReasoningAudit(q) ? "Checked against this lecture’s source and the current reasoning standard." : "This saved question used an earlier review standard. Fresh quizzes use the updated checks."}</p>
+                <p className="mt-2 text-xs text-text-3">{q.sourceType === "question-bank" ? `Original school question from ${q.sourceFile || "your uploaded bank"}. Its source key is preserved; it has not been relabeled as independently reviewed advanced practice.` : hasReusableQuestionReview(q) ? "Checked against this lecture’s source and the current reasoning standard." : "This saved question used an earlier review standard. Fresh quizzes use the updated checks."}</p>
               </details>
             )}
             <QuestionQualityRating userId={userId} question={{...q, lectureId:q.lectureId || lectureId}} />

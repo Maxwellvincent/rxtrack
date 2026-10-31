@@ -1,3 +1,4 @@
+import { QUESTION_REUSE_REVIEW_POLICY } from "./questionReuse.js";
 import { objectiveAlignmentIssue, objectiveOwnershipPrompt } from "./objectiveOwnership.js";
 import { usableSchoolExemplar } from "./schoolSourceIntegrity.js";
 import { preparationErrorMessage } from "../preparationError.js";
@@ -1286,6 +1287,7 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
         qualityAudit: {
           version: 1,
           reviewedAt: new Date().toISOString(),
+          reviewPolicy: QUESTION_REUSE_REVIEW_POLICY,
           status: acceptedWithNotes || issues.length ? "approved-with-notes" : "approved",
           ...(semanticObjectiveAlignment ? { semanticObjectiveAlignment: true, objectiveId: question.objectiveIds[0] } : {}),
           ...(semanticObjectiveAlignment && review.objectiveAlignment ? { objectiveAlignment: {

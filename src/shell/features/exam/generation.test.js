@@ -167,7 +167,7 @@ describe("generateExamQuestions", () => {
     expect(result.errors).toEqual([]);
   });
 
-  it("retries the shortfall then records an error if still short after 2 retries", async () => {
+  it("retains partial success when the batch-sized retry limit is exhausted", async () => {
     // Every attempt (initial + 2 retries = 3 calls) returns only 1 valid question.
     const callAIJSON = vi
       .fn()
@@ -189,7 +189,7 @@ describe("generateExamQuestions", () => {
       { callAIJSON, skipQuestionAudit: true }
     );
 
-    expect(callAIJSON).toHaveBeenCalledTimes(3); // 1 initial + 2 retries, then stop
+    expect(callAIJSON).toHaveBeenCalledTimes(4); // ceil(5 / 3) + 2 bounded attempts
     expect(result.questions).toHaveLength(3); // partial success kept
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0]).toMatchObject({ lectureId: "lec1", requested: 5, obtained: 3 });
@@ -268,7 +268,7 @@ describe("generateExamQuestions", () => {
   it("reads block-filtered exemplars once and threads them into every lecture's call", async () => {
     localStorage.setItem(
       "rxt-question-banks",
-      JSON.stringify({ "b1-exam.pdf": [{ stem: "Exemplar Q", choices: { A: "a" } }] })
+      JSON.stringify({ "b1-exam.pdf": [{ stem: "Exemplar Q", choices: { A: "a", B: "b" }, correct: "A" }] })
     );
     localStorage.setItem(
       "rxt-question-bank-meta",

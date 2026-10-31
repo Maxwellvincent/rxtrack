@@ -1,8 +1,10 @@
+import { QUESTION_REUSE_REVIEW_POLICY } from "../../../engine/questionReuse.js";
+import { REASONING_REVIEW_POLICY } from "../../../engine/questionOrder.js";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { generateExamQuestions, alreadyUsed } from "./generation.js";
 const generate = vi.hoisted(() => vi.fn());
 vi.mock("../objectives/quizLaunch.js", () => ({ startObjectiveQuiz: (...a) => generate(...a), readClinicalAnalysesForBlock: () => [], readExemplarsForBlock: () => [], resolveDefaultDifficulty: () => "medium" }));
-const q = stem => ({ reasoningAudit: { status: "verified", version: 2, connectedChain: true, singleEndpoint: true, choiceShortcut: false }, stem, choices: { A: "yes", B: "no" }, correct: "A" });
+const q = stem => ({ generationVersion: "v2", orderLevel: "second-order", qualityAudit: { status: "approved", reviewPolicy: QUESTION_REUSE_REVIEW_POLICY, reviewedAt: "2026-10-31T12:00:00Z" }, reasoningAudit: { status: "verified", version: 2, reviewPolicy: REASONING_REVIEW_POLICY, orderLevel: "second-order", connectedChain: true, singleEndpoint: true, choiceShortcut: false }, stem, choices: { A: "yes", B: "no" }, correct: "A" });
 const args = { allocation: { l1: 1, l2: 1, l3: 1 }, lecturesById: Object.fromEntries(["l1", "l2", "l3"].map(id => [id, { id, fullText: "Supplied lecture factual evidence. ".repeat(20) }])), objectivesByLecture: {}, atomsByLecture: {}, blockId: "b", lectures: [], userId: null, generationId: "g" };
 const pool = () => ({ history: vi.fn(async () => []), ready: vi.fn(async () => []), save: vi.fn(async question => ({ ...question, poolId: question.questionId })) });
 beforeEach(() => { generate.mockReset(); });
@@ -44,18 +46,16 @@ describe("parallel generation with durable reuse", () => {
     expect(generate).not.toHaveBeenCalled();
     expect(result.questions.map(question => question.stem)).toEqual(["Saved from another bucket"]);
   });
-  it("adds the sole lecture objective to older prepared questions without tags", async () => {
+  it("does not award a sole objective to an untagged saved question without reviewed ownership", async () => {
     const storage = pool();
-    storage.ready.mockResolvedValueOnce([{ ...q("Stored"), poolId: "saved", lectureId: "l1" }]);
-    const result = await generateExamQuestions({
-      ...args,
-      allocation: { l1: 1 },
-      lecturesById: { l1: { lectureTitle: "Lecture One" } },
-      objectivesByLecture: { l1: [{ id: "obj1" }] },
-    }, { pool: storage });
-    expect(result.questions[0].objectiveIds).toEqual(["obj1"]);
-    expect(result.coverage.covered).toEqual(["obj1"]);
-    expect(result.coverage.untagged).toBe(0);
+    const original = { ...q("Stored"), poolId: "saved", lectureId: "l1" };
+    storage.ready.mockResolvedValueOnce([original]);
+    const result = await generateExamQuestions({ ...args, allocation: { l1: 1 }, objectivesByLecture: { l1: [{ id: "obj1" }] } }, { pool: storage, savedOnly: true });
+    expect(result.questions).toEqual([]);
+    expect(result.cacheHits).toBe(0);
+    expect(result.coverage.covered).toEqual([]);
+    expect(original).not.toHaveProperty("objectiveIds");
+    expect(generate).not.toHaveBeenCalled();
   });
   it("does not reuse a saved question whose objective tag is clearly outside its topic", async () => {
     const storage = pool();

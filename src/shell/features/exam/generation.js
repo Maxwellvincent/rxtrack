@@ -1,6 +1,6 @@
 import { readSlot, questionSlot, objectiveSubject, bpmObjective } from "./bpmBlueprint.js";
 import { waitForConnection } from "./preparationRecovery.js";
-import { hasCurrentReasoningAudit } from "../../../engine/questionOrder.js";
+import { hasReusableQuestionReview } from "../../../engine/questionReuse.js";
 import { readClinicalAnalysesForBlock, readExemplarsForBlock, resolveDefaultDifficulty, startObjectiveQuiz } from "../objectives/quizLaunch.js";
 import { isSemanticDuplicate, questionFingerprint, schoolStyleSimilarity, questionQualityIssues } from "./questionQuality.js";
 import { questionPoolKey, isValidPoolQuestion } from "../../../questionPool.js";
@@ -127,7 +127,7 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
         const objectiveIds = resolveQuestionObjectiveIds(q, objectives);
         if (subject && !(q.objectiveIds || []).some(id=>objectives.some(o=>o.id===id || o.code===id))) continue;
         const cached = { ...q, objectiveIds, ...(subject ? { blueprintSlot: allocationId, blueprintSubject: subject, sourceBlockId } : {}) };
-        if (enforceQuality && (!hasCurrentReasoningAudit(q) || alreadyUsed(q, [...history, ...accepted]) || questionQualityIssues(q, objectives).length || !questionMatchesObjectiveDomain(cached, { objectives, atoms }))) continue;
+        if (enforceQuality && (!hasReusableQuestionReview(cached) || alreadyUsed(q, [...history, ...accepted]) || questionQualityIssues(q, objectives).length || !questionMatchesObjectiveDomain(cached, { objectives, atoms }))) continue;
         accepted.push(cached); questions.push(cached); obtained++; cacheHits++;
         await deps.onQuestionReady?.(cached);
       }

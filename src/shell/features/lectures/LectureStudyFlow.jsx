@@ -1,3 +1,4 @@
+import { hasReusableQuestionReview, isReusableForObjective } from "../../../engine/questionReuse.js";
 import { exceedsAnswerConcentration } from "../../../engine/questionSimilarity.js";
 import { latestLearningRecords } from "../../../engine/learningLoop.js";
 import { ObjectiveLearningReport } from "../../../ui/ObjectiveLearningReport.jsx";
@@ -10,7 +11,6 @@ import { preparationJobKey, getPreparationJob, startPreparationJob, subscribePre
 import { preparationErrorMessage } from "../../../preparationError.js";
 import { readQuestionDiagnostics, saveQuestionDiagnostics } from "../../../questionDiagnostics.js";
 import { questionWritingBenchmarkPrompt } from "../../../engine/questionWritingStandard.js";
-import { hasCurrentReasoningAudit } from "../../../engine/questionOrder.js";
 import { TutorMessage } from "../../../ui/TutorMessage.jsx";
 /**
  * SP1 T2.1 — one surface for studying a lecture.
@@ -1418,14 +1418,14 @@ export function LectureStudyFlow({
     const reserveCounts = new Map();
     const reservedForVariety = [];
     const seedQuestions = (Array.isArray(startingQuestions) ? startingQuestions : [])
-      .filter((question) => question?.stem && (continuing || hasCurrentReasoningAudit(question)))
+      .filter((question) => question?.stem && (continuing || hasReusableQuestionReview(question)))
       .slice(0, count);
     const seedStems = new Set(seedQuestions.map((question) => String(question.stem).trim().toLowerCase()));
     const reserve = [...seedQuestions, ...priorQuestions
       .filter((question) => question.generationMode !== "grounded-fallback")
       .filter((question) => (question.generationVersion || "v2") === generationVersion)
       .filter((question) => validReserve.has(question))
-      .filter(hasCurrentReasoningAudit)
+      .filter(hasReusableQuestionReview)
       .filter((question) => !questionRatingsStore.ratingFor(userId, question)?.sourceIssue)
       .filter(generatedQuestionsStore.isQuestionUnseen)
       .filter(question => !previouslyPresented.has(question.stem))
@@ -1441,7 +1441,7 @@ export function LectureStudyFlow({
       .filter(question => !seedStems.has(String(question.stem).trim().toLowerCase()))
       .filter(question => {
         const objective = adaptivePlan.find(item => question.objectiveIds?.includes(item.id || item.code));
-        if (!objective || ((question.difficultyCalibration !== "school" || objective._targetOrder === "third-order") && ["first-order", "second-order", "third-order"].indexOf(question.orderLevel) < ["first-order", "second-order", "third-order"].indexOf(objective._targetOrder || "second-order"))) return false;
+        if (!objective || !isReusableForObjective(question, objective)) return false;
         if (objective._targetOrder === "third-order" && question.reasoningAudit?.orderLevel !== "third-order") return false;
         const id = objective.id || objective.code;
         const used = reserveCounts.get(id) || 0;
@@ -1592,7 +1592,8 @@ export function LectureStudyFlow({
       }
       // Saved questions are an offline/error fallback, never the default path. Reusing them
       // before generation made a requested harder round repeat the exact prior quiz.
-      const matching = priorQuestions.filter((q) =>
+      const matching = reserve.filter((q) =>
+        hasReusableQuestionReview(q) &&
         q.generationMode !== "grounded-fallback" &&
         (q.generationVersion || "v2") === generationVersion &&
         generatedQuestionsStore.isQuestionUnseen(q) && !previouslyPresented.has(q.stem) &&
@@ -1652,7 +1653,7 @@ export function LectureStudyFlow({
     const activeStems = new Set(questions.map(question => question.stem));
     const pool = generatedQuestionsStore.questionsForLecture(userId, lecture.id);
     const unused = pool.filter(question => generatedQuestionsStore.isQuestionUnseen(question)
-      && hasCurrentReasoningAudit(question) && !activeStems.has(question.stem));
+      && hasReusableQuestionReview(question) && !activeStems.has(question.stem));
     if (unused.length >= PREPARE_BATCH_SIZE * 2) return;
     prefetchInFlightRef.current = true;
     void (async () => prepareObjectiveQuiz({
@@ -2466,7 +2467,7 @@ export function LectureStudyFlow({
                 {busyLabel || "▸ Quiz this lecture"}
               </Button>
               <span className="text-[12px] text-text-3">
-                {lecture?.id ? `${generatedQuestionsStore.questionsForLecture(userId, lecture.id).filter(question => generatedQuestionsStore.isQuestionUnseen(question) && hasCurrentReasoningAudit(question)).length} unseen questions ready` : "Questions are saved for reuse"}
+                {lecture?.id ? `${generatedQuestionsStore.questionsForLecture(userId, lecture.id).filter(question => generatedQuestionsStore.isQuestionUnseen(question) && hasReusableQuestionReview(question)).length} unseen questions ready` : "Questions are saved for reuse"}
 
               </span>
               {done > 0 && (
