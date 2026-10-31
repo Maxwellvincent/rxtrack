@@ -1,7 +1,7 @@
-import { usableSchoolExemplar, requiresSchoolFigure } from "./schoolSourceIntegrity.js";
+import { usableSchoolExemplar, requiresSchoolFigure, schoolExemplarIssues } from "./schoolSourceIntegrity.js";
 import { buildStyleFingerprint, exemplarSourceTier } from './mcq.js';
 
-export const BASELINE_VERSION = 2;
+export const BASELINE_VERSION = 3;
 const stableKey = q => JSON.stringify([q.sourceFile || '', q.lectureId || '', q.id || q.questionId || '', q.stem || '']);
 // Reproducible spread, not newest-only or highest-scoring selection.
 function rank(value) {
@@ -24,6 +24,25 @@ function balancedSample(rows,limit) {
   }if(!added)break;
  }
  return selected;
+}
+/** Counts explain availability, not whether a model actually used an example. */
+export function schoolSourceInventory(banks={}) {
+ const bySource=new Map();
+ for(const [filename,items] of Object.entries(banks || {})) for(const item of Array.isArray(items)?items:[]) {
+  const q={...item,sourceFile:item?.sourceFile || filename};
+  const kind=exemplarSourceTier(q);
+  const key=JSON.stringify([q.sourceFile,kind]);
+  if(!bySource.has(key))bySource.set(key,{sourceFile:q.sourceFile,sourceKind:kind,total:0,textTemplateEligible:0,figureDependent:0,constructionOnly:0,exclusionReasons:{}});
+  const row=bySource.get(key);row.total++;
+  const reasons=[...schoolExemplarIssues(q)];
+  if(q.sourceKeyReviewStatus && !reasons.includes('unverified_source_key'))reasons.push('source_key_review_pending');
+  if(!q.correct && kind!=='clicker')reasons.push('missing_answer_key');
+  if(q.correct && !q.choices?.[q.correct])reasons.push('key_not_in_choices');
+  if(requiresSchoolFigure(q)){row.figureDependent++;reasons.push('requires_source_figure');}
+  if(!reasons.length){row.textTemplateEligible++;if(!q.correct)row.constructionOnly++;}
+  for(const reason of new Set(reasons))row.exclusionReasons[reason]=(row.exclusionReasons[reason] || 0)+1;
+ }
+ return [...bySource.values()].sort((a,b)=>a.sourceKind.localeCompare(b.sourceKind) || a.sourceFile.localeCompare(b.sourceFile));
 }
 function reviewItem(q,role) {
  // Explicit allowlist: no account IDs, signed URLs, tokens, prompts, or answer history.
@@ -65,6 +84,8 @@ export function buildQuestionAuditBaseline({generated={},banks={},generatedLimit
  return {version:BASELINE_VERSION,createdAt:new Date(now).toISOString(),
   purpose:'Manual quality baseline; no medical validation, training or held-out assessment implied.',
   limitations:['Figures are referenced by source page, not embedded; review them in the original source.','Existing originals may already have been supplied to generation. These are reference samples, not an unseen holdout.','Unkeyed in-class examples are construction-only references; no answer key is inferred.','Sampling covers the currently loaded retained stores, not a complete lifetime archive.','Automated wording statistics do not measure reasoning depth or exam equivalence.'],
+  sourceInventory:schoolSourceInventory(banks),
+  provenanceCoverage:{generatedSample:samples.filter(q=>q.role==='generated').length,withTemplateReferences:samples.filter(q=>q.role==='generated' && q.suppliedTemplateReferences.length).length,withReviewPolicy:samples.filter(q=>q.role==='generated' && q.qualityReviewPolicy).length},
   population:{generated:generatedRows.length,originals:originals.length,eligibleOriginals:eligible.length,excludedOriginals:originals.length-eligible.length},
   sampled:Object.fromEntries(['generated',...roles].map(role=>[role,samples.filter(q=>q.role===role).length])),
   descriptiveProfiles:Object.fromEntries(['generated',...roles].map(role=>[role,buildStyleFingerprint(samples.filter(q=>q.role===role))])),samples};

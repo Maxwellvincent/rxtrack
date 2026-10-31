@@ -32,7 +32,7 @@ it('does not call a continuation-only original an eligible reference sample',()=
 
 it('includes in-class examples without inventing keys or claiming unseen exposure',()=>{
  const packet=buildQuestionAuditBaseline({banks:{'In Class Questions.pdf':[q('keyed'),q('unkeyed',{correct:null}),q('held',{sourceKeyReviewStatus:'stem-mismatch'})]}});
- expect(packet.version).toBe(2);
+ expect(packet.version).toBe(3);
  expect(packet.sampled.clicker).toBe(2);
  const item=packet.samples.find(row=>row.originalId==='unkeyed');
  expect(item).toMatchObject({role:'clicker',correct:null,answerKeyAvailable:false,referenceUse:'construction-only',exposureToGeneration:'unknown'});
@@ -46,4 +46,12 @@ it('exports only allowlisted review and template provenance metadata',()=>{
  expect(packet.samples[0].suppliedTemplateReferences[0].sourceKind).toBe('examsoft');
  expect(JSON.stringify(packet)).not.toContain('hidden-user');
  expect(JSON.stringify(packet)).not.toContain('hidden-token');
+});
+
+it('accounts for incomplete, unclassified and visual originals before sample filtering',()=>{
+ const packet=buildQuestionAuditBaseline({banks:{'Classroom.pdf':[q('c',{sourceKind:'in-class',correct:null}),q('visual',{sourceKind:'in-class',stem:'An ECG is shown below. Which rate?'})],'Unknown.pdf':[{id:'empty'},q('badkey',{correct:'F'})]}});
+ const rows=packet.sourceInventory;
+ expect(rows.find(r=>r.sourceKind==='clicker')).toMatchObject({total:2,textTemplateEligible:1,constructionOnly:1,figureDependent:1,exclusionReasons:{requires_source_figure:1}});
+ expect(rows.find(r=>r.sourceKind==='school')).toMatchObject({total:2,textTemplateEligible:0,exclusionReasons:{incomplete_item:1,missing_answer_key:1,key_not_in_choices:1}});
+ expect(packet.provenanceCoverage.withTemplateReferences).toBe(0);
 });
