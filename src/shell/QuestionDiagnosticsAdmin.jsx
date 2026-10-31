@@ -1,3 +1,5 @@
+import { useObjectives } from "./hooks/useObjectives.js";
+import { flattenEntry } from "./logic/objectives.js";
 import { useStoreResource } from "./hooks/useStoreResource.js";
 import * as generatedQuestionsStore from "../stores/generatedQuestions.js";
 import * as questionBanksStore from "../stores/questionBanks.js";
@@ -6,14 +8,16 @@ import { buildQuestionAuditBaseline, downloadQuestionAuditBaseline, schoolSource
 function BaselineExport({userId}) {
  const generated=useStoreResource(generatedQuestionsStore,userId);
  const banks=useStoreResource(questionBanksStore,userId);
- const loading=generated.loading || banks.loading;
- const error=generated.error || banks.error;
+ const objectiveResource=useObjectives(null,userId);
+ const objectives=Object.entries(objectiveResource.data || {}).flatMap(([blockId,entry])=>flattenEntry(entry).map(objective=>({...objective,blockId})));
+ const loading=generated.loading || banks.loading || objectiveResource.loading;
+ const error=generated.error || banks.error || objectiveResource.error;
  const inventory=schoolSourceInventory(banks.data);
  const kinds=["homework","examsoft","imcq","clicker","school"];
  return <details className="mb-5 rounded-lg border border-border p-4">
   <summary className="cursor-pointer font-semibold">Question quality baseline</summary>
-  <p className="mt-2 text-sm text-text-2">Download a local review sample: up to 48 saved generated questions and 12 each from homework, ESoft, IMCQ and in-class questions. Unkeyed in-class examples are marked for wording review only. No questions or progress are changed. Figures remain in their original sources.</p>
-  <button type="button" disabled={loading || !!error} onClick={()=>downloadQuestionAuditBaseline(buildQuestionAuditBaseline({generated:generated.data,banks:banks.data}))} className="mt-3 rounded border border-border px-3 py-2 text-sm disabled:opacity-40">{loading?"Loading saved questions…":"Download review sample"}</button>
+  <p className="mt-2 text-sm text-text-2">Download a local review sample: up to 48 saved generated questions and 12 each from homework, ESoft, IMCQ and in-class questions. Unkeyed in-class examples are marked for wording review only. No questions or progress are changed. Figures remain in their original sources. Full assigned objectives are included when their stored links resolve; uncertain links are marked explicitly.</p>
+  <button type="button" disabled={loading || !!error} onClick={()=>downloadQuestionAuditBaseline(buildQuestionAuditBaseline({generated:generated.data,banks:banks.data,objectives}))} className="mt-3 rounded border border-border px-3 py-2 text-sm disabled:opacity-40">{loading?"Loading saved questions…":"Download review sample"}</button>
   {!loading && !error && <details className="mt-3 text-sm"><summary className="cursor-pointer">Source availability and exclusions</summary>
    <p className="mt-2 text-text-2">Available text examples are not proof of model use. Figure questions stay in their original banks. Counts include incomplete imports; exclusion reasons may overlap.</p>
    <ul className="mt-2 space-y-2">{kinds.map(kind=>{

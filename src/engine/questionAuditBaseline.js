@@ -1,7 +1,7 @@
 import { usableSchoolExemplar, requiresSchoolFigure, schoolExemplarIssues } from "./schoolSourceIntegrity.js";
 import { buildStyleFingerprint, exemplarSourceTier } from './mcq.js';
 
-export const BASELINE_VERSION = 3;
+export const BASELINE_VERSION = 4;
 const stableKey = q => JSON.stringify([q.sourceFile || '', q.lectureId || '', q.id || q.questionId || '', q.stem || '']);
 // Reproducible spread, not newest-only or highest-scoring selection.
 function rank(value) {
@@ -44,7 +44,19 @@ export function schoolSourceInventory(banks={}) {
  }
  return [...bySource.values()].sort((a,b)=>a.sourceKind.localeCompare(b.sourceKind) || a.sourceFile.localeCompare(b.sourceFile));
 }
-function reviewItem(q,role) {
+function reviewItem(q,role,objectives=[]) {
+ const objectiveLinks=(q.objectiveIds || []).map(id=>{
+  let candidates=objectives.filter(o=>String(o.id || o.code)===String(id));
+  const block=q.sourceBlockId || q.blockId;
+  if(block)candidates=candidates.filter(o=>o.blockId===block);
+  if(q.lectureId && candidates.some(o=>(o.linkedLecId || o.lectureId)===q.lectureId))candidates=candidates.filter(o=>(o.linkedLecId || o.lectureId)===q.lectureId);
+  const unique=[...new Map(candidates.map(o=>{
+   const value={id:String(o.id || o.code),code:o.code || null,text:String(o.objective || o.text || '').trim(),blockId:o.blockId || null,lectureId:o.linkedLecId || o.lectureId || null};
+   return [JSON.stringify(value),value];
+  })).values()].filter(o=>o.text);
+  return {objectiveId:id,status:unique.length===1?'resolved':unique.length?'ambiguous':'unresolved',lectureAlignment:!q.lectureId || !unique.length ? 'unknown' : unique.every(o=>!o.lectureId) ? 'unassigned' : unique.every(o=>o.lectureId===q.lectureId) ? 'matched' : 'mismatch',candidates:unique};
+ });
+ const assigned=objectiveLinks.length===1 && objectiveLinks[0].status==='resolved' ? objectiveLinks[0].candidates[0] : null;
  // Explicit allowlist: no account IDs, signed URLs, tokens, prompts, or answer history.
  return {
   auditId:`${role}:${rank(stableKey(q)).toString(36)}`, role,
@@ -54,7 +66,8 @@ function reviewItem(q,role) {
   originalId:q.id || q.questionId || null, lectureId:q.lectureId || null,
   sourceFile:q.sourceFile || null, sourceSection:q.sourceSection || null,
   sourcePage:q.sourcePage || null, sourceQuestionNumber:q.sourceQuestionNumber || q.num || null,
-  objectiveIds:q.objectiveIds || [], objectiveText:q.objectiveText || null,
+  objectiveIds:q.objectiveIds || [], objectiveText:assigned?.text || q.objectiveText || null,
+  objectiveLinks,
   objectiveFacet:q.objectiveFacet || null, topic:q.topic || null,
   stem:q.stem, choices:q.choices, correct:q.correct || null,
   explanation:q.explanation || null, whyWrong:q.whyWrong || {},
@@ -72,7 +85,7 @@ function reviewItem(q,role) {
  };
 }
 /** Local review packet only. This neither trains a model nor certifies an item. */
-export function buildQuestionAuditBaseline({generated={},banks={},generatedLimit=48,sourceLimit=12,now=Date.now()}={}) {
+export function buildQuestionAuditBaseline({generated={},banks={},objectives=[],generatedLimit=48,sourceLimit=12,now=Date.now()}={}) {
  const usable=q=>q?.stem && q?.choices && Object.keys(q.choices).length>=2;
  const unique=rows=>[...new Map(rows.map(q=>[stableKey(q),q])).values()];
  const generatedRows=unique(Object.entries(generated).flatMap(([lectureId,entry])=>(entry?.questions || []).filter(usable).map(q=>({...q,lectureId:q.lectureId || lectureId}))));
@@ -80,11 +93,11 @@ export function buildQuestionAuditBaseline({generated={},banks={},generatedLimit
  const limits={generated:Math.min(100,Math.max(0,Math.floor(Number(generatedLimit)||0))),source:Math.min(30,Math.max(0,Math.floor(Number(sourceLimit)||0)))};
  const eligible=originals.filter(usableSchoolExemplar).filter(q=>(q.correct || exemplarSourceTier(q)==='clicker') && q.answerKeyVerified!==false && !q.sourceKeyReviewStatus && q.sourceRepresentation!=='answer-explanation-summary');
  const roles=['homework','examsoft','imcq','clicker'];
- const samples=[...balancedSample(generatedRows,limits.generated).map(q=>reviewItem(q,'generated')),
-  ...roles.flatMap(role=>balancedSample(eligible.filter(q=>exemplarSourceTier(q)===role),limits.source).map(q=>reviewItem(q,role)))];
+ const samples=[...balancedSample(generatedRows,limits.generated).map(q=>reviewItem(q,'generated',objectives)),
+  ...roles.flatMap(role=>balancedSample(eligible.filter(q=>exemplarSourceTier(q)===role),limits.source).map(q=>reviewItem(q,role,objectives)))];
  return {version:BASELINE_VERSION,createdAt:new Date(now).toISOString(),
   purpose:'Manual quality baseline; no medical validation, training or held-out assessment implied.',
-  limitations:['Figures are referenced by source page, not embedded; review them in the original source.','Existing originals may already have been supplied to generation. These are reference samples, not an unseen holdout.','Unkeyed in-class examples are construction-only references; no answer key is inferred.','Sampling covers the currently loaded retained stores, not a complete lifetime archive.','Automated wording statistics do not measure reasoning depth or exam equivalence.'],
+  limitations:['Figures are referenced by source page, not embedded; review them in the original source.','Existing originals may already have been supplied to generation. These are reference samples, not an unseen holdout.','Unkeyed in-class examples are construction-only references; no answer key is inferred.','Sampling covers the currently loaded retained stores, not a complete lifetime archive.','Automated wording statistics do not measure reasoning depth or exam equivalence.','Objective text is resolved by stored ID and explicit scope only; unresolved or ambiguous links are not inferred from topic similarity.'],
   sourceInventory:schoolSourceInventory(banks),
   provenanceCoverage:{generatedSample:samples.filter(q=>q.role==='generated').length,withTemplateReferences:samples.filter(q=>q.role==='generated' && q.suppliedTemplateReferences.length).length,withReviewPolicy:samples.filter(q=>q.role==='generated' && q.qualityReviewPolicy).length},
   population:{generated:generatedRows.length,originals:originals.length,eligibleOriginals:eligible.length,excludedOriginals:originals.length-eligible.length},
