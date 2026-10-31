@@ -1,6 +1,6 @@
 import { QUESTION_REUSE_REVIEW_POLICY } from "./questionReuse.js";
 import { objectiveAlignmentIssue, objectiveOwnershipPrompt } from "./objectiveOwnership.js";
-import { usableSchoolExemplar } from "./schoolSourceIntegrity.js";
+import { usableSchoolExemplar, requiresSchoolFigure } from "./schoolSourceIntegrity.js";
 import { preparationErrorMessage } from "../preparationError.js";
 import { QUESTION_CLARITY_CONTRACT, questionClarityIssues } from "./questionClarity.js";
 import { STEP1_WRITING_CONTRACT } from "./step1WritingStandard.js";
@@ -330,7 +330,7 @@ function clinicalTemplates(cfg, requireObjectiveMatch = false) {
 }
 export function buildSchoolTemplatePlan(cfg = {}) {
   const ranked = selectStyleExemplars(cfg.examples || [], 6, cfg.difficulty, { objectives: cfg.objectives, atoms: cfg.atoms });
-  const eligible = (cfg.examples || []).filter(q => usableSchoolExemplar(q) && !q.hasImage);
+  const eligible = (cfg.examples || []).filter(q => usableSchoolExemplar(q) && !requiresSchoolFigure(q));
   const phraseMatch = (question, objective) => {
     const normalize = text => String(text || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
     const words = normalize(objective.objective || objective.text).split(" ");
@@ -726,7 +726,7 @@ export function selectStyleExemplars(examples = [], limit = 5, _difficulty = "me
   // Rank relevant lecture/objective examples before broader style references.
   const candidates = examples.filter(usableSchoolExemplar).filter((q) => {
     const tier = exemplarSourceTier(q);
-    return q?.stem && q?.choices && q.sourceRepresentation !== "answer-explanation-summary" && !q.hasImage && q.answerKeyVerified !== false &&
+    return q?.stem && q?.choices && q.sourceRepresentation !== "answer-explanation-summary" && !requiresSchoolFigure(q) && q.answerKeyVerified !== false &&
       tier !== "clicker";
   });
   // Keep the entire uploaded bank in the candidate pool. Previously, the

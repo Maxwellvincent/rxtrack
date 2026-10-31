@@ -1,5 +1,5 @@
 import {it,expect} from 'vitest';
-import {schoolExemplarIssues} from './schoolSourceIntegrity.js';
+import {schoolExemplarIssues,requiresSchoolFigure} from './schoolSourceIntegrity.js';
 import {selectStyleExemplars} from './mcq.js';
 import {buildStyleProfile} from './styleProfile.js';
 import {alignSchoolQuestions} from './schoolAlignment.js';
@@ -18,4 +18,14 @@ it('keeps a valid concise question while withholding actual imported continuatio
 it('does not relabel original keys or mutate imported questions',()=>{
  const held={...base,stem:'Which mechanism explains this finding?',sourceKeyReviewStatus:'stem-mismatch'};
  const before=JSON.stringify(held);expect(schoolExemplarIssues(held)).toContain('unverified_source_key');expect(JSON.stringify(held)).toBe(before);
+});
+
+it('detects missing visual flags without confusing described imaging findings with required figures',()=>{
+ const stems=['An ECG in lead II is shown below. What is the heart rate?', 'The curves are shown in the figure. Which point applies?', 'Cells indicated by the letter A (see attached figure) are activated.'];
+ for(const stem of stems){
+  const q={...base,stem};
+  expect(requiresSchoolFigure(q)).toBe(true);
+  expect(selectStyleExemplars([q],1)).toEqual([]);
+ }
+ expect(requiresSchoolFigure({...base,stem:'MRI shows a mass in the sella turcica. Which mechanism explains hyperglycemia?'})).toBe(false);
 });

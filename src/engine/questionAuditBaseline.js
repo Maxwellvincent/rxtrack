@@ -1,4 +1,4 @@
-import { usableSchoolExemplar } from "./schoolSourceIntegrity.js";
+import { usableSchoolExemplar, requiresSchoolFigure } from "./schoolSourceIntegrity.js";
 import { buildStyleFingerprint, exemplarSourceTier } from './mcq.js';
 
 export const BASELINE_VERSION = 2;
@@ -39,7 +39,7 @@ function reviewItem(q,role) {
   objectiveFacet:q.objectiveFacet || null, topic:q.topic || null,
   stem:q.stem, choices:q.choices, correct:q.correct || null,
   explanation:q.explanation || null, whyWrong:q.whyWrong || {},
-  figureRequired:!!(q.hasImage || q.imageQuestion || q.imageDependent),
+  figureRequired:requiresSchoolFigure(q),
   figureIncluded:false, generationVersion:q.generationVersion || null,
   reviewedAt:q.qualityAudit?.reviewedAt || null,
   qualityReviewPolicy:q.qualityAudit?.reviewPolicy || null,

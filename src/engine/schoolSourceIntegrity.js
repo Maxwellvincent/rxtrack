@@ -12,3 +12,10 @@ export function schoolExemplarIssues(question = {}) {
  return issues;
 }
 export const usableSchoolExemplar = question => schoolExemplarIssues(question).length===0;
+
+/** A text template cannot supply information that exists only in a source visual. */
+export function requiresSchoolFigure(question = {}) {
+ if (question.hasImage || question.imageQuestion || question.imageDependent) return true;
+ const stem = String(question.stem || '');
+ return /\b(?:see\s+(?:the\s+)?(?:attached\s+)?(?:figure|image|graph)|(?:shown|illustrated|depicted)\s+(?:below|above|in\s+(?:the\s+)?(?:figure|image|graph))|(?:figure|graph|image|tracing|recording|photomicrograph)\s+(?:shown|below|above)|indicated\s+by\s+(?:the\s+)?(?:letter|arrow|label))\b/i.test(stem);
+}
