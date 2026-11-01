@@ -1298,6 +1298,8 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
             objectiveId: String(review.objectiveAlignment.objectiveId).slice(0, 200),
             objectiveClause: String(review.objectiveAlignment.objectiveClause).slice(0, 1000),
             testedRelationship: String(review.objectiveAlignment.testedRelationship).slice(0, 1000),
+            bestSourceObjectiveCode: String(review.objectiveAlignment.bestSourceObjectiveCode || "").slice(0,200),
+            whyAssignedOverNeighbor: String(review.objectiveAlignment.whyAssignedOverNeighbor || "").slice(0,1000),
           } } : {}),
           checks: ["medical-correctness", "single-best-answer", "objective-alignment", "explanation-quality"],
           ...(issues.length ? { notes: issues } : {}),

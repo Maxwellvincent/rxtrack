@@ -1,7 +1,8 @@
 #!/usr/bin/env node
+import { createBenchmarkReportWriter, benchmarkRequestSignal } from "./lib/benchmarkReport.js";
 // Runs the real draft/audit/repair engine against a private lecture fixture.
 // Does not save questions or learner progress into the app.
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
@@ -33,6 +34,7 @@ const output = option("--output", "/tmp/rxtrack-generation-benchmark.json");
 // Stay local unless the caller deliberately opts into the bridge (whose
 // configured fallback may send content to an external subscription provider).
 const direct = !process.argv.includes("--bridge");
+const saveReport = createBenchmarkReportWriter(output);
 const calls = [];
 const started = performance.now();
 const budget = Number(option("--budget-ms", "240000"));
@@ -53,7 +55,7 @@ const callAIJSON = async (system, prompt, fallback, maxTokens, _provider, _tempe
     } : { system, prompt, json: true, maxTokens, timeoutMs: Math.max(1, Math.ceil(remaining)), backend: option("--backend", options.bridgeBackend || "codex"), backendOnly: options.bridgeBackendOnly, modelTier: options.bridgeModelTier };
     const response = await fetch(direct ? "http://localhost:11434/api/generate" : "http://127.0.0.1:4319/complete", {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(request),
-      signal: AbortSignal.timeout(Math.max(1, Math.ceil(remaining))),
+      signal: benchmarkRequestSignal(remaining, options),
     });
     if (!response.ok) {
       const failure = await response.json().catch(() => ({}));
@@ -77,7 +79,7 @@ const callAIJSON = async (system, prompt, fallback, maxTokens, _provider, _tempe
   } finally {
     timing.seconds = Math.round((performance.now() - start) / 100) / 10;
     console.log(JSON.stringify({ event: "finished", ...timing, result: undefined }));
-    await writeFile(output, JSON.stringify({ calls, elapsedSeconds: (performance.now() - started) / 1000 }, null, 2));
+    await saveReport({ calls, elapsedSeconds: (performance.now() - started) / 1000 });
   }
 };
 const reviewFile = option("--review-only", "");
@@ -101,8 +103,8 @@ if (prepare) {
     lectureTitle: cfg.subject, lectureIdHint: "benchmark-private", blockId: "benchmark-private",
     lectures: [{ id: "benchmark-private", blockId: "benchmark-private", lectureTitle: cfg.subject, chunks: [{ markdown: cfg.lectureText }] }],
     objectives: cfg.objectives, atoms: cfg.atoms || [], exemplars: cfg.examples || [],
-    questionCount: Math.max(0, requested - initialQuestions.length), plannedCount: requested, initialQuestions, avoidQuestions: initialQuestions, avoidStems: initialQuestions.map(q => q.stem), generationVersion: "v2", difficulty: cfg.difficulty || "medium",
-    evidenceModel: {}, clinicalCorrelateLibrary: cfg.clinicalCorrelateLibrary || [],
+    questionCount: Math.max(0, requested - initialQuestions.length), plannedCount: requested, initialQuestions, avoidQuestions: [...(cfg.avoidQuestions || []), ...initialQuestions], avoidStems: [...(cfg.avoidQuestions || []).map(q=>q.stem), ...initialQuestions.map(q => q.stem)], generationVersion: "v2", difficulty: cfg.difficulty || "medium",
+    evidenceModel: cfg.evidenceModel || {}, clinicalCorrelateLibrary: cfg.clinicalCorrelateLibrary || [],
   }, { callAIJSON, reviewAIJSON: callAIJSON, repairAIJSON: callAIJSON, maxPreparationMs: budget, maxPrepareAttempts: Number(option("--max-attempts", "1")), skipRepair: !process.argv.includes("--allow-repair"), prepareConcurrency: Number(option("--concurrency", "1")),
     ...(process.argv.includes("--production-policy") ? { prepareBatchSize: 3, reviewBatchSize: 3, prepareSpareCandidates: 0, continueAfterEmptyRounds: true, focusedRefill: true } : {}),
   }, progress => console.log(JSON.stringify({ event: "progress", ...progress })));
@@ -116,5 +118,5 @@ if (prepare && initialQuestions.length) {
   result.incomplete = result.questions.length < requested;
 }
 const report = { requested, resumedCount: initialQuestions.length, accepted: result.questions?.length || 0, elapsedSeconds: (performance.now() - started) / 1000, result, calls };
-await writeFile(output, JSON.stringify(report, null, 2));
+await saveReport(report, { final: true });
 console.log(JSON.stringify({ requested: report.requested, accepted: report.accepted, seconds: Math.round(report.elapsedSeconds), error: result.error, output }));

@@ -77,6 +77,8 @@ function reviewItem(q,role,objectives=[]) {
   qualityReviewPolicy:q.qualityAudit?.reviewPolicy || null,
   reviewedDiscrimination:q.qualityAudit?.discrimination ? {closestAlternative:q.qualityAudit.discrimination.closestAlternative || null,stemClue:q.qualityAudit.discrimination.stemClue || null,whyAlternativeFails:q.qualityAudit.discrimination.whyAlternativeFails || null,keyUniquelySupported:q.qualityAudit.discrimination.keyUniquelySupported===true,alternativeAlsoCorrect:q.qualityAudit.discrimination.alternativeAlsoCorrect===true} : null,
   reviewedObjectiveId:q.qualityAudit?.objectiveId || null,
+  reviewedBestSourceObjectiveCode:q.qualityAudit?.objectiveAlignment?.bestSourceObjectiveCode || null,
+  reviewedOwnershipReason:q.qualityAudit?.objectiveAlignment?.whyAssignedOverNeighbor || null,
   reviewedObjectiveClause:q.qualityAudit?.objectiveAlignment?.objectiveClause || null,
   suppliedTemplateReferences:(q.generationEvidence?.templateReferences || []).map(ref=>({templateId:ref.templateId || null,objectiveId:ref.objectiveId || null,sourceKind:ref.sourceKind || null,sourceFile:ref.sourceFile || null,sourceQuestionId:ref.sourceQuestionId || null})),
   claimedOrder:q.orderLevel || null,

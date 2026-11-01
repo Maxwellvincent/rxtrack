@@ -26,3 +26,12 @@ it("shows unselected neighboring source objectives without promoting them to fac
   expect(prompt).toContain("not factual evidence");
   expect(objectiveOwnershipPrompt({})).toBe("");
 });
+
+it('requires a best-source choice and blocks a more specific neighboring owner on strict launches',()=>{
+ const strict={...cfg,requireDiscriminationAudit:true,lectureText:`Learning Objectives\n${objective.code} ${objective.objective}\nSOM.MK.I.BPM2.1.NB.1.NSCI.0115 Classify afferent fibers according to diameter and conduction velocity\fLecture body`};
+ const claim={objectiveId:objective.id,objectiveClause:'functional characteristics of skin receptors',testedRelationship:'Interpret a recorded response'};
+ const review={approved:true,objectiveAligned:true,objectiveAlignment:claim};
+ expect(objectiveAlignmentIssue(review,question,strict)).toBe('unverified_objective_alignment');
+ expect(objectiveAlignmentIssue({...review,objectiveAlignment:{...claim,bestSourceObjectiveCode:'SOM.MK.I.BPM2.1.NB.1.NSCI.0115',whyAssignedOverNeighbor:'The endpoint asks fiber size and conduction velocity.'}},question,strict)).toBe('objective_mismatch');
+ expect(objectiveAlignmentIssue({...review,objectiveAlignment:{...claim,bestSourceObjectiveCode:objective.code,whyAssignedOverNeighbor:'The endpoint compares receptor adaptation, not axonal conduction.'}},question,strict)).toBeNull();
+});

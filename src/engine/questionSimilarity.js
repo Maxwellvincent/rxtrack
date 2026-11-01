@@ -1,3 +1,4 @@
+import { verifiedDiscrimination } from "./questionDiscrimination.js";
 const STOP_WORDS = new Set([
   "a", "an", "and", "are", "as", "at", "be", "best", "by", "describes", "following",
   "for", "from", "has", "have", "history", "in", "is", "it", "likely", "most", "of",
@@ -34,6 +35,14 @@ export function areNearDuplicateQuestions(left, right, threshold = 0.9) {
   // Reworded options must not disguise an almost identical clinical/task stem.
   const stemSimilarity = questionSimilarity({ stem: left.stem }, { stem: right.stem });
   const answer = q => String(q.choices?.[q.correct] || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const leftAnswer=answer(left),rightAnswer=answer(right);
+  const exactStem = String(left.stem || '').toLowerCase().replace(/\s+/g,' ').trim() === String(right.stem || '').toLowerCase().replace(/\s+/g,' ').trim();
+  // Parallel comparisons may share almost every word while reversing the lost
+  // modalities and the keyed pathway. When both independent reviews identify distinct final-stem clues,
+  // token overlap alone cannot establish route equivalence. Identical stems with conflicting keys still require withholding.
+  const leftClue=verifiedDiscrimination(left.qualityAudit?.discrimination,left)?.stemClue;
+  const rightClue=verifiedDiscrimination(right.qualityAudit?.discrimination,right)?.stemClue;
+  if(leftAnswer && rightAnswer && leftAnswer!==rightAnswer && !exactStem && leftClue && rightClue && leftClue.toLowerCase()!==rightClue.toLowerCase())return false;
   const routeOverlap = ["perturbation", "endpoint"].every(field => {
     const a = { stem: left.questionPlan?.[field] };
     const b = { stem: right.questionPlan?.[field] };

@@ -72,3 +72,14 @@ it('provides only observed facets in the allocated objective scope, without inve
  expect(text).toContain('not medical authority or complete coverage');
  expect(objectiveFacetHistoryGuidance(history,[{id:'absent'}])).toBe('');
 });
+
+it('keeps parallel cases with changed sensory findings and different keyed pathways',()=>{
+ const choices={A:'Dorsal column',B:'Anterolateral system',C:'Ventral column'};
+ const dorsal={objectiveIds:['o'],choices,correct:'A',stem:'A patient has a focal spinal cord injury. Below the injury, touch, vibration, and proprioception are lost. Pain and temperature and strength are normal. Which ascending pathway is interrupted?'};
+ const anterior={...dorsal,correct:'B',stem:'A patient has a focal spinal cord injury. Below the injury, pain and temperature are lost. Touch, vibration, and proprioception and strength are normal. Which ascending pathway is interrupted?'};
+ dorsal.qualityAudit={discrimination:{closestAlternative:'B',stemClue:'Pain and temperature and strength are normal.',whyAlternativeFails:'The competing pathway would change the preserved modalities.',keyUniquelySupported:true,alternativeAlsoCorrect:false}};
+ anterior.qualityAudit={discrimination:{closestAlternative:'A',stemClue:'Touch, vibration, and proprioception and strength are normal.',whyAlternativeFails:'The competing pathway would change the preserved modalities.',keyUniquelySupported:true,alternativeAlsoCorrect:false}};
+ expect(questionSimilarity(dorsal,anterior)).toBeGreaterThan(.9);
+ expect(areNearDuplicateQuestions(dorsal,anterior)).toBe(false);
+ expect(areNearDuplicateQuestions(dorsal,{...dorsal,correct:'B'})).toBe(true);
+});
