@@ -1,3 +1,4 @@
+import { buildBlindSolvePrompt, blindSolveIssue } from "./blindQuestionSolve.js";
 import { discriminationIssue, verifiedDiscrimination, DISCRIMINATION_REVIEW_CONTRACT } from "./questionDiscrimination.js";
 import { QUESTION_REUSE_REVIEW_POLICY } from "./questionReuse.js";
 import { objectiveAlignmentIssue, objectiveOwnershipPrompt } from "./objectiveOwnership.js";
@@ -1233,6 +1234,17 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
     }
     const reviews = Array.isArray(raw?.reviews) ? raw.reviews : [];
     const byIndex = new Map(reviews.map((review) => [Number(review?.index), review]));
+    const blindByIndex=new Map();
+    if(cfg.requireBlindKeyCheck){
+      const candidates=questions.map((question,index)=>({question,index,review:byIndex.get(index)})).filter(({question,review})=>review?.approved===true && !objectiveAlignmentIssue(review,question,cfg) && !discriminationIssue(review,question,cfg) && (!cfg.requireReasoningAudit || verifyReasoningReview(review,question,cfg)));
+      for(let offset=0;offset<candidates.length;offset+=reviewBatchSize){
+        const group=candidates.slice(offset,offset+reviewBatchSize);
+        try{
+          const solved=await reviewer("Solve from lecture evidence without the writer's proposed answer. Return JSON only.",buildBlindSolvePrompt(group.map(row=>row.question),cfg),{reviews:[]},1200*group.length);
+          for(const [local,row] of group.entries())blindByIndex.set(row.index,(solved?.reviews || []).find(r=>Number(r.index)===local));
+        }catch{for(const row of group)blindByIndex.set(row.index,null);}
+      }
+    }
     const rejections = questions.flatMap((question, index) => {
       const review = byIndex.get(index);
       const alignmentIssue = objectiveAlignmentIssue(review, question, cfg);
@@ -1242,6 +1254,10 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
       }
       const distinctionIssue = discriminationIssue(review, question, cfg);
       if (review?.approved === true && distinctionIssue) return [{ objectiveIds: question.objectiveIds || [], issues: [distinctionIssue], rationale: "Establish a unique key against the closest alternative using an exact clue from the final stem and lecture-supported reasoning. Repair missing distinctions without inventing findings." }];
+      if(cfg.requireBlindKeyCheck && review?.approved===true && !discriminationIssue(review,question,cfg)){
+        const issue=blindSolveIssue(blindByIndex.get(index),question,cfg);
+        if(issue)return [{objectiveIds:question.objectiveIds || [],issues:[issue],rationale:"A separate solve without the writer's key did not establish a unique, source-grounded matching answer. Repair the question and re-review it; never silently rekey or accept an unsupported answer."}];
+      }
       const target = (cfg.objectives || []).find(o => (question.objectiveIds || []).includes(String(o.id || o.code)))?._targetOrder;
       const reasoning = cfg.requireReasoningAudit && review?.approved === true ? verifyReasoningReview(review, question, cfg) : null;
       if (reasoning?.orderLevel === "first-order" && clinicalTemplates({ ...cfg, objectives: (cfg.objectives || []).filter(o => (question.objectiveIds || []).includes(String(o.id || o.code))) }, true).length >= 2) return [{ objectiveIds: question.objectiveIds || [], issues: ["school_style_mismatch"], rationale: "Matching school cases require applying clinical findings; a recall-only substitute does not meet this request." }];
@@ -1263,6 +1279,7 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
         }] : [];
       }
       if (objectiveAlignmentIssue(review, question, cfg) || discriminationIssue(review, question, cfg)) return [];
+      if (cfg.requireBlindKeyCheck && blindSolveIssue(blindByIndex.get(index),question,cfg)) return [];
       const issues = Array.isArray(review.issues) ? review.issues.map(String) : [];
       const blockingIssues = issues.filter((issue) => !nonBlockingReviewIssues.has(issue));
       // Batch-level variety and a mislabeled reasoning order are useful editor
@@ -1290,6 +1307,7 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
         qualityAudit: {
           version: 1,
           reviewedAt: new Date().toISOString(),
+          ...(cfg.requireBlindKeyCheck && !blindSolveIssue(blindByIndex.get(index),question,cfg) ? { blindSolve: { status: "matched", answer: blindByIndex.get(index).answer, sourceQuotes: blindByIndex.get(index).reasoning.sourceQuotes.slice(0,3) } } : {}),
           reviewPolicy: verifiedDiscrimination(review.discrimination, question) ? QUESTION_REUSE_REVIEW_POLICY : "legacy-without-discriminator",
           ...(verifiedDiscrimination(review.discrimination, question) ? { discrimination: verifiedDiscrimination(review.discrimination, question) } : {}),
           status: acceptedWithNotes || issues.length ? "approved-with-notes" : "approved",

@@ -39,7 +39,7 @@ const calls = [];
 const started = performance.now();
 const budget = Number(option("--budget-ms", "240000"));
 const callAIJSON = async (system, prompt, fallback, maxTokens, _provider, _temperature, options = {}) => {
-  const stage = /Independently audit/.test(prompt) ? "review" : /^Repair every/.test(prompt) ? "repair" : "draft";
+  const stage = /Independently (?:audit|solve)/.test(prompt) ? "review" : /^Repair every/.test(prompt) ? "repair" : "draft";
   const timing = { stage, promptChars: prompt.length, maxTokens };
   calls.push(timing);
   const start = performance.now();

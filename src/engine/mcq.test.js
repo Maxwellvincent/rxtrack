@@ -1181,3 +1181,23 @@ it('requires a final-stem discriminator on strict launches and retains the revie
  expect(accepted.questions).toHaveLength(1);
  expect(accepted.questions[0].qualityAudit.discrimination).toEqual(discrimination);
 });
+
+it('requires a separate source-grounded solve without leaking or silently changing the proposed key',async()=>{
+ const quote='Local responses persist after the upstream input is blocked.';
+ const question={stem:'A patient has weakness after upstream input is blocked. A local response persists despite this interruption. Which mechanism explains the preserved response?',choices:{A:'Local response mechanism',B:'Upstream input mechanism',C:'Absent response',D:'Unrelated response'},correct:'A',explanation:'The preserved local response is independent of the interrupted upstream input. PRIVATE_PROPOSED_EXPLANATION'};
+ const cfg={requireBlindKeyCheck:true,lectureText:quote.repeat(4)};
+ let answer='A';
+ const reviewer=vi.fn(async(_system,prompt)=>{
+  if(prompt.startsWith('Independently solve')){
+   expect(prompt).not.toContain('PRIVATE_PROPOSED_EXPLANATION');expect(prompt).not.toContain('"correct":');
+   return {reviews:[{index:0,answer,unique:true,reasoning:{sourceQuotes:[quote]}}]};
+  }
+  return {reviews:[{index:0,approved:true,issues:[]}]};
+ });
+ const accepted=await auditGeneratedQuestions([question],cfg,{skipRepair:true,reviewAIJSON:reviewer});
+ expect(accepted.questions).toHaveLength(1);expect(accepted.questions[0].qualityAudit.blindSolve.status).toBe('matched');
+ expect(reviewer).toHaveBeenCalledTimes(2);
+ answer='B';
+ const withheld=await auditGeneratedQuestions([question],cfg,{skipRepair:true,reviewAIJSON:reviewer});
+ expect(withheld.questions).toEqual([]);expect(withheld.rejections[0].issues).toContain('blind_key_disagreement');expect(question.correct).toBe('A');
+});

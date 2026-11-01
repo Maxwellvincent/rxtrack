@@ -4,7 +4,7 @@ import { hasReusableQuestionReview, isReusableForObjective, QUESTION_REUSE_REVIE
 
 const current = () => ({ stem: "The response persists after upstream input is blocked.", choices: { A: "Local response", B: "Upstream response" }, correct: "A", generationVersion: "v2", objectiveIds: ["o"], orderLevel: "second-order",
   reasoningAudit: { status: "verified", version: 2, reviewPolicy: REASONING_REVIEW_POLICY, orderLevel: "second-order", connectedChain: true, singleEndpoint: true, choiceShortcut: false },
-  qualityAudit: { discrimination: { closestAlternative: "B", stemClue: "persists after upstream input is blocked", whyAlternativeFails: "The response does not depend on the blocked input.", keyUniquelySupported: true, alternativeAlsoCorrect: false }, status: "approved", reviewPolicy: QUESTION_REUSE_REVIEW_POLICY, reviewedAt: "2026-10-31T12:00:00Z", semanticObjectiveAlignment: true, objectiveId: "o" },
+  qualityAudit: { blindSolve: {status:"matched",answer:"A",sourceQuotes:["Source-supported local response relationship."]}, discrimination: { closestAlternative: "B", stemClue: "persists after upstream input is blocked", whyAlternativeFails: "The response does not depend on the blocked input.", keyUniquelySupported: true, alternativeAlsoCorrect: false }, status: "approved", reviewPolicy: QUESTION_REUSE_REVIEW_POLICY, reviewedAt: "2026-10-31T12:00:00Z", semanticObjectiveAlignment: true, objectiveId: "o" },
 });
 
 it("separates new-set eligibility from historical reasoning evidence without mutating a record", () => {
@@ -18,6 +18,8 @@ it("separates new-set eligibility from historical reasoning evidence without mut
 
 it("requires the current review, explicit ownership and matching reasoning level for reuse", () => {
   for (const patch of [
+    { qualityAudit: { ...current().qualityAudit, blindSolve: undefined } },
+    { qualityAudit: { ...current().qualityAudit, blindSolve: { ...current().qualityAudit.blindSolve, answer: "B" } } },
     { generationVersion: "v1" }, { generationMode: "grounded-fallback" }, { orderLevel: "third-order" },
     { qualityAudit: { ...current().qualityAudit, status: "local-validated" } },
     { qualityAudit: { ...current().qualityAudit, semanticObjectiveAlignment: false } },

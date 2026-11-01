@@ -73,6 +73,7 @@ function reviewItem(q,role,objectives=[]) {
   explanation:q.explanation || null, whyWrong:q.whyWrong || {},
   figureRequired:requiresSchoolFigure(q),
   figureIncluded:false, generationVersion:q.generationVersion || null,
+  blindSolve:q.qualityAudit?.blindSolve ? {status:q.qualityAudit.blindSolve.status || null,answer:q.qualityAudit.blindSolve.answer || null,sourceQuotes:(q.qualityAudit.blindSolve.sourceQuotes || []).slice(0,3)} : null,
   reviewedAt:q.qualityAudit?.reviewedAt || null,
   qualityReviewPolicy:q.qualityAudit?.reviewPolicy || null,
   reviewedDiscrimination:q.qualityAudit?.discrimination ? {closestAlternative:q.qualityAudit.discrimination.closestAlternative || null,stemClue:q.qualityAudit.discrimination.stemClue || null,whyAlternativeFails:q.qualityAudit.discrimination.whyAlternativeFails || null,keyUniquelySupported:q.qualityAudit.discrimination.keyUniquelySupported===true,alternativeAlsoCorrect:q.qualityAudit.discrimination.alternativeAlsoCorrect===true} : null,

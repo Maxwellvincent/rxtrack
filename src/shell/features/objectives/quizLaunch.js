@@ -390,6 +390,7 @@ export function buildQuizConfig({
       orderBlueprint: buildOrderBlueprint({ objectives: selected, count }),
       requireReasoningAudit: true,
       requireDiscriminationAudit: true,
+      requireBlindKeyCheck: true,
       focusNotes: [
         String(focusNotes || "").trim(),
         learningFocus({objectives:selected,evidence:learnerModel,blockId,lectureId:lecture?.id || lectureIdHint,tutorProfile:getLearnerProfile(userId)}),
