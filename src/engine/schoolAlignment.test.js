@@ -1,6 +1,6 @@
 import { describe,it,expect } from 'vitest';
 import { alignSchoolQuestions,retrieveLectureEvidence,schoolEvidencePrompt } from './schoolAlignment.js';
-import { selectStyleExemplars,buildMcqPrompt } from './mcq.js';
+import { selectStyleExemplars,buildMcqPrompt,buildSchoolTemplatePlan } from './mcq.js';
 import { numberedAuditEvidence } from './auditEvidence.js';
 const objective={id:'o1',code:'SOM.MK.ER.PHYS.1076',text:'Granulosa aromatase converts androgen substrate into estrogen'};
 const question={id:'q1',stem:'Which ovarian cells convert androgens?',choices:{A:'Granulosa cells',B:'Theca cells'},correct:'A',schoolObjectiveCode:objective.code,sourceFile:'ExamSoftPractice.pdf'};
@@ -105,4 +105,22 @@ it('reserves source support for distractor claims separately from the keyed topi
  ], 1900);
  expect(result).toContain('stylomastoid foramen');
  expect(result).toContain('ophthalmic sensory');
+});
+
+it('uses exact saved objective links as retrieval candidates without treating them as school annotations',()=>{
+ const objective={id:'target',code:'SOM.TEST.0542',objective:'Describe neurulation'};
+ const question={stem:'A fetal defect is observed. Which developmental process is impaired?',choices:{A:'Primary process',B:'Secondary process'},correct:'A',objectiveIds:['target']};
+ const result=alignSchoolQuestions([question],[objective],[]);
+ expect(result[0].links[0]).toMatchObject({targetId:'target',basis:'candidate-stored-link',score:50});
+ expect(alignSchoolQuestions([question],[{...objective,id:'other',code:'SOM.TEST.9999'}],[])[0].links).toEqual([]);
+});
+
+it('prioritizes exact school annotations over stored retrieval candidates while keeping both source types',()=>{
+ const objective={id:'short',code:'SOM.TEST.0542',objective:'Describe neurulation'};
+ const homework={id:'hw',sourceFile:'Week 8 Practice Questions.pdf',objectiveIds:['short'],stem:'Which structure is induced by the embryonic signal?',choices:{A:'One structure',B:'Another structure'},correct:'A'};
+ const imcq={...homework,id:'imcq',sourceFile:'IMCQ.pdf',objectiveIds:[],schoolObjectiveCode:objective.code};
+ const [plan]=buildSchoolTemplatePlan({objectives:[objective],examples:[homework,imcq]});
+ expect(plan.example.sourceKind).toBe('imcq');
+ expect(plan.supportingExamples.map(q=>q.sourceKind)).toContain('homework');
+ expect(plan.supportingExamples[0].candidateObjectiveLinks[0].basis).toBe('candidate-stored-link');
 });

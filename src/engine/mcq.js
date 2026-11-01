@@ -372,7 +372,8 @@ export function buildSchoolTemplatePlan(cfg = {}) {
     const objectiveId = objective.id || objective.code;
     const matching = references.filter(row => row.links.some(link => link.kind === "objective" && link.targetId === objectiveId));
     const sourceRank = row => ["examsoft", "school", "homework", "imcq", "clicker"].indexOf(exemplarSourceTier(row.question));
-    matching.sort((a, b) => sourceRank(a) - sourceRank(b));
+    const strength=row=>Math.max(0,...row.links.filter(link=>link.kind==="objective" && link.targetId===objectiveId).map(link=>link.score || 0));
+    matching.sort((a, b) => strength(b)-strength(a) || sourceRank(a) - sourceRank(b));
     const reference = matching[0];
     const seenKinds = new Set(reference ? [exemplarSourceTier(reference.question)] : []);
     const supportingExamples = [];
