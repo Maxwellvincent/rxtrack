@@ -4,7 +4,7 @@ import { hasReusableQuestionReview } from "../../../engine/questionReuse.js";
 import { readClinicalAnalysesForBlock, readExemplarsForBlock, resolveDefaultDifficulty, startObjectiveQuiz } from "../objectives/quizLaunch.js";
 import { isSemanticDuplicate, questionFingerprint, schoolStyleSimilarity, questionQualityIssues } from "./questionQuality.js";
 import { questionPoolKey, isValidPoolQuestion } from "../../../questionPool.js";
-import { withDeadline } from "../../../asyncDeadline.js";
+import { withDeadline, boundedAIAdapter } from "../../../asyncDeadline.js";
 import { repairTaskForIndex } from "./focusedRepair.js";
 import { canonicalObjectiveIds } from "../../../engine/objectiveLinks.js";
 import { buildClinicalCorrelateLibrary } from "../../../engine/clinicalCorrelates.js";
@@ -141,19 +141,17 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
       progress(`Writing questions: ${lectureTitle}${attempt > 1 ? ` · retry ${attempt - 1}` : ""}`, lectureId);
       let result;
       try {
-        result = await withDeadline(signal => startObjectiveQuiz({ objectives, lectureTitle, lectureIdHint: lectureId, blockId, lectures, exemplars, atoms,
-          lectureText,
-          studyMode,
-          focusNotes,
-          difficulty, userId, clinicalCorrelateLibrary, avoidStems: [...history, ...accepted].map(q => q.stem).filter(Boolean).slice(-100), questionCount: Math.min(3, requested - obtained) }, {
-          ...deps,
-          maxTokens: Math.min(8000, Math.max(2000, Math.min(3, requested - obtained) * 1100)),
-          callAIJSON: (...args) => {
-            progress(`${/independent|audit/i.test(String(args[0])) ? "Reviewing accuracy" : "Writing questions"}: ${lectureTitle}`, lectureId);
-            args[6] = { ...args[6], signal, bridgeTimeoutMs: LOCAL_BRIDGE_TIMEOUT_MS, throwOnError: true };
-            return deps.callAIJSON(...args);
-          },
-        }), deps.requestTimeoutMs || REQUEST_TIMEOUT_MS);
+        const requestTimeout=deps.requestTimeoutMs || REQUEST_TIMEOUT_MS;
+        const deadline=Date.now()+requestTimeout;
+        result = await withDeadline(signal => {
+          const boundedAdapter=adapter=>boundedAIAdapter(adapter,{signal,deadline,bridgeTimeoutMs:LOCAL_BRIDGE_TIMEOUT_MS,label:"Exam question preparation",onRequest:args=>progress(`${/independent|audit|solve/i.test(String(args[0])) ? "Reviewing accuracy" : "Writing questions"}: ${lectureTitle}`,lectureId)});
+          return startObjectiveQuiz({objectives,lectureTitle,lectureIdHint:lectureId,blockId,lectures,exemplars,atoms,
+            lectureText,studyMode,focusNotes,difficulty,userId,clinicalCorrelateLibrary,
+            avoidStems:[...history,...accepted].map(q=>q.stem).filter(Boolean).slice(-100),questionCount:Math.min(3,requested-obtained)}, {
+            ...deps,maxTokens:Math.min(8000,Math.max(2000,Math.min(3,requested-obtained)*1100)),
+            callAIJSON:boundedAdapter(deps.callAIJSON),reviewAIJSON:boundedAdapter(deps.reviewAIJSON),repairAIJSON:boundedAdapter(deps.repairAIJSON),
+          });
+        },requestTimeout,deps.signal,"Exam question preparation");
       } catch (error) { result = { error: error.message, questions: [] }; }
       if (result?.error) {
         errorMessage = result.error;

@@ -118,3 +118,34 @@ it('does not give fresh untagged questions sole-objective credit without reviewe
  const result=await generateExamQuestions({...args,allocation:{l1:1},objectivesByLecture:{l1:[{id:'sole',objective:'Explain a specific relationship'}]}},{pool:storage});
  expect(result.questions).toEqual([]);expect(storage.save).not.toHaveBeenCalled();
 });
+
+it('passes shared cancellation to separately configured review and repair adapters',async()=>{
+ const controller=new AbortController();const signals=[];
+ const transport=vi.fn(async(...params)=>{
+  const signal=params[6].signal;signals.push(signal);
+  return new Promise((_resolve,reject)=>signal.addEventListener('abort',()=>reject(signal.reason),{once:true}));
+ });
+ generate.mockImplementation(async(_args,deps)=>{
+  const review=deps.reviewAIJSON('Independent audit','review',{},100,undefined,undefined,{});
+  const repair=deps.repairAIJSON('Repair','repair',{},100,undefined,undefined,{});
+  controller.abort(new Error('Preparation cancelled'));
+  await Promise.all([review,repair]);return {questions:[]};
+ });
+ const result=await generateExamQuestions({...args,allocation:{l1:1}},{signal:controller.signal,reviewAIJSON:transport,repairAIJSON:transport});
+ expect(signals).toHaveLength(2);expect(signals.every(s=>s.aborted)).toBe(true);
+ expect(result.questions).toEqual([]);expect(result.errors).toHaveLength(1);
+});
+it('gives later review calls only the remaining preparation budget',async()=>{
+ vi.useFakeTimers();const options=[];
+ const transport=vi.fn(async(...params)=>{options.push(params[6]);return {};});
+ generate.mockImplementation(async(_args,deps)=>{
+  await deps.callAIJSON('Writer','draft',{},100,undefined,undefined,{});
+  await new Promise(resolve=>setTimeout(resolve,60));
+  await deps.reviewAIJSON('Independent solve','solve',{},100,undefined,undefined,{});
+  return {error:"Test batch ended",questions:[]};
+ });
+ const pending=generateExamQuestions({...args,allocation:{l1:1}},{callAIJSON:transport,reviewAIJSON:transport,requestTimeoutMs:100});
+ await vi.advanceTimersByTimeAsync(101);await pending;
+ expect(options[0].timeoutMs).toBe(100);expect(options[1].timeoutMs).toBe(40);
+ expect(options[1].bridgeTimeoutMs).toBe(40);
+});

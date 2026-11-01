@@ -18,3 +18,19 @@ export function withDeadline(run, timeoutMs, parentSignal, label = "AI request")
     );
   });
 }
+
+/** Every AI stage spends the same preparation budget and receives cancellation. */
+export function boundedAIAdapter(adapter,{signal,deadline,bridgeTimeoutMs=300000,onRequest,label='Question preparation'}={}) {
+ if(typeof adapter!=='function')return undefined;
+ return (...args)=>{
+  signal?.throwIfAborted();
+  const remaining=deadline-Date.now();
+  if(remaining<=0)throw new Error(`${label} timed out. Please retry.`);
+  const options=args[6] || {};
+  const requestSignal=signal && options.signal && signal!==options.signal ? AbortSignal.any([signal,options.signal]) : signal || options.signal;
+  requestSignal?.throwIfAborted();
+  onRequest?.(args);
+  args[6]={...options,signal:requestSignal,timeoutMs:Math.min(remaining,Number(options.timeoutMs)>0?Number(options.timeoutMs):remaining),bridgeTimeoutMs:Math.min(remaining,bridgeTimeoutMs,Number(options.bridgeTimeoutMs)>0?Number(options.bridgeTimeoutMs):bridgeTimeoutMs),throwOnError:true};
+  return adapter(...args);
+ };
+}

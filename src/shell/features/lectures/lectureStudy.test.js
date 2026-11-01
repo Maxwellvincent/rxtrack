@@ -299,3 +299,13 @@ describe("quiz completion ownership", () => {
     expect(isActiveQuizComplete(1, 2)).toBe(false);
   });
 });
+
+it('cancels stalled lecture-round generation at the shared preparation deadline',async()=>{
+ vi.useFakeTimers();let signal;
+ try{
+  const callAIJSON=vi.fn(async(...params)=>{signal=params[6].signal;return new Promise(()=>{});});
+  const pending=quizFromAtoms({lectureTitle:'Bounded lecture'},[atom()],{callAIJSON,lectureText:BODY,maxPreparationMs:100});
+  await vi.advanceTimersByTimeAsync(101);
+  expect((await pending).error).toContain('timed out');expect(signal.aborted).toBe(true);
+ }finally{vi.useRealTimers();}
+});

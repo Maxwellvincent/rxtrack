@@ -1,3 +1,4 @@
+import { withDeadline, boundedAIAdapter } from "../../../asyncDeadline.js";
 /**
  * SP1 T2.1 — the per-lecture study flow: lecture → atoms → calibrated quiz.
  *
@@ -137,7 +138,9 @@ export async function quizFromAtoms(lecture, atoms, deps = {}) {
 
   const objectives = deps.objectives || [];
   const lectureText = String(deps.lectureText || lectureTextFrom(lecture));
-  const result = await generateMcqs(
+  const timeout=Math.max(1,Number(deps.maxPreparationMs) || 240000);
+  const deadline=Date.now()+timeout;
+  const result = await withDeadline(signal=>generateMcqs(
     {
       atoms: marked.slice(0, Math.max(5, Math.min(20, marked.length))),
       objectives,
@@ -154,8 +157,8 @@ export async function quizFromAtoms(lecture, atoms, deps = {}) {
       clinicalCorrelateLibrary,
       orderBlueprint: buildOrderBlueprint({ objectives, count: Math.max(1, Number(deps.count) || ROUND_SIZE) }),
     },
-    { callAIJSON, reviewAIJSON: deps.reviewAIJSON, skipQuestionAudit: deps.skipQuestionAudit }
-  );
+    { callAIJSON:boundedAIAdapter(callAIJSON,{signal,deadline}), reviewAIJSON:boundedAIAdapter(deps.reviewAIJSON,{signal,deadline}), repairAIJSON:boundedAIAdapter(deps.repairAIJSON,{signal,deadline}), skipQuestionAudit:deps.skipQuestionAudit }
+  ),timeout,deps.signal,"Lecture question preparation").catch(error=>({questions:[],error:error.message || String(error)}));
   if (result.error || !images.length) return result;
   return { ...result, questions: attachImagesToQuestions(result.questions, atoms, images) };
 }
