@@ -17,7 +17,7 @@ function makeSessionId() {
 
 export function validBankQuestion(question) {
   const letters = Object.keys(question?.choices || {});
-  const choiceLetters = letters.filter((letter) => /^[A-H]$/i.test(letter)).map((letter) => letter.toUpperCase()).sort();
+  const choiceLetters = letters.filter((letter) => /^[A-M]$/i.test(letter)).map((letter) => letter.toUpperCase()).sort();
   const choicesContiguous = !choiceLetters.length || choiceLetters.every((letter, index) => letter === String.fromCharCode(65 + index));
   const needsImage = !!(question?.hasImage || question?.imageDependent || questionReferencesVisual(question?.stem));
   const hasImage = !!(question?.sourceImageUrl || question?.sourceImageDataUrl || question?.image?.url || typeof question?.image === "string");
@@ -52,7 +52,7 @@ export async function launchQuestionBankSession(
   if (!sourceQuestions.length) return { ok: false, error: "This question bank is empty." };
   const figures = await (deps.loadFigures || questionFigures.load)(userId, filename);
   const withFigures = sourceQuestions.map(q => questionFigures.apply(q, figures));
-  const held = withFigures.filter(q => q.sourceKeyReviewStatus === 'stem-mismatch' && !q.correct && q.sourceKeyCandidate);
+  const held = withFigures.filter(q => ['stem-mismatch','key-text-conflict'].includes(q.sourceKeyReviewStatus) && !q.correct && q.sourceKeyCandidate);
   const heldSet = new Set(held);
   const eligible = withFigures.filter(q => !heldSet.has(q));
   if (!eligible.length && held.length) return {ok:false,error:'All questions in this bank are awaiting source-key review. No answers have been inferred.'};

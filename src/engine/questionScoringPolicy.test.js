@@ -28,3 +28,8 @@ it('protects missing visual attempts while retaining the raw answers', () => {
  expect(scored.originalAnswers).toHaveLength(2);
  expect(scored.scoringExcludedQuestionIds).toEqual(['missing']);
 });
+it('withholds a known source key conflict without deleting the raw answer',()=>{
+ const session={questions:[{questionId:'q',correct:null,sourceKeyReviewStatus:'key-text-conflict'}],answers:[{questionId:'q',value:'B'}]};
+ const protectedSession=protectSessionScoring(session);
+ expect(protectedSession.answers).toEqual([]);expect(protectedSession.originalAnswers).toEqual(session.answers);
+});

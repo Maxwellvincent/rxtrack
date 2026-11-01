@@ -253,7 +253,7 @@ export function LabAnnotatedText({ text, className, highlights, onHighlight, onR
       if (String(text).slice(start,end) !== phrase) return;
       selectionClick.current = true;
       onHighlight({ start, end });
-      sel.removeAllRanges();
+      // Keep native selection available for Copy; highlighting must not consume it.
     }
   };
 
@@ -268,7 +268,7 @@ export function LabAnnotatedText({ text, className, highlights, onHighlight, onR
               title="Click to remove highlight"
               onClick={() => { if (!selectionClick.current && !window.getSelection()?.toString()) onRemoveHighlight?.(p.range); }}
               onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); onRemoveHighlight?.(p.range); } }}
-              className="rounded-sm bg-warn/30 text-text-1 cursor-pointer">
+              className="rounded-none bg-warn/30 text-text-1 cursor-pointer">
               {p.content}
             </mark>
           );

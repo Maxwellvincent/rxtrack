@@ -33,7 +33,7 @@ export function questionIsExcluded(question, ratings, scope = 'performance') {
  return questionIdentityValues(question).some(value => excluded.has(evidenceIdentity(value)));
 }
 export function protectSessionScoring(session, ratings = {}) {
- const excluded = new Set((session.questions || []).filter(q => questionIsExcluded(q, ratings) || missingRequiredVisual(q)).map(q => q.questionId));
+ const excluded = new Set((session.questions || []).filter(q => (!q.correct && ['stem-mismatch','key-text-conflict'].includes(q.sourceKeyReviewStatus)) || (q.sourceVisualChoicesUnverified && !q.sourceVisualLabelsConfirmed) || questionIsExcluded(q, ratings) || missingRequiredVisual(q)).map(q => q.questionId));
  const objectiveExcluded = (session.questions || []).some(q => questionIsExcluded(q, ratings, 'objective'));
  if (!excluded.size && !objectiveExcluded) return session;
  return { ...session,

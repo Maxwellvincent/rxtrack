@@ -1,3 +1,5 @@
+import { SourceBankRepair } from './SourceBankRepair.jsx';
+import { updateExamSessionTransaction } from '../../../supabase.js';
 import { practiceSections, sectionQuestionIndices, firstSectionQuestion } from './practiceSections.js';
 import { restoreVisualChoices } from "../../../engine/visualChoiceLabels.js";
 import { ObjectiveLearningReport } from "../../../ui/ObjectiveLearningReport.jsx";
@@ -476,7 +478,7 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
   const savedAnswer = (session.answers || []).find(answer => answer.questionId === q?.questionId);
   const revealed = picked != null && savedAnswer?.revealed !== false;
   const [reasonFirst, setReasonFirst] = useState(false);
-  const isCorrect = revealed && picked === q?.correct;
+  const isCorrect = revealed && !!q?.correct && picked === q.correct;
   const [diagnostics, setDiagnostics] = useState({});
   const diagnosed = !!diagnostics[q?.questionId];
   const showAnswer = revealed && (!reasonFirst || diagnosed);
@@ -498,13 +500,23 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
         {inFocus && <button type="button" className="mt-2 text-sm underline" onClick={() => selectSections([])}>Return to whole bank</button>}
         {inFocus && focusAnswered === indices.length && <p role="status" className="mt-2 text-sm font-semibold">✓ Selected sections complete. Choose another section or save and leave.</p>}
       </section>}
+      <SourceBankRepair session={session} userId={userId} onRepaired={controller.refetch} />
       <QuestionNavigator questions={questions} indices={indices} session={session} currentIndex={visibleIndex} onSelect={setCurrentIndex} />
 
       <div className="rounded-lg border border-border bg-bg-elevated p-3">
         <QuestionMeta question={q} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} />
+        {q.sourceVisualChoicesUnverified && !q.sourceVisualLabelsConfirmed && <p role="status" className="mb-3 text-sm text-text-2">Diagram choice count is not confirmed. Confirm the labels using the source figure controls below; this item is excluded from scoring until confirmed.</p>}
+        {!q.correct && <p role="status" className="mb-3 rounded border border-warn p-3 text-sm">Source key needs verification. This question is excluded from scoring; you can continue. {q.sourceKeyCritique}</p>}
         <LeadInCue stem={q.stem} />
         <QuestionStem text={q.stem} questionId={q.questionId} />
-        <SchoolQuestionFigure question={q} userId={userId} />
+        <SchoolQuestionFigure question={q} userId={userId} onVisualLabels={async lastLetter => {
+          if ('ABCDEFGHIJKLM'.indexOf(lastLetter) < Math.max(...Object.keys(q.choices).map(letter=>'ABCDEFGHIJKLM'.indexOf(letter)))) throw Error('Cannot remove existing source choices.');
+          await updateExamSessionTransaction(userId,session.sessionId,current => {
+            if(current?.status !== 'in_progress') return null;
+            return {...current,questions:current.questions.map(item=>item.questionId===q.questionId ? {...item,choices:Object.fromEntries('ABCDEFGHIJKLM'.slice(0,'ABCDEFGHIJKLM'.indexOf(lastLetter)+1).split('').map(letter=>[letter,`Visual option ${letter}`])),sourceVisualLabelsConfirmed:true} : item)};
+          });
+          await controller.refetch?.();
+        }} />
         <ChoiceList
           questionId={q.questionId}
           choices={q.choices}
@@ -535,7 +547,7 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
 
         {revealed && !showAnswer && <div className="space-y-2 rounded-lg border border-border p-3"><label className="block text-sm text-text-2">Your reasoning (optional)<textarea key={q.questionId} className="mt-1 block w-full rounded border border-border bg-panel p-2" rows={3} placeholder="What led you to this answer?" /></label><Button variant="outline" onClick={() => setDiagnostics(current => ({ ...current, [q.questionId]: { skipped: true } }))}>Reveal answer</Button></div>}
 
-        {revealed && !isCorrect && <details key={`diagnosis-${q.questionId}`} className="text-sm"><summary className="cursor-pointer py-2 text-text-3">Review this miss · optional</summary><MissDiagnosis question={q} selectedChoice={picked} initialResult={diagnostics[q.questionId]} onSkip={() => setDiagnostics(current => ({ ...current, [q.questionId]: { skipped: true } }))} onNavigateToLecture={onNavigateToLecture} onComplete={(diagnostic) => {
+        {revealed && q.correct && !isCorrect && <details key={`diagnosis-${q.questionId}`} className="text-sm"><summary className="cursor-pointer py-2 text-text-3">Review this miss · optional</summary><MissDiagnosis question={q} selectedChoice={picked} initialResult={diagnostics[q.questionId]} onSkip={() => setDiagnostics(current => ({ ...current, [q.questionId]: { skipped: true } }))} onNavigateToLecture={onNavigateToLecture} onComplete={(diagnostic) => {
           recordMissType(userId, diagnostic.primaryType, `${session.sessionId}:${q.questionId}`);
           setDiagnostics(current => ({ ...current, [q.questionId]: diagnostic }));
         }} /></details>}
@@ -543,12 +555,12 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
         {showAnswer && (
           <div className="mt-3 space-y-2">
             <div data-testid="practice-reveal" className={"text-xs " + (isCorrect ? "text-good" : "text-bad")}>
-              {isCorrect ? "✓ Correct" : "✕ Incorrect"}
+              {!q.correct ? "Unscored · source key needs verification" : isCorrect ? "✓ Correct" : "✕ Incorrect"}
             </div>
             {(q.explanation || Object.keys(q.whyWrong || {}).length > 0) && (
               <QuestionExplanation selectedLetter={picked} text={q.explanation} correctLetter={q.correct} whyWrong={q.whyWrong} choices={q.choices} sourceType={q.sourceType || session.sourceType} />
             )}
-            {!isCorrect && <LearningGapNote key={q.questionId} userId={userId} question={q} blockId={session.blockId} lectureId={q.lectureId} />}
+            {q.correct && !isCorrect && <LearningGapNote key={q.questionId} userId={userId} question={q} blockId={session.blockId} lectureId={q.lectureId} />}
             <QuestionQualityRating userId={userId} question={q} />
             {tutorModeEnabled && <TutorPanelForQuestion question={q} callAI={callAI} />}
             {!inFocus && visibleIndex + 1 >= questions.length && session.fillStatus === "generating" ? (
@@ -565,6 +577,11 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
         <Button variant="outline" disabled={position <= 0} onClick={() => setCurrentIndex(indices[position - 1])}>← Prev</Button>
         <Button variant="outline" disabled={position >= indices.length - 1} onClick={() => setCurrentIndex(indices[position + 1])}>Next →</Button>
       </div>
+      {inFocus && position === indices.length - 1 && <Button variant="outline" onClick={() => {
+        const outside = questions.map((_,i)=>i).filter(i=>!indices.includes(i));
+        selectSections([]);
+        setCurrentIndex(outside.length ? firstSectionQuestion(outside,questions,session.answers) : visibleIndex);
+      }}>Continue beyond selected sections →</Button>}
     </div>
   );
 }

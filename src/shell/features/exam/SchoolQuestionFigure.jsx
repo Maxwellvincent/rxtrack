@@ -12,8 +12,10 @@ function cropKey(question) {
 }
 
 /** A source PDF page can include the answer key. Let the learner isolate only the exhibit. */
-export function SchoolQuestionFigure({ question, userId }) {
+export function SchoolQuestionFigure({ question, userId, onVisualLabels }) {
   const meta = useStoreResource(questionBankMeta, userId);
+  const [lastLabel, setLastLabel] = useState("H");
+  const [labelNotice, setLabelNotice] = useState("");
   const [selectedPage, setSelectedPage] = useState(null);
   const [pageUrl, setPageUrl] = useState(null);
   const [pageBusy, setPageBusy] = useState(false);
@@ -86,7 +88,7 @@ export function SchoolQuestionFigure({ question, userId }) {
   };
   useEffect(() => () => { pageRequest.current++; pdfRef.current?.destroy?.(); }, []);
 
-  if (!question?.hasImage && !referencesVisual && !originalUrl) return null;
+  if (!question?.hasImage && !question?.imageQuestion && !referencesVisual && !originalUrl && !(question?.sourceType === "question-bank" && sourcePath)) return null;
   if ((!url || failedUrl === url) && !sourcePath && !cropUrl) return (
     <p role="status" className="mb-3 rounded-lg border border-border p-3 text-sm text-text-2">
       This question refers to a source visual, but it is not available here. Do not answer from incomplete information; flag the item for repair.
@@ -170,6 +172,7 @@ export function SchoolQuestionFigure({ question, userId }) {
             </div>
           </>
         )}
+        {onVisualLabels && Object.entries(question.choices || {}).every(([letter,value]) => value === `Visual option ${letter}`) && <div className="mt-3 border-t border-border pt-2 text-sm"><label>Diagram labels run from A through <select aria-label="Last diagram label" className="mx-2 border border-border bg-bg p-1" value={lastLabel} onChange={event=>setLastLabel(event.target.value)}>{'BCDEFGHIJKLM'.split('').map(letter=><option key={letter}>{letter}</option>)}</select></label><button type="button" className="underline" onClick={async()=>{try{await onVisualLabels(lastLabel);setLabelNotice('Diagram labels saved for this session. Source key unchanged.');}catch{setLabelNotice('Could not save diagram labels. Please retry.');}}}>Use these diagram labels</button><p className="text-xs text-text-3">Confirm against the original figure; labels are not inferred from the answer key.</p>{labelNotice&&<p role="status">{labelNotice}</p>}</div>}
         {cropNotice && <p role="status" className="mt-2 text-xs text-text-2">{cropNotice}</p>}
         <figcaption className="mt-1 text-xs text-text-3">{question.sourceFile || "Uploaded source"}{visualPage ? ` · visual page ${visualPage}` : ""}{question.sourcePage && visualPage && Number(question.sourcePage) !== Number(visualPage) ? ` · question page ${question.sourcePage}` : ""}</figcaption>
       </figure>

@@ -87,6 +87,18 @@ beforeEach(() => {
 });
 
 describe("ExamSessionRunner", () => {
+  it("offers a way beyond the last selected section instead of a navigation dead end", () => {
+    const controller=baseController();controller.session.format='practice';controller.session.sourceType='question-bank';
+    controller.session.questions=[{...makeQuestion('q1'),sourceSection:'NB27'},{...makeQuestion('q2'),sourceSection:'NB28'}];
+    controller.session.answers=[{questionId:'q1',value:'A'}];
+    localStorage.setItem('rxt-practice-sections:u1:s1',JSON.stringify(['source:NB27']));
+    controllerMock.mockReturnValue(controller);
+    const {host,unmount}=render(<ExamSessionRunner sessionId="s1" userId="u1" />);
+    act(()=>[...host.querySelectorAll('button')].find(b=>b.textContent==='Continue beyond selected sections →').click());
+    expect(controller.setCurrentIndex).toHaveBeenLastCalledWith(1);
+    expect(controller.submit).not.toHaveBeenCalled();unmount();
+  });
+
   it("saves and advances without revealing the answer or leaking section correctness", () => {
     const controller = baseController();
     controller.session.format = 'practice';
