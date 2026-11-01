@@ -161,6 +161,13 @@ describe("quizFromAtoms", () => {
     expect(callAIJSON.mock.calls[0][1]).toContain("KEY FACTS EXTRACTED FROM THE LECTURE");
   });
 
+  it("withholds study-round questions when independent review cannot establish reasoning", async()=>{
+    const callAIJSON=vi.fn(async()=>({questions:[{stem:"A patient develops weakness after an interruption in a supplied nerve pathway. Testing confirms the lost response while another response remains intact. Which mechanism explains the deficit?",choices:{A:"One mechanism",B:"Another mechanism",C:"Third mechanism",D:"Fourth mechanism"},correct:"A",explanation:"The interruption selectively removes the supplied pathway response."}]}));
+    const result=await quizFromAtoms({lectureTitle:"Study round"},[atom()],{callAIJSON,reviewAIJSON:async()=>({reviews:[{index:0,approved:true,issues:[]}]}),lectureText:BODY,count:1});
+    expect(result.questions).toEqual([]);
+    expect(result.error).toContain("verification failed");
+  });
+
   it("passes the error through rather than throwing", async () => {
     const callAIJSON = vi.fn().mockRejectedValue(new Error("model down"));
     expect((await quizFromAtoms({}, [atom()], { callAIJSON, lectureText: "Lecture details. ".repeat(12) })).error).toBe("model down");

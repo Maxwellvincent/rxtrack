@@ -164,8 +164,13 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
         if (obtained >= requested) break;
         const objectiveIds = resolveQuestionObjectiveIds(q, objectives);
         if (subject && (!objectiveIds.length || (q.objectiveIds?.length && !q.objectiveIds.some(id=>objectives.some(o=>o.id===id || o.code===id))))) continue;
+        const reviewedCandidate = { ...q, objectiveIds };
+        if (enforceQuality && !hasReusableQuestionReview(reviewedCandidate)) {
+          errorMessage = "Generated questions did not satisfy the current independent-review requirements. No unreviewed questions were counted.";
+          continue;
+        }
         const qualityIssues = questionQualityIssues(q, objectives);
-        if (!isValidPoolQuestion(q) || (enforceQuality && (qualityIssues.length || !questionMatchesObjectiveDomain({ ...q, objectiveIds }, { objectives, atoms }) || alreadyUsed(q, [...history, ...accepted])))) continue;
+        if (!isValidPoolQuestion(q) || (enforceQuality && (qualityIssues.length || !questionMatchesObjectiveDomain(reviewedCandidate, { objectives, atoms }) || alreadyUsed(q, [...history, ...accepted])))) continue;
         const stamped = { ...q, ...(subject ? { blueprintSlot: allocationId, blueprintSubject: subject, sourceBlockId } : {}), difficulty, questionId: crypto.randomUUID(), blockId, lectureId,
           taskType: studyMode === "repair" ? repairTaskForIndex(obtained) : (q.taskType || null),
           objectiveIds,

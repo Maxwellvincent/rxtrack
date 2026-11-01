@@ -104,3 +104,17 @@ describe("parallel generation with durable reuse", () => {
     expect(alreadyUsed(q(stem), [{ stem: stem.slice(0, 100) }])).toBe(true);
   });
 });
+
+it('withholds fresh generated items missing the current review before saving or exposing them',async()=>{
+ const storage=pool();const onQuestionReady=vi.fn();
+ const unreviewed={...q('Unreviewed generated item'),qualityAudit:undefined};
+ generate.mockResolvedValue({questions:[unreviewed]});
+ const result=await generateExamQuestions({...args,allocation:{l1:1}},{pool:storage,onQuestionReady});
+ expect(result.questions).toEqual([]);expect(result.errors).toHaveLength(1);
+ expect(storage.save).not.toHaveBeenCalled();expect(onQuestionReady).not.toHaveBeenCalled();
+});
+it('does not give fresh untagged questions sole-objective credit without reviewed ownership',async()=>{
+ const storage=pool();generate.mockResolvedValue({questions:[q('A fresh but untagged item')]});
+ const result=await generateExamQuestions({...args,allocation:{l1:1},objectivesByLecture:{l1:[{id:'sole',objective:'Explain a specific relationship'}]}},{pool:storage});
+ expect(result.questions).toEqual([]);expect(storage.save).not.toHaveBeenCalled();
+});
