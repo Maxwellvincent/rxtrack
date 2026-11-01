@@ -28,3 +28,11 @@ describe('source section practice navigation', () => {
     expect(questions[0].lectureId).toBeUndefined();
   });
 });
+
+describe('section accuracy without spoilers', () => {
+  it('counts revealed scored answers only, retains hidden picks and excludes protected questions', () => {
+    const questions = ['a','b','c','d'].map(questionId=>({questionId,sourceSection:'NB27',correct:'A'}));
+    const answers = [{questionId:'a',value:'A',revealed:true},{questionId:'b',value:'B',revealed:true},{questionId:'c',value:'B',revealed:false},{questionId:'d',value:'B',revealed:true}];
+    expect(practiceSections(questions,answers,{}, {scoringExcludedQuestionIds:['d']})[0]).toMatchObject({answered:4,scored:2,correct:1,accuracy:50,pending:1});
+  });
+});

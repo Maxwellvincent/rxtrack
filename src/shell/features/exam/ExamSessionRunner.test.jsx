@@ -87,6 +87,25 @@ beforeEach(() => {
 });
 
 describe("ExamSessionRunner", () => {
+  it("saves and advances without revealing the answer or leaking section correctness", () => {
+    const controller = baseController();
+    controller.session.format = 'practice';
+    controller.session.sourceType = 'question-bank';
+    controller.session.questions.forEach(q=>{q.sourceSection='NB27';q.sourceSectionTitle='Anatomy of the CNS';});
+    controller.session.answers = [{questionId:'q1',value:'B',revealed:false}];
+    controllerMock.mockReturnValue(controller);
+    const {host,unmount} = render(<ExamSessionRunner sessionId="s1" userId="u1" />);
+    expect(host.textContent).toContain('Anatomy of the CNS');
+    expect(host.textContent).toContain('No revealed scores yet');
+    expect(host.textContent).toContain('1 saved without reveal');
+    act(()=>[...host.querySelectorAll('button')].find(b=>b.textContent==='Save answer & next').click());
+    expect(controller.answerQuestion).toHaveBeenCalledWith('q1','B',{revealed:false});
+    expect(controller.setCurrentIndex).toHaveBeenCalledWith(1);
+    expect(host.querySelector('[data-testid="practice-reveal"]')).toBeNull();
+    expect(controller.submit).not.toHaveBeenCalled();
+    unmount();
+  });
+
   it("restores a completed section focus for review without offering whole-bank finish", () => {
     localStorage.setItem('rxt-practice-sections:u1:s1',JSON.stringify(['source:NB27']));
     const controller = baseController();
@@ -119,7 +138,7 @@ describe("ExamSessionRunner", () => {
     controller.session.answers = [{questionId:'q1',value:'A'}];
     controllerMock.mockReturnValue(controller);
     const {host,rerender,unmount} = render(<ExamSessionRunner sessionId="s1" userId="u1" />);
-    expect(host.textContent).toContain('Section: NB27 · Cortex');
+    expect(host.textContent).toContain('Section: Cortex · NB27');
     const section = host.querySelector('[aria-label="Homework sections"]');
     const check = section.querySelector('input');
     act(()=>check.click());

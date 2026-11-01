@@ -144,7 +144,7 @@ function QuestionMeta({ question, objectivesById = {}, lectureLabelsByLectureId 
       <span className="rounded border border-border px-1.5 py-0.5" title="Structural reasoning level, inferred from the question and objective; not a measure of medical correctness">
         {QUESTION_ORDER_LABELS[question?.orderLevel || classifyQuestionOrder(question, objectivesById[question?.objectiveIds?.[0]])]}
       </span>
-      {(question?.sourceType === 'question-bank' || question?.sourceSection) && <span className="w-full py-1 font-sans text-sm font-semibold text-text-1">{question.sourceSection ? `Section: ${question.sourceSection}${question.sourceSectionTitle ? ` · ${question.sourceSectionTitle}` : ''}` : `Lecture: ${lectureLabel || 'not linked yet'}`}{question.sourceSection && lectureLabel ? ` · ${lectureLabel}` : ''}</span>}
+      {(question?.sourceType === 'question-bank' || question?.sourceSection) && <span className="w-full py-1 font-sans text-sm font-semibold text-text-1">{question.sourceSection ? `Section: ${question.sourceSectionTitle || question.sourceSection}${question.sourceSectionTitle ? ` · ${question.sourceSection}` : ''}` : `Lecture: ${lectureLabel || 'not linked yet'}`}{question.sourceSection && lectureLabel ? ` · ${lectureLabel}` : ''}</span>}
       <details className="w-full"><summary className="cursor-pointer py-1">Question details & source links</summary><div className="mt-1 flex flex-wrap gap-1.5">
       <span className="max-w-full rounded border border-border px-1.5 py-0.5">Lecture: {lectureLabel || lectureId || "not linked"}</span>
       {objectiveLabels.map((label, index) => <span key={`${question.questionId}-objective-${index}`} className="max-w-full rounded border border-border px-1.5 py-0.5" title={label}>Objective: {label}</span>)}
@@ -454,7 +454,7 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
   const [selectedSections, setSelectedSections] = useState(() => {
     try { const value = JSON.parse(localStorage.getItem(focusStorageKey) || '[]'); return Array.isArray(value) ? value.filter(v => typeof v === 'string') : []; } catch { return []; }
   });
-  const sections = practiceSections(questions, session.answers, lectureLabelsByLectureId);
+  const sections = practiceSections(questions, session.answers, lectureLabelsByLectureId, protectSessionScoring(session, questionRatingsStore.read(userId).ratings));
   const effectiveSelection = selectedSections.filter(key => sections.some(s => s.key === key));
   const indices = sectionQuestionIndices(sections, effectiveSelection);
   const inFocus = effectiveSelection.length > 0;
@@ -493,7 +493,7 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
         <p className="text-sm font-semibold">{inFocus ? 'Section focus' : 'Whole homework bank'} · {focusAnswered}/{indices.length} answered</p>
         <details className="mt-2 text-sm"><summary className="cursor-pointer">Choose lectures or sections</summary>
           <p className="mt-2 text-text-2">Select one or more source sections to work through first.</p>
-          <div className="mt-2 grid gap-2 sm:grid-cols-2">{sections.map(section => <label key={section.key} className="flex items-start gap-2 rounded border border-border p-2"><input type="checkbox" checked={effectiveSelection.includes(section.key)} onChange={event => selectSections(event.target.checked ? [...effectiveSelection, section.key] : effectiveSelection.filter(key => key !== section.key))} /><span><strong>{section.label}</strong>{section.title && <span> · {section.title}</span>}<span className="block text-text-2">{section.answered}/{section.indices.length} answered{section.answered === section.indices.length ? ' · ✓ Complete' : ''}</span></span></label>)}</div>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">{sections.map(section => <label key={section.key} className="flex items-start gap-2 rounded border border-border p-2"><input type="checkbox" checked={effectiveSelection.includes(section.key)} onChange={event => selectSections(event.target.checked ? [...effectiveSelection, section.key] : effectiveSelection.filter(key => key !== section.key))} /><span><strong className="block">{section.title || section.label}</strong>{section.title && <span className="block text-xs text-text-3">{section.label}</span>}<span className="block text-text-2">{section.answered}/{section.indices.length} answered{section.answered === section.indices.length ? ' · ✓ Complete' : ''}</span><span className="block text-text-2">{section.accuracy == null ? 'No revealed scores yet' : `${section.accuracy}% correct · ${section.correct} right, ${section.scored - section.correct} wrong`}{section.pending > 0 ? ` · ${section.pending} saved without reveal` : ''}</span></span></label>)}</div>
         </details>
         {inFocus && <button type="button" className="mt-2 text-sm underline" onClick={() => selectSections([])}>Return to whole bank</button>}
         {inFocus && focusAnswered === indices.length && <p role="status" className="mt-2 text-sm font-semibold">✓ Selected sections complete. Choose another section or save and leave.</p>}
@@ -519,9 +519,14 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
 
         {!revealed && (
           <div className="mt-3">
+            <Button variant="outline" className="mr-2" disabled={!picked || submitting} onClick={() => {
+              const saved = answerQuestion(q.questionId, picked, { revealed: false });
+              if (saved !== false && position < indices.length - 1) setCurrentIndex(indices[position + 1]);
+            }}>{position < indices.length - 1 ? 'Save answer & next' : 'Save answer without reveal'}</Button>
             <Button data-testid="check-answer" onClick={() => answerQuestion(q.questionId, picked, { revealed: true })} disabled={!picked}>
               Check answer
             </Button>
+            {picked && <p className="mt-2 text-xs text-text-3">Selected answers autosave. Reveal whenever you’re ready.</p>}
             <label className="ml-3 inline-flex items-center gap-2 text-xs text-text-2"><input type="checkbox" checked={reasonFirst} onChange={event => setReasonFirst(event.target.checked)} />Reason before reveal</label>
           </div>
         )}

@@ -6,14 +6,23 @@ export function practiceSection(question, labels = {}) {
   return { key: 'unassigned', label: 'Section not identified', title: '' };
 }
 
-export function practiceSections(questions = [], answers = [], labels = {}) {
+export function practiceSections(questions = [], answers = [], labels = {}, { scoringExcludedQuestionIds = [] } = {}) {
+  const excluded = new Set(scoringExcludedQuestionIds);
+  const answerMap = new Map(answers.filter(a => a.value != null).map(a => [a.questionId, a]));
   const answered = new Set(answers.filter(a => a.value != null).map(a => a.questionId));
   const groups = new Map();
   questions.forEach((q, index) => {
     const section = practiceSection(q, labels);
-    const row = groups.get(section.key) || { ...section, indices: [], answered: 0 };
+    const row = groups.get(section.key) || { ...section, indices: [], answered: 0, scored: 0, correct: 0, pending: 0 };
     row.indices.push(index);
     if (answered.has(q.questionId)) row.answered++;
+    const answer = answerMap.get(q.questionId);
+    if (answer && answer.revealed === false) row.pending++;
+    if (answer && answer.revealed !== false && q.correct && !excluded.has(q.questionId)) {
+      row.scored++;
+      if (answer.value === q.correct) row.correct++;
+    }
+    row.accuracy = row.scored ? Math.round(100 * row.correct / row.scored) : null;
     groups.set(section.key, row);
   });
   return [...groups.values()];
