@@ -20,3 +20,11 @@ it("applies the standard to both writers and both reviewer formats", () => {
     expect(prompt).toContain("without overriding school calibration");
   }
 });
+it('asks writers and reviewers for concrete findings and positive distractor distinctions', () => {
+ const cfg={atoms:[],objectives:[]};
+ for(const prompt of [buildAtomQuestionsPrompt(cfg),buildMcqPrompt(cfg),buildQuestionAuditPrompt([],cfg),buildQuestionAuditPrompt([],{...cfg,promptProfile:'compact'})]) {
+  expect(prompt).toContain('CLINICAL FINDING PRECISION');
+  expect(prompt).toContain('spatial options on different axes');
+  expect(prompt).toContain('Do not invent an examination maneuver');
+ }
+});

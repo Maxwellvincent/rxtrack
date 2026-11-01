@@ -11,3 +11,10 @@ it('withholds missing or contradictory discrimination on the strict launch path'
  expect(discriminationIssue({approved:true,discrimination:{...claim,alternativeAlsoCorrect:true}},q)).toBe('ambiguous_choices');
  expect(discriminationIssue({approved:true,discrimination:claim},q,{requireDiscriminationAudit:true})).toBeNull();
 });
+it('rejects source silence as a reason an alternative is false',()=>{
+ for(const whyAlternativeFails of ['The lecture does not support ventral position as the discriminator.', 'Ventral positioning is not supported by the lecture.']) {
+  expect(verifiedDiscrimination({...claim,whyAlternativeFails},q)).toBeNull();
+  expect(discriminationIssue({approved:true,discrimination:{...claim,whyAlternativeFails}},q,{requireDiscriminationAudit:true})).toBe('unverified_discriminator');
+ }
+ expect(verifiedDiscrimination(claim,q)).not.toBeNull();
+});
