@@ -1,3 +1,4 @@
+import { practiceSections, sectionQuestionIndices, firstSectionQuestion } from './practiceSections.js';
 import { restoreVisualChoices } from "../../../engine/visualChoiceLabels.js";
 import { ObjectiveLearningReport } from "../../../ui/ObjectiveLearningReport.jsx";
 import { questionLearningContext } from "../../../engine/learningLoop.js";
@@ -143,6 +144,7 @@ function QuestionMeta({ question, objectivesById = {}, lectureLabelsByLectureId 
       <span className="rounded border border-border px-1.5 py-0.5" title="Structural reasoning level, inferred from the question and objective; not a measure of medical correctness">
         {QUESTION_ORDER_LABELS[question?.orderLevel || classifyQuestionOrder(question, objectivesById[question?.objectiveIds?.[0]])]}
       </span>
+      {(question?.sourceType === 'question-bank' || question?.sourceSection) && <span className="w-full py-1 font-sans text-sm font-semibold text-text-1">{question.sourceSection ? `Section: ${question.sourceSection}${question.sourceSectionTitle ? ` · ${question.sourceSectionTitle}` : ''}` : `Lecture: ${lectureLabel || 'not linked yet'}`}{question.sourceSection && lectureLabel ? ` · ${lectureLabel}` : ''}</span>}
       <details className="w-full"><summary className="cursor-pointer py-1">Question details & source links</summary><div className="mt-1 flex flex-wrap gap-1.5">
       <span className="max-w-full rounded border border-border px-1.5 py-0.5">Lecture: {lectureLabel || lectureId || "not linked"}</span>
       {objectiveLabels.map((label, index) => <span key={`${question.questionId}-objective-${index}`} className="max-w-full rounded border border-border px-1.5 py-0.5" title={label}>Objective: {label}</span>)}
@@ -326,14 +328,15 @@ function MissDiagnosis({ question, selectedChoice, initialResult = null, onCompl
   </div>;
 }
 
-function QuestionNavigator({ questions, session, currentIndex, onSelect }) {
+function QuestionNavigator({ questions, session, currentIndex, onSelect, indices = questions.map((_, i) => i) }) {
   return (
     <details className="mb-3 rounded-lg border border-border bg-bg-elevated p-2">
       <summary className="cursor-pointer px-1 py-1 text-sm font-medium text-text-2">
-        Question navigator · {questions.filter((question) => pickedFor(session, question.questionId) != null).length}/{questions.length} answered · question {currentIndex + 1} selected
+        Question navigator · {indices.filter(i => pickedFor(session, questions[i].questionId) != null).length}/{indices.length} answered · question {currentIndex + 1} selected
       </summary>
       <nav aria-label="Question navigation" className="mt-2 flex flex-wrap gap-1.5">
-        {questions.map((question, index) => {
+        {indices.map(index => {
+          const question = questions[index];
           const answered = pickedFor(session, question.questionId) != null;
           const current = index === currentIndex;
           return (
@@ -447,7 +450,28 @@ function ExamFormat({ controller, submitOpts, objectivesById, lectureLabelsByLec
 function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, userId, objectivesById, lectureLabelsByLectureId, onNavigateToLecture }) {
   const { session, currentIndex, setCurrentIndex, answerQuestion, submit, submitting } = controller;
   const questions = session.questions || [];
-  const q = restoreVisualChoices(questions[currentIndex]);
+  const focusStorageKey = `rxt-practice-sections:${userId}:${session.sessionId}`;
+  const [selectedSections, setSelectedSections] = useState(() => {
+    try { const value = JSON.parse(localStorage.getItem(focusStorageKey) || '[]'); return Array.isArray(value) ? value.filter(v => typeof v === 'string') : []; } catch { return []; }
+  });
+  const sections = practiceSections(questions, session.answers, lectureLabelsByLectureId);
+  const effectiveSelection = selectedSections.filter(key => sections.some(s => s.key === key));
+  const indices = sectionQuestionIndices(sections, effectiveSelection);
+  const inFocus = effectiveSelection.length > 0;
+  const focusIndex = indices.indexOf(currentIndex);
+  const visibleIndex = focusIndex >= 0 ? currentIndex : firstSectionQuestion(indices, questions, session.answers);
+  const position = indices.indexOf(visibleIndex);
+  const q = restoreVisualChoices(questions[visibleIndex]);
+  const focusAnswered = indices.filter(i => pickedFor(session, questions[i].questionId) != null).length;
+  function selectSections(keys) {
+    setSelectedSections(keys);
+    try { localStorage.setItem(focusStorageKey, JSON.stringify(keys)); } catch { /* Optional navigation preference. */ }
+    const next = sectionQuestionIndices(sections, keys);
+    setCurrentIndex(firstSectionQuestion(next, questions, session.answers));
+  }
+  useEffect(() => {
+    if (visibleIndex !== currentIndex) setCurrentIndex(visibleIndex);
+  }, [visibleIndex, currentIndex, setCurrentIndex]);
   const picked = q ? pickedFor(session, q.questionId) : null;
   const savedAnswer = (session.answers || []).find(answer => answer.questionId === q?.questionId);
   const revealed = picked != null && savedAnswer?.revealed !== false;
@@ -459,13 +483,22 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
   if (!q) return null; // Preparation status is shown once above the question area.
 
   return (
-    <div className="space-y-3" onKeyDown={(event) => advanceOnEnter(event, () => setCurrentIndex((i) => Math.min(questions.length - 1, i + 1)), picked != null && currentIndex < questions.length - 1 && !submitting)}>
+    <div className="space-y-3" onKeyDown={(event) => advanceOnEnter(event, () => setCurrentIndex(indices[position + 1]), picked != null && position < indices.length - 1 && !submitting)}>
       <div className="flex items-center justify-between font-mono text-[12px] uppercase tracking-wider text-accent-text">
         <span>Practice</span>
         <span className="text-text-3">{(session.answers || []).filter(answer => answer.value != null).length}/{questions.length} answered</span>
       </div>
 
-      <QuestionNavigator questions={questions} session={session} currentIndex={currentIndex} onSelect={setCurrentIndex} />
+      {session.sourceType === 'question-bank' && <section aria-label="Homework sections" className="rounded-lg border border-border bg-bg-elevated p-3">
+        <p className="text-sm font-semibold">{inFocus ? 'Section focus' : 'Whole homework bank'} · {focusAnswered}/{indices.length} answered</p>
+        <details className="mt-2 text-sm"><summary className="cursor-pointer">Choose lectures or sections</summary>
+          <p className="mt-2 text-text-2">Select one or more source sections to work through first.</p>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">{sections.map(section => <label key={section.key} className="flex items-start gap-2 rounded border border-border p-2"><input type="checkbox" checked={effectiveSelection.includes(section.key)} onChange={event => selectSections(event.target.checked ? [...effectiveSelection, section.key] : effectiveSelection.filter(key => key !== section.key))} /><span><strong>{section.label}</strong>{section.title && <span> · {section.title}</span>}<span className="block text-text-2">{section.answered}/{section.indices.length} answered{section.answered === section.indices.length ? ' · ✓ Complete' : ''}</span></span></label>)}</div>
+        </details>
+        {inFocus && <button type="button" className="mt-2 text-sm underline" onClick={() => selectSections([])}>Return to whole bank</button>}
+        {inFocus && focusAnswered === indices.length && <p role="status" className="mt-2 text-sm font-semibold">✓ Selected sections complete. Choose another section or save and leave.</p>}
+      </section>}
+      <QuestionNavigator questions={questions} indices={indices} session={session} currentIndex={visibleIndex} onSelect={setCurrentIndex} />
 
       <div className="rounded-lg border border-border bg-bg-elevated p-3">
         <QuestionMeta question={q} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} />
@@ -493,7 +526,7 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
           </div>
         )}
 
-        {!revealed && picked != null && currentIndex === questions.length - 1 && session.fillStatus !== "generating" && <Button variant="outline" disabled={submitting} onClick={() => submit(submitOpts)}>Finish without revealing</Button>}
+        {!revealed && picked != null && !inFocus && visibleIndex === questions.length - 1 && session.fillStatus !== "generating" && <Button variant="outline" disabled={submitting} onClick={() => submit(submitOpts)}>Finish without revealing</Button>}
 
         {revealed && !showAnswer && <div className="space-y-2 rounded-lg border border-border p-3"><label className="block text-sm text-text-2">Your reasoning (optional)<textarea key={q.questionId} className="mt-1 block w-full rounded border border-border bg-panel p-2" rows={3} placeholder="What led you to this answer?" /></label><Button variant="outline" onClick={() => setDiagnostics(current => ({ ...current, [q.questionId]: { skipped: true } }))}>Reveal answer</Button></div>}
 
@@ -513,9 +546,9 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
             {!isCorrect && <LearningGapNote key={q.questionId} userId={userId} question={q} blockId={session.blockId} lectureId={q.lectureId} />}
             <QuestionQualityRating userId={userId} question={q} />
             {tutorModeEnabled && <TutorPanelForQuestion question={q} callAI={callAI} />}
-            {currentIndex + 1 >= questions.length && session.fillStatus === "generating" ? (
+            {!inFocus && visibleIndex + 1 >= questions.length && session.fillStatus === "generating" ? (
               <div role="status" className="text-sm text-text-3">Your next question is being prepared…</div>
-            ) : currentIndex + 1 >= questions.length ? (
+            ) : !inFocus && visibleIndex + 1 >= questions.length ? (
               <Button onClick={() => submit(submitOpts)} disabled={submitting}>
                 {submitting ? "Submitting…" : "Finish"}
               </Button>
@@ -524,8 +557,8 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
         )}
       </div>
       <div className="flex items-center justify-between">
-        <Button variant="outline" disabled={currentIndex === 0} onClick={() => setCurrentIndex((i) => Math.max(0, i - 1))}>← Prev</Button>
-        <Button variant="outline" disabled={currentIndex >= questions.length - 1} onClick={() => setCurrentIndex((i) => Math.min(questions.length - 1, i + 1))}>Next →</Button>
+        <Button variant="outline" disabled={position <= 0} onClick={() => setCurrentIndex(indices[position - 1])}>← Prev</Button>
+        <Button variant="outline" disabled={position >= indices.length - 1} onClick={() => setCurrentIndex(indices[position + 1])}>Next →</Button>
       </div>
     </div>
   );
@@ -787,6 +820,7 @@ export function ExamSessionRunner({
         <ExamFormat userId={userId} controller={{ ...controller, session }} submitOpts={submitOpts} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} />
       ) : (
         <PracticeFormat
+          key={`${userId}:${session.sessionId}`}
           controller={{ ...controller, session }}
           tutorModeEnabled={tutorModeEnabled}
           submitOpts={submitOpts}

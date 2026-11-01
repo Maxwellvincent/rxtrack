@@ -87,6 +87,57 @@ beforeEach(() => {
 });
 
 describe("ExamSessionRunner", () => {
+  it("restores a completed section focus for review without offering whole-bank finish", () => {
+    localStorage.setItem('rxt-practice-sections:u1:s1',JSON.stringify(['source:NB27']));
+    const controller = baseController();
+    controller.session.format = 'practice';
+    controller.session.sourceType = 'question-bank';
+    controller.session.questions = [
+      {...makeQuestion('q1'), sourceSection:'NB28'},
+      {...makeQuestion('q2'), sourceSection:'NB27'},
+    ];
+    controller.session.answers = [{questionId:'q2',value:'A',revealed:true}];
+    controllerMock.mockReturnValue(controller);
+    const {host,unmount} = render(<ExamSessionRunner sessionId="s1" userId="u1" />);
+    expect(controller.setCurrentIndex).toHaveBeenCalledWith(1);
+    expect(host.textContent).toContain('Selected sections complete');
+    expect(host.textContent).toContain('Section: NB27');
+    expect([...host.querySelectorAll('button')].some(b=>b.textContent==='Finish')).toBe(false);
+    expect(controller.submit).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it("focuses homework navigation on source sections without submitting or losing other answers", () => {
+    const controller = baseController();
+    controller.session.format = 'practice';
+    controller.session.sourceType = 'question-bank';
+    controller.session.questions = [
+      {...makeQuestion('q1'), sourceType:'question-bank', sourceSection:'NB27', sourceSectionTitle:'Cortex'},
+      {...makeQuestion('q2'), sourceType:'question-bank', sourceSection:'NB28/NB29/NB30', sourceSectionTitle:'Sensation'},
+      {...makeQuestion('q3'), sourceType:'question-bank', sourceSection:'NB27', sourceSectionTitle:'Cortex'},
+    ];
+    controller.session.answers = [{questionId:'q1',value:'A'}];
+    controllerMock.mockReturnValue(controller);
+    const {host,rerender,unmount} = render(<ExamSessionRunner sessionId="s1" userId="u1" />);
+    expect(host.textContent).toContain('Section: NB27 · Cortex');
+    const section = host.querySelector('[aria-label="Homework sections"]');
+    const check = section.querySelector('input');
+    act(()=>check.click());
+    expect(controller.setCurrentIndex).toHaveBeenLastCalledWith(2);
+    controller.currentIndex = 2;
+    rerender(<ExamSessionRunner sessionId="s1" userId="u1" />);
+    expect(host.querySelectorAll('[aria-label="Question navigation"] button')).toHaveLength(2);
+    expect(host.textContent).toContain('Section focus · 1/2 answered');
+    const next = [...host.querySelectorAll('button')].find(b=>b.textContent==='Next →');
+    expect(next.disabled).toBe(true);
+    expect(controller.submit).not.toHaveBeenCalled();
+    expect(controller.session.questions).toHaveLength(3);
+    expect(controller.session.answers).toEqual([{questionId:'q1',value:'A'}]);
+    act(()=>[...host.querySelectorAll('button')].find(b=>b.textContent==='Return to whole bank').click());
+    expect(host.querySelectorAll('[aria-label="Question navigation"] button')).toHaveLength(3);
+    unmount();
+  });
+
   it("shows the homework name and homework submission label", () => {
     const controller = baseController();
     controller.session.sourceType = 'question-bank';
