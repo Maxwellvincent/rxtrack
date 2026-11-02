@@ -578,3 +578,17 @@ it("starts a short fresh retest restricted to the requested objective IDs", asyn
  expect(config.objectivesByLecture["lec-1"].map(o=>o.id)).toEqual(["o1"]);
  ui.unmount();
 });
+
+it('starts a separate missed-only practice from saved homework instead of restarting the whole bank',async()=>{
+ const questions=[{id:'q1',stem:'Pain pathway?',choices:{A:'One',B:'Two'},correct:'A'},{id:'q2',stem:'Motor pathway?',choices:{A:'One',B:'Two'},correct:'A'}];
+ questionBanksReadMock.mockReturnValue({'ESoft.pdf':questions});
+ questionBankMetaReadMock.mockReturnValue({bank:{filename:'ESoft.pdf',blockId:'b1'}});
+ listExamSessionsMock.mockImplementation(async(_u,_b,filter)=>filter?.status==='submitted'?[{sessionId:'old',blockId:'b1',sourceType:'question-bank',sourceFile:'ESoft.pdf',status:'submitted',questions:questions.map((q,i)=>({...q,questionId:'q'+i})),answers:[{questionId:'q0',value:'A',answeredAt:1},{questionId:'q1',value:'B',answeredAt:1}]}]:[]);
+ launchQuestionBankSessionMock.mockResolvedValue({ok:true,sessionId:'missed-run'});
+ const {host,unmount}=render(<ExamContainer blockId="b1" userId="u1"/>);await flush();
+ await act(async()=>[...host.querySelectorAll('button')].find(b=>b.textContent.includes('Question banks')).click());await flush();
+ const button=[...host.querySelectorAll('button')].find(b=>b.textContent==='Practice missed · 1');expect(button).toBeTruthy();
+ await act(async()=>button.click());
+ expect(launchQuestionBankSessionMock).toHaveBeenCalledWith(expect.objectContaining({filename:'ESoft.pdf',format:'practice',questions:[questions[1]]}));
+ expect(host.querySelector('[data-testid="session-runner"]')?.textContent).toContain('missed-run');unmount();
+});

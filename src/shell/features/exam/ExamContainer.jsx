@@ -1,3 +1,5 @@
+import {missedBankQuestions} from "./missedBankQuestions.js";
+import * as questionRatingsStore from "../../../stores/questionRatings.js";
 import {QuestionBankMappingStatus} from './QuestionBankMappingStatus.jsx';
 import { blockBlueprintContext, blockBlueprintBanks } from "./blueprintScope.js";
 import { BpmBlueprintDashboard } from "./BpmBlueprintDashboard.jsx";
@@ -136,6 +138,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   const lecturesRes = useLectures(blockId, userId);
   const objectivesRes = useObjectives(null, userId);
   const blueprintEvidenceRes = useStoreResource(learnerEvidenceStore, userId);
+  const questionRatingsRes = useStoreResource(questionRatingsStore, userId);
   const questionStats = useLectureQuestionStats(userId);
 
   const lectures = useMemo(() => lecturesRes.data || [], [lecturesRes.data]);
@@ -655,7 +658,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
     }
   };
 
-  const handleBankLaunch = async (bank, format) => {
+  const handleBankLaunch = async (bank, format, selectedQuestions = null) => {
     if (bankLaunching) return;
     setBankLaunching(`${bank.filename}:${format}`);
     setLaunchError(null);
@@ -664,7 +667,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
         userId,
         blockId,
         filename: bank.filename,
-        questions: bank.questions,
+        questions: selectedQuestions ?? bank.questions,
         analysis: bank.analysis,
         lectures,
         format,
@@ -899,6 +902,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
               const incomplete = expectedCount && bank.questions.length < expectedCount;
               const exampleOnly = bank.sourceKind === "clicker";
               const stats = statsForBank(bank);
+              const missedOnly = missedBankQuestions({bank, sessions:[...bankAttempts,...resumableSessions], blockId, ratings:questionRatingsRes.data?.ratings || {}});
               const analysis = bank.analysis;
               const bankNames = new Set([bank.filename, ...(bank.aliases || [])]);
               const resumableBankSession = resumableSessions.find((session) => session?.sourceType === "question-bank" && bankNames.has(session.sourceFile));
@@ -943,6 +947,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
                     <Button variant="ghost" disabled={!!bankLaunching || bankEditBusy} onClick={() => scheduleBank(bank)}>{bankEditBusy ? "Saving…" : bank.assignedDate ? "Change date" : "Assign date"}</Button>
                     {stats.latest && <Button variant="ghost" onClick={() => setActiveSessionId(stats.latest.session.sessionId || stats.latest.session.id)}>Review latest</Button>}
                     {!exampleOnly && <Button variant="outline" disabled={!!bankLaunching} onClick={() => handleBankLaunch(bank, "practice")}>Practice</Button>}
+                    {!exampleOnly && missedOnly.length > 0 && <Button variant="outline" disabled={!!bankLaunching} onClick={() => handleBankLaunch(bank, "practice", missedOnly)}>Practice missed · {missedOnly.length}</Button>}
                     {!exampleOnly && <Button disabled={!!bankLaunching} onClick={() => handleBankLaunch(bank, "exam")}>Timed quiz</Button>}
                   </div>
                 </div>
