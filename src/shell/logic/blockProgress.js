@@ -23,7 +23,8 @@ export function blockProgressProjection({ blockId, lectures = [], objectives = {
   const catalog = (suppliedCatalog || selectBlockObjectives(objectives, blockId)).filter(row => !row.blockId || row.blockId === blockId);
   const identity = row => {
     const code = String(row.code || row.objectiveCode || "").replace(/\s/g, "").toLowerCase();
-    return code ? `code:${code}` : `text:${String(row.objective || row.text || "").slice(0, 60).toLowerCase().replace(/\W/g, "")}`;
+    const text=String(row.objective || row.text || "").slice(0,60).toLowerCase().replace(/\W/g, "");
+    return code ? `code:${code}` : text ? `text:${text}` : `id:${row.id}`;
   };
   const counted = new Set();
   const linked = [];

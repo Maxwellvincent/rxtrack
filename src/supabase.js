@@ -1,3 +1,4 @@
+import {notifyExamSessionChange,sessionPublicationChanged} from "./examSessionChanges.js";
 import { uploadSchoolFile, downloadSchoolSource } from "./storageUpload.js";
 import { releaseConfirmedCloudCopy } from "./browserStorage.js";
 // Firebase Auth + Firestore + Storage — the sole backend (Task 3: auth
@@ -952,6 +953,7 @@ export async function createExamSession(userId, session) {
     return { ok: false, error: "session too large" };
   }
   await setDoc(examSessionRef(userId, session.sessionId), session);
+  notifyExamSessionChange({userId,blockId:session.blockId});
   return { ok: true };
 }
 
@@ -978,6 +980,7 @@ export async function listExamSessions(userId, blockId, { status } = {}) {
 export async function deleteExamSession(userId, sessionId) {
   if (!userId || !sessionId) return { ok: false, error: "missing session" };
   await deleteDoc(examSessionRef(userId, sessionId));
+  notifyExamSessionChange({userId});
   return { ok: true };
 }
 
@@ -994,15 +997,19 @@ export async function deleteExamSession(userId, sessionId) {
  */
 export async function updateExamSessionTransaction(userId, sessionId, updateFn) {
   const ref = examSessionRef(userId, sessionId);
-  return runTransaction(db, async (tx) => {
+  let published=false;
+  const result=await runTransaction(db, async (tx) => {
     const snap = await tx.get(ref);
     const current = snap.exists() ? snap.data() : null;
     const next = updateFn(current);
-    if (next === null) return current;
+    if (next === null) {published=false;return current;}
+    published=sessionPublicationChanged(current,next);
     const withMeta = { ...next, rev: (current?.rev ?? 0) + 1, updatedAt: serverTimestamp() };
     tx.set(ref, withMeta);
     return withMeta;
   });
+  if(published)notifyExamSessionChange({userId,blockId:result?.blockId});
+  return result;
 }
 
 /**

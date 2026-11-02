@@ -17,6 +17,8 @@ vi.mock('../../../stores/atomProgress.js',()=>({read:()=>({}),subscribe:()=>()=>
 vi.mock('../../../stores/practiceGoal.js',()=>({practiceGoalStore:{read:()=>({}),subscribe:()=>()=>{},write:vi.fn()}}));
 vi.mock('../../../stores/manualPractice.js',()=>({manualPracticeStore:{read:()=>manualPracticeMock.data,subscribe:()=>()=>{},isHydrated:()=>true,readError:()=>null,write:vi.fn()}}));
 
+vi.mock("../../../stores/questionRatings.js",()=>({read:()=>({ratings:{}}),subscribe:()=>()=>{},isHydrated:()=>true,readError:()=>null}));
+
 vi.mock("../../../supabase.js", () => ({
   listExamSessions: (...args) => listExamSessionsMock(...args),
   deleteExamSession: (...args) => deleteExamSessionMock(...args),
@@ -147,7 +149,7 @@ function makeSession({ id, blockId = BLOCK, questions, answers }) {
 }
 
 function q(questionId, lectureId, correct = "A") {
-  return { questionId, lectureId, correct };
+  return { questionId, lectureId, correct, choices:{A:"Alpha",B:"Beta"} };
 }
 
 function a(questionId, value) {
@@ -352,7 +354,7 @@ describe("ExamDashboard", () => {
     const button = [...host.querySelectorAll("button")].find(b=>b.textContent.includes('Study lecture'));
     act(() => button.click());
 
-    expect(onNavigateToLecture).toHaveBeenCalledWith("lec-1", expect.objectContaining({ missedQuestions: [expect.objectContaining({ selected: "B", correct: "A" })] }));
+    expect(onNavigateToLecture).toHaveBeenCalledWith("lec-1", expect.objectContaining({ missedQuestions: [expect.objectContaining({ selected: "Beta", correct: "Alpha" })] }));
     unmount();
   });
 

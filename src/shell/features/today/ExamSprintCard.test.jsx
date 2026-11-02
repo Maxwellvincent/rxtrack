@@ -3,6 +3,7 @@ import {createRoot} from 'react-dom/client';
 import {it,expect,vi} from 'vitest';
 import {installDomStorage} from '../../../stores/testEnv.js';
 vi.mock('../../hooks/useLectureQuestionStats.js',()=>({useLectureQuestionStats:()=>({data:{a:{answered:20,correct:5},b:{answered:20,correct:10},c:{answered:20,correct:18}},loading:false})}));
+vi.mock('../../hooks/useQuestionPractice.js',()=>({useQuestionPractice:()=>({sessions:[],loading:false,error:null})}));
 import {ExamSprintCard} from './ExamSprintCard.jsx';
 globalThis.IS_REACT_ACT_ENVIRONMENT=true;
 it('shows two actionable priorities tomorrow, without an exam-score claim, and hides outside the final day',()=>{

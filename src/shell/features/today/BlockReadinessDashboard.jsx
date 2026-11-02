@@ -1,3 +1,4 @@
+import {reconcileLectureStats} from "../exam/reconcileLectureStats.js";
 import {useQuestionPractice} from "../../hooks/useQuestionPractice.js";
 import {questionProgress} from "../exam/questionProgress.js";
 import * as questionRatingsStore from "../../../stores/questionRatings.js";
@@ -63,7 +64,7 @@ export function BlockReadinessDashboard({ blockId, userId, onStudyLecture, compa
     blockId,
     lectures: lectures.data || [],
     objectives: objectives.data || [],
-    questionStats: questionStats.data || {},
+    questionStats: reconcileLectureStats(questionStats.data || {}, questionHistory.sessions || [], lectures.data || [], blockId),
     sessions,
     confidenceRecords,
     models: Object.values(retrieval.data?.models || {}),
@@ -72,7 +73,7 @@ export function BlockReadinessDashboard({ blockId, userId, onStudyLecture, compa
     ratings: ratings.data?.ratings || {},
     practiceSummary,
     studyAnswers: questionHistory.studyAnswers,
-  }), [blockId, lectures.data, objectives.data, questionStats.data, sessions, confidenceRecords, retrieval.data, weakConcepts.data, learnerEvidence.data, ratings.data, practiceSummary, questionHistory.studyAnswers]);
+  }), [blockId, lectures.data, objectives.data, questionStats.data, sessions, confidenceRecords, retrieval.data, weakConcepts.data, learnerEvidence.data, ratings.data, practiceSummary, questionHistory.studyAnswers, questionHistory.sessions]);
 
   const loading = questionHistory.loading || lectures.loading || objectives.loading || questionStats.loading || weakConcepts.loading || retrieval.loading || calibration.loading || learnerEvidence.loading || ratings.loading || sessionState.key !== requestKey;
   const partial = questionHistory.error || lectures.error || objectives.error || questionStats.error || weakConcepts.error || retrieval.error || calibration.error || learnerEvidence.error || ratings.error || sessionState.error;
@@ -109,7 +110,7 @@ export function BlockReadinessDashboard({ blockId, userId, onStudyLecture, compa
       <details className="mt-3 text-sm text-text-2">
         <summary className="cursor-pointer py-1 font-semibold">See full block readiness</summary>
         <div className="mt-3 rounded-lg border border-border bg-bg-elevated p-3">
-          <p className="text-xs text-text-2">{result.objectives.covered}/{result.objectives.total} objectives tested or rated · {result.practice.answered} questions answered · {result.trend.label}</p>
+          <p className="text-xs text-text-2">{result.objectives.covered}/{result.objectives.total} objectives with linked answers · {result.practice.answered} questions answered · {result.trend.label}</p>
           {result.targets?.length > 1 && <ol className="mt-3 space-y-2 border-t border-border pt-3">{result.targets.slice(1, 3).map((target) => <li key={target.lectureId} className="flex items-center justify-between gap-2 text-xs"><span className="truncate">{target.title}</span>{onStudyLecture && <button type="button" onClick={() => onStudyLecture(target.lectureId)} className="shrink-0 text-accent hover:underline">Study</button>}</li>)}</ol>}
           <p className="mt-3 text-xs text-text-3">Coverage shows exposure, not mastery. Repeated varied evidence still matters.</p>
         </div>

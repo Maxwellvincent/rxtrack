@@ -8,14 +8,10 @@ export function buildWeakAreaMap({ lectures = [], objectives = [], questionStats
     const lectureId = objective?.linkedLecId || objective?.lectureId;
     if (!lectureId) continue;
     const id = objective.id || objective.code;
-    const evidence = id ? learnerEvidence?.objectives?.[id] || learnerEvidence?.objectives?.[objective.code] : null;
-    const status = String(objective.status || "untested").toLowerCase();
     const row = byLecture.get(lectureId) || { total: 0, tested: 0, struggling: 0 };
     row.total += 1;
     if (practice.get(id)?.worked) row.tested += 1;
-    const recent = evidence?.recent || [];
-    const recovering = recent.length >= 3 && recent.filter(Boolean).length / recent.length >= 0.8;
-    if (practice.get(id)?.worked && !recovering && (status === "struggling" || (Number(evidence?.attempts) > 0 && recent.at(-1) === false))) row.struggling += 1;
+    if (practice.get(id)?.state === "struggling") row.struggling += 1;
     byLecture.set(lectureId, row);
   }
 

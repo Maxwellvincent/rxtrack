@@ -24,7 +24,7 @@ describe("block readiness", () => {
       weakConcepts: [{ linkedLecIds: ["a"] }],
       now,
     });
-    expect(result.objectives.coverage).toBeCloseTo(2 / 3);
+    expect(result.objectives.coverage).toBe(0);
     expect(result.practice.answered).toBe(15);
     expect(result.models.overdue).toBe(1);
     expect(result.targets[0].lectureId).toBe("a");
@@ -83,7 +83,7 @@ describe("block readiness", () => {
       ],
     });
 
-    expect(result.objectives).toMatchObject({ total: 1, covered: 1, mastered: 1, untested: 0, coverage: 1 });
+    expect(result.objectives).toMatchObject({ total: 1, covered: 0, mastered: 0, untested: 1, coverage: 0 });
   });
 });
 

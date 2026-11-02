@@ -102,3 +102,11 @@ describe("useStoreResource", () => {
     expect(store.read()).toEqual({ a: 9 });
   });
 });
+
+it('keeps derived store data stable across unrelated component renders',async()=>{
+ installDomStorage();const store=makeStore({a:1});const read=store.read;store.read=()=>({...read()});
+ const host=document.createElement('div'),root=createRoot(host);const seen=[];
+ function Probe({tick}){const result=useStoreResource(store,'u1');seen.push(result.data);return <span>{tick}</span>;}
+ await act(async()=>root.render(<Probe tick={1}/>));const first=seen.at(-1);
+ await act(async()=>root.render(<Probe tick={2}/>));expect(seen.at(-1)).toBe(first);await act(async()=>root.unmount());
+});

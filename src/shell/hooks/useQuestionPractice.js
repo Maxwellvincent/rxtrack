@@ -1,4 +1,5 @@
-import {useEffect,useState} from 'react';
+import {subscribeExamSessionChanges} from "../../examSessionChanges.js";
+import {useCallback,useEffect,useState} from 'react';
 import {useStudyAnswerHistory} from './useStudyAnswerHistory.js';
 import {manualPracticeStore} from '../../stores/manualPractice.js';
 import * as questionRatings from '../../stores/questionRatings.js';
@@ -7,6 +8,8 @@ import {listExamSessions} from '../../supabase.js';
 import {scoredSessionSnapshot} from '../features/exam/checkpoint.js';
 /** Daily and lifetime cards use the same saved-answer sources as exam progress. */
 export function useQuestionPractice(userId,blockId){
+ const [refreshKey,setRefreshKey]=useState(0);
+ const refresh=useCallback(()=>setRefreshKey(n=>n+1),[]);
  const history=useStudyAnswerHistory(userId,blockId);
  const manual=useStoreResource(manualPracticeStore,userId);
  const [result,setResult]=useState(null);
@@ -16,7 +19,8 @@ export function useQuestionPractice(userId,blockId){
   const refresh=()=>{const request=++revision;listExamSessions(userId,blockId).then(rows=>{if(active&&request===revision)setResult({key,sessions:(rows||[]).map(s=>scoredSessionSnapshot(s,questionRatings.read(userId).ratings)).filter(Boolean),error:false});}).catch(()=>{if(active&&request===revision)setResult(previous=>({key,sessions:previous?.key===key?previous.sessions:[],error:true}));});};
   refresh(); window.addEventListener('focus',refresh);const timer=setInterval(refresh,60000);
   const unsubscribe=questionRatings.subscribe(refresh);
-  return()=>{active=false;window.removeEventListener('focus',refresh);clearInterval(timer);unsubscribe();};
- },[userId,blockId,key]);
- return {...history,sessions:result?.key===key?result.sessions:[],manualEntries:manual.data?.[blockId]||[],loading:result?.key!==key||manual.loading||history.loading,error:result?.key===key&&result.error||manual.error||history.error};
+  const offSessions=subscribeExamSessionChanges(change=>{if(change.userId===userId&&(!change.blockId||change.blockId===blockId))refresh();});
+  return()=>{active=false;window.removeEventListener('focus',refresh);clearInterval(timer);unsubscribe();offSessions();};
+ },[userId,blockId,key,refreshKey]);
+ return {...history,refresh,sessions:result?.key===key?result.sessions:[],manualEntries:manual.data?.[blockId]||[],loading:result?.key!==key||manual.loading||history.loading,error:result?.key===key&&result.error||manual.error||history.error};
 }

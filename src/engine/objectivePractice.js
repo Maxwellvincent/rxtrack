@@ -26,6 +26,7 @@ function normalizedEvidence(objective, entry) {
     attempts,
     correct,
     latestCorrect,
+    latestMiss: recent.at(-1) === false,
     recentAccuracy: recent.length >= 3 ? recent.filter(Boolean).length / recent.length : null,
     sessionCount: useEvidence ? (entry?.sessions || []).length : 0,
     taskTypeCount: useEvidence ? countKeys(entry?.taskTypes) : 0,
@@ -80,7 +81,7 @@ export function objectivePracticePlan(objectives = [], evidenceModel = {}) {
       ...(progress.sessionCount < OBJECTIVE_MIN_SESSIONS ? ["another session"] : []),
       ...(progress.taskTypeCount < OBJECTIVE_MIN_TASK_TYPES ? ["a different question type"] : []),
     ];
-    const struggling = progress.attempts >= 2 && accuracy < 0.6;
+    const struggling = progress.attempts > 0 && (progress.latestMiss || (progress.attempts >= 2 && accuracy < 0.6 && !(progress.recentAccuracy >= OBJECTIVE_MIN_ACCURACY)));
     return {
       ...progress,
       id: objective.id,

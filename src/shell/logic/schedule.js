@@ -84,10 +84,8 @@ export function evidenceAwareObjectives(objectives = [], learnerEvidence = {}) {
   const practiceById = new Map(practice.rows.map((row) => [String(row.id), row]));
   return (objectives || []).map((objective) => {
     const evidence = practiceById.get(String(objective?.id));
-    if (!evidence?.attempts) return objective;
-    const status = evidence.state === "ready" ? "mastered"
-      : evidence.state === "struggling" ? "struggling"
-        : "developing";
+    if (!evidence || (!evidence.attempts && !Object.hasOwn(learnerEvidence.objectives || {}, objective.id))) return objective;
+    const status = evidence.state === "ready" ? "mastered" : evidence.state;
     return { ...objective, status };
   });
 }

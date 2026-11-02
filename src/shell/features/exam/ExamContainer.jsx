@@ -1,3 +1,7 @@
+import {subscribeExamSessionChanges} from "../../../examSessionChanges.js";
+import {MissedPracticeActions} from "./MissedPracticeActions.jsx";
+import {useQuestionPractice} from "../../hooks/useQuestionPractice.js";
+import {questionProgress} from "./questionProgress.js";
 import {missedBankQuestions} from "./missedBankQuestions.js";
 import * as questionRatingsStore from "../../../stores/questionRatings.js";
 import {QuestionBankMappingStatus} from './QuestionBankMappingStatus.jsx';
@@ -140,9 +144,10 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   const blueprintEvidenceRes = useStoreResource(learnerEvidenceStore, userId);
   const questionRatingsRes = useStoreResource(questionRatingsStore, userId);
   const questionStats = useLectureQuestionStats(userId);
+  const practiceHistory = useQuestionPractice(userId,blockId);
 
   const lectures = useMemo(() => lecturesRes.data || [], [lecturesRes.data]);
-  const completedQuestionTotal = useMemo(() => lectures.reduce((sum, lecture) => sum + (questionStats.data?.[lecture.id]?.answered || 0), 0) + bankAttempts.reduce((sum, session) => sum + (session.answers || []).filter(answer => !session.questions?.find(q => q.questionId === answer.questionId)?.lectureId).length, 0) + resumableSessions.filter((session) => session?.sourceType === "question-bank").reduce((sum, session) => sum + (session.answers || []).filter(answer => !session.questions?.find(q => q.questionId === answer.questionId)?.lectureId).length, 0), [lectures, questionStats.data, bankAttempts, resumableSessions]);
+  const completedQuestionTotal = useMemo(() => questionProgress(practiceHistory.studyAnswers,practiceHistory.sessions,{},practiceHistory.manualEntries,practiceHistory.historicalStudy).answered, [practiceHistory.studyAnswers,practiceHistory.sessions,practiceHistory.manualEntries,practiceHistory.historicalStudy]);
 
   const objectives = useMemo(
     () => dedupeByText(selectBlockObjectives(objectivesRes.data, blockId)),
@@ -523,6 +528,14 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
     });
   }, [blockQuestionBanks, imcqReferenceBanks]);
   const activeBankCategory = bankGroups.some(([label]) => label === bankCategory) ? bankCategory : bankGroups[0]?.[0];
+  useEffect(()=>{
+    const refresh=()=>{refreshResumableSessions();refreshBankAttempts();};
+    const off=subscribeExamSessionChanges(change=>{if(change.userId===userId&&(!change.blockId||change.blockId===blockId))refresh();});
+    window.addEventListener('focus',refresh);const timer=setInterval(refresh,60000);
+    return()=>{off();window.removeEventListener('focus',refresh);clearInterval(timer);};
+    // Refreshers read this account and block only; state writes do not restart polling.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[userId,blockId]);
   const statsForBank = (bank) => {
     const names = new Set([bank.filename, ...(bank.aliases || [])]);
     const attempts = bankAttempts.filter((session) => names.has(session.sourceFile)).sort((a, b) => (a.submittedAt || 0) - (b.submittedAt || 0));
@@ -707,6 +720,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
             setLaunchWarning(null);
             refreshResumableSessions();
             refreshBankAttempts();
+            practiceHistory.refresh();
           }}
         />
       </div>
@@ -721,7 +735,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           <p className="mt-1 text-sm text-text-3">School banks for faithful practice. Integrated exams for fresh readiness checks.</p>
         </div>
         <div className="desk-exam-overview" aria-label="Exam study overview">
-          <div><strong>{completedQuestionTotal.toLocaleString()}</strong><span>study questions completed</span></div>
+          <div><strong>{practiceHistory.loading ? "—" : completedQuestionTotal.toLocaleString()}</strong><span>study questions completed</span></div>
           <div><strong>{questionReserve.loading ? "—" : questionReserve.ready.toLocaleString()}</strong><span>prepared questions</span></div>
           <div><strong>{resumableSessions.length}</strong><span>in progress</span></div>
         </div>
@@ -947,7 +961,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
                     <Button variant="ghost" disabled={!!bankLaunching || bankEditBusy} onClick={() => scheduleBank(bank)}>{bankEditBusy ? "Saving…" : bank.assignedDate ? "Change date" : "Assign date"}</Button>
                     {stats.latest && <Button variant="ghost" onClick={() => setActiveSessionId(stats.latest.session.sessionId || stats.latest.session.id)}>Review latest</Button>}
                     {!exampleOnly && <Button variant="outline" disabled={!!bankLaunching} onClick={() => handleBankLaunch(bank, "practice")}>Practice</Button>}
-                    {!exampleOnly && missedOnly.length > 0 && <Button variant="outline" disabled={!!bankLaunching} onClick={() => handleBankLaunch(bank, "practice", missedOnly)}>Practice missed · {missedOnly.length}</Button>}
+                    {!exampleOnly && <MissedPracticeActions questions={missedOnly} lectures={lectures} blockId={blockId} busy={!!bankLaunching} onLaunch={questions=>handleBankLaunch(bank,"practice",questions)} />}
                     {!exampleOnly && <Button disabled={!!bankLaunching} onClick={() => handleBankLaunch(bank, "exam")}>Timed quiz</Button>}
                   </div>
                 </div>

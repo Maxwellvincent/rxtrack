@@ -1,3 +1,5 @@
+import {subscribeExamSessionChanges} from "../../../examSessionChanges.js";
+import {reconcileLectureStats} from "./reconcileLectureStats.js";
 import { WeakAreaDashboard } from "./WeakAreaDashboard.jsx";
 import { scoredSessionSnapshot } from "./checkpoint.js";
 import * as questionRatings from "../../../stores/questionRatings.js";
@@ -19,10 +21,9 @@ import { evaluateSessionForLecture } from "./finalizeLogic.js";
 import * as learnerEvidenceStore from "../../../stores/learnerEvidence.js";
 import { MISS_TYPE_LABELS, REASONING_DEPTHS } from "../../../engine/questionReasoning.js";
 import { ERROR_REASONS } from "./questionReading.js";
-import {useStudyAnswerHistory} from "../../hooks/useStudyAnswerHistory.js";
+import {useQuestionPractice} from "../../hooks/useQuestionPractice.js";
 import { questionProgress } from "./questionProgress.js";
 import { PracticeGoal } from './PracticeGoal.jsx';
-import { manualPracticeStore } from '../../../stores/manualPractice.js';
 import { repairActivity } from './repairQueue.js';
 import { useStoreResource } from '../../hooks/useStoreResource.js';
 import * as modelImpactStore from '../../../stores/mentalModelImpact.js';
@@ -33,7 +34,6 @@ import { scopeLabel } from "../../logic/weekScope.js";
 import { buildWeakAreaMap } from "./weakAreaMap.js";
 import { selectLinkedObjectives } from "../../logic/objectives.js";
 
-const EMPTY_MANUAL_ENTRIES = [];
 
 /**
  * Per-lecture `{totalQuestions, totalMisses, accuracy}` summed across every
@@ -263,12 +263,12 @@ export function ExamDashboard({ blockId, userId, lectures = [], questionStats = 
   const [deletingId, setDeletingId] = useState(null);
   const [learnerProfile, setLearnerProfile] = useState(() => learnerEvidenceStore.read(userId));
   const [qualityRevision, setQualityRevision] = useState(0);
+  useEffect(()=>subscribeExamSessionChanges(change=>{if(change.userId===userId&&(!change.blockId||change.blockId===blockId))setQualityRevision(n=>n+1);}),[userId,blockId]);
   useEffect(() => subscribeWeakConcepts(() => setQualityRevision(n => n + 1)), []);
   useEffect(() => questionRatings.subscribe(() => setQualityRevision(n => n + 1)), []);
-  const {studyAnswers,historicalStudy}=useStudyAnswerHistory(userId,blockId);
-  const manualPractice = useStoreResource(manualPracticeStore, userId);
-  const manualEntries = manualPractice.data?.[blockId] || EMPTY_MANUAL_ENTRIES;
-  const progress = useMemo(() => questionProgress(studyAnswers, sessions, {}, manualEntries, historicalStudy), [studyAnswers, sessions, manualEntries, historicalStudy]);
+  const practiceHistory=useQuestionPractice(userId,blockId);
+  const {studyAnswers,historicalStudy}=practiceHistory;
+  const progress = useMemo(() => questionProgress(practiceHistory.studyAnswers, practiceHistory.sessions, {}, practiceHistory.manualEntries, practiceHistory.historicalStudy), [practiceHistory.studyAnswers, practiceHistory.sessions, practiceHistory.manualEntries, practiceHistory.historicalStudy]);
   const modelActivity=useStoreResource(modelImpactStore,userId);
   const atomActivity=useStoreResource(atomProgressStore,userId);
 
@@ -342,40 +342,7 @@ export function ExamDashboard({ blockId, userId, lectures = [], questionStats = 
   const missTypeTotal = missTypeRows.reduce((sum, row) => sum + row.count, 0);
   const depthRows = REASONING_DEPTHS.map(id => ({ id, ...(process.reasoningDepths?.[id] || {}) })).filter(row => row.attempts);
   const positionStats = process.positionStats || {};
-  const recoveredQuestionStats = useMemo(() => {
-    const next = Object.fromEntries(Object.entries(questionStats).map(([id, row]) => [id, { ...row }]));
-    // Older unlinked bank answers were deliberately excluded from lecture totals.
-    // Add only those newly resolved answers; already-linked sessions overlap.
-    for (let index = 0; index < sessions.length; index++) {
-      const original = sessions[index];
-      const recorded = new Set(original.sideEffectsCompleted?.statsRecordedQuestionIds || []);
-      if (original.isCheckpoint) {
-        for (const question of performanceSessions[index]?.questions || []) {
-          const answer = (original.answers || []).find(a => a.questionId === question.questionId && a.value != null);
-          if (!answer || !question.lectureId || recorded.has(question.questionId)) continue;
-          if (next[question.lectureId]?.checkpointEventIds?.includes(`exam:${original.sessionId}:${question.questionId}`)) continue;
-          const row = next[question.lectureId] || { answered: 0, correct: 0 };
-          next[question.lectureId] = { ...row, answered: (Number(row.answered) || 0) + 1, correct: (Number(row.correct) || 0) + Number(answer.value === question.correct) };
-        }
-        continue;
-      }
-      if (original.sourceType !== "question-bank") continue;
-      const answers = new Map((original.answers || []).filter(a => a.value != null).map(a => [a.questionId, a.value]));
-      for (let position = 0; position < (original.questions || []).length; position++) {
-        const before = original.questions[position];
-        const after = performanceSessions[index]?.questions[position];
-        if (before.lectureId || !after?.lectureId || !answers.has(before.questionId)) continue;
-        const row = next[after.lectureId] || { answered: 0, correct: 0 };
-        row.answered = (Number(row.answered) || 0) + 1;
-        row.correct = (Number(row.correct) || 0) + Number(answers.get(before.questionId) === before.correct);
-        next[after.lectureId] = row;
-      }
-    }
-    for (const [id, row] of Object.entries(lectureStats)) {
-      if (row.totalQuestions > (Number(next[id]?.answered) || 0)) next[id] = { answered: row.totalQuestions, correct: row.totalQuestions - row.totalMisses };
-    }
-    return next;
-  }, [questionStats, lectureStats, sessions, performanceSessions]);
+  const recoveredQuestionStats = useMemo(() => reconcileLectureStats(questionStats,sessions,lectures,blockId), [questionStats,sessions,lectures,blockId]);
   const weakAreas = buildWeakAreaMap({
     lectures,
     objectives,
@@ -391,7 +358,7 @@ export function ExamDashboard({ blockId, userId, lectures = [], questionStats = 
   ).map(entry => entry.concept);
   const priorityAreas = weakAreas.filter((row) => row.objectivesUntested > 0 || row.strugglingObjectives > 0 || row.reportTopics.length > 0 || (row.priorityAccuracy != null && row.priorityAccuracy < 0.8));
 
-  if (loading) {
+  if (loading || practiceHistory.loading) {
     return (
       <div className="p-5">
         <div className="mb-2 font-mono text-[12px] uppercase tracking-wider text-text-3">
@@ -402,14 +369,14 @@ export function ExamDashboard({ blockId, userId, lectures = [], questionStats = 
     );
   }
 
-  if (error) {
+  if (error || practiceHistory.error) {
     return (
       <div className="p-5">
         <div className="mb-2 font-mono text-[12px] uppercase tracking-wider text-text-3">
           Homework, quiz & exam performance
         </div>
         <div data-testid="exam-dashboard-error" className="rounded-lg border border-bad/40 p-3 text-xs text-bad">
-          Could not load Homework, quiz & exam performance: {error}
+          Could not load Homework, quiz & exam performance: {error || "Some saved practice history could not load. Retry when connected."}
         </div>
       </div>
     );
@@ -426,7 +393,7 @@ export function ExamDashboard({ blockId, userId, lectures = [], questionStats = 
           <span>Overall accuracy: {progress.accuracy == null ? '—' : `${Math.round(progress.accuracy * 100)}%`} · {progress.correct.toLocaleString()} correct</span>
         </div>
         <p className="mt-2 text-sm text-text-2">{progress.lectureAnswered.toLocaleString()} study / lecture / objective quiz answers · {progress.schoolAnswered.toLocaleString()} school homework / exam answers · {progress.examAnswered.toLocaleString()} integrated-exam answers · {progress.manualAnswered.toLocaleString()} logged outside-app answers</p>
-        <PracticeGoal historicalStudy={historicalStudy} key={`${userId}:${blockId}`} userId={userId} blockId={blockId} studyAnswers={studyAnswers} sessions={sessions}/>
+        <PracticeGoal historicalStudy={historicalStudy} key={`${userId}:${blockId}`} userId={userId} blockId={blockId} studyAnswers={studyAnswers} sessions={practiceHistory.sessions}/>
         <p className="mt-2 text-xs text-text-3">Cumulative recorded practice in this block. Repeat attempts count; unanswered items do not. Exam and homework answers count after Save & exit or submission; deleted sessions are excluded. Integrated-exam accuracy stays separate below; practice volume is not a predicted exam grade.</p>
       </section>
       <ConfidenceCalibration records={studyAnswers}/>

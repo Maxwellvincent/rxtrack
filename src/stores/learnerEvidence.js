@@ -7,15 +7,20 @@ import * as questionRatings from "./questionRatings.js";
 export const key = "rxt-learner-evidence-v1";
 const fallback = { version: 1, total: 0, correct: 0, objectives: {}, atoms: {}, lectures: {}, sources: {}, taskTypes: {}, orderLevels: {}, testTaking: { reasons: {}, missTypes: {}, diagnosticKeys: [], positionStats: {}, timedAnswers: 0, totalResponseMs: 0, answerChanges: 0 } };
 
+const projectionCache=new WeakMap();
+const emptyRatings={};
+
 export function read(userId) {
   const stored = userId ? readCloud(userId, key, fallback) || fallback : readJson(userId, key, fallback) || fallback;
   if (!stored.evidenceJournal && !stored.missTypeJournal && !stored.reflectionJournal && !stored.learningNotes) return stored;
-  const ratings = questionRatings.read(userId).ratings || {};
+  const ratings = questionRatings.read(userId).ratings || emptyRatings;
+  const cached=projectionCache.get(stored);
+  if(cached?.ratings===ratings)return cached.value;
   const contested = excludedEvidenceKeys(ratings);
   const objectiveContested = excludedEvidenceKeys(ratings, "objective");
   let projected = stored.evidenceBaseline || (stored.evidenceJournal ? fallback : stored);
   for (const event of stored.evidenceJournal || []) {
-    if (!contested.has(questionEvidenceKey(event.questionKey))) projected = applyEvidence(projected, objectiveContested.has(questionEvidenceKey(event.questionKey)) ? { ...event, objectiveIds: [] } : event);
+    if (!contested.has(questionEvidenceKey(event.questionKey))) projected = applyEvidence(projected, { ...event, ...(objectiveContested.has(questionEvidenceKey(event.questionKey)) ? {objectiveIds:[]} : {}), at:Number.isFinite(event.at)?event.at:0 });
   }
   // An excluded-only objective still has an authoritative zero entry. Otherwise
   // UI fallback to legacy counters would revive the contested attempt.
@@ -25,8 +30,10 @@ export function read(userId) {
       if (!objectives[id]) objectives[id] = { attempts: 0, correct: 0, recent: [], sessions: [], taskTypes: {}, orderLevels: {} };
     }
   }
-  return { ...stored, ...projected, objectives, learningJournal: (stored.evidenceJournal || []).filter(event => !contested.has(questionEvidenceKey(event.questionKey)) && !objectiveContested.has(questionEvidenceKey(event.questionKey))), learningNotes: (stored.learningNotes || []).filter(note => !contested.has(questionEvidenceKey(note.questionKey)) && !objectiveContested.has(questionEvidenceKey(note.questionKey))), evidenceBaseline: stored.evidenceBaseline, evidenceJournal: stored.evidenceJournal,
+  const result = { ...stored, ...projected, objectives, learningJournal: (stored.evidenceJournal || []).filter(event => !contested.has(questionEvidenceKey(event.questionKey)) && !objectiveContested.has(questionEvidenceKey(event.questionKey))), learningNotes: (stored.learningNotes || []).filter(note => !contested.has(questionEvidenceKey(note.questionKey)) && !objectiveContested.has(questionEvidenceKey(note.questionKey))), evidenceBaseline: stored.evidenceBaseline, evidenceJournal: stored.evidenceJournal,
     testTaking: { ...projected.testTaking, reasons: projectReflections(stored, userId), missTypes: projectMissTypes(stored, userId), diagnosticKeys: stored.testTaking?.diagnosticKeys || [] } };
+  projectionCache.set(stored,{ratings,value:result});
+  return result;
 
 }
 
@@ -104,7 +111,7 @@ function bumpObjective(bucket, id, event) {
 
 export function applyEvidence(model, rawEvent) {
   const current = model || fallback;
-  const event = { ...rawEvent, at: rawEvent?.at || Date.now() };
+  const event = { ...rawEvent, at: Number.isFinite(rawEvent?.at) ? rawEvent.at : Date.now() };
   let objectives = current.objectives || {};
   for (const id of [...new Set(event.objectiveIds || [])]) objectives = bumpObjective(objectives, id, event);
   const process = current.testTaking || fallback.testTaking;

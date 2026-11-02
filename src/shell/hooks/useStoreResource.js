@@ -47,7 +47,9 @@ function statusOf(store, userId) {
   return { loading, error };
 }
 
-export function useStoreResource(store, userIdArg, select = (data) => data, prepareWrite = (value) => value) {
+const identity = value => value;
+
+export function useStoreResource(store, userIdArg, select = identity, prepareWrite = identity) {
   const userId = userIdArg ?? getStoreHookUserId();
   const subscribe = useCallback((cb) => {
     const unsubStore = store.subscribe(cb);

@@ -108,8 +108,8 @@ export function dedupeByText(objectives, learnerEvidence = null) {
       .slice(0, 60)
       .toLowerCase()
       .replace(/\W/g, "");
-    const key = code ? `code:${code}` : `text:${text}`;
-    if (!code && !text) continue;
+    const key = code ? `code:${code}` : text ? `text:${text}` : obj?.id && obj?.linkedLecId ? `id:${obj.id}` : null;
+    if (!key) continue;
     if (seen.has(key)) {
       const index = seen.get(key);
       // Display one exact school-code record without discarding its practiced

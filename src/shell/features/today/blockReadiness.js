@@ -1,21 +1,11 @@
+import {examSprintPriorities} from "./examSprint.js";
+import {objectivePracticePlan} from "../../../engine/objectivePractice.js";
+import {buildWeakAreaMap} from "../exam/weakAreaMap.js";
 import {freshTimedEvidence} from './freshTimedEvidence.js';
 import { confidenceAnalytics } from "../exam/confidenceAnalytics.js";
 import { blockPracticeSummary } from "./blockPractice.js";
 import { SCHOOL_EXAM_TARGET_PERCENT, SCHOOL_EXAM_TARGET_RATE } from "../../logic/performanceTargets.js";
 import { selectLinkedObjectives } from "../../logic/objectives.js";
-
-const objectiveStatus = (objective, learnerEvidence = {}) => {
-  const status = String(objective?.status || "untested").toLowerCase();
-  const evidence = learnerEvidence?.objectives?.[objective?.id];
-  // A linked question answer proves exposure, not mastery. Preserve a recorded
-  // struggling/mastered state; otherwise promote the objective from untested
-  // based on the learner's actual attempt evidence.
-  if (status === "untested" && Number(evidence?.attempts) > 0) {
-    return evidence.recent?.at(-1) === false ? "struggling" : "inprogress";
-  }
-  if (status === "developing") return "inprogress";
-  return ["mastered", "inprogress", "struggling"].includes(status) ? status : "untested";
-};
 
 const accuracyOf = (row) => {
   const answered = Math.max(0, Number(row?.answered) || 0);
@@ -69,8 +59,11 @@ export function blockReadinessSummary({
   objectives = uniqueObjectives(selectLinkedObjectives(objectives, blockLectures));
   const lecturesById = Object.fromEntries(blockLectures.map((lecture) => [lecture.id, lecture]));
   const practice = practiceSummary ?? blockPracticeSummary(blockId, blockLectures, questionStats, sessions);
+  const objectiveEvidence = new Map(objectivePracticePlan(objectives,learnerEvidence).rows.map(row=>[row.id,row]));
+  const objectiveStatus = objective => {const state=objectiveEvidence.get(objective.id)?.state;return state==="ready"?"mastered":state==="developing"?"inprogress":state||"untested";};
+  const weakAreas = new Map(buildWeakAreaMap({lectures:blockLectures,objectives,questionStats,learnerEvidence}).map(row=>[row.lectureId,row]));
   const statuses = { mastered: 0, inprogress: 0, struggling: 0, untested: 0 };
-  objectives.forEach((objective) => { statuses[objectiveStatus(objective, learnerEvidence)] += 1; });
+  objectives.forEach((objective) => { statuses[objectiveStatus(objective)] += 1; });
   const totalObjectives = objectives.length;
   const coveredObjectives = totalObjectives - statuses.untested;
   const confidence = confidenceAnalytics(confidenceRecords);
@@ -79,11 +72,11 @@ export function blockReadinessSummary({
   const overdueModels = activeModels.filter((model) => Number.isFinite(model.nextReviewAt) && model.nextReviewAt <= now);
   const weakLectureIds = new Set((weakConcepts || []).flatMap((entry) => entry?.linkedLecIds || []).filter(Boolean));
 
-  const targets = blockLectures.map((lecture) => {
+  const candidateTargets = blockLectures.map((lecture) => {
     const linked = objectives.filter((objective) => objective?.linkedLecId === lecture.id);
     const counts = { mastered: 0, inprogress: 0, struggling: 0, untested: 0 };
-    linked.forEach((objective) => { counts[objectiveStatus(objective, learnerEvidence)] += 1; });
-    const accuracy = accuracyOf(questionStats[lecture.id]);
+    linked.forEach((objective) => { counts[objectiveStatus(objective)] += 1; });
+    const accuracy = weakAreas.get(lecture.id)?.priorityAccuracy ?? accuracyOf(questionStats[lecture.id]);
     const modelOverdue = overdueModels.some((model) => model.lectureId === lecture.id);
     const weakFlag = weakLectureIds.has(lecture.id);
     const score = counts.struggling * 6 + counts.inprogress * 2 + Math.min(4, counts.untested * 0.25)
@@ -100,6 +93,8 @@ export function blockReadinessSummary({
     .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title))
     .slice(0, 3);
 
+  const byTargetId=new Map(candidateTargets.map(row=>[row.lectureId,row]));
+  const targets=examSprintPriorities({blockId,lectures:blockLectures,objectives,questionStats,learnerEvidence}).map(row=>byTargetId.get(row.lectureId)).filter(Boolean);
   const coverage = totalObjectives ? coveredObjectives / totalObjectives : null;
   const modelFreshness = blockModels.length ? (blockModels.length - overdueModels.length) / blockModels.length : null;
   const trend = readinessTrend(confidenceRecords);

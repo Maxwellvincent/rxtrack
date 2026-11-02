@@ -1,3 +1,5 @@
+import {useQuestionPractice} from "../../hooks/useQuestionPractice.js";
+import {reconcileLectureStats} from "../exam/reconcileLectureStats.js";
 import {useState} from 'react';
 import {useLectureQuestionStats} from '../../hooks/useLectureQuestionStats.js';
 import {examSprintPriorities} from './examSprint.js';
@@ -7,9 +9,10 @@ export function ExamSprintCard({context,userId,daysLeft,onStudy,onQuiz,busy}){
  const [exam,setExam]=useState(()=>/^NB\s*1$/i.test(context.blockMeta?.name||'')?'3':'none');
  const [availableMinutes,setAvailableMinutes]=useState(60);
  const stats=useLectureQuestionStats(userId);
+ const history=useQuestionPractice(userId,context.blockId);
  const nb2=/^NB\s*2$/i.test(context.blockMeta?.name||'');
  if(daysLeft<0 || (!nb2 && (daysLeft==null || daysLeft>1)))return null;
- const rows=examSprintPriorities({...context,questionStats:stats.data||{},exam:exam==='none'?null:exam,availableMinutes});
+ const rows=examSprintPriorities({...context,questionStats:reconcileLectureStats(stats.data||{},history.sessions||[],context.lectures||[],context.blockId),exam:exam==='none'?null:exam,availableMinutes});
  return <section aria-label="Top two before the exam" className="rounded-xl border-2 border-accent bg-bg-elevated p-4">
   <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="text-lg font-bold">{nb2?'NB2 · next two study blocks':'Top two before the exam'}</h3><label className="text-sm">Time available <select aria-label="Study time available" value={availableMinutes} onChange={e=>setAvailableMinutes(Number(e.target.value))} className="rounded border border-border bg-bg p-2">{[30,60,90,120].map(n=><option key={n} value={n}>{n} minutes</option>)}</select></label></div>
   <p className="mt-2 text-sm font-semibold">Target: 80% or higher · current block only</p>
@@ -21,7 +24,7 @@ export function ExamSprintCard({context,userId,daysLeft,onStudy,onQuiz,busy}){
    <p className="mt-2 text-sm">{row.minutes}-minute block · {row.action==='coverage'?'Cover remaining objectives first, then test the relationships.':'Review missed distinctions, then test fresh applications.'} Suggested set: {row.questionCount} questions.</p>
    <div className="mt-3 flex gap-2"><button className="rounded border border-border p-2" onClick={()=>onStudy(row.lectureId)}>Review lecture</button><button disabled={busy===row.lectureId} className="rounded bg-accent p-2 font-semibold text-white" onClick={()=>onQuiz({lec:row.lecture,matchReason:row.action==='coverage'?'exam-coverage':'exam-repair',focusObjectiveIds:row.focusObjectiveIds,questionCount:row.questionCount})}>{row.questionCount}-question set</button></div>
   </article>)}</div>:<p className="mt-3">Not enough linked evidence for this blueprint. Choose the correct test or no subject weighting.</p>}
-  {stats.error&&<p role="alert">Some practice totals could not sync; priorities may be incomplete.</p>}
+  {(stats.error||history.error)&&<p role="alert">Some practice totals could not sync; priorities may be incomplete.</p>}
   <details className="mt-3 text-xs text-text-3"><summary>How these are ranked</summary>Recorded weakness, answer-sample size, uncovered objectives and selected subject weights, divided by a rough review-time allowance. Lecture shares within each subject use objective counts as a proxy; actual lecture exam weights are unknown. One slot is reserved for substantial coverage gaps when available. Time allowances are estimates. Recent results are preferred after at least three answers. Outside aggregate scores do not establish lecture or objective knowledge. This is not a calibrated prediction of your test score.</details>
  </section>;
 }
