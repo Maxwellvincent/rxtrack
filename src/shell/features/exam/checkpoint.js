@@ -1,3 +1,4 @@
+import * as questionRatings from "../../../stores/questionRatings.js";
 import * as questionFigures from "../../../stores/questionFigures.js";
 import { missingRequiredVisual } from "../../../engine/questionVisual.js";
 import { protectSessionScoring } from "../../../engine/questionScoringPolicy.js";
@@ -12,7 +13,7 @@ import { sessionEvidenceEvent } from "./sessionEvidence.js";
 export async function checkpointExamSession(userId, sessionId, { lectures = [] } = {}) {
   const session = await updateExamSessionTransaction(userId, sessionId, current => {
     if (current?.status !== "in_progress") return null;
-    return { ...current, progressSavedAt: Date.now(),
+    return { ...current, progressSavedAt: Date.now(), checkpointScoringPolicy: "quality-protected-v1",
       checkpointAnswers: current.answers || [],
       questions: (current.questions || []).map(q => {
         const linked = q.sourceType === "question-bank" ? linkSourceLecture(q, lectures, q.sourceBlockId || q.blockId || current.blockId) : q;
@@ -20,17 +21,17 @@ export async function checkpointExamSession(userId, sessionId, { lectures = [] }
       }) };
   });
   if (!session || session.status !== "in_progress") throw new Error("This session could not be checkpointed. Please reload its status.");
-  const questions = new Map((session.questions || []).map(q => [q.questionId, q]));
+  const protectedSession = protectSessionScoring(session, questionRatings.read(userId).ratings);
+  const excluded = new Set(protectedSession.scoringExcludedQuestionIds || []);
+  const questions = new Map((protectedSession.questions || []).map(q => [q.questionId, q]));
   const events = [];
   const removeEventIds = [];
   for (const answer of session.checkpointAnswers) {
     const question = questions.get(answer.questionId);
     if (!question) continue;
-    if (answer.value == null || missingRequiredVisual(question)) {
+    if (answer.value == null || excluded.has(question.questionId) || missingRequiredVisual(question) || !Object.hasOwn(question.choices || {}, answer.value) || (!question.lectureId && !question.objectiveIds?.length)) {
       removeEventIds.push(`exam:${session.sessionId}:${question.questionId}`); continue;
     }
-    if (!Object.hasOwn(question.choices || {}, answer.value)) continue;
-    if (!question.lectureId && !question.objectiveIds?.length) continue;
     events.push(sessionEvidenceEvent(session, question, answer));
   }
   if (events.length || removeEventIds.length) await recordEvidenceBatchAwait(userId, events, { removeEventIds });

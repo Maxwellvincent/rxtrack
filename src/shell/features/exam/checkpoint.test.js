@@ -80,3 +80,31 @@ it("clears a saved selection without leaving an incorrect attempt behind",async(
  expect(evidence.read(null).total).toBe(0);
  expect(lectureStats.statsForLecture(null,'l').answered).toBe(0);
 });
+it('retracts only a conflicting-key checkpoint and preserves its raw answer for repair',async()=>{
+ state.session.answers.push({questionId:'q2',value:'A',answeredAt:20});
+ await checkpointExamSession(null,'s1');
+ expect(evidence.read(null).total).toBe(2);
+ state.session.questions[0]={...state.session.questions[0],correct:null,sourceKeyReviewStatus:'key-text-conflict'};
+ const saved=await checkpointExamSession(null,'s1');
+ expect(saved.answers).toHaveLength(2);
+ expect(scoredSessionSnapshot(saved).answers.map(a=>a.questionId)).toEqual(['q2']);
+ expect(evidence.read(null)).toMatchObject({total:1,correct:1});
+ expect(evidence.read(null).objectives.o).toMatchObject({attempts:1,correct:1});
+});
+it('withholds unconfirmed visual choices and restores the same event after confirmation',async()=>{
+ state.session.questions[0].sourceVisualChoicesUnverified=true;
+ await checkpointExamSession(null,'s1');expect(evidence.read(null).total).toBe(0);
+ state.session.questions[0].sourceVisualLabelsConfirmed=true;
+ await checkpointExamSession(null,'s1');expect(evidence.read(null).total).toBe(1);
+ await checkpointExamSession(null,'s1');expect(evidence.read(null).total).toBe(1);
+});
+it('honors objective-only exclusions while retaining a valid lecture attempt',async()=>{
+ const ratings=await import('../../../stores/questionRatings.js');
+ const spy=vi.spyOn(ratings,'read').mockReturnValue({ratings:{r:{evidenceKey:evidence.questionEvidenceKey('q1'),sourceIssue:'source-mismatch'}}});
+ try{
+  await checkpointExamSession(null,'s1');
+  expect(evidence.read(null).total).toBe(1);
+  expect(evidence.read(null).objectives.o?.attempts || 0).toBe(0);
+  expect(lectureStats.statsForLecture(null,'l').answered).toBe(1);
+ }finally{spy.mockRestore();}
+});
