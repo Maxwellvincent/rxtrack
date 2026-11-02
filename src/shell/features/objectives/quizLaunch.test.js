@@ -1087,3 +1087,9 @@ describe("answer history through the next school quiz", () => {
     expect(nextConfig(model, objectives, 15).objectives.some(item => item.status === "untested")).toBe(false);
   });
 });
+
+it('keeps a mastered parent in allocation when its linked source concepts remain uncovered', () => {
+ const planned=buildAdaptiveObjectivePlan([{id:'known',status:'mastered',_conceptCoverageGap:true},{id:'weak',status:'struggling'}],5);
+ expect(planned.some(o=>o.id==='known')).toBe(true);
+ expect(planned.reduce((n,o)=>n+o._targetQuestionCount,0)).toBe(5);
+});

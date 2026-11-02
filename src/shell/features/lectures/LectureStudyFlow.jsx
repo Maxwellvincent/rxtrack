@@ -370,6 +370,7 @@ export function LectureStudyFlow({
   // launching its own separate screen — opens the same picker this file's "Quiz this lecture"
   // button opens, just pre-triggered rather than waiting for a click.
   autoOpenQuiz = false,
+  autoQuizCount = 15,
   // Pre-read's misses are the reason a quiz got launched from Today in the first place —
   // preserved here as a priority order rather than dropped when that entry point stopped
   // having its own generation call to apply it to.
@@ -1700,8 +1701,8 @@ export function LectureStudyFlow({
   useEffect(() => {
     if (!autoOpenQuiz || autoOpenedRef.current || stage !== "quiz" || !atoms.length) return;
     autoOpenedRef.current = true;
-    setQuizPicker({ count: 15, difficulty: resolveDefaultDifficulty(qStats.accuracy) });
-  }, [autoOpenQuiz, stage, atoms.length, qStats.accuracy]);
+    setQuizPicker({ count: [5,10,15].includes(autoQuizCount) ? autoQuizCount : 15, difficulty: resolveDefaultDifficulty(qStats.accuracy) });
+  }, [autoOpenQuiz, autoQuizCount, stage, atoms.length, qStats.accuracy]);
 
 
   /*

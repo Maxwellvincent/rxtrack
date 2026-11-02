@@ -1,5 +1,5 @@
 import {normAtomKey} from '../../../engine/atomNorm.js';
-import {linkedConceptPlan, linkedConceptInstruction, attributeLinkedConcept} from '../../../engine/linkedConceptCoverage.js';
+import {linkedConceptPlan, linkedConceptInstruction, attributeLinkedConcept, objectivesWithConceptGaps} from '../../../engine/linkedConceptCoverage.js';
 import { learningFocus } from "../../../engine/learningLoop.js";
 import { getLearnerProfile } from "../../../stores/tutorSessions.js";
 import { feedbackFor } from "../../../stores/questionRatings.js";
@@ -71,6 +71,7 @@ export function sortWeakestFirst(objectives) {
 
 function objectiveStatus(objective) {
   const status = String(objective?.status || "untested").toLowerCase();
+  if(objective?._conceptCoverageGap && (status === 'mastered' || status === 'ready')) return 'developing';
   if (status === "struggling" || status === "needs_repair") return "struggling";
   if (status === "developing" || status === "inprogress" || status === "in_progress") return "developing";
   if (status === "mastered" || status === "ready") return "mastered";
@@ -108,7 +109,7 @@ export function buildAdaptiveObjectivePlan(objectives, questionCount) {
   if (count >= ordered.length) remaining -= addRoundRobin(ordered, ordered.length, 1);
   // Weak/developing objectives used to consume every slot when the lecture
   // contained more objectives than questions, starving first-pass coverage.
-  const unseen = ordered.filter(objective => objectiveStatus(objective) === "untested" && !targets.has(objective.id || objective.code));
+  const unseen = ordered.filter(objective => (objectiveStatus(objective) === "untested" || objective._conceptCoverageGap) && !targets.has(objective.id || objective.code));
   if (remaining && unseen.length) remaining -= addRoundRobin(unseen, Math.min(remaining, Math.ceil(count * 0.6), unseen.length), 1);
   const focused = ordered.filter((objective) => Number(objective?._focusPriority) === 0);
   if (focused.length) {
@@ -345,7 +346,7 @@ export function buildQuizConfig({
   feedback = null,
 }) {
   const learnerModel = evidenceModel || readLearnerEvidence(userId);
-  const pool = sortWeakestFirst(objectivesWithPracticeEvidence(objectives, learnerModel));
+  const pool = sortWeakestFirst(objectivesWithConceptGaps(objectivesWithPracticeEvidence(objectives, learnerModel), atoms, learnerModel));
   const count = resolveQuestionCount(questionCount, Math.max(pool.length, 1));
 
   // When no objectives, fall through to atom/text-based generation
@@ -550,10 +551,9 @@ export async function startObjectiveQuiz(args, deps = {}) {
     // targets. Preparation rotates this bounded evidence window across batches.
     const selectedIds = new Set(config.objectives.map(objective => objective.id || objective.code));
     const coverageEvidence = args.evidenceModel || readLearnerEvidence(args.userId);
-    const linkedTargets = linkedConceptPlan(atoms, config.objectives, {...coverageEvidence, learningJournal: [
-      ...(coverageEvidence.learningJournal || coverageEvidence.evidenceJournal || []),
-      ...(args.conceptCoverageQuestions || []).map(question=>({sourceConceptKeys:question.sourceConceptKeys || [],at:Date.now()})),
-    ]}, config.count);
+    const linkedTargets = linkedConceptPlan(atoms, config.objectives, {...coverageEvidence, plannedConceptEvents:
+      (args.conceptCoverageQuestions || []).map(question=>({sourceConceptKeys:question.sourceConceptKeys || [],at:Date.now()}))
+    }, config.count);
     const targetKeys = new Set(linkedTargets.map(atom => atom.coverageKey));
     const relevantAtoms = [...linkedTargets, ...atoms.filter(atom => !targetKeys.has(normAtomKey(atom.term)) && atom.objectiveIds?.some(id => selectedIds.has(id))), ...atoms.filter(atom => !atom.objectiveIds?.some(id => selectedIds.has(id)))];
     const evidenceAtoms = atoms.length
@@ -654,7 +654,8 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
     repairAIJSON: boundCall(deps.repairAIJSON, "repair"),
   };
   const requested = resolveQuestionCount(args.questionCount, Math.max((args.objectives || []).length, 1));
-  const plannedObjectives = objectivesWithPracticeEvidence(args.objectives || [], args.evidenceModel || readLearnerEvidence(args.userId));
+  const plannedEvidence = args.evidenceModel || readLearnerEvidence(args.userId);
+  const plannedObjectives = objectivesWithConceptGaps(objectivesWithPracticeEvidence(args.objectives || [], plannedEvidence), args.atoms || [], plannedEvidence);
   let allocationPlan = buildAdaptiveObjectivePlan(plannedObjectives, args.plannedCount || requested);
   const unsupportedObjectiveIds = new Set();
   const enforceAllocation = allocationPlan.length > 0 && args.generationVersion === "v2";

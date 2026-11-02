@@ -347,7 +347,7 @@ function ShellMain({ theme, toggle, userId }) {
     setStudyLecture(lecture);
     setStudyFocusObjectiveIds(opts.focusObjectiveIds || null);
     setExamRepairContext(opts.repairContext || null);
-    setPendingAutoQuiz(opts.autoQuiz ? { focusObjectiveIds: opts.focusObjectiveIds || null } : null);
+    setPendingAutoQuiz(opts.autoQuiz ? { focusObjectiveIds: opts.focusObjectiveIds || null, questionCount: opts.questionCount } : null);
   }, [userId]);
 
   // Every "Quiz" button used to call this directly (objectives, lectureTitle, blockId, extraMeta)
@@ -359,7 +359,7 @@ function ShellMain({ theme, toggle, userId }) {
     (objectives, lectureTitle, optionalBlockId, extraMeta = {}) => {
       const lectureId =
         extraMeta?.lectureId ?? (objectives || []).map((o) => o?.linkedLecId).find(Boolean) ?? null;
-      if (lectureId) onStudyLecture(lectureId, { autoQuiz: true, focusObjectiveIds: extraMeta?.focusObjectiveIds });
+      if (lectureId) onStudyLecture(lectureId, { autoQuiz: true, focusObjectiveIds: extraMeta?.focusObjectiveIds, questionCount: extraMeta?.questionCount });
     },
     [onStudyLecture]
   );
@@ -463,6 +463,7 @@ function ShellMain({ theme, toggle, userId }) {
                 onLectureRenamed={(name) => setStudyLecture(current => current?.id === studyLecture.id ? { ...current, lectureTitle: name, title: name } : current)}
                 onReExtract={(target) => { setReextractLecture(target || null); setShowAddLecture(true); }}
                 autoOpenQuiz={!!pendingAutoQuiz}
+                autoQuizCount={pendingAutoQuiz?.questionCount}
                 focusObjectiveIds={studyFocusObjectiveIds || pendingAutoQuiz?.focusObjectiveIds}
                 examRepairContext={examRepairContext}
                 onGoDeep={(lecId) => {

@@ -1,7 +1,7 @@
 import {buildWeakAreaMap} from '../exam/weakAreaMap.js';
 import {BPM_BLUEPRINTS,objectiveSubject,SUBJECT_LABELS} from '../exam/bpmBlueprint.js';
 /** A transparent prioritization heuristic, not a calibrated score predictor. */
-export function examSprintPriorities({blockId,lectures=[],objectives=[],questionStats={},learnerEvidence={},exam=null}={}){
+export function examSprintPriorities({blockId,lectures=[],objectives=[],questionStats={},learnerEvidence={},exam=null,availableMinutes=60}={}){
  const local=lectures.filter(l=>l.blockId===blockId&&!l.mergedInto&&!/^(SG|TBL|LAB)$/i.test(l.lectureType||''));
  const ids=new Set(local.map(l=>l.id));
  const targets=objectives.filter(o=>ids.has(o.linkedLecId)&&(!o.blockId||o.blockId===blockId));
@@ -9,7 +9,7 @@ export function examSprintPriorities({blockId,lectures=[],objectives=[],question
  const subjectTotals={};
  for(const o of targets){const subject=objectiveSubject(o);if(subject)subjectTotals[subject]=(subjectTotals[subject]||0)+1;}
  const rows=buildWeakAreaMap({lectures:local,objectives:targets,questionStats,learnerEvidence}).filter(r=>r.objectiveTotal>0);
- return rows.map(row=>{
+ const ranked=rows.map(row=>{
   const own=targets.filter(o=>o.linkedLecId===row.lectureId);
   const subjects={};for(const o of own){const s=objectiveSubject(o);if(s)subjects[s]=(subjects[s]||0)+1;}
   // Within each blueprint subject use objective share as a proxy for lecture scope,
@@ -23,5 +23,11 @@ export function examSprintPriorities({blockId,lectures=[],objectives=[],question
   const weakness=accuracy==null?0:(1-accuracy)*confidence;
   const minutes=Math.min(45,Math.max(20,15+Math.min(30,row.strugglingObjectives*3+row.objectivesUntested)));
   return {...row,minutes,score:weight*(weakness+untested*.12)/minutes,subjectLabels:known.map(s=>SUBJECT_LABELS[s]),sample,usesRecent:row.recentCount>=3};
- }).filter(row=>row.score>0).sort((a,b)=>b.score-a.score||b.sample-a.sample||String(a.lectureId).localeCompare(String(b.lectureId))).slice(0,2);
+ }).filter(row=>row.score>0).sort((a,b)=>b.score-a.score||b.sample-a.sample||String(a.lectureId).localeCompare(String(b.lectureId)));
+ const chosen=ranked.slice(0,2);
+ const coverage=ranked.find(row=>row.objectivesUntested>0 && row.objectivesUntested/row.objectiveTotal>=0.4);
+ if(chosen.length===2 && coverage && !chosen.some(row=>row.objectivesUntested/row.objectiveTotal>=0.4))chosen[1]=coverage;
+ const budget=Math.max(10,Math.min(240,Number(availableMinutes)||60));
+ const each=Math.floor(budget/Math.max(1,chosen.length));
+ return chosen.map(row=>({...row,minutes:Math.min(45,each),questionCount:each>=30?15:each>=20?10:5,action:row.objectivesUntested/row.objectiveTotal>=0.4?'coverage':'repair',focusObjectiveIds:targets.filter(o=>o.linkedLecId===row.lectureId && (row.objectivesUntested/row.objectiveTotal>=0.4 ? (!o.status || o.status==='untested') : o.status==='struggling')).map(o=>o.id||o.code).filter(Boolean)}));
 }

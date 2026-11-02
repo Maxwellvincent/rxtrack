@@ -1,3 +1,4 @@
+import {freshTimedEvidence} from './freshTimedEvidence.js';
 import { confidenceAnalytics } from "../exam/confidenceAnalytics.js";
 import { blockPracticeSummary } from "./blockPractice.js";
 import { SCHOOL_EXAM_TARGET_PERCENT, SCHOOL_EXAM_TARGET_RATE } from "../../logic/performanceTargets.js";
@@ -60,6 +61,7 @@ export function blockReadinessSummary({
   weakConcepts = [],
   learnerEvidence = {},
   now = Date.now(),
+  ratings = {},
 }) {
   const blockLectures = lectures.filter((lecture) => lecture?.blockId === blockId);
   objectives = uniqueObjectives(selectLinkedObjectives(objectives, blockLectures));
@@ -101,10 +103,11 @@ export function blockReadinessSummary({
   const trend = readinessTrend(confidenceRecords);
   let state = "Building coverage";
   if (statuses.struggling > 0 || (practice.accuracy != null && practice.accuracy < 0.6)) state = "Repair first";
-  else if (coverage != null && coverage >= 0.7 && practice.accuracy != null && practice.accuracy >= SCHOOL_EXAM_TARGET_RATE) state = "At or above target";
+  else if (coverage != null && coverage >= 0.7 && practice.accuracy != null && practice.accuracy >= SCHOOL_EXAM_TARGET_RATE) state = "Practice at target; readiness unverified";
 
   return {
     state,
+    freshTimed: freshTimedEvidence(sessions,blockId,ratings),
     practice,
     confidence,
     trend,

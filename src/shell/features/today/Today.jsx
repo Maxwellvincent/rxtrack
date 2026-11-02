@@ -501,38 +501,6 @@ function RoundDots({ done, total }) {
 }
 
 
-function ClassificationBadge({ wakeTime, mode }) {
-  const suggested = wakeTimeMode(wakeTime);
-  if (!suggested && !mode) return null;
-
-  const effective = mode ?? suggested;
-  if (!effective) return null;
-  const modeName = DAY_MODES.find((m) => m.id === effective)?.label ?? effective;
-  const isOverride = mode && suggested && mode !== suggested;
-
-  const parts = [];
-  if (wakeTime) {
-    const h = parseInt(wakeTime.split(":")[0], 10);
-    if (h < 8)       parts.push(`up ${wakeTime} → default`);
-    else if (h < 10) parts.push(`up ${wakeTime} → compressed`);
-    else             parts.push(`up ${wakeTime} → salvage`);
-  }
-
-  return (
-    <div className="flex flex-wrap items-center gap-2 font-mono text-[12px]">
-      <span className="text-text-3">{suggested ? "suggested" : "mode"}:</span>
-      <span
-        className="rounded px-1.5 py-0.5 font-bold text-bg text-[12px]"
-        style={{ background: MODE_COLORS[effective] }}
-      >
-        {modeName}
-      </span>
-      {isOverride && <span className="text-text-3">(overriding suggestion)</span>}
-      {parts.length > 0 && <span className="text-text-3">{parts.join(" · ")}</span>}
-    </div>
-  );
-}
-
 function RoutineSchedulePanel({ mode, wakeTime, lecConfig }) {
   const [collapsed, setCollapsed] = useState(true);
   const [clock, setClock] = useState(() => new Date());
@@ -1075,6 +1043,7 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
     });
   }, [onStudyLecture, blockId]);
 
+  const currentLearnerEvidence = context?.learnerEvidence;
   const onQuiz = useCallback((task) => {
     const objectives = objectivesForTask(task.lec.id);
     const title = task.lec?.lectureTitle || task.lec?.fileName || "Lecture";
@@ -1082,7 +1051,7 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
     // opens on the objectives it exposed as gaps — passed through as a priority order for
     // Study's own quiz picker to apply, not pre-sorted here.
     const gapIds = preReadFor(task.lec.id)?.gapObjectiveIds || [];
-    const evidenceObjectives = evidenceAwareObjectives(objectives, context?.learnerEvidence);
+    const evidenceObjectives = evidenceAwareObjectives(objectives, currentLearnerEvidence);
     const examFocusIds = effectiveMode === "exam"
       ? evidenceObjectives
         .filter((objective) => task.matchReason === "exam-coverage"
@@ -1091,9 +1060,9 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
         .map((objective) => objective.id || objective.code)
         .filter(Boolean)
       : [];
-    const focusObjectiveIds = [...new Set([...examFocusIds, ...gapIds])];
-    onStartObjectiveQuiz?.(objectives, title, blockId, { lectureId: task.lec.id, focusObjectiveIds });
-  }, [objectivesForTask, onStartObjectiveQuiz, blockId, preReadFor, context?.learnerEvidence, effectiveMode]);
+    const focusObjectiveIds = [...new Set([...(task.focusObjectiveIds || []), ...examFocusIds, ...gapIds])];
+    onStartObjectiveQuiz?.(objectives, title, blockId, { lectureId: task.lec.id, focusObjectiveIds, questionCount: task.questionCount });
+  }, [objectivesForTask, onStartObjectiveQuiz, blockId, preReadFor, currentLearnerEvidence, effectiveMode]);
 
   const onPreReadDone = useCallback(({ lectureId, gapObjectiveIds, durationMinutes }) => {
     const entry = logPreRead({ lectureId, gapObjectiveIds, durationMinutes });

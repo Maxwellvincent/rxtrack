@@ -13,3 +13,9 @@ it('does not let one wrong answer outweigh established weak evidence',()=>{
  const rows=examSprintPriorities({...data,questionStats:{...data.questionStats,b:{answered:1,correct:0}}});expect(rows[0].lectureId).toBe('a');
 });
 it('does not invent an exact predicted exam score',()=>{expect(examSprintPriorities(data)[0]).not.toHaveProperty('predictedScore');});
+it('reserves a coverage slot and stays inside the selected time budget without NB1 spillover',()=>{
+ const rows=examSprintPriorities({...data,availableMinutes:30,objectives:[...data.objectives,{id:'new',linkedLecId:'b',discipline:'anatomy',status:'untested'}]});
+ expect(rows.reduce((n,r)=>n+r.minutes,0)).toBeLessThanOrEqual(30);
+ expect(rows.every(row=>row.questionCount===5)).toBe(true);
+ expect(rows.every(row=>row.lectureId!=='d')).toBe(true);
+});

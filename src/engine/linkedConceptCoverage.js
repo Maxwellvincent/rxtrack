@@ -1,32 +1,51 @@
 import {normAtomKey} from './atomNorm.js';
 const norm=value=>String(value||'').normalize('NFKC').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
-/** Exposure is separate from objective mastery. Only answered linked items rotate history. */
-export function linkedConceptPlan(atoms=[],objectives=[],evidence={},count=5){
+/** Source-linked concepts are a bounded inventory, not every possible objective facet. */
+export function linkedConceptCoverage(atoms=[],objectives=[],evidence={}) {
  const ids=new Set(objectives.map(o=>String(o.id||o.code)));
  const unique=new Map();
  for(const atom of atoms){
   const key=normAtomKey(atom.term);
-  if(!key||!atom.content||!atom.objectiveIds?.some(id=>ids.has(String(id))))continue;
-  if(!unique.has(key))unique.set(key,{...atom,coverageKey:key});
+  const links=(atom.objectiveIds||[]).map(String).filter(id=>ids.has(id));
+  if(!key||!atom.content||!links.length)continue;
+  const identity=JSON.stringify([key,[...links].sort()]);
+  if(!unique.has(identity))unique.set(identity,{...atom,coverageKey:key,objectiveIds:links,attempts:0,correct:0,lastSeen:0,lastCorrect:null});
  }
- const exposure={...(evidence.atoms||{})};
- for(const event of evidence.learningJournal||evidence.evidenceJournal||[]){
-  for(const key of event.sourceConceptKeys||[]){const old=exposure[key]||{};
-   exposure[key]={...old,attempts:Math.max(1,old.attempts||0),lastSeen:Math.max(old.lastSeen||0,event.at||0)};
+ const events=[...(evidence.learningJournal || evidence.evidenceJournal || [])].sort((a,b)=>(a.at||0)-(b.at||0));
+ for(const row of unique.values()){
+  const seen=new Set();
+  for(const event of events){
+   if(!event.objectiveIds?.some(id=>row.objectiveIds.includes(String(id))) || typeof event.correct!=='boolean')continue;
+   const keys=[...(event.sourceConceptKeys||[]),event.atomKey].filter(Boolean).map(normAtomKey);
+   if(!keys.includes(row.coverageKey))continue;
+   const identity=event.eventId||JSON.stringify([event.sessionKey,event.questionKey,event.at]);
+   if(seen.has(identity))continue;seen.add(identity);
+   row.attempts++;row.correct+=event.correct?1:0;row.lastSeen=event.at||0;row.lastCorrect=event.correct;
   }
  }
- const ranked=[...unique.values()].sort((a,b)=>{
-  const x=exposure[a.coverageKey]||{},y=exposure[b.coverageKey]||{};
-  return Number((x.attempts||0)>0)-Number((y.attempts||0)>0)
-   || Number(b.importanceTier==='core')-Number(a.importanceTier==='core')
-   || (x.lastSeen||0)-(y.lastSeen||0);
- });
+ return [...unique.values()];
+}
+
+export function objectivesWithConceptGaps(objectives=[],atoms=[],evidence={}) {
+ const gaps=linkedConceptCoverage(atoms,objectives,evidence).filter(row=>!row.attempts);
+ return objectives.map(objective=>({...objective,_conceptCoverageGap:gaps.some(row=>row.objectiveIds.includes(String(objective.id||objective.code)))}));
+}
+
+/** Exposure is separate from objective mastery. Only answered linked items rotate history. */
+export function linkedConceptPlan(atoms=[],objectives=[],evidence={},count=5){
+ const inventory=linkedConceptCoverage(atoms,objectives,evidence);
+ const planned=new Set((evidence.plannedConceptEvents || []).flatMap(event=>event.sourceConceptKeys || []));
+ const ranked=inventory.map(row=>({...row,planIdentity:JSON.stringify([row.coverageKey,row.objectiveIds]),planned:planned.has(row.coverageKey)})).sort((a,b)=>
+  Number(a.attempts>0 || a.planned)-Number(b.attempts>0 || b.planned)
+  || Number(b.lastCorrect===false)-Number(a.lastCorrect===false)
+  || Number(b.importanceTier==='core')-Number(a.importanceTier==='core')
+  || a.lastSeen-b.lastSeen);
  const chosen=[],used=new Set();
  const quotas=objectives.map(o=>({id:String(o.id||o.code),left:Math.max(1,o._targetQuestionCount||1)}));
  while(chosen.length<count){let added=false;
   for(const q of quotas){if(q.left<=0||chosen.length>=count)continue;
-   const atom=ranked.find(a=>!used.has(a.coverageKey)&&a.objectiveIds.some(id=>String(id)===q.id));
-   if(!atom){q.left=0;continue;}chosen.push(atom);used.add(atom.coverageKey);q.left--;added=true;
+   const atom=ranked.find(a=>!used.has(a.planIdentity)&&a.objectiveIds.some(id=>String(id)===q.id));
+   if(!atom){q.left=0;continue;}chosen.push(atom);used.add(atom.planIdentity);q.left--;added=true;
   }if(!added)break;
  }
  return chosen;

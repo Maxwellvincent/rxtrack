@@ -1,3 +1,4 @@
+import * as questionRatingsStore from "../../../stores/questionRatings.js";
 import { useEffect, useMemo, useState } from "react";
 import { listExamSessions } from "../../../supabase.js";
 import * as calibrationStore from "../../../stores/calibrationByBlock.js";
@@ -27,6 +28,7 @@ export function BlockReadinessDashboard({ blockId, userId, onStudyLecture, compa
   const weakConcepts = useWeakConcepts(blockId, userId);
   const retrieval = useStoreResource(retrievalStore, userId);
   const calibration = useStoreResource(calibrationStore, userId);
+  const ratings = useStoreResource(questionRatingsStore, userId);
   const learnerEvidence = useStoreResource(learnerEvidenceStore, userId);
   const [sessionState, setSessionState] = useState({ key: null, sessions: [], error: false });
   const [refresh, setRefresh] = useState(0);
@@ -63,10 +65,11 @@ export function BlockReadinessDashboard({ blockId, userId, onStudyLecture, compa
     models: Object.values(retrieval.data?.models || {}),
     weakConcepts: weakConcepts.data || [],
     learnerEvidence: learnerEvidence.data || {},
-  }), [blockId, lectures.data, objectives.data, questionStats.data, sessions, confidenceRecords, retrieval.data, weakConcepts.data, learnerEvidence.data]);
+    ratings: ratings.data?.ratings || {},
+  }), [blockId, lectures.data, objectives.data, questionStats.data, sessions, confidenceRecords, retrieval.data, weakConcepts.data, learnerEvidence.data, ratings.data]);
 
-  const loading = lectures.loading || objectives.loading || questionStats.loading || weakConcepts.loading || retrieval.loading || calibration.loading || learnerEvidence.loading || sessionState.key !== requestKey;
-  const partial = lectures.error || objectives.error || questionStats.error || weakConcepts.error || retrieval.error || calibration.error || learnerEvidence.error || sessionState.error;
+  const loading = lectures.loading || objectives.loading || questionStats.loading || weakConcepts.loading || retrieval.loading || calibration.loading || learnerEvidence.loading || ratings.loading || sessionState.key !== requestKey;
+  const partial = lectures.error || objectives.error || questionStats.error || weakConcepts.error || retrieval.error || calibration.error || learnerEvidence.error || ratings.error || sessionState.error;
   const trendDetail = result.trend.delta == null ? "Needs more rated answers" : `${result.trend.delta >= 0 ? "+" : ""}${Math.round(result.trend.delta * 100)} points vs prior 20`;
   const confidenceDetail = result.confidence.highCount < 10
     ? `${result.confidence.highCount} high-confidence answers recorded`
@@ -87,6 +90,7 @@ export function BlockReadinessDashboard({ blockId, userId, onStudyLecture, compa
         <div><strong>{loading ? "—" : pct(result.confidence.highAccuracy)}</strong><span>confident accuracy</span></div>
         <div><strong>{loading ? "—" : result.models.overdue}</strong><span>models due</span></div>
       </div>
+      {!loading && <p className="mt-3 text-xs text-text-2">Fresh timed evidence: {result.freshTimed.total ? `${pct(result.freshTimed.accuracy)} on ${result.freshTimed.total} questions · ${result.freshTimed.lectureCount} lectures` : 'No eligible first-exposure timed results yet'}. Separate from repeated practice; not a predicted exam score.</p>}
       {topTarget && !loading && <div className="mt-4 rounded-lg bg-panel p-3">
         <div className="today-eyebrow">Best next move</div>
         <div className="mt-1 flex items-center justify-between gap-2">
@@ -125,6 +129,7 @@ export function BlockReadinessDashboard({ blockId, userId, onStudyLecture, compa
       <Metric label="Questions" value={loading ? "—" : result.practice.answered.toLocaleString()} detail={loading ? "Loading practice" : `${pct(result.practice.accuracy)} overall accuracy`} />
       <Metric label="Confidence" value={loading ? "—" : pct(result.confidence.highAccuracy)} detail={loading ? "Loading calibration" : confidenceDetail} />
       <Metric label="Direction" value={loading ? "—" : result.trend.label} detail={loading ? "Loading trend" : trendDetail} />
+      <Metric label="Fresh timed evidence" value={loading ? "—" : pct(result.freshTimed.accuracy)} detail={`${result.freshTimed.total} first-recorded-exposure questions · ${result.freshTimed.mixed ? 'mixed lectures' : 'not yet a mixed sample'} · not a predicted score`} />
       <Metric label="Mental models due" value={loading ? "—" : String(result.models.overdue)} detail={loading ? "Loading models" : result.models.total ? `${result.models.total} enrolled in this block` : "No models enrolled yet"} />
     </div>
 

@@ -6,7 +6,7 @@ it('reserves concept targets across objectives and rotates answered concepts',()
  expect(linkedConceptPlan(atoms,objectives,{},2).map(a=>a.term)).toEqual(['Dorsal columns','Spinothalamic tract']);
  expect(linkedConceptPlan(atoms,objectives,{atoms:{dorsalcolumns:{attempts:1,lastSeen:1}}},2).length).toBe(2);
  const first=linkedConceptPlan(atoms,[{id:'a'}],{},1)[0];
- const next=linkedConceptPlan(atoms,[{id:'a'}],{learningJournal:[{at:2,sourceConceptKeys:[first.coverageKey]}]},1);
+ const next=linkedConceptPlan(atoms,[{id:'a'}],{learningJournal:[{at:2,objectiveIds:['a'],correct:true,sourceConceptKeys:[first.coverageKey]}]},1);
  expect(next[0].term).toBe('Medial lemniscus');
 });
 it('does not attribute distractor-only terms or unrelated objectives',()=>{
@@ -23,4 +23,14 @@ it('does not treat untagged reference facts as required objective targets',()=>{
 it('does not award concept exposure for explanation-only name drops',()=>{
  const q={stem:'Which finding follows?',topic:'Sensory loss',choices:{A:'One',B:'Two'},correct:'A',objectiveIds:['a'],explanation:'Unlike the dorsal columns this is different.'};
  expect(attributeLinkedConcept(q,atoms)).not.toHaveProperty('sourceConceptKeys');
+});
+it('does not use a matching word from another objective as concept coverage',async()=>{
+ const {linkedConceptCoverage,objectivesWithConceptGaps}=await import('./linkedConceptCoverage.js');
+ const evidence={atoms:{'dorsal columns':{attempts:50}},learningJournal:[{objectiveIds:['other'],correct:true,atomKey:'dorsal columns',at:2}]};
+ expect(linkedConceptCoverage(atoms,[{id:'a'}],evidence).every(row=>row.attempts===0)).toBe(true);
+ expect(objectivesWithConceptGaps([{id:'a',status:'mastered'}],atoms,evidence)[0]).toMatchObject({status:'mastered',_conceptCoverageGap:true});
+});
+it('prioritizes a missed concept after all linked concepts have been answered',()=>{
+ const evidence={learningJournal:[{objectiveIds:['a'],correct:true,atomKey:'dorsal columns',at:1},{objectiveIds:['a'],correct:false,atomKey:'medial lemniscus',at:2}]};
+ expect(linkedConceptPlan(atoms,[{id:'a'}],evidence,1)[0].term).toBe('Medial lemniscus');
 });

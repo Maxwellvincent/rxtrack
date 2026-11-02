@@ -10,3 +10,7 @@ it('distinguishes repeated local bank IDs by question content',()=>{
  const repeat=sessionEvidenceEvent({...session,questions:[question]}, {...question,questionId:'retake:q1'}, {value:'B',answeredAt:2});
  expect(repeat.questionKey).toBe(one.questionKey);
 });
+it('retains concept and facet tags through saved school/exam evidence',()=>{
+ const tagged={...question,sourceConceptKeys:['astrocyte'],objectiveFacet:'barrier support'};
+ expect(sessionEvidenceEvent({...session,questions:[tagged]},tagged,{value:'A'})).toMatchObject({sourceConceptKeys:['astrocyte'],objectiveFacet:'barrier support'});
+});
