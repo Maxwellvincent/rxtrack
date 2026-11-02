@@ -62,11 +62,13 @@ export function blockReadinessSummary({
   learnerEvidence = {},
   now = Date.now(),
   ratings = {},
+  practiceSummary = null,
+  studyAnswers = [],
 }) {
   const blockLectures = lectures.filter((lecture) => lecture?.blockId === blockId);
   objectives = uniqueObjectives(selectLinkedObjectives(objectives, blockLectures));
   const lecturesById = Object.fromEntries(blockLectures.map((lecture) => [lecture.id, lecture]));
-  const practice = blockPracticeSummary(blockId, blockLectures, questionStats, sessions);
+  const practice = practiceSummary ?? blockPracticeSummary(blockId, blockLectures, questionStats, sessions);
   const statuses = { mastered: 0, inprogress: 0, struggling: 0, untested: 0 };
   objectives.forEach((objective) => { statuses[objectiveStatus(objective, learnerEvidence)] += 1; });
   const totalObjectives = objectives.length;
@@ -107,7 +109,7 @@ export function blockReadinessSummary({
 
   return {
     state,
-    freshTimed: freshTimedEvidence(sessions,blockId,ratings),
+    freshTimed: freshTimedEvidence(sessions,blockId,ratings,studyAnswers),
     practice,
     confidence,
     trend,

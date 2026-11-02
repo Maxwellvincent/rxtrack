@@ -15,3 +15,8 @@ it('does not admit unreviewed generated questions or known key conflicts',()=>{
  expect(freshTimedEvidence([{...timed,questions:[{...q,sourceType:'generated'}]}],'nb2').total).toBe(0);
  expect(freshTimedEvidence([{...timed,questions:[{...q,correct:null,sourceKeyReviewStatus:'key-text-conflict'}]}],'nb2').total).toBe(0);
 });
+it('excludes a prior lecture-quiz exposure without letting a later answer rewrite the baseline',()=>{
+ const prior=[{questionKey:'stable',ts:1,correct:true}];
+ expect(freshTimedEvidence([timed],'nb2',{},prior).total).toBe(0);
+ expect(freshTimedEvidence([timed],'nb2',{},[{...prior[0],ts:3}]).total).toBe(1);
+});

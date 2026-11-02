@@ -19,3 +19,12 @@ it('reserves a coverage slot and stays inside the selected time budget without N
  expect(rows.every(row=>row.questionCount===5)).toBe(true);
  expect(rows.every(row=>row.lectureId!=='d')).toBe(true);
 });
+
+it('focuses coverage on unanswered objectives rather than stale untested labels',()=>{
+ const rows=examSprintPriorities({blockId:'NB',lectures:[{id:'a',blockId:'NB'}],objectives:[{id:'seen',linkedLecId:'a',status:'untested'},{id:'unseen',linkedLecId:'a',status:'mastered'}],learnerEvidence:{objectives:{seen:{attempts:1,correct:1,recent:[true]},unseen:{attempts:0,correct:0}}}});
+ expect(rows[0].action).toBe('coverage');expect(rows[0].focusObjectiveIds).toEqual(['unseen']);
+});
+it('targets a new miss and does not select a recovered objective by its stale struggling label',()=>{
+ const rows=examSprintPriorities({blockId:'NB',lectures:[{id:'a',blockId:'NB'}],objectives:[{id:'recovered',linkedLecId:'a',status:'struggling'},{id:'miss',linkedLecId:'a',status:'mastered'}],questionStats:{a:{answered:10,correct:5}},learnerEvidence:{objectives:{recovered:{attempts:5,correct:5,recent:[true,true,true,true,true]},miss:{attempts:1,correct:0,recent:[false]}}}});
+ expect(rows[0].action).toBe('repair');expect(rows[0].focusObjectiveIds).toEqual(['miss']);
+});

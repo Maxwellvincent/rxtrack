@@ -86,3 +86,10 @@ describe("block readiness", () => {
     expect(result.objectives).toMatchObject({ total: 1, covered: 1, mastered: 1, untested: 0, coverage: 1 });
   });
 });
+
+it('uses the unified saved-practice totals including scored outside work when supplied',()=>{
+ const practiceSummary={answered:60,correct:40,gradedAnswered:50,accuracy:.8,manualAnswered:20};
+ const result=blockReadinessSummary({blockId:'NB',lectures:[{id:'a',blockId:'NB'}],questionStats:{a:{answered:1,correct:0}},practiceSummary});
+ expect(result.practice).toEqual(practiceSummary);
+ expect(result.state).not.toBe('Repair first');
+});

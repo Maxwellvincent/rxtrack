@@ -1,3 +1,5 @@
+import {useQuestionPractice} from "../../hooks/useQuestionPractice.js";
+import {questionProgress} from "../exam/questionProgress.js";
 import * as questionRatingsStore from "../../../stores/questionRatings.js";
 import { useEffect, useMemo, useState } from "react";
 import { listExamSessions } from "../../../supabase.js";
@@ -22,6 +24,8 @@ function Metric({ label, value, detail }) {
 }
 
 export function BlockReadinessDashboard({ blockId, userId, onStudyLecture, compact = false }) {
+  const questionHistory = useQuestionPractice(userId, blockId);
+  const practiceSummary = useMemo(() => questionProgress(questionHistory.studyAnswers, questionHistory.sessions, {}, questionHistory.manualEntries, questionHistory.historicalStudy), [questionHistory.studyAnswers, questionHistory.sessions, questionHistory.manualEntries, questionHistory.historicalStudy]);
   const lectures = useLectures(blockId, userId);
   const objectives = useObjectives(blockId, userId);
   const questionStats = useLectureQuestionStats(userId);
@@ -66,10 +70,12 @@ export function BlockReadinessDashboard({ blockId, userId, onStudyLecture, compa
     weakConcepts: weakConcepts.data || [],
     learnerEvidence: learnerEvidence.data || {},
     ratings: ratings.data?.ratings || {},
-  }), [blockId, lectures.data, objectives.data, questionStats.data, sessions, confidenceRecords, retrieval.data, weakConcepts.data, learnerEvidence.data, ratings.data]);
+    practiceSummary,
+    studyAnswers: questionHistory.studyAnswers,
+  }), [blockId, lectures.data, objectives.data, questionStats.data, sessions, confidenceRecords, retrieval.data, weakConcepts.data, learnerEvidence.data, ratings.data, practiceSummary, questionHistory.studyAnswers]);
 
-  const loading = lectures.loading || objectives.loading || questionStats.loading || weakConcepts.loading || retrieval.loading || calibration.loading || learnerEvidence.loading || ratings.loading || sessionState.key !== requestKey;
-  const partial = lectures.error || objectives.error || questionStats.error || weakConcepts.error || retrieval.error || calibration.error || learnerEvidence.error || ratings.error || sessionState.error;
+  const loading = questionHistory.loading || lectures.loading || objectives.loading || questionStats.loading || weakConcepts.loading || retrieval.loading || calibration.loading || learnerEvidence.loading || ratings.loading || sessionState.key !== requestKey;
+  const partial = questionHistory.error || lectures.error || objectives.error || questionStats.error || weakConcepts.error || retrieval.error || calibration.error || learnerEvidence.error || ratings.error || sessionState.error;
   const trendDetail = result.trend.delta == null ? "Needs more rated answers" : `${result.trend.delta >= 0 ? "+" : ""}${Math.round(result.trend.delta * 100)} points vs prior 20`;
   const confidenceDetail = result.confidence.highCount < 10
     ? `${result.confidence.highCount} high-confidence answers recorded`
@@ -90,6 +96,7 @@ export function BlockReadinessDashboard({ blockId, userId, onStudyLecture, compa
         <div><strong>{loading ? "—" : pct(result.confidence.highAccuracy)}</strong><span>confident accuracy</span></div>
         <div><strong>{loading ? "—" : result.models.overdue}</strong><span>models due</span></div>
       </div>
+      {!loading && <details className="mt-3 text-sm text-text-2"><summary className="cursor-pointer py-1 font-semibold">Check study evidence</summary><p className="mt-2">{practiceSummary.answered} completed · {practiceSummary.correct}/{practiceSummary.gradedAnswered} scored correct · {practiceSummary.answered-practiceSummary.gradedAnswered} without a score.</p><p className="mt-2">Lecture quizzes: {practiceSummary.lectureAnswered} · Homework / school banks: {practiceSummary.schoolAnswered} · Integrated exams: {practiceSummary.examAnswered} · Outside practice: {practiceSummary.manualAnswered}.</p><p className="mt-2">{result.objectives.untested} objectives still have no coverage record. Outside totals count toward practice, but do not establish objective knowledge. Retakes count; mirrored saves count once.</p></details>}
       {!loading && <p className="mt-3 text-xs text-text-2">Fresh timed evidence: {result.freshTimed.total ? `${pct(result.freshTimed.accuracy)} on ${result.freshTimed.total} questions · ${result.freshTimed.lectureCount} lectures` : 'No eligible first-exposure timed results yet'}. Separate from repeated practice; not a predicted exam score.</p>}
       {topTarget && !loading && <div className="mt-4 rounded-lg bg-panel p-3">
         <div className="today-eyebrow">Best next move</div>

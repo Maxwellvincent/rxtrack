@@ -1,0 +1,20 @@
+import React,{act} from 'react';
+import {createRoot} from 'react-dom/client';
+import {it,expect,vi} from 'vitest';
+import {installDomStorage} from '../../../stores/testEnv.js';
+vi.mock('../../hooks/useQuestionPractice.js',()=>({useQuestionPractice:()=>({studyAnswers:[{correct:true,ts:1,concept:'Motor pathway',questionKey:'one'}],sessions:[],manualEntries:[{completedAt:2,questionCount:60,correctCount:48},{completedAt:3,questionCount:10,correctCount:null}],historicalStudy:{},loading:false,error:false})}));
+vi.mock('../../hooks/useLectures.js',()=>({useLectures:()=>({data:[{id:'l',blockId:'nb2'}],loading:false})}));
+vi.mock('../../hooks/useObjectives.js',()=>({useObjectives:()=>({data:[],loading:false})}));
+vi.mock('../../hooks/useLectureQuestionStats.js',()=>({useLectureQuestionStats:()=>({data:{l:{answered:999,correct:999}},loading:false})}));
+vi.mock('../../hooks/useWeakConcepts.js',()=>({useWeakConcepts:()=>({data:[],loading:false})}));
+vi.mock('../../hooks/useStoreResource.js',()=>({useStoreResource:()=>({data:{},loading:false})}));
+vi.mock('../../../supabase.js',()=>({listExamSessions:vi.fn(async()=>[])}));
+import {BlockReadinessDashboard} from './BlockReadinessDashboard.jsx';
+globalThis.IS_REACT_ACT_ENVIRONMENT=true;
+it('shows unified scored and unscored outside practice behind an evidence disclosure',async()=>{
+ installDomStorage();const host=document.createElement('div');const root=createRoot(host);
+ await act(async()=>root.render(<BlockReadinessDashboard blockId="nb2" userId="u" compact/>));
+ const audit=[...host.querySelectorAll('details')].find(el=>el.querySelector('summary')?.textContent==='Check study evidence');
+ expect(audit.open).toBe(false);expect(audit.textContent).toContain('71 completed');expect(audit.textContent).toContain('49/61 scored correct');expect(audit.textContent).toContain('10 without a score');expect(audit.textContent).toContain('Outside practice: 70');expect(audit.textContent).not.toContain('999');
+ act(()=>root.unmount());
+});

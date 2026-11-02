@@ -1,3 +1,4 @@
+import {objectivePracticePlan} from "../../../engine/objectivePractice.js";
 import {buildWeakAreaMap} from '../exam/weakAreaMap.js';
 import {BPM_BLUEPRINTS,objectiveSubject,SUBJECT_LABELS} from '../exam/bpmBlueprint.js';
 /** A transparent prioritization heuristic, not a calibrated score predictor. */
@@ -5,6 +6,7 @@ export function examSprintPriorities({blockId,lectures=[],objectives=[],question
  const local=lectures.filter(l=>l.blockId===blockId&&!l.mergedInto&&!/^(SG|TBL|LAB)$/i.test(l.lectureType||''));
  const ids=new Set(local.map(l=>l.id));
  const targets=objectives.filter(o=>ids.has(o.linkedLecId)&&(!o.blockId||o.blockId===blockId));
+ const practice=new Map(objectivePracticePlan(targets,learnerEvidence).rows.map(row=>[row.id,row]));
  const weights=BPM_BLUEPRINTS[exam];
  const subjectTotals={};
  for(const o of targets){const subject=objectiveSubject(o);if(subject)subjectTotals[subject]=(subjectTotals[subject]||0)+1;}
@@ -29,5 +31,5 @@ export function examSprintPriorities({blockId,lectures=[],objectives=[],question
  if(chosen.length===2 && coverage && !chosen.some(row=>row.objectivesUntested/row.objectiveTotal>=0.4))chosen[1]=coverage;
  const budget=Math.max(10,Math.min(240,Number(availableMinutes)||60));
  const each=Math.floor(budget/Math.max(1,chosen.length));
- return chosen.map(row=>({...row,minutes:Math.min(45,each),questionCount:each>=30?15:each>=20?10:5,action:row.objectivesUntested/row.objectiveTotal>=0.4?'coverage':'repair',focusObjectiveIds:targets.filter(o=>o.linkedLecId===row.lectureId && (row.objectivesUntested/row.objectiveTotal>=0.4 ? (!o.status || o.status==='untested') : o.status==='struggling')).map(o=>o.id||o.code).filter(Boolean)}));
+ return chosen.map(row=>({...row,minutes:Math.min(45,each),questionCount:each>=30?15:each>=20?10:5,action:row.objectivesUntested/row.objectiveTotal>=0.4?'coverage':'repair',focusObjectiveIds:targets.filter(o=>o.linkedLecId===row.lectureId && (row.objectivesUntested/row.objectiveTotal>=0.4 ? !practice.get(o.id)?.worked : (practice.get(o.id)?.worked && (!practice.get(o.id)?.latestCorrect || practice.get(o.id)?.state==='struggling')))).map(o=>o.id||o.code).filter(Boolean)}));
 }
