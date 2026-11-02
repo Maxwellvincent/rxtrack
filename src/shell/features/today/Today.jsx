@@ -5,6 +5,7 @@ import { Button } from "../../../ui/Button.jsx";
 import { useToday } from "./useToday.js";
 import { ModelRetrievalCard } from "./ModelRetrievalCard.jsx";
 import { SchoolReviewCard } from "./SchoolReviewCard.jsx";
+import { BlockReadinessDashboard } from "./BlockReadinessDashboard.jsx";
 import { ExamSprintCard } from "./ExamSprintCard.jsx";
 import { DailyQuestionScore } from "./DailyQuestionScore.jsx";
 import { CompactQuestionProgress } from "./BlockPracticeCard.jsx";
@@ -1180,6 +1181,7 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
       </section>
 
       <ExamSprintCard key={blockId} context={context} userId={userId} daysLeft={daysLeft} onStudy={onStudy} onQuiz={onQuiz} busy={quizBusyLectureId} />
+      <details className="rounded-xl border border-border p-4"><summary className="cursor-pointer text-sm font-semibold">Readiness evidence</summary><BlockReadinessDashboard blockId={blockId} userId={userId} compact onStudyLecture={onStudy} /></details>
 
       {modePickerOpen && <div><DayModePicker mode={effectiveMode} onChange={handleDayMode} suggested={suggestedMode} />{dayMode && <button className="today-text-button mt-2" onClick={()=>handleDayMode(null)}>Use automatic day type</button>}</div>}
 
