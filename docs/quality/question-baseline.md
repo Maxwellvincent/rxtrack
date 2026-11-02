@@ -234,3 +234,27 @@ manual-label and withdrawn-evidence handling, published checkpoints, quality
 exclusions, shuffled choices and question-specific resolution. Signed-in account
 verification remains pending; these checks do not establish medical accuracy or
 future exam-score prediction.
+
+## Integrated-exam coverage and progression
+
+Integrated generation now builds one shared adaptive objective plan per lecture
+allocation, then spends only its remaining quotas across small batches. Saved
+eligible questions consume the same quotas; rejected candidates consume none.
+Later batches receive the accepted source-concept history instead of restarting
+concept selection. The existing relevance-based ESoft, IMCQ, homework and in-class
+reference selection remains unchanged.
+
+Both saved reuse and newly reviewed candidates must meet the current allocated
+reasoning floor. A verified, correct confidence-5 application answer can therefore
+raise the next target to third order where the objective permits it; an older
+second-order reserve cannot bypass that target. This changes new-set preparation,
+not saved-session continuation or historical grades. Prepared items do not become
+learner answer evidence.
+
+The integrated path also uses the existing lecture-preparation answer-concentration
+limit and history guidance. Repeating the same keyed concept cannot fill a large
+set merely by varying its stem. Insufficient eligible material remains a visible
+shortfall, without lowering review or depth requirements. Tests exercise nine
+objectives across three batches, cache quotas, progression, lower-order rejection,
+answer concentration and explicit foreign-lecture cache rejection. All transports
+in these new tests are mocked; no live model quality claim follows from them.

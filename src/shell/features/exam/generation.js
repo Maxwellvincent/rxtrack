@@ -1,7 +1,10 @@
+import { exceedsAnswerConcentration, repeatedSuccessfulAnswerGuidance, objectiveFacetHistoryGuidance } from "../../../engine/questionSimilarity.js";
+import { read as readLearnerEvidence } from "../../../stores/learnerEvidence.js";
+import { remainingObjectiveAllocation, fitsObjectiveAllocation } from "./objectiveAllocation.js";
 import { readSlot, questionSlot, objectiveSubject, bpmObjective } from "./bpmBlueprint.js";
 import { waitForConnection } from "./preparationRecovery.js";
 import { hasReusableQuestionReview } from "../../../engine/questionReuse.js";
-import { readClinicalAnalysesForBlock, readExemplarsForBlock, resolveDefaultDifficulty, startObjectiveQuiz } from "../objectives/quizLaunch.js";
+import { readClinicalAnalysesForBlock, readExemplarsForBlock, resolveDefaultDifficulty, startObjectiveQuiz, buildQuizConfig } from "../objectives/quizLaunch.js";
 import { isSemanticDuplicate, questionFingerprint, schoolStyleSimilarity, questionQualityIssues } from "./questionQuality.js";
 import { questionPoolKey, isValidPoolQuestion } from "../../../questionPool.js";
 import { withDeadline, boundedAIAdapter } from "../../../asyncDeadline.js";
@@ -61,6 +64,7 @@ export function buildObjectiveCoverage(questions = [], objectives = []) {
 export async function generateExamQuestions({ allocation, lecturesById, objectivesByLecture, atomsByLecture,
   blockId, lectures, weakConceptAccuracyByLecture, userId, generationId, focusNotes = "", difficultyOverride = null, preparedGenerationId = null, preparedQuestionIds = [] }, deps = {}) {
   const questions = [], errors = [], accepted = [];
+  const evidenceModel = deps.evidenceModel || readLearnerEvidence(userId);
   const baseExemplars = readExemplarsForBlock(userId, blockId);
   const baseClinicalAnalyses = readClinicalAnalysesForBlock(userId, blockId);
   const lectureIds = Object.keys(allocation || {}).filter(id => allocation[id] > 0);
@@ -112,6 +116,12 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
       ? difficultyOverride
       : resolveDefaultDifficulty(weakConceptAccuracyByLecture?.[lectureId]);
     const studyMode = objectives.some((objective) => objective.repairPriority > 0) ? "repair" : "balanced";
+    const adaptiveFocusNotes = [focusNotes, repeatedSuccessfulAnswerGuidance(history), objectiveFacetHistoryGuidance(history, objectives)].filter(Boolean).join("\n\n");
+    const { config: adaptiveConfig } = buildQuizConfig({ objectives, lectureTitle, lectureIdHint: lectureId,
+      blockId, lectures, lectureText, atoms, exemplars, difficulty, questionCount: requested, userId, studyMode, focusNotes:adaptiveFocusNotes, evidenceModel });
+    const objectivePlan = adaptiveConfig?.objectives || [];
+    const lectureQuestions = () => questions.filter(question => questionSlot(question) === allocationId);
+    const remainingPlan = limit => remainingObjectiveAllocation(objectivePlan, lectureQuestions(), limit);
     const bucket = deps.pool ? await questionPoolKey({ blockId, lectureId, difficulty, lecture, objectives, atoms, exemplars, studyMode, clinicalCorrelateLibrary }) : null;
     let obtained = 0, attempt = 0, errorMessage = null;
     const enforceQuality = deps.skipQuestionAudit !== true;
@@ -123,11 +133,12 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
         ? await deps.pool.readyForLectures([lectureId])
         : await deps.pool.ready(bucket);
       for (const q of savedQuestions) {
+        if (q.lectureId && q.lectureId !== lectureId) continue;
         if (obtained >= requested) break;
         const objectiveIds = resolveQuestionObjectiveIds(q, objectives);
         if (subject && !(q.objectiveIds || []).some(id=>objectives.some(o=>o.id===id || o.code===id))) continue;
-        const cached = { ...q, objectiveIds, ...(subject ? { blueprintSlot: allocationId, blueprintSubject: subject, sourceBlockId } : {}) };
-        if (enforceQuality && (!hasReusableQuestionReview(cached) || alreadyUsed(q, [...history, ...accepted]) || questionQualityIssues(q, objectives).length || !questionMatchesObjectiveDomain(cached, { objectives, atoms }))) continue;
+        const cached = { ...q, lectureId, blockId, objectiveIds, ...(subject ? { blueprintSlot: allocationId, blueprintSubject: subject, sourceBlockId } : {}) };
+        if (enforceQuality && (exceedsAnswerConcentration(cached, lectureQuestions(), requested) || (objectivePlan.length && !fitsObjectiveAllocation(cached, remainingPlan())) || !hasReusableQuestionReview(cached) || alreadyUsed(q, [...history, ...accepted]) || questionQualityIssues(q, objectives).length || !questionMatchesObjectiveDomain(cached, { objectives, atoms }))) continue;
         accepted.push(cached); questions.push(cached); obtained++; cacheHits++;
         await deps.onQuestionReady?.(cached);
       }
@@ -145,8 +156,11 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
         const deadline=Date.now()+requestTimeout;
         result = await withDeadline(signal => {
           const boundedAdapter=adapter=>boundedAIAdapter(adapter,{signal,deadline,bridgeTimeoutMs:LOCAL_BRIDGE_TIMEOUT_MS,label:"Exam question preparation",onRequest:args=>progress(`${/independent|audit|solve/i.test(String(args[0])) ? "Reviewing accuracy" : "Writing questions"}: ${lectureTitle}`,lectureId)});
+          const batchAllocation = remainingPlan(Math.min(3, requested - obtained));
           return startObjectiveQuiz({objectives,lectureTitle,lectureIdHint:lectureId,blockId,lectures,exemplars,atoms,
-            lectureText,studyMode,focusNotes,difficulty,userId,clinicalCorrelateLibrary,
+            lectureText,studyMode,focusNotes:adaptiveFocusNotes,difficulty,userId,clinicalCorrelateLibrary,
+            generationVersion:"v2", evidenceModel, objectiveAllocation:batchAllocation.length ? batchAllocation : null,
+            conceptCoverageQuestions:lectureQuestions(),
             avoidStems:[...history,...accepted].map(q=>q.stem).filter(Boolean).slice(-100),questionCount:Math.min(3,requested-obtained)}, {
             ...deps,maxTokens:Math.min(8000,Math.max(2000,Math.min(3,requested-obtained)*1100)),
             callAIJSON:boundedAdapter(deps.callAIJSON),reviewAIJSON:boundedAdapter(deps.reviewAIJSON),repairAIJSON:boundedAdapter(deps.repairAIJSON),
@@ -163,8 +177,12 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
         const objectiveIds = resolveQuestionObjectiveIds(q, objectives);
         if (subject && (!objectiveIds.length || (q.objectiveIds?.length && !q.objectiveIds.some(id=>objectives.some(o=>o.id===id || o.code===id))))) continue;
         const reviewedCandidate = { ...q, objectiveIds };
-        if (enforceQuality && !hasReusableQuestionReview(reviewedCandidate)) {
-          errorMessage = "Generated questions did not satisfy the current independent-review requirements. No unreviewed questions were counted.";
+        if (enforceQuality && (objectivePlan.length && !fitsObjectiveAllocation(reviewedCandidate, remainingPlan()) || !hasReusableQuestionReview(reviewedCandidate))) {
+          errorMessage = "Generated questions did not satisfy the current review, objective allocation or reasoning-level requirements. Only eligible questions were counted.";
+          continue;
+        }
+        if (enforceQuality && exceedsAnswerConcentration(reviewedCandidate, lectureQuestions(), requested)) {
+          errorMessage = "Repeated answer concepts exceeded the set's variety limit. Only distinct eligible work was counted.";
           continue;
         }
         const qualityIssues = questionQualityIssues(q, objectives);

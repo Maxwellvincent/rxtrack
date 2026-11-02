@@ -3,7 +3,7 @@ import { REASONING_REVIEW_POLICY } from "../../../engine/questionOrder.js";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { generateExamQuestions, alreadyUsed } from "./generation.js";
 const generate = vi.hoisted(() => vi.fn());
-vi.mock("../objectives/quizLaunch.js", () => ({ startObjectiveQuiz: (...a) => generate(...a), readClinicalAnalysesForBlock: () => [], readExemplarsForBlock: () => [], resolveDefaultDifficulty: () => "medium" }));
+vi.mock("../objectives/quizLaunch.js", async importOriginal => ({ ...await importOriginal(), startObjectiveQuiz: (...a) => generate(...a), readClinicalAnalysesForBlock: () => [], readExemplarsForBlock: () => [], resolveDefaultDifficulty: () => "medium" }));
 const q = stem => ({ generationVersion: "v2", orderLevel: "second-order", qualityAudit: { blindSolve: {status:"matched",answer:"A",sourceQuotes:["Source-supported local response relationship."]}, discrimination: { closestAlternative: "B", stemClue: stem, whyAlternativeFails: "The alternative contradicts the supplied finding.", keyUniquelySupported: true, alternativeAlsoCorrect: false }, status: "approved", reviewPolicy: QUESTION_REUSE_REVIEW_POLICY, reviewedAt: "2026-10-31T12:00:00Z" }, reasoningAudit: { status: "verified", version: 2, reviewPolicy: REASONING_REVIEW_POLICY, orderLevel: "second-order", connectedChain: true, singleEndpoint: true, choiceShortcut: false }, stem, choices: { A: "yes", B: "no" }, correct: "A" });
 const args = { allocation: { l1: 1, l2: 1, l3: 1 }, lecturesById: Object.fromEntries(["l1", "l2", "l3"].map(id => [id, { id, fullText: "Supplied lecture factual evidence. ".repeat(20) }])), objectivesByLecture: {}, atomsByLecture: {}, blockId: "b", lectures: [], userId: null, generationId: "g" };
 const pool = () => ({ history: vi.fn(async () => []), ready: vi.fn(async () => []), save: vi.fn(async question => ({ ...question, poolId: question.questionId })) });
@@ -148,4 +148,63 @@ it('gives later review calls only the remaining preparation budget',async()=>{
  await vi.advanceTimersByTimeAsync(101);await pending;
  expect(options[0].timeoutMs).toBe(100);expect(options[1].timeoutMs).toBe(40);
  expect(options[1].bridgeTimeoutMs).toBe(40);
+});
+
+const ownedQuestion = (stem, id, order = 'second-order') => {
+ const question = q(stem);
+ return {...question,choices:{A:`Answer ${id}`,B:"Alternative"},objectiveIds:[id],orderLevel:order,
+  qualityAudit:{...question.qualityAudit,semanticObjectiveAlignment:true,objectiveId:id},
+  reasoningAudit:{...question.reasoningAudit,orderLevel:order}};
+};
+it('keeps whole-set coverage across three small generation batches',async()=>{
+ const objectives=Array.from({length:9},(_,i)=>({id:`o${i}`,objective:`Explain relationship number ${i}`}));
+ generate.mockImplementation(async config=>({questions:config.objectiveAllocation.flatMap(target=>Array.from({length:target._targetQuestionCount},(_,i)=>({...ownedQuestion(`UniqueRoute${target.id} ExclusiveScenario${target.id} Variant${i}`,target.id),sourceConceptKeys:[`concept-${target.id}`]})))}));
+ const result=await generateExamQuestions({...args,allocation:{l1:9},objectivesByLecture:{l1:objectives}});
+ expect(result.questions).toHaveLength(9);
+ expect(new Set(result.questions.flatMap(question=>question.objectiveIds)).size).toBe(9);
+ expect(generate).toHaveBeenCalledTimes(3);
+ expect(generate.mock.calls.map(([config])=>config.objectiveAllocation.map(target=>target.id))).toEqual([['o0','o1','o2'],['o3','o4','o5'],['o6','o7','o8']]);
+ expect(generate.mock.calls[1][0].conceptCoverageQuestions).toHaveLength(3);
+ expect(generate.mock.calls[2][0].conceptCoverageQuestions).toHaveLength(6);
+});
+it('does not fill the whole set from cached questions for an already-filled objective',async()=>{
+ const storage=pool();
+ storage.ready.mockResolvedValue([ownedQuestion('Stored first relationship','o0'),ownedQuestion('Another stored first relationship','o0')]);
+ generate.mockResolvedValue({questions:[ownedQuestion('Fresh second relationship','o1')]});
+ const result=await generateExamQuestions({...args,allocation:{l1:2},objectivesByLecture:{l1:[{id:'o0',objective:'Explain relationship zero'},{id:'o1',objective:'Explain relationship one'}]}},{pool:storage});
+ expect(result.cacheHits).toBe(1);
+ expect(result.questions.flatMap(question=>question.objectiveIds)).toEqual(['o0','o1']);
+ expect(generate.mock.calls[0][0].objectiveAllocation.map(target=>target.id)).toEqual(['o1']);
+});
+it('requires the confidence-earned third-order target for new and saved exam questions',async()=>{
+ const storage=pool();storage.ready.mockResolvedValue([ownedQuestion('Stored lower-order question','o')]);
+ const evidenceModel={objectives:{o:{attempts:1,correct:1,recent:[true],lastFreshAnswer:{correct:true,confidence:5,reasoningVerified:true,orderLevel:'second-order'}}}};
+ generate.mockImplementation(async config=>({questions:[ownedQuestion('Fresh harder question','o',config.objectiveAllocation[0]._targetOrder)]}));
+ const result=await generateExamQuestions({...args,allocation:{l1:1},objectivesByLecture:{l1:[{id:'o',objective:'Predict downstream consequences of altering a regulatory pathway'}]}},{pool:storage,evidenceModel});
+ expect(result.cacheHits).toBe(0);
+ expect(generate.mock.calls[0][0].objectiveAllocation[0]._targetOrder).toBe('third-order');
+ expect(result.questions[0].orderLevel).toBe('third-order');
+});
+it('does not accept a lower-order generated substitute for the current target',async()=>{
+ const storage=pool();
+ const evidenceModel={objectives:{o:{attempts:1,correct:1,recent:[true],lastFreshAnswer:{correct:true,confidence:5,reasoningVerified:true,orderLevel:'second-order'}}}};
+ generate.mockResolvedValue({questions:[ownedQuestion('Lower-order substitute','o')]});
+ const result=await generateExamQuestions({...args,allocation:{l1:1},objectivesByLecture:{l1:[{id:'o',objective:'Predict downstream consequences of altering a regulatory pathway'}]}},{pool:storage,evidenceModel});
+ expect(result.questions).toEqual([]);expect(storage.save).not.toHaveBeenCalled();
+ expect(result.errors[0].message).toContain('reasoning-level requirements');
+});
+it.each([false,true])('limits repeated answer concepts in generated and saved sets (saved-only %s)',async savedOnly=>{
+ const storage=pool();let serial=0;
+ const candidates=()=>Array.from({length:5},()=>ownedQuestion(`UniqueScenario${serial++}`,'o'));
+ if(savedOnly)storage.ready.mockResolvedValue(candidates());
+ else generate.mockImplementation(async()=>({questions:candidates()}));
+ const result=await generateExamQuestions({...args,allocation:{l1:5},objectivesByLecture:{l1:[{id:'o',objective:'Explain a relationship'}]}},{pool:storage,savedOnly});
+ expect(result.questions).toHaveLength(2);
+ expect(result.errors).toHaveLength(1);
+ if(savedOnly)expect(generate).not.toHaveBeenCalled();
+});
+it('does not reuse a reserve explicitly assigned to another lecture',async()=>{
+ const storage=pool();storage.ready.mockResolvedValue([{...ownedQuestion('Wrong lecture reserve','o'),lectureId:'l2'}]);
+ const result=await generateExamQuestions({...args,allocation:{l1:1},objectivesByLecture:{l1:[{id:'o',objective:'Explain a relationship'}]}},{pool:storage,savedOnly:true});
+ expect(result.questions).toEqual([]);expect(result.cacheHits).toBe(0);
 });
