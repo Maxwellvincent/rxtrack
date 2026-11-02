@@ -1,3 +1,4 @@
+import { protectSessionScoring } from "../../../engine/questionScoringPolicy.js";
 /**
  * Integrated Exam finalization: pure logic, no I/O.
  *
@@ -98,11 +99,12 @@ export function computeWeakConceptEntry({
 
   const consecutiveCleanSessions = computeCleanSessionStreak(sortedSessions, lectureId);
   const objectiveIds = [...new Set(
-    sortedSessions.flatMap((session) =>
-      (session?.questions || [])
-        .filter((q) => q.lectureId === lectureId)
-        .flatMap((q) => q.objectiveIds || [])
-    )
+    sortedSessions.flatMap((session) => {
+      const answered = new Set((session.answers || []).filter(answer => answer.value != null).map(answer => answer.questionId));
+      return (session?.questions || [])
+        .filter((q) => q.lectureId === lectureId && answered.has(q.questionId))
+        .flatMap((q) => q.objectiveIds || []);
+    })
   )];
 
   let masteryLevel = null;
@@ -137,4 +139,9 @@ export function computeWeakConceptEntry({
     dateFirstSeen: existingEntry?.dateFirstSeen ?? now,
     tags: ["integrated-exam"],
   };
+}
+
+/** Apply the same score exclusions to every session before rebuilding a report. */
+export function protectedWeakConceptHistory(sessions, ratings = {}, applyFigure = question => question) {
+ return (sessions || []).map(session => protectSessionScoring({...session,questions:(session.questions || []).map(applyFigure)},ratings));
 }

@@ -239,3 +239,24 @@ describe("computeWeakConceptEntry", () => {
     expect(entry.dateFirstSeen).toBe(12345);
   });
 });
+
+describe('quality-protected historical reports',()=>{
+ it('excludes historical conflicting keys without changing stored answers',async()=>{
+  const {protectedWeakConceptHistory}=await import('./finalizeLogic.js');
+  const original={submittedAt:1,questions:[{questionId:'bad',lectureId:'l',correct:null,sourceKeyReviewStatus:'key-text-conflict',objectiveIds:['bad-objective']}],answers:[{questionId:'bad',value:'B'}]};
+  const protectedHistory=protectedWeakConceptHistory([original]);
+  expect(protectedHistory[0].answers).toEqual([]);expect(original.answers).toHaveLength(1);
+  expect(computeWeakConceptEntry({sessions:protectedHistory,lectureId:'l',blockId:'b'})).toBeNull();
+ });
+ it('does not attach unanswered objectives to a weak lecture report',()=>{
+  const questions=[...Array.from({length:3},(_,i)=>({questionId:`q${i}`,lectureId:'l',correct:'A',objectiveIds:['tested']})),{questionId:'unanswered',lectureId:'l',correct:'A',objectiveIds:['never-tested']}];
+  const entry=computeWeakConceptEntry({sessions:[{questions,answers:[0,1,2].map(i=>({questionId:`q${i}`,value:'B'}))}],lectureId:'l',blockId:'b'});
+  expect(entry.masteryLevel).toBe('struggling');expect(entry.objectiveIds).toEqual(['tested']);
+ });
+ it('uses persisted figure recovery before deciding historical eligibility',async()=>{
+  const {protectedWeakConceptHistory}=await import('./finalizeLogic.js');
+  const session={questions:[{questionId:'q',lectureId:'l',correct:'A',hasImage:true}],answers:[{questionId:'q',value:'A'}]};
+  expect(protectedWeakConceptHistory([session])[0].answers).toEqual([]);
+  expect(protectedWeakConceptHistory([session],{},q=>({...q,sourceImageUrl:'saved-figure'}))[0].answers).toHaveLength(1);
+ });
+});

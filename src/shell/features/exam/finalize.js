@@ -25,8 +25,8 @@ import { recordAnswerAwait } from "../../../stores/lectureQuestionStats.js";
 import { read as readWeakConcepts, writeAwait as writeWeakConceptsAwait } from "../../../stores/weakConcepts.js";
 import { mergeExamReportConcepts } from "../../logic/examReportWeakConcepts.js";
 import { withRecordedStats } from "../../../examSessions.js";
-import { pendingStatsQuestionIds, computeWeakConceptEntry } from "./finalizeLogic.js";
-import { recordEvidenceAwait } from "../../../stores/learnerEvidence.js";
+import { pendingStatsQuestionIds, computeWeakConceptEntry, protectedWeakConceptHistory } from "./finalizeLogic.js";
+import { recordEvidenceAwait, recordEvidenceBatchAwait } from "../../../stores/learnerEvidence.js";
 import { releaseUnansweredQuestions } from "../../../questionPool.js";
 
 export async function finalizeExamSession(
@@ -66,6 +66,14 @@ export async function finalizeExamSession(
   }
 
   const session = protectSessionScoring({ ...lockResult, questions: (lockResult.questions || []).map(q => questionFigures.apply(q, questionFigures.read(userId, q.sourceFile))) }, questionRatings.read(userId).ratings);
+
+  // A saved checkpoint can predate a source repair. Retract its exact learning
+  // events before completing the session; preserve the raw session answers.
+  const excludedEventIds = (session.scoringExcludedQuestionIds || []).map(id => `exam:${session.sessionId}:${id}`);
+  if (excludedEventIds.length) {
+    try { await recordEvidenceBatchAwait(userId, [], {removeEventIds:excludedEventIds}); }
+    catch (error) { return {ok:false,error:error?.message || String(error),resumable:true}; }
+  }
 
   // Step 2: resume-safe stats recording, in sequence.
   const pending = pendingStatsQuestionIds(session);
@@ -117,10 +125,10 @@ export async function finalizeExamSession(
   if (!latest.sideEffectsCompleted.weakConceptsRecorded) {
     const lectureIds = [...new Set(latest.questions.map((q) => q.lectureId).filter(Boolean))];
     const allSubmitted = await listExamSessions(userId, null, { status: "submitted" });
-    const sessionsForCalc = [
+    const sessionsForCalc = protectedWeakConceptHistory([
       ...allSubmitted.filter((s) => s.sessionId !== latest.sessionId),
-      protectSessionScoring(latest, questionRatings.read(userId).ratings),
-    ];
+      latest,
+    ], questionRatings.read(userId).ratings, q => questionFigures.apply(q, questionFigures.read(userId, q.sourceFile)));
 
     const store = (await readWeakConcepts(userId)) || {};
     const nextStore = { ...store };
@@ -143,6 +151,9 @@ export async function finalizeExamSession(
       });
       if (entry) {
         blockConcepts = mergeExamReportConcepts(blockConcepts, [entry]);
+      } else {
+        // Retire only this derived exam report; never delete manually logged concepts.
+        blockConcepts = blockConcepts.filter(concept => concept.id !== `exam:${sourceBlockId}:${lectureId}`);
       }
       nextStore[sourceBlockId] = blockConcepts;
     }
@@ -173,7 +184,7 @@ export async function finalizeExamSession(
     finalDoc = await updateExamSessionTransaction(userId, sessionId, (current) => {
       if (!current) return null;
       if (!current.sideEffectsCompleted.weakConceptsRecorded) return null;
-      return { ...current, status: "submitted" };
+      return { ...current, status: "submitted", finalizationQualityPolicy: "eligible-answered-history-v1" };
     });
   } catch (e) {
     return { ok: false, error: e?.message || String(e), resumable: true };
