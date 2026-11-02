@@ -8,7 +8,7 @@ it("shows measured accuracy without labeling it mastery and prioritizes weak obj
     { id: "new", text: "New objective", attempts: 0, correct: 0, targetOrder: "second-order" },
   ]} />);
   expect(html).toContain("25% correct, 1 of 4 questions");
-  expect(html).toContain("Not yet tested");
+  expect(html).toContain("Untested");
   expect(html.indexOf("Weak objective")).toBeLessThan(html.indexOf("Established objective"));
   expect(html).not.toContain("Mastered");
 });

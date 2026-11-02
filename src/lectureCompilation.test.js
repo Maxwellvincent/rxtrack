@@ -12,8 +12,12 @@ describe('lecture compilation imports', () => {
  expect(q[0].explanation).toBe('This is the source explanation.');
  expect(mergePdfQuestionCandidates([q])[1].id).toBe('nb02-q1');
  });
- it('rejects a mismatched repeated stem instead of assigning its key', () => {
- expect(()=>parseNumberedQuestionBankText(source.replace("Which embryonic structure induces the overlying tissue?\nA. Alpha\nB. Beta\nAnswer", "Which unrelated finding explains a completely different disease?\nA. Alpha\nB. Beta\nAnswer"))).toThrow('Source/key stem mismatch');
+ it('holds a mismatched repeated stem without assigning its key or losing originals', () => {
+ const questions = parseNumberedQuestionBankText(source.replace("Which embryonic structure induces the overlying tissue?\nA. Alpha\nB. Beta\nAnswer", "Which unrelated finding explains a completely different disease?\nA. Alpha\nB. Beta\nAnswer"));
+ expect(questions).toHaveLength(2);
+ expect(questions[0]).toMatchObject({correct:null,sourceKeyCandidate:'A',sourceKeyReviewStatus:'stem-mismatch'});
+ expect(questions[0].explanation).toBeNull();
+ expect(questions[1].correct).toBe('B');
  });
  it('rejects a lost question boundary instead of silently importing a partial section', () => {
  expect(()=>parseNumberedQuestionBankText(source.replace('1. Which embryonic structure', 'Which embryonic structure'))).toThrow('Source/key question count mismatch');

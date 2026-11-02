@@ -130,7 +130,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   // generation shortfall after retries) was computed and returned but never
   // read; surfaced here as a brief, dismissable warning once the user is in
   // the session, rather than silently dropped.
-  const [, setLaunchWarning] = useState(null);
+  const [launchWarning, setLaunchWarning] = useState(null);
   const [generationCoverage, setGenerationCoverage] = useState(null);
   const [selectedBlueprint, setSelectedBlueprint] = useState("");
 
@@ -701,6 +701,10 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
     return (
       <div className="mx-auto w-full max-w-6xl p-4 sm:p-5">
         {launchError && <p role="alert" className="mb-3 rounded border border-bad p-3 text-sm">{launchError}</p>}
+        {launchWarning && <div role="alert" className="mb-3 flex items-start justify-between gap-3 rounded border border-border bg-panel p-3 text-sm">
+          <p>{launchWarning}</p>
+          <button type="button" className="shrink-0 underline" aria-label="Dismiss preparation notice" onClick={() => setLaunchWarning(null)}>Dismiss</button>
+        </div>}
         <ExamSessionRunner
           retestBusy={launching}
           onTargetedRetest={({objectives: targets,count})=>handleLaunch({format:"practice",questionCount:count,durationMinutes:examDurationMinutes(count),examName:`Targeted retest · ${count} questions`,studyMode:"balanced",targetObjectiveIds:targets.map(o=>o.id),includeSeen:false,startWhilePreparing:true})}

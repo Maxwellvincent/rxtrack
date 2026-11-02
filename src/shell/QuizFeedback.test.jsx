@@ -84,7 +84,7 @@ describe("quiz feedback", () => {
     click(host, "Certain");
     click(host, "Knowledge gap");
     click(host, "Time pressure");
-    expect(recordReflection.mock.calls[1]).toEqual([null, "time-pressure", "knowledge-gap"]);
+    expect(recordReflection.mock.calls[1]).toEqual([null, "time-pressure", "knowledge-gap", "stem:A sample question?"]);
     expect([...host.querySelectorAll('[aria-pressed="true"]')].some((b) => b.textContent === "Time pressure")).toBe(true);
     click(host, "Time pressure");
     expect(recordReflection).toHaveBeenCalledTimes(2);

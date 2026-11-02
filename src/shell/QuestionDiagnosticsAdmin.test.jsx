@@ -8,7 +8,7 @@ vi.mock('../questionDiagnostics.js',()=>({readQuestionDiagnostics:()=>null}));
 vi.mock('./features/lectures/QuestionPreparationDetails.jsx',()=>({QuestionPreparationDetails:()=>null}));
 vi.mock('./ObjectiveIntegrityAdmin.jsx',()=>({ObjectiveIntegrityAdmin:()=>null}));
 vi.mock('./hooks/useStoreResource.js',()=>({useStoreResource:()=>({data:{},loading:state.loading,error:state.error})}));
-vi.mock('../engine/questionAuditBaseline.js',()=>({buildQuestionAuditBaseline:vi.fn(()=>({version:1})),downloadQuestionAuditBaseline:vi.fn()}));
+vi.mock('../engine/questionAuditBaseline.js',async importOriginal=>({...await importOriginal(),buildQuestionAuditBaseline:vi.fn(()=>({version:1})),downloadQuestionAuditBaseline:vi.fn()}));
 import {QuestionDiagnosticsAdmin} from './QuestionDiagnosticsAdmin.jsx';
 import {downloadQuestionAuditBaseline} from '../engine/questionAuditBaseline.js';
 globalThis.IS_REACT_ACT_ENVIRONMENT=true;

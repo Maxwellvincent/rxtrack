@@ -30,17 +30,21 @@ const createExamSessionMock = vi.fn();
 vi.mock("../../../supabase.js", () => ({
   createExamSession: (...args) => createExamSessionMock(...args),
   checkExamAccess: async () => {},
+  fetchLectureContent: vi.fn(async () => null),
   listExamSessions: async () => [],
 }));
 vi.mock("../../../questionPool.js", async importOriginal => ({
   ...await importOriginal(),
   questionPoolKey: async () => "test-bucket",
   createQuestionPool: userId => ({ begin: async () => {}, finish: async () => {},
-    summary: async () => ({ ready: 0, assigned: 0, total: 0 }),
+    summary: async () => ({ ready: 0, assigned: 0, total: 0 }), preparedSets: async () => [],
     history: async () => [], ready: async () => [], save: async q => ({ ...q, poolId: q.questionId }),
     commit: session => createExamSessionMock(userId, session),
   }),
 }));
+
+vi.mock("../../hooks/useQuestionPractice.js", () => ({useQuestionPractice: () => ({sessions: [], study: {}, manual: {}, loading: false, refresh: vi.fn()})}));
+vi.mock("./BpmBlueprintDashboard.jsx", () => ({BpmBlueprintDashboard: () => null}));
 
 vi.mock("./tutorPrefs.js", () => ({
   readTutorModeEnabled: () => false,
@@ -100,8 +104,8 @@ vi.mock("../../../stores/questionBankMeta.js", () => ({
 let testQuestionCount = 1;
 
 vi.mock("./ExamLaunchModal.jsx", () => ({
-  ExamLaunchModal: ({ onLaunch, launching }) => (
-    <div data-testid="launch-modal">
+  ExamLaunchModal: ({ onLaunch, launching, error }) => (
+    <div data-testid="launch-modal">{error && <p role="alert">{error}</p>}
       <button
         data-testid="fire-launch"
         disabled={launching}
@@ -152,20 +156,26 @@ function validClinicalQuestion(label = "insulin") {
   };
 }
 
+function reviewResponse(system, prompt) {
+  const questions = JSON.parse(String(prompt).split("\nQUESTIONS:\n")[1].split("\n")[0]);
+  return { reviews: questions.map((q, index) => {
+    const key = Object.keys(q.choices).find(letter => q.choices[letter] === "Loss of endogenous insulin secretion");
+    const reasoning = { orderLevel: "second-order", steps: ["Interpret low C-peptide", "Infer reduced endogenous insulin secretion"], sourceQuotes: ["Low C-peptide demonstrates reduced endogenous insulin secretion."], allStepsRequired: true, connectedChain: true, singleEndpoint: true, choiceShortcut: false };
+    if (String(system).startsWith("Solve from lecture evidence")) return {index, answer: key, unique: true, reasoning};
+    return {index, approved: true, objectiveAligned: true, issues: [], reasoning,
+      discrimination: {closestAlternative: Object.keys(q.choices).find(letter => q.choices[letter] === "Excess cortisol secretion"), stemClue: "low serum C-peptide concentration", whyAlternativeFails: "Cortisol excess does not explain the reduced endogenous insulin secretion.", keyUniquelySupported: true, alternativeAlsoCorrect: false}};
+  }) };
+}
+const isReview = (system, prompt) => String(system).startsWith("Solve from lecture evidence") || String(prompt).includes("Independently audit every generated question");
+
 beforeEach(() => {
   installDomStorage();
   testQuestionCount = 1;
   callAIJSONMock.mockReset();
   createExamSessionMock.mockReset();
   createExamSessionMock.mockResolvedValue({ ok: true });
-  callAIJSONMock.mockImplementation((_system, prompt) => {
-    if (String(prompt).includes("Independently audit every generated question")) {
-      return Promise.resolve({ reviews: [{ index: 0, approved: true, issues: [], reasoning: { orderLevel: "second-order", steps: ["Interpret low C-peptide", "Infer reduced endogenous insulin secretion"], sourceQuotes: ["Low C-peptide demonstrates reduced endogenous insulin secretion."], allStepsRequired: true, connectedChain: true, singleEndpoint: true, choiceShortcut: false } }] });
-    }
-    return Promise.resolve({
-      questions: [validClinicalQuestion()],
-    });
-  });
+  callAIJSONMock.mockImplementation((system, prompt) => Promise.resolve(isReview(system, prompt)
+    ? reviewResponse(system, prompt) : {questions: [validClinicalQuestion()]}));
 });
 
 describe("ExamContainer -> real AI transport wiring (final-review fix C1)", () => {
@@ -183,6 +193,7 @@ describe("ExamContainer -> real AI transport wiring (final-review fix C1)", () =
       host.querySelector('[data-testid="fire-launch"]').click();
     });
     await flush();
+    await vi.waitFor(() => expect(host.querySelector('[data-testid="session-runner"]')).toBeTruthy());
 
     // The real proof: the AI transport genuinely got called. Before the C1
     // fix, ExamContainer called launchExamSession(config) with no second
@@ -190,7 +201,8 @@ describe("ExamContainer -> real AI transport wiring (final-review fix C1)", () =
     // generateMcqs's `deps.callAIJSON` was undefined — this call would never
     // happen and every launch would fail with "Could not generate any
     // questions."
-    expect(callAIJSONMock).toHaveBeenCalledTimes(2); // generation + independent audit
+
+    expect(callAIJSONMock).toHaveBeenCalledTimes(3); // generation + independent audit + blind key check
     expect(createExamSessionMock).toHaveBeenCalledTimes(1);
 
     // And the launch actually succeeded end-to-end (transitioned to the
@@ -202,24 +214,20 @@ describe("ExamContainer -> real AI transport wiring (final-review fix C1)", () =
 
   it("final-review fix I4: a non-empty generationErrors from a real (partial-success) launch is surfaced, not silently dropped", async () => {
     // Ask for 2 questions but let the real (mocked-only-at-callAIJSON)
-    // pipeline produce just 1 per attempt, across all 3 retry attempts —
+    // pipeline produce just 1 per attempt, across the bounded retry attempts —
     // generation.js's own retry/shortfall logic (unit-tested separately)
     // genuinely reports `{lectureId, requested: 2, obtained: 1, message}`
     // here; this test is only about ExamContainer actually reading and
     // displaying it instead of dropping it on the floor.
     testQuestionCount = 2;
-    // Attempt 1 yields 1 survivor; attempts 2-3 (the retries) yield nothing
+    // Attempt 1 yields 1 survivor; retries yield nothing
     // further, so generation.js's own retry loop genuinely exhausts at 1 of
     // 2 requested instead of accumulating to a false non-shortfall.
     let generationCalls = 0;
-    callAIJSONMock.mockImplementation((_system, prompt) => {
-      if (String(prompt).includes("Independently audit every generated question")) {
-        return Promise.resolve({ reviews: [{ index: 0, approved: true, issues: [], reasoning: { orderLevel: "second-order", steps: ["Interpret low C-peptide", "Infer reduced endogenous insulin secretion"], sourceQuotes: ["Low C-peptide demonstrates reduced endogenous insulin secretion."], allStepsRequired: true, connectedChain: true, singleEndpoint: true, choiceShortcut: false } }] });
-      }
+    callAIJSONMock.mockImplementation((system, prompt) => {
+      if (isReview(system, prompt)) return Promise.resolve(reviewResponse(system, prompt));
       generationCalls += 1;
-      return Promise.resolve(generationCalls === 1
-        ? { questions: [validClinicalQuestion("single partial result")] }
-        : { questions: [] });
+      return Promise.resolve(generationCalls === 1 ? {questions: [validClinicalQuestion("single partial result")]} : {questions: []});
     });
 
     const { host, unmount } = render(
@@ -235,11 +243,34 @@ describe("ExamContainer -> real AI transport wiring (final-review fix C1)", () =
       host.querySelector('[data-testid="fire-launch"]').click();
     });
     await flush();
+    await vi.waitFor(() => expect(host.querySelector('[data-testid="session-runner"]')).toBeTruthy());
 
     expect(host.querySelector('[data-testid="session-runner"]')).toBeTruthy();
     expect(host.querySelector('[role="alert"]')).toBeTruthy();
     expect(host.textContent).toMatch(/1\/2 questions ready/);
+    act(() => host.querySelector('[aria-label="Dismiss preparation notice"]').click());
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+    expect(host.querySelector('[data-testid="session-runner"]')).toBeTruthy();
 
+    unmount();
+  });
+
+  it("does not create an attempt when the separate solve disagrees with the proposed key", async () => {
+    callAIJSONMock.mockImplementation((system, prompt) => {
+      if (!isReview(system, prompt)) return Promise.resolve({questions: [validClinicalQuestion()]});
+      const response = reviewResponse(system, prompt);
+      if (String(system).startsWith("Solve from lecture evidence")) {
+        const question = JSON.parse(String(prompt).split("\nQUESTIONS:\n")[1].split("\n")[0])[0];
+        response.reviews[0].answer = Object.keys(question.choices).find(letter => question.choices[letter] === "Excess cortisol secretion");
+      }
+      return Promise.resolve(response);
+    });
+    const {host, unmount} = render(<ExamContainer blockId="b1" userId="u1" onNavigateToLecture={vi.fn()} />);
+    act(() => [...host.querySelectorAll("button")].find(button => button.textContent.includes("Start Integrated Exam")).click());
+    await act(async () => host.querySelector('[data-testid="fire-launch"]').click());
+    await vi.waitFor(() => expect(host.querySelector('[role="alert"]')?.textContent).toContain("Could not generate any questions"));
+    expect(createExamSessionMock).not.toHaveBeenCalled();
+    expect(host.querySelector('[data-testid="session-runner"]')).toBeNull();
     unmount();
   });
 
@@ -259,6 +290,7 @@ describe("ExamContainer -> real AI transport wiring (final-review fix C1)", () =
       host.querySelector('[data-testid="fire-launch"]').click();
     });
     await flush();
+    await vi.waitFor(() => expect(host.querySelector('[data-testid="session-runner"]')).toBeTruthy());
 
     expect(host.querySelector('[data-testid="session-runner"]')).toBeTruthy();
     expect(host.querySelector('[role="alert"]')).toBeFalsy();

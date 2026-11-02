@@ -1039,7 +1039,7 @@ export function parseObjectiveDocSections(text) {
   // pdftotext preserve the original Excel columns as runs of whitespace.
   // Accept both: the official curriculum PDF should not require AI cleanup
   // simply because its table is an Excel export.
-  const headerRe = /^\|?[^\S\n]*((?:(?:Lecture|LEC|NB|DLA|TBL|Small group|Lab)\b[^|\n]*?|\d{1,3}))(?:[^\S\n]*\|[^\S\n]*|\s{2,})([^|\n]+?)[^|\n]*\|?[^\S\n]*$/gim;
+  const headerRe = /^\|?[^\S\n]*((?:(?:Lecture|LEC|NB|DLA|TBL|Small group|Lab)\b[^|\n]*?|\d{1,3}))(?:[^\S\n]*\|[^\S\n]*|\s{2,})([^|\n]+)\|?[^\S\n]*$/gim;
   for (const m of src.matchAll(headerRe)) {
     if (/^SOM\./i.test(m[1].trim())) continue;
     headers.push({

@@ -1,6 +1,8 @@
+import process from "node:process";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import {
   extractObjectivesFromStandaloneDoc,
+  parseObjectiveDocSections,
   chunkText,
   tryParseObjectivesJSON,
   deduplicateExtractedObjectives,
@@ -463,4 +465,11 @@ describe("extractObjectivesFromStandaloneDoc — matching a section to a lecture
     expect(objs.find((o) => o.code.endsWith("1008")).linkedLecId).toBe("dla1");
     expect(objs.find((o) => o.code.endsWith("1008")).activity).toBe("DLA");
   });
+});
+
+// Preserve the complete header: a one-character title can silently prevent attribution.
+it("preserves full titles in markdown and fixed-width objective headers", () => {
+  for (const header of ["| Lecture BCHM | Nutritional Aspects of Pregnancy |", "Lecture BCHM    Nutritional Aspects of Pregnancy"]) {
+    expect(parseObjectiveDocSections(`${header}\nSOM.MK.I.BCHM.1001 Explain nutrition.`)[0].title).toBe("Nutritional Aspects of Pregnancy");
+  }
 });
