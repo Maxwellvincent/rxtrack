@@ -35,3 +35,10 @@ it("does not let school calibration bypass an assigned depth floor or a differen
   expect(isReusableForObjective(question, { id: "o", _targetOrder: "third-order" })).toBe(false);
   expect(isReusableForObjective(question, { id: "other" })).toBe(false);
 });
+
+it('requires re-review under the blind-first policy without deleting older evidence',()=>{
+ const old=current();old.qualityAudit.reviewPolicy='2026-11-01-blind-solve';
+ expect(hasReusableQuestionReview(old)).toBe(false);
+ expect(hasCurrentReasoningAudit(old)).toBe(true);
+ expect(old.qualityAudit.blindSolve.status).toBe('matched');
+});

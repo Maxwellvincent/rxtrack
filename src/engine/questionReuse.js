@@ -1,10 +1,12 @@
+import {QUESTION_REVIEW_POLICY,questionAdmissionIssues} from './questionContract.js';
 import { verifiedDiscrimination } from "./questionDiscrimination.js";
 import { hasCurrentReasoningAudit, normalizeQuestionOrder, REASONING_REVIEW_POLICY } from "./questionOrder.js";
 
-export const QUESTION_REUSE_REVIEW_POLICY = "2026-11-01-blind-solve";
+export const QUESTION_REUSE_REVIEW_POLICY = QUESTION_REVIEW_POLICY;
 
 /** Eligibility for a NEW generated set, never a rewrite of historical evidence. */
 export function hasReusableQuestionReview(question = {}) {
+  if(questionAdmissionIssues(question).length)return false;
   const quality = question.qualityAudit;
   if (question.generationVersion !== "v2" || question.generationMode === "grounded-fallback") return false;
   if (!hasCurrentReasoningAudit(question) || question.reasoningAudit.reviewPolicy !== REASONING_REVIEW_POLICY) return false;

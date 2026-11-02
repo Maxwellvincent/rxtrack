@@ -719,12 +719,12 @@ describe("per-choice explanations (whyWrong)", () => {
 });
 
 describe("five options", () => {
-  it("both generation prompts ask for exactly 5 options A-E", () => {
+  it("both generation prompts prefer five complete options without an assigned example", () => {
     for (const p of [
       buildMcqPrompt({ subject: "Endocrine", lectureText: "Insulin is anabolic." }),
       buildAtomQuestionsPrompt({ atoms: [{ type: "definition", term: "Insulin", content: "Anabolic." }] }),
     ]) {
-      expect(p).toMatch(/5 options A-E/);
+      expect(p).toContain("Without an assigned example, prefer five choices");
       expect(p).toContain('"E":"..."');
       expect(p).not.toMatch(/4 options A-D/);
     }
@@ -735,8 +735,8 @@ describe("five options", () => {
       buildMcqPrompt({ subject: "Endocrine", lectureText: "Insulin is anabolic." }),
       buildAtomQuestionsPrompt({ atoms: [{ type: "definition", term: "Insulin", content: "Anabolic." }] }),
     ]) {
-      expect(p).toMatch(/match the option count/i);
-      expect(p).toMatch(/otherwise.*5 options A-E/i);
+      expect(p).toContain("Follow the assigned school example");
+      expect(p).toContain("including F and beyond");
     }
   });
 
@@ -1196,6 +1196,8 @@ it('requires a separate source-grounded solve without leaking or silently changi
  });
  const accepted=await auditGeneratedQuestions([question],cfg,{skipRepair:true,reviewAIJSON:reviewer});
  expect(accepted.questions).toHaveLength(1);expect(accepted.questions[0].qualityAudit.blindSolve.status).toBe('matched');
+ expect(reviewer.mock.calls[0][1]).toMatch(/^Independently solve/);
+ expect(reviewer.mock.calls[1][1]).not.toMatch(/^Independently solve/);
  expect(reviewer).toHaveBeenCalledTimes(2);
  answer='B';
  const withheld=await auditGeneratedQuestions([question],cfg,{skipRepair:true,reviewAIJSON:reviewer});

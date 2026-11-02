@@ -1,3 +1,4 @@
+import {GENERATED_QUESTION_CONTRACT,QUESTION_CHOICE_CONTRACT,QUESTION_CONTRACT_VERSION,questionAdmissionIssues} from './questionContract.js';
 import * as sourceUseStore from "../stores/sourceUse.js";
 import { allowedGenerationExamples } from "./sourceUse.js";
 import { buildBlindSolvePrompt, blindSolveIssue } from "./blindQuestionSolve.js";
@@ -75,11 +76,11 @@ function ensureClinicalCorrelateAttribution(questions = [], library = []) {
   });
 }
 
-const LETTERS = ["A", "B", "C", "D", "E", "F", "G", "H"];
+const LETTERS = Array.from({length:26},(_,index)=>String.fromCharCode(65+index));
 
 const SCHOOL_DERIVATIVE_CONTRACT = `SCHOOL-ANCHORED VARIANTS: Relevant uploaded Homework, ExamSoft and IMCQ questions are the primary templates for wording, clue density, tested relationships, lead-ins and distractor contrasts. Build a fresh derivative of a matching concept: retain familiar clinical/anatomic terms and a comparable inferential burden, while changing meaningful findings or the requested endpoint. Reuse the original sentence scaffolding, familiar terminology, lead-in and option format when they fit; do not force novel wording. Change a meaningful tested relationship, finding or endpoint so an adaptation is fresh practice, not a demographic-only rewrite. An unchanged original belongs in original-bank practice, not fresh generated-question credit. For a weak objective, reinforce the confused relationship with a clear near-transfer case before harder integration; explain the decisive clue and why the closest competing answer fails. Keep objectives as scope and lecture excerpts as factual authority. Unrelated examples teach general style only and must not add content or extra diagnostic steps. School alignment takes priority over making an item appear advanced.\n`;
 
-const CONNECTED_REASONING_CONTRACT = SCHOOL_DERIVATIVE_CONTRACT + `CONNECTED REASONING CONTRACT: Ask for one focused endpoint. Second-order requires discriminating findings -> inferred process -> requested mechanism/structure. Third-order requires findings -> inferred process -> mechanism -> a new downstream prediction. These are causal dependencies, not a count of recalled facts. Reject two unrelated recall tasks joined together (for example, an ICP cutoff plus a measurement-method ranking). Do not manufacture order with bundled mechanism/tracer/ventricle combinations that let one recalled fact reveal the key. All options should answer the same focused lead-in at comparable specificity. Mentally hide the options: the vignette and lead-in must support an answer. Then test the shortest route with the options visible: if one label or giveaway eliminates every distractor, downgrade or rewrite. Preserve legitimate school table formats when supported, but never count extra columns as extra reasoning. Relevant clinical, experimental, imaging, or laboratory clues must change the inference; a long patient story is not required.\n` + QUESTION_CLARITY_CONTRACT + "\n" + STEP1_WRITING_CONTRACT + "\n" + SCHOOL_DIFFICULTY_CONTRACT + "\n";
+const CONNECTED_REASONING_CONTRACT = GENERATED_QUESTION_CONTRACT + "\n" + SCHOOL_DERIVATIVE_CONTRACT + `CONNECTED REASONING CONTRACT: Ask for one focused endpoint. Second-order requires discriminating findings -> inferred process -> requested mechanism/structure. Third-order requires findings -> inferred process -> mechanism -> a new downstream prediction. These are causal dependencies, not a count of recalled facts. Reject two unrelated recall tasks joined together (for example, an ICP cutoff plus a measurement-method ranking). Do not manufacture order with bundled mechanism/tracer/ventricle combinations that let one recalled fact reveal the key. All options should answer the same focused lead-in at comparable specificity. Mentally hide the options: the vignette and lead-in must support an answer. Then test the shortest route with the options visible: if one label or giveaway eliminates every distractor, downgrade or rewrite. Preserve legitimate school table formats when supported, but never count extra columns as extra reasoning. Relevant clinical, experimental, imaging, or laboratory clues must change the inference; a long patient story is not required.\n` + QUESTION_CLARITY_CONTRACT + "\n" + STEP1_WRITING_CONTRACT + "\n" + SCHOOL_DIFFICULTY_CONTRACT + "\n";
 
 const MCQ_SYSTEM = "You are an SGU Basic Principles of Medicine exam-question writer. Use supplied SGU ExamSoft/IMCQ/homework wording and difficulty, with the supplied NBME/USMLE editorial principles for clear source-grounded clinical application. Return ONLY valid JSON — no markdown, no prose.";
 const MCQ_V2_SYSTEM = MCQ_SYSTEM;
@@ -134,7 +135,7 @@ export function styleProfilePrompt(profile, questionCount = null) {
     scaledOptionCounts = scaledOptionCounts.filter((row) => row.count > 0).map(({ options, count }) => ({ options, count }));
   }
   const optionRule = optionDistribution.length
-    ? `For this ${questionCount || "requested-size"}-item quiz, use this scaled verified ExamSoft option-count quota: ${JSON.stringify(scaledOptionCounts)}. Assign exactly these counts across the batch, shuffle their order, and label each item's complete choices consecutively from A (e.g. 6 choices = A-F). Do not default every item to five choices.`
+    ? `For this ${questionCount || "requested-size"}-item quiz, use this scaled verified ExamSoft option-count quota: ${JSON.stringify(scaledOptionCounts)}. Treat these counts as descriptive guidance, not an exact admission quota. Match the assigned example when supported by strong alternatives; label complete choices consecutively from A (e.g. 6 choices = A-F). Do not default every item to five choices.`
     : `Use the option counts present in the supplied school exemplars; otherwise use five choices.`;
   const shapeRule = official.sampleSize >= 5
     ? `Match the source bank's aggregate stem length and sentence-count profile (not one convenient exemplar): target about ${official.medianStemWords || official.averageStemWords || "the observed"} words and ${official.medianSentences || official.averageSentences || "the observed"} sentences, with natural variation inside the observed range. Match its clinical-case, laboratory/data, image/table, and task-ending proportions where the requested objectives and available assets support them.`
@@ -532,8 +533,8 @@ function hasChoiceValue(v) {
 
 export function normalizeChoiceLetter(value) {
   const text = String(value || "").trim().toUpperCase();
-  if (/^[A-H]$/.test(text)) return text;
-  return text.match(/(?:^|[^A-Z])([A-H])(?:[^A-Z]|$)/)?.[1] || null;
+  if (/^[A-Z]$/.test(text)) return text;
+  return text.match(/(?:^|[^A-Z])([A-Z])(?:[^A-Z]|$)/)?.[1] || null;
 }
 
 function normalizedChoiceEntries(choices) {
@@ -853,7 +854,7 @@ function buildAtomQuestionsPromptInternal({ atoms = [], objectives = [], difficu
     `Each question must test that specific fact (not adjacent trivia). Respect the hierarchy: anchor/core atoms establish the big picture; supporting atoms explain the mechanism; discriminator atoms supply the small exam-defining clue. For a discriminator, name its parent concept and test the distinction. For comparison atoms, explicitly contrast the parent entities using the supplied characteristic rather than asking an isolated definition. Use the supplied clinical correlate, cues, buzzwords, testable details, exceptions, quantitative details, or inheritance pattern when present so the learner practices recognizing the lecturer's exact discriminators. Preserve qualifiers such as only/except/first/rate-limiting, timing, thresholds, laterality, anatomic level, cell type, compartment, sequence, and direction of change; these small details are often the tested distinction. Every stem must be a realistic 3-5 sentence clinical vignette with age and sex, presenting concern, relevant history, and only the examination, laboratory, imaging, or pathology clues needed for the reasoning task. End with a single-best-answer question. ` +
     `Do not write direct-definition prompts such as "which concept matches," do not mention a lecture or learning objective, and do not repeat the answer term or its defining sentence in the stem. Never ask what an objective says, which item is named in the objective, or test the learner's ability to read objective wording; test the underlying medical fact or relationship instead. Use an ExamSoft + STEP 1 hybrid: clinical-application items should include a meaningful timeline plus the relevant exam, laboratory, imaging, or physiologic finding, usually 3–5 sentences; recognition/mechanism items may remain shorter and use 1–2 reasoning steps when the objective is genuinely narrow. ` +
     `Examples guide structure, not factual scope: use the supplied facts, write new cases, and honor the requested difficulty rather than copying an IMCQ's difficulty. ` +
-    `Match the option count and lettering of the real exam examples below, if given (real exams often run 4-6 options, A-F); otherwise exactly 5 options A-E.\n\n` +
+    `${QUESTION_CHOICE_CONTRACT}\n\n` +
     WHY_WRONG_RULE + `\n\n` +
     `DIFFICULTY: ${diff.toUpperCase()}\n${DIFF_LINE[diff] || DIFF_LINE.medium}\n\n` +
     `${studyMode === "repair" ? "FOCUSED REPAIR: cycle questions in this exact order: recognition, mechanism, clinical-application, fresh-retest. A fresh-retest must use a new clinical presentation and clue path. Return taskType for each item.\n\n" : ""}` +
@@ -986,7 +987,7 @@ export function buildQuestionAuditPrompt(questions, cfg = {}) {
     `RETRIEVED LECTURE EVIDENCE:\n${evidence || "No lecture text supplied; use only objectives and lecture facts."}\n\n` +
     `LECTURE-MATCHED CLINICAL CORRELATES (verify any claimed ID, clue, structure, mechanism, and discriminator against the lecture evidence):\n${clinicalCorrelates || "none"}\n\n` +
     `QUESTIONS:\n${JSON.stringify(questions.map(auditQuestionPayload))}\n\n` +
-    `Return exactly one review for every question index. When approved is false, also return a corrected replacement that fixes every issue while testing the same supplied objective. The replacement must be a complete question with 4-6 choices, one valid key, explanation, whyWrong for every option, objectiveIds, objectiveFacet, topic, taskType, and orderLevel. Do not return a replacement when the supplied evidence cannot support one.\n` +
+    `Return exactly one review for every question index. When approved is false, also return a corrected replacement that fixes every issue while testing the same supplied objective. The replacement must be a complete question preserving its complete supported choice count and layout, one valid key, explanation, whyWrong for every option, objectiveIds, objectiveFacet, topic, taskType, and orderLevel. Do not return a replacement when the supplied evidence cannot support one.\n` +
     `{"reviews":[{"index":0,"approved":true,"objectiveAligned":true,"objectiveAlignment":{"objectiveId":"assigned id","objectiveClause":"exact assigned objective clause","testedRelationship":"source-supported relationship"},"sourceRelationshipIds":[],"discrimination":{"closestAlternative":"non-key letter","stemClue":"exact final-stem quote","whyAlternativeFails":"lecture-supported distinction","keyUniquelySupported":true,"alternativeAlsoCorrect":false},"issues":[],"reasoning":{"orderLevel":"second-order","steps":["interpret a discriminating clue","apply the supplied relationship to choose the key"],"sourceQuotes":["exact supporting quote from lecture facts or text"],"allStepsRequired":true,"connectedChain":true,"singleEndpoint":true,"choiceShortcut":false},"replacement":null},{"index":1,"approved":false,"issues":["weak_explanation"],"replacement":{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"A","explanation":"...","whyWrong":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"objectiveIds":["exact objective id"],"objectiveFacet":"...","topic":"...","taskType":"mechanism","orderLevel":"second-order"}}]}\n` +
     `Use short issue codes from: incorrect_key, ambiguous_key, unsupported_fact, objective_mismatch, duplicate_choices, duplicate_question, answer_leak, weak_explanation, inconsistent_vignette, non_discriminating_clues, multiple_true_choices, repetitive_task_ending, school_style_mismatch, disconnected_recall_tasks, answer_choice_shortcut.`
   );
@@ -1184,6 +1185,17 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
   try {
     let raw;
     const reviewBatchSize = Math.min(5, Math.max(1, Math.floor(Number(deps.reviewBatchSize) || 1)));
+    const blindByIndex=new Map();
+    if(cfg.requireBlindKeyCheck){
+      const candidates=questions.map((question,index)=>({question,index})).filter(({question})=>structurallyUsableSet.has(question));
+      for(let offset=0;offset<candidates.length;offset+=reviewBatchSize){
+        const group=candidates.slice(offset,offset+reviewBatchSize);
+        try{
+          const solved=await reviewer("Solve from lecture evidence without the writer's proposed answer. Return JSON only.",buildBlindSolvePrompt(group.map(row=>row.question),cfg),{reviews:[]},1200*group.length);
+          for(const [local,row] of group.entries())blindByIndex.set(row.index,(solved?.reviews || []).find(r=>Number(r.index)===local));
+        }catch{for(const row of group)blindByIndex.set(row.index,null);}
+      }
+    }
     if (cfg.promptProfile === "compact" && reviewBatchSize > 1 && questions.length > 1) {
       // Explicit capability opt-in. Local models retain item-by-item auditing;
       // capable reviewers amortize startup while still returning every verdict.
@@ -1251,18 +1263,9 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
     }
     const reviews = Array.isArray(raw?.reviews) ? raw.reviews : [];
     const byIndex = new Map(reviews.map((review) => [Number(review?.index), review]));
-    const blindByIndex=new Map();
-    if(cfg.requireBlindKeyCheck){
-      const candidates=questions.map((question,index)=>({question,index,review:byIndex.get(index)})).filter(({question,review})=>review?.approved===true && !objectiveAlignmentIssue(review,question,cfg) && !discriminationIssue(review,question,cfg) && (!cfg.requireReasoningAudit || verifyReasoningReview(review,question,cfg)));
-      for(let offset=0;offset<candidates.length;offset+=reviewBatchSize){
-        const group=candidates.slice(offset,offset+reviewBatchSize);
-        try{
-          const solved=await reviewer("Solve from lecture evidence without the writer's proposed answer. Return JSON only.",buildBlindSolvePrompt(group.map(row=>row.question),cfg),{reviews:[]},1200*group.length);
-          for(const [local,row] of group.entries())blindByIndex.set(row.index,(solved?.reviews || []).find(r=>Number(r.index)===local));
-        }catch{for(const row of group)blindByIndex.set(row.index,null);}
-      }
-    }
     const rejections = questions.flatMap((question, index) => {
+      const structuralIssues=questionAdmissionIssues(question);
+      if(structuralIssues.length)return [{objectiveIds:question.objectiveIds || [],issues:structuralIssues,rationale:"Incomplete question structure cannot enter a new set."}];
       const review = byIndex.get(index);
       const alignmentIssue = objectiveAlignmentIssue(review, question, cfg);
       if (alignmentIssue) return [{ objectiveIds: question.objectiveIds || [], issues: [alignmentIssue], rationale: "The review did not establish that this question tests its assigned objective clause; do not award coverage for a neighboring topic." }];
@@ -1287,6 +1290,7 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
     if (!reviews.length) return keepLocallyValidated(raw.error || "malformed reviewer response");
     const nonBlockingReviewIssues = new Set(["repetitive_task_ending", "order_level_mismatch"]);
     const approved = questions.flatMap((question, index) => {
+      if(questionAdmissionIssues(question).length)return [];
       const review = byIndex.get(index);
       if (!review) {
         if (cfg.requireReasoningAudit) return [];
@@ -1323,6 +1327,7 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
         difficultyCalibration: cfg.reasoningPolicy === "school" ? "school" : "challenge",
         qualityAudit: {
           version: 1,
+          contractVersion:QUESTION_CONTRACT_VERSION,
           reviewedAt: new Date().toISOString(),
           relationshipIds:Array.isArray(review.sourceRelationshipIds)?review.sourceRelationshipIds.filter(id=>(cfg.relationshipTargets || []).some(row=>row.id===id)):[],
           ...(cfg.requireBlindKeyCheck && !blindSolveIssue(blindByIndex.get(index),question,cfg) ? { blindSolve: { status: "matched", answer: blindByIndex.get(index).answer, sourceQuotes: blindByIndex.get(index).reasoning.sourceQuotes.slice(0,3) } } : {}),
@@ -1499,7 +1504,7 @@ Objectives define the target; lecture facts/excerpts alone establish factual tru
 For second/third-order targets, a named agent/structure followed by its explicitly taught effect is a lookup shortcut, even inside a clinical vignette. If the lecture directly pairs N with effect B, do not ask "N causes which effect?". Instead describe a source-supported selective intervention or discriminating observation and ask a further supported prediction. Likewise, do not describe a defining morphology and simply ask its name. Keep competing alternatives at the same requested endpoint; do not hide an extra intermediate just to raise depth. Do not use broad lead-ins such as "which event is impaired?" when several downstream events are impaired; ask a precise measurable endpoint. Any control or unchanged parameter must be supplied by the hypothetical experimental setup or supported by the source, not assumed from biology.
 For application targets, choose the task family that fits the assigned objective and lecture evidence: clinical localization, lesion consequences, structure-function inference, imaging interpretation, mechanism discrimination or an experimental prediction. Do not default every objective to an experiment. Use the school examples to decide whether to name the structure or ask the learner to infer it; do not automatically add a hidden identification step. Do not introduce toxin names, receptor subtypes, second messengers, ion species or timings unless the source explicitly supports their role. Use generic transmitter or experimental labels when specific names are unnecessary.
 ${(cfg.objectives || []).some(objective => /cranial|foramin|foramen|skull|nerve/i.test(objective.objective || objective.text || "")) ? "Only for explicitly requested challenge anatomy application, combine two explicitly supported relationships: infer the unnamed structure/nerve from a function, sensory territory, deficit or anatomical observation, then infer its route, opening, location or consequence. Do not name the nerve/foramen and ask its directly paired fact. A Roman numeral or mnemonic lookup is recall even with a clinical wrapper; do not label it advanced. Both links must appear in the lecture evidence. If a target has only nomenclature evidence, report that specific source shortfall rather than inventing a lesion or function." : ""}
-Use a focused clinical, experimental, imaging, anatomy or laboratory scenario. Include only discriminating clues. Hide diagnosis when it must be inferred. Ask one mechanism, structure, pathway or downstream prediction. Choices must be plausible near-neighbors of the same category; one unambiguous best answer. No decorative story, answer leak, equivalent choices, unsupported disease/drug/finding, or image reference without a supplied image. Preserve tables when appropriate using choiceLayout and choiceColumns; otherwise use five choices A-E. Explanation must connect clues to the mechanism. whyWrong must explain why each distractor was tempting and the decisive contradiction; include the correct option's rationale too.
+Use a focused clinical, experimental, imaging, anatomy or laboratory scenario. Include only discriminating clues. Hide diagnosis when it must be inferred. Ask one mechanism, structure, pathway or downstream prediction. Choices must be plausible near-neighbors of the same category; one unambiguous best answer. No decorative story, answer leak, equivalent choices, unsupported disease/drug/finding, or image reference without a supplied image. Preserve tables when appropriate using choiceLayout and choiceColumns; ${QUESTION_CHOICE_CONTRACT} Explanation must connect clues to the mechanism. whyWrong must explain why each distractor was tempting and the decisive contradiction; include the correct option's rationale too.
 When the lecture supports physiology but no named clinical condition, use a lecture-grounded experiment: a perturbation/blocker, its relevant recording or observation, then a predicted consequence. Do not invent a vague patient symptom to decorate a definition. Never turn "a researcher studies X" into "which is the first step/feature of X" and label it second-order. Name the process if school examples do so; ask only the relationship needed at the school-calibrated level. For transmitter-release timing, trace the taught sequence precisely; events after a response cannot be its initiating cause.
 ${synthesisGuard}
 Before returning, check the explanation and EACH whyWrong against your source excerpts. Explain a distractor using the same supported relationship and the conflicting clue, not additional textbook facts about that distractor. A correct key is insufficient if the explanation imports unsupported enzyme lifetimes, recycling rules, receptor kinetics or assumed unchanged functions.
@@ -1615,7 +1620,7 @@ function buildFullMcqPrompt({ subject = "this lecture", lectureText = "", exampl
     `Aim to generate exactly ${count} NEW SGU Basic Principles of Medicine questions on "${subject}". If the supplied objective and lecture evidence support fewer than ${count}, return every complete supported question you can draft rather than an empty list; never invent details to hit the requested count. If none are supportable, return {"questions":[],"shortfall":["briefly state the missing source relationship"]}.\n\n` +
     `DIFFICULTY: ${diff.toUpperCase()}\n${DIFF_LINE[diff] || DIFF_LINE.medium}\n` +
     `Each stem: an ExamSoft-structured, STEP 1-style clinical, anatomic, imaging, procedure, or laboratory scenario whose details do real reasoning work, ending in one precise foundational-science question. For clinical-application or third-order items, target 4–6 sentences: age/context, timeline, discriminating symptoms or examination, and only the relevant laboratory, imaging, or physiologic data before the final ask. For narrow recognition/mechanism items, 2–4 sentences is acceptable. Do not pad stems with irrelevant comorbidities or force a disease absent from the supplied evidence; match the reference bank's clue density while preserving a realistic board-style vignette. The final sentence should ask for the mechanism, downstream consequence, structure, pathway, or best comparison—not simply repeat the diagnosis already made obvious by the stem.\n` +
-    `Match the option count and lettering of the exam-bank examples below, if given (real exams often run 4-6 options, A-F); otherwise exactly 5 options A-E, each a complete answer. When the references use laboratory/data tables, generate some items with a compact table-valued answer set: set choiceLayout to "table", set choiceColumns to ordered headers (for example ["Finding","Patient 1","Patient 2"]), and make each choice an object mapping every header to its row value. Preserve ↑/↓ (increased/decreased) arrows and units exactly; never flatten table rows into prose.\n` +
+    `${QUESTION_CHOICE_CONTRACT} When the references use laboratory/data tables, generate some items with a compact table-valued answer set: set choiceLayout to "table", set choiceColumns to ordered headers (for example ["Finding","Patient 1","Patient 2"]), and make each choice an object mapping every header to its row value. Preserve ↑/↓ (increased/decreased) arrows and units exactly; never flatten table rows into prose.\n` +
     WHY_WRONG_RULE +
     (studyMode === "repair" ? `\nFOCUSED REPAIR: prioritize the weakest objectives in their supplied order. Cycle item types: recognition, mechanism, clinical-application, fresh-retest, then repeat. Fresh-retest items must use a new clinical presentation and clue-to-answer route. Return taskType on every item.\n` : "") +
     examplesSection + homeworkEvidencePrompt(examples, { objectives, atoms }) + clickerEvidencePrompt(examples) +
@@ -1623,7 +1628,7 @@ function buildFullMcqPrompt({ subject = "this lecture", lectureText = "", exampl
     atomsSection + clinicalSection + feedbackSection +
     contentSection +
     `\n\nDRAFT QUALITY CHECK: rewrite any item with a repeated sentence, repeated answer choice, answer wording revealed in the stem, ambiguous best answer, physiology that is only partly true, an unsupported named diagnosis/syndrome/finding, or an explanation that does not name the mechanism and connect it to the objective. Match the typical stem length and clue density of the school examples. A separate independent reviewer will decide whether each completed item may be used.\n` +
-    `RULES: every question UNIQUE; vary format/demographics and final task family; base strictly on the lecture content; set objectiveIds to the exact ID/code of the ONE primary objective tested; distribute correct answers evenly across A/B/C/D/E — no single letter should be correct more than 30% of the time.\n` + depthSection + `\n` +
+    `RULES: every question UNIQUE; vary format/demographics and final task family; base strictly on the lecture content; set objectiveIds to the exact ID/code of the ONE primary objective tested; do not change the medical key to balance answer letters; presentation shuffling handles letter variety.\n` + depthSection + `\n` +
     `Return ONLY valid JSON:\n` +
     `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"B","explanation":"...",${WHY_WRONG_JSON},"choiceLayout":null,"choiceColumns":null,"topic":"<3-6 word specific medical concept tested, e.g. zona glomerulosa aldosterone control>","objectiveIds":["exact objective id"],"objectiveFacet":"specific clause tested","taskType":"recognition|mechanism|clinical-application|fresh-retest","reasoningDepth":"state-recognition|pathway-process|mechanism|enzyme-structure|regulation-cofactor|clinical-consequence","orderLevel":"first-order|second-order|third-order","reasoningSteps":["interpret clue","apply supplied relationship","integrate a second relationship only when needed"],"clinicalCorrelateId":null,"clinicalCorrelate":null,"clinicalCueUsed":null,"clinicalReasoningStage":null,"difficulty":"${diff}"}]}`
   );
