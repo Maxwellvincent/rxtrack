@@ -1,3 +1,5 @@
+import { buildLectureRepairContext } from "./lectureRepairContext.js";
+export { buildLectureRepairContext } from "./lectureRepairContext.js";
 import {subscribeExamSessionChanges} from "../../../examSessionChanges.js";
 import {reconcileLectureStats} from "./reconcileLectureStats.js";
 import { WeakAreaDashboard } from "./WeakAreaDashboard.jsx";
@@ -74,79 +76,6 @@ function computeLectureStats(sessions) {
     };
   }
   return stats;
-}
-
-/** Build a lecture-scoped repair handoff from the learner's own exam attempts. */
-export function buildLectureRepairContext(sessions = [], lectureId, objectives = [], learnerEvidence = {}, reportWeaknesses = []) {
-  const stats = new Map();
-  const misses = [];
-  for (const session of sessions || []) {
-    const answers = new Map((session?.answers || []).map((answer) => [answer.questionId, answer.value]));
-    for (const question of session?.questions || []) {
-      if (question?.lectureId !== lectureId) continue;
-      const value = answers.get(question.questionId);
-      if (value == null) continue;
-      const correct = value === question.correct;
-      for (const id of question.objectiveIds || []) {
-        const current = stats.get(id) || { attempts: 0, correct: 0, misses: 0 };
-        current.attempts += 1;
-        current.correct += correct ? 1 : 0;
-        current.misses += correct ? 0 : 1;
-        stats.set(id, current);
-      }
-      if (!correct) {
-        const choiceText = (choices, key) => choices?.[key] || key || "No answer";
-        misses.push({
-          key: `${session.sessionId || session.id || session.submittedAt}:${question.questionId}`,
-          title: session.title || (session.format === "exam" ? "Timed quiz" : "Practice quiz"),
-          submittedAt: Number(session.submittedAt) || 0,
-          stem: question.stem || question.prompt || "Question text unavailable",
-          selected: choiceText(question.choices, value),
-          correct: choiceText(question.choices, question.correct),
-          objectiveIds: question.objectiveIds || [],
-          explanation: question.explanation || "",
-          sourceFile: session.sourceFile || question.sourceFile || null,
-          sourceSection: question.sourceSectionTitle || question.sourceLectureClue || null,
-        });
-      }
-    }
-  }
-  const lectureObjectives = (objectives || []).filter((objective) =>
-    objective?.linkedLecId === lectureId || objective?.lectureId === lectureId || stats.has(objective?.id || objective?.code)
-  );
-  const ordered = lectureObjectives.map((objective) => {
-    const id = objective.id || objective.code;
-    const evidence = learnerEvidence.objectives?.[id];
-    const recent = evidence?.recent || [];
-    const performance = recent.length ? { attempts: recent.length, correct: recent.filter(Boolean).length, misses: recent.filter(value => !value).length }
-      : stats.get(id) || { attempts: 0, correct: 0, misses: 0 };
-    const explicitlyWeak = String(objective.status || "").toLowerCase() === "struggling" && !(recent.length >= 3 && performance.correct / performance.attempts >= 0.8);
-    return { objective, id, performance, explicitlyWeak };
-  }).sort((a, b) => Number(b.explicitlyWeak) - Number(a.explicitlyWeak)
-    || (a.performance.attempts ? a.performance.correct / a.performance.attempts : 1) - (b.performance.attempts ? b.performance.correct / b.performance.attempts : 1)
-    || b.performance.misses - a.performance.misses);
-  const weakObjectives = ordered.filter(({ explicitlyWeak, performance }) => explicitlyWeak || (performance.misses > 0 && performance.correct / performance.attempts < 0.6));
-  misses.sort((a, b) => b.submittedAt - a.submittedAt);
-  const uniqueMisses = [];
-  const seenStems = new Set();
-  for (const miss of misses) {
-    const normalized = String(miss.stem).toLowerCase().replace(/\W+/g, " ").trim();
-    if (seenStems.has(normalized)) continue;
-    seenStems.add(normalized);
-    uniqueMisses.push(miss);
-    if (uniqueMisses.length >= 5) break;
-  }
-  return {
-    reportTopics: reportWeaknesses.filter(entry => entry.tags?.includes("exam-report") && entry.linkedLecIds?.includes(lectureId)).map(entry => entry.concept),
-    focusObjectiveIds: weakObjectives.map(({ id }) => id).filter(Boolean),
-    weakObjectives: weakObjectives.map(({ objective, performance }) => ({
-      id: objective.id || objective.code,
-      label: objective.objective || objective.text || objective.title || objective.code || objective.id,
-      misses: performance.misses,
-      attempts: performance.attempts,
-    })),
-    missedQuestions: uniqueMisses,
-  };
 }
 
 /**

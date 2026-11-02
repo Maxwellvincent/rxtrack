@@ -212,3 +212,25 @@ figure-check status and allowlisted current review/template provenance. It remai
 a retrospective reference sample, not a held-out release test. Historical version-1
 packets keep their original populations and conclusions; do not imply they included
 in-class items or current review-policy evidence.
+
+## Results-to-lecture repair handoff
+
+Results repair now derives its targets from the shared objective-practice projection
+and 80 percent benchmark. Recent recovery takes precedence over older aggregate
+misses; a manual struggling label alone does not create answer evidence. The
+handoff reads only submitted answers or explicitly published checkpoints. Pending
+picks, invalid keys/options and quality-excluded questions do not become targets.
+
+The compact lecture view lists unresolved concepts, with up to five supporting
+questions behind a disclosure. The latest saved outcome for the same stem, option
+texts and keyed meaning clears an older miss even if option letters changed.
+Explicitly matching later lecture-quiz evidence can also clear that miss. Correct
+answers on a different question under the same objective do not erase it. Changing
+session metadata does not change answer chronology. This is a read-only projection;
+no historical score, source key, objective mapping or learner record is rewritten.
+
+Local regression coverage checks the 75/80 percent boundary, recent recovery,
+manual-label and withdrawn-evidence handling, published checkpoints, quality
+exclusions, shuffled choices and question-specific resolution. Signed-in account
+verification remains pending; these checks do not establish medical accuracy or
+future exam-score prediction.

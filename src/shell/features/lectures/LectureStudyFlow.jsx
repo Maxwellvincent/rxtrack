@@ -2019,12 +2019,13 @@ export function LectureStudyFlow({
         <section id="lecture-repair" aria-label="Exam repair context" className="mt-4 rounded-lg border border-bad/30 bg-bad/5 p-3">
           <h3 className="font-semibold text-text-1">Review, then retest your weak areas</h3>
           {!!examRepairContext.reportTopics?.length && <p className="mt-1 text-sm text-text-2">Uploaded report topics to review: {examRepairContext.reportTopics.join("; ")}. These are report signals, not scored objective attempts.</p>}
+          {!!examRepairContext.conceptsToReview?.length && <p className="mt-1 text-sm text-text-1"><strong>Concepts to revisit:</strong> {examRepairContext.conceptsToReview.join(" · ")}</p>}
           {examRepairContext.weakObjectives?.length > 0 && <>
-            <p className="mt-1 text-sm text-text-2">Weak objectives are moved to the front when you build a lecture quiz:</p>
+            <p className="mt-1 text-sm text-text-2">Objectives below your target or with a recent miss are prioritized in your lecture quiz:</p>
             <ul className="mt-1 list-inside list-disc text-sm text-text-1">{examRepairContext.weakObjectives.slice(0, 6).map((objective) => <li key={objective.id}>{objective.label}{objective.attempts ? ` · ${objective.misses}/${objective.attempts} missed` : " · flagged struggling"}</li>)}</ul>
           </>}
           {examRepairContext.missedQuestions?.length > 0 && <details className="mt-2">
-            <summary className="cursor-pointer text-sm font-semibold text-accent">Review {examRepairContext.missedQuestions.length} recent missed question{examRepairContext.missedQuestions.length === 1 ? "" : "s"}</summary>
+            <summary className="cursor-pointer text-sm font-semibold text-accent">Review {examRepairContext.missedQuestions.length} unresolved missed question{examRepairContext.missedQuestions.length === 1 ? "" : "s"}</summary>
             <div className="mt-2 space-y-2">{examRepairContext.missedQuestions.map((miss) => <article key={miss.key} className="rounded border border-border bg-panel p-2 text-sm">
               <p className="font-medium text-text-1">{miss.stem}</p>
               <p className="mt-1 text-text-2"><span className="text-bad">Your answer:</span> {miss.selected} · <span className="text-good">Keyed answer:</span> {miss.correct}</p>

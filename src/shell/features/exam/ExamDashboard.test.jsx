@@ -31,7 +31,8 @@ vi.mock("../../../stores/weakConcepts.js", () => ({
   subscribe: () => () => {},
 }));
 
-vi.mock("../../../stores/learnerEvidence.js", () => ({
+vi.mock("../../../stores/learnerEvidence.js", async importOriginal => ({
+  ...await importOriginal(),
   isHydrated:()=>true,readError:()=>null,
   read: (...args) => readLearnerEvidenceMock(...args),
   subscribe: () => () => {},
@@ -48,7 +49,7 @@ const { ExamDashboard, computeObjectiveReadiness, computePacingMetrics, buildLec
 describe("buildLectureRepairContext", () => {
   it("collects missed items and orders struggling objectives for the lecture quiz", () => {
     const sessions = [{
-      sessionId: "attempt-1", title: "Week 4 Quiz", submittedAt: 500,
+      sessionId: "attempt-1", status: "submitted", title: "Week 4 Quiz", submittedAt: 500,
       questions: [
         { questionId: "q1", lectureId: "lec-1", stem: "A patient has X. What is the mechanism?", choices: { A: "Alpha", B: "Beta" }, correct: "A", objectiveIds: ["o1"] },
         { questionId: "q2", lectureId: "lec-2", stem: "Other lecture question", choices: { A: "Yes" }, correct: "A", objectiveIds: ["o2"] },
