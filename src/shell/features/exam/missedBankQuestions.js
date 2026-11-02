@@ -13,7 +13,7 @@ export function missedBankQuestions({bank,sessions=[],blockId,ratings={}}){
    const q=questions.get(answer.questionId);
    if(!q||!Object.hasOwn(q.choices||{},q.correct)||!Object.hasOwn(q.choices||{},answer.value))continue;
    const key=schoolQuestionIdentity(q);
-   const at=Number(answer.answeredAt)||saved.updatedAt?.toMillis?.()||Number(saved.updatedAt)||Number(saved.submittedAt)||Number(saved.startedAt)||0;
+   const at=Number(answer.answeredAt)||Number(saved.submittedAt)||saved.updatedAt?.toMillis?.()||Number(saved.updatedAt)||Number(saved.startedAt)||0;
    const old=latest.get(key);
    if(!old||at>old.at||(at===old.at&&answer.value===q.correct))latest.set(key,{at,wrong:answer.value!==q.correct});
   }

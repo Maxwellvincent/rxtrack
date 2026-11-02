@@ -24,3 +24,8 @@ it('keeps reported bad keys out of the missed-question queue',()=>{
  const ratings={bad:{sourceIssue:'incorrect-key',evidenceAliases:[`stem:${q.stem}`]}};
  expect(missedBankQuestions({bank,sessions:[session('B',1)],blockId:'nb2',ratings})).toEqual([]);
 });
+it('does not revive an old miss when a completed attempt later receives a metadata update',()=>{
+ const old=session('B',null,{submittedAt:1,updatedAt:100});
+ const fixed=session('A',null,{submittedAt:2,updatedAt:2});
+ expect(select([old,fixed])).toEqual([]);
+});
