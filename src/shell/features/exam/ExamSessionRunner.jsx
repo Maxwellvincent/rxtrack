@@ -1,6 +1,6 @@
 import { SourceBankRepair } from './SourceBankRepair.jsx';
 import { updateExamSessionTransaction } from '../../../supabase.js';
-import { practiceSections, sectionQuestionIndices, firstSectionQuestion } from './practiceSections.js';
+import { practiceSection, practiceSections, sectionQuestionIndices, firstSectionQuestion } from './practiceSections.js';
 import { restoreVisualChoices } from "../../../engine/visualChoiceLabels.js";
 import { ObjectiveLearningReport } from "../../../ui/ObjectiveLearningReport.jsx";
 import { questionLearningContext } from "../../../engine/learningLoop.js";
@@ -71,6 +71,7 @@ function SavedPracticeSummary({ session, baseline, userId, labels, onExit, onRes
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">{[["Answered", answers.length], ["Correct", correct], ["Wrong", missed], ["Accuracy", answered.length ? `${Math.round(correct / answered.length * 100)}%` : "—"]].map(([label,value]) => <div key={label} className="rounded border border-border p-3"><strong className="block text-2xl">{value}</strong><span>{label}</span></div>)}</div>
     {answers.length > answered.length && <p>{answers.length - answered.length} excluded from scoring.</p>}
     <p>Whole set: {total}/{session.questions?.length || 0} answered · {Math.max(0, (session.questions?.length || 0) - total)} remaining.</p>
+    <details className="rounded border border-border p-3"><summary className="cursor-pointer font-semibold">Section results · saved homework</summary><ul className="mt-2 space-y-2">{practiceSections(session.questions, session.answers, labels, protectSessionScoring(session, questionRatingsStore.read(userId).ratings)).map(section=><li key={section.key}><strong>{section.title || section.label}</strong> · {section.answered}/{section.indices.length} answered · {section.accuracy == null ? 'No revealed scores yet' : `${section.accuracy}% correct (${section.correct}/${section.scored})`}{section.pending ? ` · ${section.pending} saved without reveal` : ''}</li>)}</ul></details>
     <h3 className="font-semibold">Lectures to revisit from this sitting</h3>
     {!missed && <p>{answered.length ? "No scored misses this sitting." : "No new scored answers this sitting."}</p>}
     <ul className="space-y-2">{rows.map(row => <li key={row.lectureId}><strong>{row.label}</strong> · {row.misses} wrong of {row.answered} answered{onNavigateToLecture && <button className="ml-2 underline" onClick={() => onNavigateToLecture(row.lectureId)}>Review lecture</button>}</li>)}</ul>
@@ -449,7 +450,7 @@ function ExamFormat({ controller, submitOpts, objectivesById, lectureLabelsByLec
 // "Finish" button, reachable once the last question is answered/revealed,
 // calls the same `submit()` the controller already exposes for format
 // "exam" — same function, now reachable from practice's UI too.
-function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, userId, objectivesById, lectureLabelsByLectureId, onNavigateToLecture }) {
+function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, userId, objectivesById, lectureLabelsByLectureId, onNavigateToLecture, saveExitAction, abandonAction }) {
   const { session, currentIndex, setCurrentIndex, answerQuestion, submit, submitting } = controller;
   const questions = session.questions || [];
   const focusStorageKey = `rxt-practice-sections:${userId}:${session.sessionId}`;
@@ -477,6 +478,8 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
   const picked = q ? pickedFor(session, q.questionId) : null;
   const savedAnswer = (session.answers || []).find(answer => answer.questionId === q?.questionId);
   const revealed = picked != null && savedAnswer?.revealed !== false;
+  const toolsRef = useRef(null);
+  const [textToolsTarget, setTextToolsTarget] = useState(null);
   const [reasonFirst, setReasonFirst] = useState(false);
   const isCorrect = revealed && !!q?.correct && picked === q.correct;
   const [diagnostics, setDiagnostics] = useState({});
@@ -486,11 +489,12 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
 
   return (
     <div className="space-y-3" onKeyDown={(event) => advanceOnEnter(event, () => setCurrentIndex(indices[position + 1]), picked != null && position < indices.length - 1 && !submitting)}>
-      <div className="flex items-center justify-between font-mono text-[12px] uppercase tracking-wider text-accent-text">
-        <span>Practice</span>
-        <span className="text-text-3">{(session.answers || []).filter(answer => answer.value != null).length}/{questions.length} answered</span>
-      </div>
-
+      <header aria-label="Practice header" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-bg-elevated px-4 py-3">
+        <div className="min-w-0 flex-1"><p className="text-sm font-semibold">{practiceSection(q,lectureLabelsByLectureId).title || practiceSection(q,lectureLabelsByLectureId).label}</p><p className="mt-1 text-xs text-text-2">Question {position + 1} of {indices.length} · {focusAnswered} answered</p></div>
+        {saveExitAction}
+        <details ref={toolsRef} className="relative" aria-label="Practice tools" onKeyDown={event=>{if(event.key==="Escape"){event.currentTarget.open=false;event.stopPropagation();}}}><summary className="cursor-pointer rounded border border-border px-3 py-2 text-sm" aria-label="Open practice tools">⋯ Tools</summary>
+        <div className="absolute right-0 z-40 mt-2 max-h-[70vh] w-[min(88vw,42rem)] space-y-3 overflow-auto rounded-lg border border-border bg-bg-elevated p-4 shadow-xl">
+          <SessionTitle session={session} />
       {session.sourceType === 'question-bank' && <section aria-label="Homework sections" className="rounded-lg border border-border bg-bg-elevated p-3">
         <p className="text-sm font-semibold">{inFocus ? 'Section focus' : 'Whole homework bank'} · {focusAnswered}/{indices.length} answered</p>
         <details className="mt-2 text-sm"><summary className="cursor-pointer">Choose lectures or sections</summary>
@@ -501,14 +505,20 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
         {inFocus && focusAnswered === indices.length && <p role="status" className="mt-2 text-sm font-semibold">✓ Selected sections complete. Choose another section or save and leave.</p>}
       </section>}
       <SourceBankRepair session={session} userId={userId} onRepaired={controller.refetch} />
-      <QuestionNavigator questions={questions} indices={indices} session={session} currentIndex={visibleIndex} onSelect={setCurrentIndex} />
+      <QuestionNavigator questions={questions} indices={indices} session={session} currentIndex={visibleIndex} onSelect={index=>{setCurrentIndex(index);if(toolsRef.current)toolsRef.current.open=false;}} />
 
-      <div className="rounded-lg border border-border bg-bg-elevated p-3">
-        <QuestionMeta question={q} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} />
+          <QuestionMeta question={q} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} />
+          <LeadInCue stem={q.stem} />
+          <div ref={setTextToolsTarget} />
+          <label className="inline-flex items-center gap-2 text-xs text-text-2"><input type="checkbox" checked={reasonFirst} onChange={event => setReasonFirst(event.target.checked)} />Reason before reveal</label>
+          <QuestionQualityRating userId={userId} question={q} />
+          {abandonAction}
+        </div></details>
+      </header>
+      <div className="rounded-lg border border-border bg-bg-elevated p-4">
         {q.sourceVisualChoicesUnverified && !q.sourceVisualLabelsConfirmed && <p role="status" className="mb-3 text-sm text-text-2">Diagram choice count is not confirmed. Confirm the labels using the source figure controls below; this item is excluded from scoring until confirmed.</p>}
         {!q.correct && <p role="status" className="mb-3 rounded border border-warn p-3 text-sm">Source key needs verification. This question is excluded from scoring; you can continue. {q.sourceKeyCritique}</p>}
-        <LeadInCue stem={q.stem} />
-        <QuestionStem text={q.stem} questionId={q.questionId} />
+        <QuestionStem text={q.stem} questionId={q.questionId} toolsTarget={textToolsTarget} />
         <SchoolQuestionFigure question={q} userId={userId} onVisualLabels={async lastLetter => {
           if ('ABCDEFGHIJKLM'.indexOf(lastLetter) < Math.max(...Object.keys(q.choices).map(letter=>'ABCDEFGHIJKLM'.indexOf(letter)))) throw Error('Cannot remove existing source choices.');
           await updateExamSessionTransaction(userId,session.sessionId,current => {
@@ -538,8 +548,6 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
             <Button data-testid="check-answer" onClick={() => answerQuestion(q.questionId, picked, { revealed: true })} disabled={!picked}>
               Check answer
             </Button>
-            {picked && <p className="mt-2 text-xs text-text-3">Selected answers autosave. Reveal whenever you’re ready.</p>}
-            <label className="ml-3 inline-flex items-center gap-2 text-xs text-text-2"><input type="checkbox" checked={reasonFirst} onChange={event => setReasonFirst(event.target.checked)} />Reason before reveal</label>
           </div>
         )}
 
@@ -561,7 +569,6 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
               <QuestionExplanation selectedLetter={picked} text={q.explanation} correctLetter={q.correct} whyWrong={q.whyWrong} choices={q.choices} sourceType={q.sourceType || session.sourceType} />
             )}
             {q.correct && !isCorrect && <LearningGapNote key={q.questionId} userId={userId} question={q} blockId={session.blockId} lectureId={q.lectureId} />}
-            <QuestionQualityRating userId={userId} question={q} />
             {tutorModeEnabled && <TutorPanelForQuestion question={q} callAI={callAI} />}
             {!inFocus && visibleIndex + 1 >= questions.length && session.fillStatus === "generating" ? (
               <div role="status" className="text-sm text-text-3">Your next question is being prepared…</div>
@@ -833,9 +840,24 @@ export function ExamSessionRunner({
     );
   }
 
+  const saveExitAction = onExit && <Button variant="outline" disabled={savingExit} onClick={async () => {
+            setSavingExit(true); setExitError(null);
+            try {
+              const saved = await controller.saveProgress(submitOpts);
+              if (session.sourceType === "question-bank" && session.format === "practice") setSavedSitting(saved || session);
+              else onExit();
+            }
+            catch (error) { setExitError(error?.message || "Could not save your position. Please retry."); }
+            finally { setSavingExit(false); }
+          }}>{savingExit ? "Saving…" : "Save & exit"}</Button>;
+  const abandonAction = <Button variant="ghost" onClick={async () => {
+            if (typeof window !== "undefined" && !window.confirm("Abandon this session? Unanswered questions will return to your reserve.")) return;
+            await abandon();
+            onExit?.();
+          }}>Abandon session</Button>;
   return (
     <div className="mb-5 space-y-3">
-      <SessionTitle session={session} />
+      {session.format === 'exam' && <SessionTitle session={session} />}
       {session.fillStatus === "generating" && <ExamPreparationStatus session={session} />}
       {session.fillStatus === "partial" && <p role="status" className="text-sm text-text-3">{session.questions?.length || 0} questions available. You can continue with these questions.</p>}
       {session.format === "exam" ? (
@@ -843,6 +865,8 @@ export function ExamSessionRunner({
       ) : (
         <PracticeFormat
           key={`${userId}:${session.sessionId}`}
+          saveExitAction={saveExitAction}
+          abandonAction={abandonAction}
           controller={{ ...controller, session }}
           tutorModeEnabled={tutorModeEnabled}
           submitOpts={submitOpts}
@@ -857,21 +881,8 @@ export function ExamSessionRunner({
         <SyncIndicator status={syncStatus} />
         <div className="flex gap-2">
           {exitError && <p role="alert" className="text-sm text-bad">{exitError}</p>}
-          {onExit && <Button variant="outline" disabled={savingExit} onClick={async () => {
-            setSavingExit(true); setExitError(null);
-            try {
-              const saved = await controller.saveProgress(submitOpts);
-              if (session.sourceType === "question-bank" && session.format === "practice") setSavedSitting(saved || session);
-              else onExit();
-            }
-            catch (error) { setExitError(error?.message || "Could not save your position. Please retry."); }
-            finally { setSavingExit(false); }
-          }}>{savingExit ? "Saving…" : "Save & exit"}</Button>}
-          <Button variant="ghost" onClick={async () => {
-            if (typeof window !== "undefined" && !window.confirm("Abandon this session? Unanswered questions will return to your reserve.")) return;
-            await abandon();
-            onExit?.();
-          }}>Abandon session</Button>
+          {session.format === 'exam' && saveExitAction}
+          {session.format === 'exam' && abandonAction}
         </div>
       </div>
     </div>

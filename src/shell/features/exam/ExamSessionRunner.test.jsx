@@ -87,6 +87,25 @@ beforeEach(() => {
 });
 
 describe("ExamSessionRunner", () => {
+  it("keeps setup and repair controls inside one closed practice menu", () => {
+    const controller=baseController();controller.session.format='practice';controller.session.sourceType='question-bank';
+    controller.session.questions.forEach(q=>{q.sourceSection='NB31';q.sourceSectionTitle='Motor System';});
+    controllerMock.mockReturnValue(controller);
+    const {host,unmount}=render(<ExamSessionRunner sessionId="s1" userId="u1" onExit={()=>{}} />);
+    const menu=host.querySelector('[aria-label="Practice tools"]');
+    expect(menu.open).toBe(false);
+    expect(menu.querySelector('[aria-label="Homework sections"]')).toBeTruthy();
+    expect(menu.querySelector('[aria-label="Question navigation"]')).toBeTruthy();
+    expect(menu.textContent).toContain('Repair from original PDF');
+    expect(menu.textContent).toContain('Copy question');
+    expect(menu.textContent).toContain('Reason before reveal');
+    expect(host.querySelector('[aria-label="Practice header"]').textContent).toContain('Question 1 of 2');
+    expect([...host.querySelectorAll('button')].filter(b=>b.textContent==='Save & exit')).toHaveLength(1);
+    act(()=>{menu.open=true;menu.querySelector('[aria-label="Question 2, unanswered"]').click();});
+    expect(controller.setCurrentIndex).toHaveBeenCalledWith(1);expect(menu.open).toBe(false);
+    unmount();
+  });
+
   it("offers a way beyond the last selected section instead of a navigation dead end", () => {
     const controller=baseController();controller.session.format='practice';controller.session.sourceType='question-bank';
     controller.session.questions=[{...makeQuestion('q1'),sourceSection:'NB27'},{...makeQuestion('q2'),sourceSection:'NB28'}];
@@ -384,7 +403,7 @@ describe("ExamSessionRunner", () => {
     expect(host.querySelector('[aria-label="Question 2, unanswered"]')).toBeTruthy();
     expect(host.querySelector("nav[aria-label='Question navigation']")).toBeTruthy();
     expect(host.querySelector("details").open).toBe(false);
-    expect(host.querySelector("details summary").textContent).toContain("1/2 answered");
+    expect(host.querySelector('[aria-label="Practice header"]').textContent).toContain("1 answered");
     expect(host.textContent).toContain("← Prev");
     expect(host.textContent).toContain("Next →");
     unmount();

@@ -144,17 +144,17 @@ export function SchoolQuestionFigure({ question, userId, onVisualLabels }) {
     <details open={cropUrl || (referencesVisual && !originalUrl) ? true : undefined} className="mb-3 rounded-lg border border-border bg-bg-elevated p-2">
       <summary className="cursor-pointer px-1 py-1 text-sm font-medium text-text-2">Show source figure{visualPage ? ` · page ${visualPage}` : ""}</summary>
       <figure className="mt-2">
-        {sourcePath ? <div className="mb-2 flex gap-2 text-xs">
+        {sourcePath ? <details className="mb-2 text-xs"><summary className="cursor-pointer text-text-3">Source page controls</summary><div className="mt-2 flex gap-2">
           <button type="button" disabled={pageBusy || visualPage <= 1} className="rounded border border-border px-2 py-1" onClick={() => changePage(visualPage - 1)}>Previous source page</button>
           <button type="button" disabled={pageBusy} className="rounded border border-border px-2 py-1" onClick={() => changePage(visualPage + 1)}>Next source page</button>
           {pageBusy && <span role="status">Loading page…</span>}
-        </div> : <p className="mb-2 text-xs text-text-3">Only this saved page is available. Re-upload the original PDF if the figure is on another page.</p>}
+        </div></details> : <p className="mb-2 text-xs text-text-3">Only this saved page is available. Re-upload the original PDF if the figure is on another page.</p>}
         {pageError && <p role="status" className="mb-2 text-xs text-bad">{pageError}</p>}
 
         {cropUrl && !cropping ? (
           <>
             <img src={cropUrl} alt="Cropped question figure" className="h-auto max-h-[75vh] w-auto max-w-full rounded-lg border border-border" />
-            <button type="button" className="mt-2 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-text-2" onClick={() => { setSelection(null); setCropping(true); if (selectedPage && !pageUrl && selectedPage !== originalPage) changePage(selectedPage); }}>Adjust figure crop</button>
+            <details className="mt-2 text-xs"><summary className="cursor-pointer text-text-3">Figure editing</summary><button type="button" className="mt-2 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-text-2" onClick={() => { setSelection(null); setCropping(true); if (selectedPage && !pageUrl && selectedPage !== originalPage) changePage(selectedPage); }}>Adjust figure crop</button></details>
           </>
         ) : (
           <>
@@ -172,7 +172,7 @@ export function SchoolQuestionFigure({ question, userId, onVisualLabels }) {
             </div>
           </>
         )}
-        {onVisualLabels && Object.entries(question.choices || {}).every(([letter,value]) => value === `Visual option ${letter}`) && <div className="mt-3 border-t border-border pt-2 text-sm"><label>Diagram labels run from A through <select aria-label="Last diagram label" className="mx-2 border border-border bg-bg p-1" value={lastLabel} onChange={event=>setLastLabel(event.target.value)}>{'BCDEFGHIJKLM'.split('').map(letter=><option key={letter}>{letter}</option>)}</select></label><button type="button" className="underline" onClick={async()=>{try{await onVisualLabels(lastLabel);setLabelNotice('Diagram labels saved for this session. Source key unchanged.');}catch{setLabelNotice('Could not save diagram labels. Please retry.');}}}>Use these diagram labels</button><p className="text-xs text-text-3">Confirm against the original figure; labels are not inferred from the answer key.</p>{labelNotice&&<p role="status">{labelNotice}</p>}</div>}
+        {onVisualLabels && Object.entries(question.choices || {}).every(([letter,value]) => value === `Visual option ${letter}`) && <details className="mt-2 text-xs"><summary className="cursor-pointer text-text-3">Fix diagram choices</summary><div className="mt-3 border-t border-border pt-2 text-sm"><label>Diagram labels run from A through <select aria-label="Last diagram label" className="mx-2 border border-border bg-bg p-1" value={lastLabel} onChange={event=>setLastLabel(event.target.value)}>{'BCDEFGHIJKLM'.split('').map(letter=><option key={letter}>{letter}</option>)}</select></label><button type="button" className="underline" onClick={async()=>{try{await onVisualLabels(lastLabel);setLabelNotice('Diagram labels saved for this session. Source key unchanged.');}catch{setLabelNotice('Could not save diagram labels. Please retry.');}}}>Use these diagram labels</button><p className="text-xs text-text-3">Confirm against the original figure; labels are not inferred from the answer key.</p>{labelNotice&&<p role="status">{labelNotice}</p>}</div></details>}
         {cropNotice && <p role="status" className="mt-2 text-xs text-text-2">{cropNotice}</p>}
         <figcaption className="mt-1 text-xs text-text-3">{question.sourceFile || "Uploaded source"}{visualPage ? ` · visual page ${visualPage}` : ""}{question.sourcePage && visualPage && Number(question.sourcePage) !== Number(visualPage) ? ` · question page ${question.sourcePage}` : ""}</figcaption>
       </figure>
