@@ -17,7 +17,7 @@ function makeSessionId() {
 
 export function validBankQuestion(question) {
   const letters = Object.keys(question?.choices || {});
-  const choiceLetters = letters.filter((letter) => /^[A-M]$/i.test(letter)).map((letter) => letter.toUpperCase()).sort();
+  const choiceLetters = letters.filter((letter) => /^[A-Z]$/i.test(letter)).map((letter) => letter.toUpperCase()).sort();
   const choicesContiguous = !choiceLetters.length || choiceLetters.every((letter, index) => letter === String.fromCharCode(65 + index));
   const needsImage = !!(question?.hasImage || question?.imageDependent || questionReferencesVisual(question?.stem));
   const hasImage = !!(question?.sourceImageUrl || question?.sourceImageDataUrl || question?.image?.url || typeof question?.image === "string");

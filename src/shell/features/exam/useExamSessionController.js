@@ -1,3 +1,4 @@
+import { normalizeSessionSchoolChoices } from "../../../engine/schoolSourceText.js";
 import { checkpointExamSession } from "./checkpoint.js";
 /**
  * Task 6 — the Integrated Exam session runtime: the controller hook.
@@ -89,7 +90,7 @@ export function useExamSessionController(sessionId, userId) {
     setLoading(true);
     setError(null);
     try {
-      const doc = await getExamSession(userId, sessionId);
+      const doc = normalizeSessionSchoolChoices(await getExamSession(userId, sessionId));
       if (!mountedRef.current) return doc;
       sessionRef.current = doc;
       setSession(doc);
@@ -314,7 +315,7 @@ export function useExamSessionController(sessionId, userId) {
       setSyncStatus("pending");
       updateExamSessionTransaction(userId, sessionId, (current) => {
         if (!current || current.status !== "in_progress") return null;
-        return { ...current, answers: mergeAnswer(current.answers, answer) };
+        return { ...normalizeSessionSchoolChoices(current), answers: mergeAnswer(current.answers, answer) };
       })
         .then((result) => {
           if (!mountedRef.current) return;

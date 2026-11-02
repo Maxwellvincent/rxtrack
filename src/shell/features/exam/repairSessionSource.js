@@ -13,7 +13,7 @@ export function repairSessionSource(session, originals) {
     const source=cleanSchoolQuestion(matches[0]);
     const answer=answers.find(a=>a.questionId===q.questionId && a.value!=null);
     if(answer){
-      const chosen=q.choices?.[answer.value];
+      const chosen=cleanSchoolQuestion(q).choices?.[answer.value];
       const candidates=Object.entries(source.choices || {}).filter(([,value])=>optionMeaning(value)===optionMeaning(chosen));
       if(candidates.length!==1)return q; // Never reinterpret an ambiguous old pick.
       answer.value=candidates[0][0];

@@ -19,3 +19,8 @@ it('marks a drawing-dependent text-option question as requiring a source image',
  const source='1. Which loss is caused by the lesion marked D in the drawing of the medulla below?\nA. Left hand\nB. Right hand\nAnswer Key: 1 A';
  expect(parseNumberedQuestionBankText(source,'test',{singleSet:true,allowSingle:true})[0].hasImage).toBe(true);
 });
+it('retains fourteen original options including N and supports keyed N',()=>{
+ const source='1. Which of the following structures is most likely involved in this patient?\n'+'ABCDEFGHIJKLMN'.split('').map(l=>`${l}. Structure ${l}`).join('\n')+'\nAnswer Key: 1 N';
+ const q=parseNumberedQuestionBankText(source,'test',{singleSet:true,allowSingle:true})[0];
+ expect(Object.keys(q.choices)).toHaveLength(14);expect(q.choices.M).toBe('Structure M');expect(q.choices.N).toBe('Structure N');expect(q.correct).toBe('N');
+});

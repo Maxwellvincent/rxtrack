@@ -520,10 +520,10 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
         {!q.correct && <p role="status" className="mb-3 rounded border border-warn p-3 text-sm">Source key needs verification. This question is excluded from scoring; you can continue. {q.sourceKeyCritique}</p>}
         <QuestionStem text={q.stem} questionId={q.questionId} toolsTarget={textToolsTarget} />
         <SchoolQuestionFigure question={q} userId={userId} onVisualLabels={async lastLetter => {
-          if ('ABCDEFGHIJKLM'.indexOf(lastLetter) < Math.max(...Object.keys(q.choices).map(letter=>'ABCDEFGHIJKLM'.indexOf(letter)))) throw Error('Cannot remove existing source choices.');
+          if ('ABCDEFGHIJKLMNOPQRSTUVWXYZ'.indexOf(lastLetter) < Math.max(...Object.keys(q.choices).map(letter=>'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.indexOf(letter)))) throw Error('Cannot remove existing source choices.');
           await updateExamSessionTransaction(userId,session.sessionId,current => {
             if(current?.status !== 'in_progress') return null;
-            return {...current,questions:current.questions.map(item=>item.questionId===q.questionId ? {...item,choices:Object.fromEntries('ABCDEFGHIJKLM'.slice(0,'ABCDEFGHIJKLM'.indexOf(lastLetter)+1).split('').map(letter=>[letter,`Visual option ${letter}`])),sourceVisualLabelsConfirmed:true} : item)};
+            return {...current,questions:current.questions.map(item=>item.questionId===q.questionId ? {...item,choices:Object.fromEntries('ABCDEFGHIJKLMNOPQRSTUVWXYZ'.slice(0,'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.indexOf(lastLetter)+1).split('').map(letter=>[letter,`Visual option ${letter}`])),sourceVisualLabelsConfirmed:true} : item)};
           });
           await controller.refetch?.();
         }} />
