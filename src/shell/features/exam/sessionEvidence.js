@@ -15,6 +15,7 @@ export function sessionEvidenceEvent(session, question, answer) {
     lectureId: question.lectureId || null, objectiveIds: question.objectiveIds || [],
     questionKey: question.questionKey || question.poolId || (question.sourceType==='question-bank' && question.stem ? schoolQuestionIdentity(question) : question.id || question.questionId),
     legacyQuestionKey: question.questionKey || question.poolId || question.id || question.questionId,
+    objectiveFacetId:question.objectiveFacetId || null,sourceRelationshipIds:question.sourceRelationshipIds || [],relationshipSourceVersion:question.relationshipSourceVersion || null,
     atomKey: question.atomKey || null, sourceConceptKeys: question.sourceConceptKeys || [], objectiveFacet: question.objectiveFacet || null, correct, difficulty: question.difficulty || null,
     ...(!correct ? {learningContext: questionLearningContext(question, answer.value)} : {}),
     misconception: correct ? null : "exam-error", responseMs: answer.responseMs ?? null,

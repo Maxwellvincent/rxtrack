@@ -1,5 +1,6 @@
+import {isEvaluationReserved} from "./sourceUse.js";
 /** Build a portable export of every uploaded ExamSoft/IMCQ style source. */
-export function collectStyleSources(banks = {}, meta = {}, ratings = {}) {
+export function collectStyleSources(banks = {}, meta = {}, ratings = {}, registry = {}) {
   const ratingValues = Object.values(ratings || {});
   const ratingById = new Map(ratingValues.map((r) => [String(r.questionId || ""), r]));
   const rows = [];
@@ -7,7 +8,7 @@ export function collectStyleSources(banks = {}, meta = {}, ratings = {}) {
     const label = filename.toLowerCase();
     if (!/examsoft|esoft|imcq/.test(label)) continue;
     for (const question of questions || []) {
-      if (!question?.stem || !question?.choices) continue;
+      if (!question?.stem || !question?.choices || isEvaluationReserved({...question,sourceFile:filename},registry)) continue;
       rows.push({ ...question, sourceFile: question.sourceFile || filename, bankMeta: meta[filename] || null, rating: ratingById.get(String(question.id || question.questionId || "")) || null });
     }
   }

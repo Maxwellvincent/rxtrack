@@ -2,6 +2,7 @@
 export function schoolExemplarIssues(question = {}) {
  const stem=String(question.stem || '').trim();
  const issues=[];
+ if(question.evaluationReserved===true)issues.push("reserved_for_evaluation");
  if(!stem || !question.choices || Object.keys(question.choices).length<2)issues.push('incomplete_item');
  if(question.answerKeyVerified===false || question.sourceKeyReviewStatus==='stem-mismatch')issues.push('unverified_source_key');
  if(question.sourceRepresentation==='answer-explanation-summary')issues.push('abbreviated_original');

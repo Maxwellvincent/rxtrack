@@ -1,7 +1,8 @@
+import {isEvaluationReserved,sourceExposure} from "./sourceUse.js";
 import { usableSchoolExemplar, requiresSchoolFigure, schoolExemplarIssues } from "./schoolSourceIntegrity.js";
 import { buildStyleFingerprint, exemplarSourceTier } from './mcq.js';
 
-export const BASELINE_VERSION = 4;
+export const BASELINE_VERSION = 5;
 const stableKey = q => JSON.stringify([q.sourceFile || '', q.lectureId || '', q.id || q.questionId || '', q.stem || '']);
 // Reproducible spread, not newest-only or highest-scoring selection.
 function rank(value) {
@@ -26,10 +27,10 @@ function balancedSample(rows,limit) {
  return selected;
 }
 /** Counts explain availability, not whether a model actually used an example. */
-export function schoolSourceInventory(banks={}) {
+export function schoolSourceInventory(banks={},sourceUse={}) {
  const bySource=new Map();
  for(const [filename,items] of Object.entries(banks || {})) for(const item of Array.isArray(items)?items:[]) {
-  const q={...item,sourceFile:item?.sourceFile || filename};
+  const q={...item,sourceFile:item?.sourceFile || filename,evaluationReserved:isEvaluationReserved({...item,sourceFile:item?.sourceFile || filename},sourceUse)};
   const kind=exemplarSourceTier(q);
   const key=JSON.stringify([q.sourceFile,kind]);
   if(!bySource.has(key))bySource.set(key,{sourceFile:q.sourceFile,sourceKind:kind,total:0,textTemplateEligible:0,figureDependent:0,constructionOnly:0,exclusionReasons:{}});
@@ -44,7 +45,7 @@ export function schoolSourceInventory(banks={}) {
  }
  return [...bySource.values()].sort((a,b)=>a.sourceKind.localeCompare(b.sourceKind) || a.sourceFile.localeCompare(b.sourceFile));
 }
-function reviewItem(q,role,objectives=[]) {
+function reviewItem(q,role,objectives=[],sourceUse={}) {
  const objectiveLinks=(q.objectiveIds || []).map(id=>{
   let candidates=objectives.filter(o=>String(o.id || o.code)===String(id));
   const block=q.sourceBlockId || q.blockId;
@@ -60,7 +61,8 @@ function reviewItem(q,role,objectives=[]) {
  // Explicit allowlist: no account IDs, signed URLs, tokens, prompts, or answer history.
  return {
   auditId:`${role}:${rank(stableKey(q)).toString(36)}`, role,
-  exposureToGeneration:role === 'generated' ? 'already-generated' : 'unknown',
+  exposureToGeneration:role === 'generated' ? 'already-generated' : sourceExposure(q,sourceUse),
+  evaluationReserved:isEvaluationReserved(q,sourceUse),
   referenceUse:role === 'clicker' && !q.correct ? 'construction-only' : 'construction-and-key-review',
   answerKeyAvailable:!!q.correct,
   originalId:q.id || q.questionId || null, lectureId:q.lectureId || null,
@@ -68,6 +70,7 @@ function reviewItem(q,role,objectives=[]) {
   sourcePage:q.sourcePage || null, sourceQuestionNumber:q.sourceQuestionNumber || q.num || null,
   objectiveIds:q.objectiveIds || [], objectiveText:assigned?.text || q.objectiveText || null,
   objectiveLinks,
+  objectiveFacetId:q.objectiveFacetId || null,sourceRelationshipIds:q.sourceRelationshipIds || [],relationshipSourceVersion:q.relationshipSourceVersion || null,
   objectiveFacet:q.objectiveFacet || null, topic:q.topic || null,
   stem:q.stem, choices:q.choices, correct:q.correct || null,
   explanation:q.explanation || null, whyWrong:q.whyWrong || {},
@@ -88,7 +91,7 @@ function reviewItem(q,role,objectives=[]) {
  };
 }
 /** Local review packet only. This neither trains a model nor certifies an item. */
-export function buildQuestionAuditBaseline({generated={},banks={},objectives=[],generatedLimit=48,sourceLimit=12,now=Date.now()}={}) {
+export function buildQuestionAuditBaseline({generated={},banks={},objectives=[],sourceUse={},generatedLimit=48,sourceLimit=12,now=Date.now()}={}) {
  const usable=q=>q?.stem && q?.choices && Object.keys(q.choices).length>=2;
  const unique=rows=>[...new Map(rows.map(q=>[stableKey(q),q])).values()];
  const generatedRows=unique(Object.entries(generated).flatMap(([lectureId,entry])=>(entry?.questions || []).filter(usable).map(q=>({...q,lectureId:q.lectureId || lectureId}))));
@@ -96,12 +99,12 @@ export function buildQuestionAuditBaseline({generated={},banks={},objectives=[],
  const limits={generated:Math.min(100,Math.max(0,Math.floor(Number(generatedLimit)||0))),source:Math.min(30,Math.max(0,Math.floor(Number(sourceLimit)||0)))};
  const eligible=originals.filter(usableSchoolExemplar).filter(q=>(q.correct || exemplarSourceTier(q)==='clicker') && q.answerKeyVerified!==false && !q.sourceKeyReviewStatus && q.sourceRepresentation!=='answer-explanation-summary');
  const roles=['homework','examsoft','imcq','clicker'];
- const samples=[...balancedSample(generatedRows,limits.generated).map(q=>reviewItem(q,'generated',objectives)),
-  ...roles.flatMap(role=>balancedSample(eligible.filter(q=>exemplarSourceTier(q)===role),limits.source).map(q=>reviewItem(q,role,objectives)))];
+ const samples=[...balancedSample(generatedRows,limits.generated).map(q=>reviewItem(q,'generated',objectives,sourceUse)),
+  ...roles.flatMap(role=>balancedSample(eligible.filter(q=>exemplarSourceTier(q)===role),limits.source).map(q=>reviewItem(q,role,objectives,sourceUse)))];
  return {version:BASELINE_VERSION,createdAt:new Date(now).toISOString(),
   purpose:'Manual quality baseline; no medical validation, training or held-out assessment implied.',
   limitations:['Figures are referenced by source page, not embedded; review them in the original source.','Existing originals may already have been supplied to generation. These are reference samples, not an unseen holdout.','Unkeyed in-class examples are construction-only references; no answer key is inferred.','Sampling covers the currently loaded retained stores, not a complete lifetime archive.','Automated wording statistics do not measure reasoning depth or exam equivalence.','Objective text is resolved by stored ID and explicit scope only; unresolved or ambiguous links are not inferred from topic similarity.'],
-  sourceInventory:schoolSourceInventory(banks),
+  sourceInventory:schoolSourceInventory(banks,sourceUse),
   provenanceCoverage:{generatedSample:samples.filter(q=>q.role==='generated').length,withTemplateReferences:samples.filter(q=>q.role==='generated' && q.suppliedTemplateReferences.length).length,withReviewPolicy:samples.filter(q=>q.role==='generated' && q.qualityReviewPolicy).length},
   population:{generated:generatedRows.length,originals:originals.length,eligibleOriginals:eligible.length,excludedOriginals:originals.length-eligible.length},
   sampled:Object.fromEntries(['generated',...roles].map(role=>[role,samples.filter(q=>q.role===role).length])),

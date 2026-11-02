@@ -1,3 +1,6 @@
+import {read as readLearnerEvidence} from '../../../stores/learnerEvidence.js';
+import * as relationshipsStore from '../../../stores/sourceRelationships.js';
+import {relationshipPages,relationshipTargets,relationshipPrompt,bindReviewedRelationships} from '../../../engine/sourceRelationships.js';
 import { withDeadline, boundedAIAdapter } from "../../../asyncDeadline.js";
 /**
  * SP1 T2.1 — the per-lecture study flow: lecture → atoms → calibrated quiz.
@@ -138,10 +141,16 @@ export async function quizFromAtoms(lecture, atoms, deps = {}) {
 
   const objectives = deps.objectives || [];
   const lectureText = String(deps.lectureText || lectureTextFrom(lecture));
+  const sourcePages=relationshipPages(lecture,lectureText);
+  const scope={blockId:lecture.blockId,lectureId:lecture.id,objectives,pages:sourcePages};
+  const targets=lecture.id?relationshipTargets(relationshipsStore.read(deps.userId,lecture.id),deps.learnerModel || (deps.userId?readLearnerEvidence(deps.userId):{}),scope,Number(deps.count) || ROUND_SIZE):[];
+  const relationshipConfig={...scope,sourcePages,relationshipTargets:targets};
   const timeout=Math.max(1,Number(deps.maxPreparationMs) || 240000);
   const deadline=Date.now()+timeout;
   const result = await withDeadline(signal=>generateMcqs(
     {
+      ...relationshipConfig,focusNotes:relationshipPrompt(targets),
+      userId:deps.userId,blockId:lecture.blockId,lectureId:lecture.id,
       atoms: marked.slice(0, Math.max(5, Math.min(20, marked.length))),
       objectives,
       lectureText,
@@ -159,7 +168,14 @@ export async function quizFromAtoms(lecture, atoms, deps = {}) {
     },
     { callAIJSON:boundedAIAdapter(callAIJSON,{signal,deadline}), reviewAIJSON:boundedAIAdapter(deps.reviewAIJSON,{signal,deadline}), repairAIJSON:boundedAIAdapter(deps.repairAIJSON,{signal,deadline}), skipQuestionAudit:deps.skipQuestionAudit }
   ),timeout,deps.signal,"Lecture question preparation").catch(error=>({questions:[],error:error.message || String(error)}));
-  if (result.error || !images.length) return result;
+  if(result.error)return result;
+  result.questions=(result.questions || []).map(question=>bindReviewedRelationships(question,relationshipConfig));
+  const bundles=result.questions.flatMap(question=>question.relationshipEvidence?.bundles || []);
+  if(bundles.length && lecture.id){
+    try{await relationshipsStore.save(deps.userId,lecture.id,bundles);}
+    catch(error){return {questions:[],error:`Source relationship records could not be saved: ${error.message}`};}
+  }
+  if (!images.length) return result;
   return { ...result, questions: attachImagesToQuestions(result.questions, atoms, images) };
 }
 

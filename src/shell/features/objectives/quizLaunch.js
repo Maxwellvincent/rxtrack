@@ -1,3 +1,7 @@
+import * as relationshipsStore from "../../../stores/sourceRelationships.js";
+import {relationshipPages,relationshipTargets,relationshipPrompt,bindReviewedRelationships} from "../../../engine/sourceRelationships.js";
+import * as sourceUseStore from "../../../stores/sourceUse.js";
+import { allowedGenerationExamples, isEvaluationReserved } from "../../../engine/sourceUse.js";
 import {normAtomKey} from '../../../engine/atomNorm.js';
 import {linkedConceptPlan, linkedConceptInstruction, attributeLinkedConcept, objectivesWithConceptGaps} from '../../../engine/linkedConceptCoverage.js';
 import { learningFocus } from "../../../engine/learningLoop.js";
@@ -24,7 +28,6 @@ import { ATOM_QUIZ_CAP, generateFromAtoms, generateMcqs } from "../../../engine/
 import * as questionBanksStore from "../../../stores/questionBanks.js";
 import * as questionBankMetaStore from "../../../stores/questionBankMeta.js";
 import * as questionBankAnalysisStore from "../../../stores/questionBankAnalysis.js";
-import * as questionStyleProfileStore from "../../../stores/questionStyleProfile.js";
 import { getLecText } from "../../../lectureText.js";
 import { selectAtomsForQuiz } from "../lectures/lectureStudy.js";
 import { areNearDuplicateQuestions, exceedsAnswerConcentration, repeatedSuccessfulAnswerGuidance, objectiveFacetHistoryGuidance, questionAnswerKey } from "../../../engine/questionSimilarity.js";
@@ -201,10 +204,17 @@ export function findLectureForQuiz(lectures, blockId, lectureTitle) {
 export function readExemplars(userId = null) {
   try {
     const banks = questionBanksStore.read(userId) || {};
-    return Object.values(banks).flat().filter((q) => q && q.stem && q.choices);
+    return readExemplarsFromRegistry(banks, {}, userId);
   } catch {
     return [];
   }
+}
+
+function readExemplarsFromRegistry(banks,meta,userId) {
+  const registry=sourceUseStore.read(userId);
+  if(!sourceUseStore.isHydrated(userId) || sourceUseStore.readError(userId)) return [];
+  return selectExemplarsForBlock(banks,meta).map(question=>({...question,
+    evaluationReserved:isEvaluationReserved(question,registry), _trackSourceUse:true})).filter(question=>!question.evaluationReserved);
 }
 
 /**
@@ -212,14 +222,14 @@ export function readExemplars(userId = null) {
  * uploaded ExamSoft and IMCQ writing patterns. Lecture facts and objectives
  * still control the content of the generated question.
  */
-export function selectExemplarsForBlock(banks = {}, _meta = {}, _blockId = null) {
+export function selectExemplarsForBlock(banks = {}, _meta = {}, _blockId = null, sourceUse = null) {
   const eligible = (q) => q && q.stem && q.choices;
   const metaByFilename = new Map(
     Object.values(_meta || {})
       .filter((entry) => entry?.filename)
       .map((entry) => [entry.filename, entry])
   );
-  return Object.entries(banks || {}).flatMap(([filename, questions]) =>
+  const rows = Object.entries(banks || {}).flatMap(([filename, questions]) =>
     (Array.isArray(questions) ? questions : [])
       .filter(eligible)
       .map((question) => {
@@ -235,6 +245,7 @@ export function selectExemplarsForBlock(banks = {}, _meta = {}, _blockId = null)
         };
       })
   );
+  return sourceUse ? allowedGenerationExamples(rows,sourceUse).map(question=>({...question,_trackSourceUse:true})) : rows;
 }
 
 /**
@@ -289,11 +300,11 @@ export function selectAtomsByObjectiveCoverage(atoms = [], objectives = [], prog
  * Curriculum-wide exemplars, including ExamSoft and IMCQ uploads from earlier
  * blocks. The active lecture still supplies the factual scope.
  */
-export function readExemplarsForBlock(userId = null, blockId = null) {
+export function readExemplarsForBlock(userId = null, _blockId = null) {
   try {
     const meta = questionBankMetaStore.read(userId) || {};
     const banks = questionBanksStore.read(userId) || {};
-    return selectExemplarsForBlock(banks, meta, blockId);
+    return readExemplarsFromRegistry(banks, meta, userId);
   } catch {
     return readExemplars(userId);
   }
@@ -303,7 +314,9 @@ export function readExemplarsForBlock(userId = null, blockId = null) {
 export function readClinicalAnalysesForBlock(userId = null, blockId = null) {
   try {
     const meta = questionBankMetaStore.read(userId) || {};
-    const entries = Object.values(meta).filter((entry) =>
+    const registry=sourceUseStore.read(userId);
+    if(!sourceUseStore.isHydrated(userId) || sourceUseStore.readError(userId) || Object.values(registry.items || {}).some(item=>item.reserved)) return [];
+    const entries = Object.values(meta).filter((entry) => !registry.sources?.[entry?.filename]?.reserved &&
       entry && entry.filename && (!blockId || entry.blockId === blockId)
     );
     return entries
@@ -368,13 +381,15 @@ export function buildQuizConfig({
     return { error: "No objectives, lecture facts, or lecture text are available to quiz." };
   }
 
-  const storedStyleProfile = questionStyleProfileStore.read(userId);
-  const currentStyleProfile = styleProfile || (storedStyleProfile?.version === STYLE_PROFILE_VERSION
-    ? storedStyleProfile
-    : buildStyleProfile(exemplars));
+  const sourcePages=relationshipPages(lecture || {},lectureText);
+  const relationshipScope={blockId,lectureId:lecture?.id || lectureIdHint,objectives:selected,pages:sourcePages};
+  const relationshipCatalog=relationshipScope.lectureId?relationshipsStore.read(userId,relationshipScope.lectureId):{};
+  const relationshipPlan=relationshipTargets(relationshipCatalog,learnerModel,relationshipScope,count);
+  const currentStyleProfile = styleProfile || buildStyleProfile(allowedGenerationExamples(exemplars));
 
   return {
     config: {
+      userId, blockId, lectureId:relationshipScope.lectureId, sourcePages, relationshipTargets:relationshipPlan,
       subject: lectureTitle || "these objectives",
       objectives: selected,
       atoms,
@@ -394,6 +409,7 @@ export function buildQuizConfig({
       requireBlindKeyCheck: true,
       focusNotes: [
         String(focusNotes || "").trim(),
+        relationshipPrompt(relationshipPlan),
         learningFocus({objectives:selected,evidence:learnerModel,blockId,lectureId:lecture?.id || lectureIdHint,tutorProfile:getLearnerProfile(userId)}),
         selected.length
           ? `ADAPTIVE OBJECTIVE ALLOCATION — follow these item counts before broad coverage:\n${selected.map((objective) => `- [${objective.id || objective.code}] ${objective._adaptiveStatus}: ${objective._targetQuestionCount} question${objective._targetQuestionCount === 1 ? "" : "s"}; required ${objective._targetOrder || "second-order"}; ${objective._neededTaskTypes?.length ? `use a different task from ${objective._neededTaskTypes.join(", ")}` : "vary the final ask"}`).join("\n")}`
@@ -560,7 +576,12 @@ export async function startObjectiveQuiz(args, deps = {}) {
       ? relevantAtoms.slice(0, selectedIds.size ? Math.max(12, config.count * 4) : Math.max(1, config.count))
       : [];
     const result = await generateMcqs({ ...config, atoms: evidenceAtoms, linkedConceptTargets: linkedTargets, focusNotes: [config.focusNotes, linkedConceptInstruction(linkedTargets)].filter(Boolean).join("\n\n"), generationVersion: args.generationVersion }, deps);
-    result.questions = (result.questions || []).map(question => attributeLinkedConcept(question, linkedTargets));
+    result.questions = (result.questions || []).map(question => bindReviewedRelationships(attributeLinkedConcept(question, linkedTargets),config));
+    const bundles=result.questions.flatMap(question=>question.relationshipEvidence?.bundles || []);
+    if(bundles.length && config.lectureId) {
+      try { await relationshipsStore.save(args.userId,config.lectureId,bundles); }
+      catch(error){return {questions:[],error:`Source relationship records could not be saved: ${error.message}`,lectureId};}
+    }
     return { ...result, lectureId };
   }
 

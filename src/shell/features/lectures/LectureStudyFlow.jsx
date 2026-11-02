@@ -1,3 +1,4 @@
+import * as sourceUseStore from "../../../stores/sourceUse.js";
 import { hasReusableQuestionReview, isReusableForObjective } from "../../../engine/questionReuse.js";
 import { exceedsAnswerConcentration } from "../../../engine/questionSimilarity.js";
 import { latestLearningRecords } from "../../../engine/learningLoop.js";
@@ -896,9 +897,10 @@ export function LectureStudyFlow({
   // were often absent from precisely the first quiz where they were expected.
   const questionBanksRes = useQuestionBanks(userId);
   const questionBankMetaRes = useQuestionBankMeta(userId);
+  const sourceUseResource=useStoreResource(sourceUseStore,userId);
   const schoolExemplars = useMemo(
-    () => selectExemplarsForBlock(questionBanksRes.data, questionBankMetaRes.data, blockId),
-    [questionBanksRes.data, questionBankMetaRes.data, blockId]
+    () => sourceUseResource.loading || sourceUseResource.error ? [] : selectExemplarsForBlock(questionBanksRes.data, questionBankMetaRes.data, blockId,sourceUseResource.data),
+    [questionBanksRes.data, questionBankMetaRes.data, blockId,sourceUseResource.data,sourceUseResource.loading,sourceUseResource.error]
   );
   const clinicalCorrelateLibrary = useMemo(
     () => buildClinicalCorrelateLibrary({
@@ -910,7 +912,7 @@ export function LectureStudyFlow({
     }),
     [atoms, schoolExemplars, userId, blockId, lecture, renamedTitle, title]
   );
-  const schoolExamplesLoading = questionBanksRes.loading || questionBankMetaRes.loading;
+  const schoolExamplesLoading = questionBanksRes.loading || questionBankMetaRes.loading || sourceUseResource.loading;
 
   const checkpointLectureQuiz = useCallback((progress) => {
     const current = quizMetaRef.current;
@@ -1027,7 +1029,7 @@ export function LectureStudyFlow({
 
   const generateModel = useCallback(async () => {
     setGeneratingModel(true); setError("");
-    const result = await generateMentalModel({ atoms, objectives: lectureObjectives, examples: schoolExemplars, subject: title }, { callAIJSON });
+    const result = await generateMentalModel({ atoms, objectives: lectureObjectives, examples: schoolExemplars, subject: title, userId }, { callAIJSON });
     setGeneratingModel(false);
     if (result.error) { setError(result.error); return; }
     mentalModelStore.write(userId, lecture?.id, result.model);
@@ -1297,6 +1299,7 @@ export function LectureStudyFlow({
     const generatedHistory = generatedQuestionsStore.questionsForAllLectures(userId);
     const r = await quizFromAtoms({ ...lecture, images }, quizAtoms, {
       callAIJSON,
+      userId,
       exemplars: schoolExemplars,
       objectives: [...objectiveById.values()],
       lectureText: text,

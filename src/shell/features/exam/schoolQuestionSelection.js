@@ -17,6 +17,7 @@ export function selectSchoolQuestions({ banks = [], lectures = [], blockId, allo
   for (const bank of banks) {
     if (bank.blockId !== blockId && !weighted) continue;
     for (const original of bank.questions || []) {
+      if(original.evaluationReserved)continue;
       const [question] = prepareQuestionBankQuestions([original], { filename: bank.filename, blockId: bank.blockId || blockId, lectures, analysis: bank.analysis });
       if (!validBankQuestion(question)) continue;
       const mapping = weighted ? mapSourceQuestion(original,{objectivesByLecture,lectures,blockId:bank.blockId||blockId}) : null;

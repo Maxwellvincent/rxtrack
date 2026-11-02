@@ -1,3 +1,6 @@
+import {SourceRelationshipsAdmin} from "./SourceRelationshipsAdmin.jsx";
+import * as sourceUseStore from "../stores/sourceUse.js";
+import {SourceUseAdmin} from "./SourceUseAdmin.jsx";
 import { useObjectives } from "./hooks/useObjectives.js";
 import { flattenEntry } from "./logic/objectives.js";
 import { useStoreResource } from "./hooks/useStoreResource.js";
@@ -5,19 +8,20 @@ import * as generatedQuestionsStore from "../stores/generatedQuestions.js";
 import * as questionBanksStore from "../stores/questionBanks.js";
 import { buildQuestionAuditBaseline, downloadQuestionAuditBaseline, schoolSourceInventory } from "../engine/questionAuditBaseline.js";
 
-function BaselineExport({userId}) {
+function BaselineExport({userId,lectures}) {
+ const sourceUse=useStoreResource(sourceUseStore,userId);
  const generated=useStoreResource(generatedQuestionsStore,userId);
  const banks=useStoreResource(questionBanksStore,userId);
  const objectiveResource=useObjectives(null,userId);
  const objectives=Object.entries(objectiveResource.data || {}).flatMap(([blockId,entry])=>flattenEntry(entry).map(objective=>({...objective,blockId})));
- const loading=generated.loading || banks.loading || objectiveResource.loading;
- const error=generated.error || banks.error || objectiveResource.error;
- const inventory=schoolSourceInventory(banks.data);
+ const loading=sourceUse.loading || generated.loading || banks.loading || objectiveResource.loading;
+ const error=sourceUse.error || generated.error || banks.error || objectiveResource.error;
+ const inventory=schoolSourceInventory(banks.data,sourceUse.data);
  const kinds=["homework","examsoft","imcq","clicker","school"];
- return <details className="mb-5 rounded-lg border border-border p-4">
+ return <><SourceUseAdmin userId={userId} banks={banks.data || {}} /><SourceRelationshipsAdmin userId={userId} lectures={lectures} objectives={objectives} /><details className="mb-5 rounded-lg border border-border p-4">
   <summary className="cursor-pointer font-semibold">Question quality baseline</summary>
   <p className="mt-2 text-sm text-text-2">Download a local review sample: up to 48 saved generated questions and 12 each from homework, ESoft, IMCQ and in-class questions. Unkeyed in-class examples are marked for wording review only. No questions or progress are changed. Figures remain in their original sources. Full assigned objectives are included when their stored links resolve; uncertain links are marked explicitly.</p>
-  <button type="button" disabled={loading || !!error} onClick={()=>downloadQuestionAuditBaseline(buildQuestionAuditBaseline({generated:generated.data,banks:banks.data,objectives}))} className="mt-3 rounded border border-border px-3 py-2 text-sm disabled:opacity-40">{loading?"Loading saved questions…":"Download review sample"}</button>
+  <button type="button" disabled={loading || !!error} onClick={()=>downloadQuestionAuditBaseline(buildQuestionAuditBaseline({generated:generated.data,banks:banks.data,objectives,sourceUse:sourceUse.data}))} className="mt-3 rounded border border-border px-3 py-2 text-sm disabled:opacity-40">{loading?"Loading saved questions…":"Download review sample"}</button>
   {!loading && !error && <details className="mt-3 text-sm"><summary className="cursor-pointer">Source availability and exclusions</summary>
    <p className="mt-2 text-text-2">Available text examples are not proof of model use. Figure questions stay in their original banks. Counts include incomplete imports; exclusion reasons may overlap.</p>
    <ul className="mt-2 space-y-2">{kinds.map(kind=>{
@@ -29,7 +33,7 @@ function BaselineExport({userId}) {
    })}</ul>
   </details>}
   {error && <p role="alert" className="mt-2 text-sm">Saved questions could not be loaded. Retry after reconnecting; an incomplete sample was not exported.</p>}
- </details>;
+ </details></>;
 }
 
 import { canViewQuestionDiagnostics } from "../diagnosticsAccess.js";
@@ -44,7 +48,7 @@ export function QuestionDiagnosticsAdmin({ userId, lectures = [], onBack }) {
     <button onClick={onBack} className="mb-4 text-sm text-text-2">← More</button>
     <h2 className="text-xl font-semibold">Question generation diagnostics</h2>
     <p className="mb-5 text-sm text-text-2">Admin tools · recent runs from this browser session.</p>
-    <BaselineExport userId={userId} />
+    <BaselineExport userId={userId} lectures={lectures} />
     {!reports.length && <p>No recent preparation reports in this session.</p>}
     {reports.map(({ lecture, report }) => <div key={lecture.id} className="mb-5">
       <h3 className="mb-2 font-semibold">{lecture.title || lecture.name || "Lecture"}</h3>

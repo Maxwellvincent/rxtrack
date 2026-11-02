@@ -1,3 +1,5 @@
+import * as sourceUseStore from "../../../stores/sourceUse.js";
+import {allowedGenerationExamples} from "../../../engine/sourceUse.js";
 import { allocateBlueprint, readSlot, questionSlot } from "./bpmBlueprint.js";
 import { connectionFailure, holdPreparationWorker } from "./preparationRecovery.js";
 // Task 8, Part B — orchestration for launching an Integrated Exam session.
@@ -79,6 +81,9 @@ async function runLaunch(
   },
   deps = {}
 ) {
+  const registry=sourceUseStore.read(userId);
+  schoolBanks = sourceUseStore.isHydrated(userId) && !sourceUseStore.readError(userId)
+    ? schoolBanks.map(bank=>({...bank,questions:allowedGenerationExamples((bank.questions || []).map(question=>({...question,sourceFile:question.sourceFile || bank.filename})),registry)})) : [];
   const sessionId = makeSessionId();
   const resolvedContentScope = weekNumber != null ? `week-number:${weekNumber}` : contentScope;
   deps.onProgress?.({ message: "Checking exam storage access…", completed: 0 });

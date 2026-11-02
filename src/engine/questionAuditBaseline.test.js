@@ -32,7 +32,7 @@ it('does not call a continuation-only original an eligible reference sample',()=
 
 it('includes in-class examples without inventing keys or claiming unseen exposure',()=>{
  const packet=buildQuestionAuditBaseline({banks:{'In Class Questions.pdf':[q('keyed'),q('unkeyed',{correct:null}),q('held',{sourceKeyReviewStatus:'stem-mismatch'})]}});
- expect(packet.version).toBe(4);
+ expect(packet.version).toBe(5);
  expect(packet.sampled.clicker).toBe(2);
  const item=packet.samples.find(row=>row.originalId==='unkeyed');
  expect(item).toMatchObject({role:'clicker',correct:null,answerKeyAvailable:false,referenceUse:'construction-only',exposureToGeneration:'unknown'});

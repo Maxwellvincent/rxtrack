@@ -1,3 +1,5 @@
+import * as sourceUseStore from "../stores/sourceUse.js";
+import { allowedGenerationExamples } from "./sourceUse.js";
 import { buildBlindSolvePrompt, blindSolveIssue } from "./blindQuestionSolve.js";
 import { discriminationIssue, verifiedDiscrimination, DISCRIMINATION_REVIEW_CONTRACT } from "./questionDiscrimination.js";
 import { QUESTION_REUSE_REVIEW_POLICY } from "./questionReuse.js";
@@ -17,7 +19,7 @@ import { normAtomKey } from "./atomNorm.js";
 import { canonicalObjectiveIds } from "./objectiveLinks.js";
 import { alignSchoolQuestions, schoolEvidencePrompt, retrieveLectureEvidence } from "./schoolAlignment.js";
 import { uniqueQuestions } from "./questionSimilarity.js";
-import { buildClinicalCorrelatePlan, renderClinicalCorrelateLibrary } from "./clinicalCorrelates.js";
+import { buildClinicalCorrelateLibrary, buildClinicalCorrelatePlan, renderClinicalCorrelateLibrary } from "./clinicalCorrelates.js";
 import { buildOrderBlueprint, normalizeQuestionOrder, stampQuestionOrders, questionOrderDescription, verifyReasoningReview, hasCurrentReasoningAudit } from "./questionOrder.js";
 import { objectiveFacetCoveragePrompt } from "./objectiveFacets.js";
 import { buildReasoningDepthPlan } from "./questionReasoning.js";
@@ -411,8 +413,21 @@ function withSchoolContext(questions, cfg) {
   return questions.map(q=>({...q,generationEvidence:{version:1,role:'retrieved prompt context; not independent question validation',references,templateReferences}}));
 }
 
+async function protectGenerationContext(cfg) {
+  let examples=allowedGenerationExamples(cfg.examples || []);
+  if(examples.some(question=>question._trackSourceUse)) {
+    examples=await sourceUseStore.context(cfg.userId,examples);
+    const {buildStyleProfile}=await import('./styleProfile.js');
+    return {...cfg,examples,styleProfile:buildStyleProfile(examples),
+      clinicalCorrelateLibrary:buildClinicalCorrelateLibrary({atoms:cfg.atoms || [],examples,
+        lecture:{lectureTitle:cfg.subject,extractedText:cfg.lectureText},lectureTitle:cfg.subject})};
+  }
+  return {...cfg,examples,...(examples.length!==(cfg.examples || []).length?{styleProfile:null,clinicalCorrelateLibrary:[]}:{} )};
+}
+
 /** Generate MCQs via an injected callAIJSON (testable without a live model). */
 export async function generateMcqs(cfg = {}, deps = {}) {
+  try { if((cfg.examples || []).some(question=>question._trackSourceUse || question.evaluationReserved)) cfg = await protectGenerationContext(cfg); } catch(error) { return {questions:[],error:`Source exposure tracking failed: ${error.message}`}; }
   cfg = schoolCalibratedConfig(cfg);
   cfg = { ...cfg, promptProfile: cfg.promptProfile || "compact" };
   const { maxTokens = 8000 } = deps;
@@ -884,6 +899,7 @@ export function backfillTopicsFromAtoms(raw, atoms, objectives = []) {
 }
 
 export async function generateFromAtoms(cfg = {}, deps = {}) {
+  try { if((cfg.examples || []).some(question=>question._trackSourceUse || question.evaluationReserved)) cfg = await protectGenerationContext(cfg); } catch(error) { return {questions:[],error:`Source exposure tracking failed: ${error.message}`}; }
   cfg = schoolCalibratedConfig(cfg);
   const { maxTokens = 8000 } = deps;
   const callAIJSON = withQuestionAIRouting(deps.callAIJSON);
@@ -971,7 +987,7 @@ export function buildQuestionAuditPrompt(questions, cfg = {}) {
     `LECTURE-MATCHED CLINICAL CORRELATES (verify any claimed ID, clue, structure, mechanism, and discriminator against the lecture evidence):\n${clinicalCorrelates || "none"}\n\n` +
     `QUESTIONS:\n${JSON.stringify(questions.map(auditQuestionPayload))}\n\n` +
     `Return exactly one review for every question index. When approved is false, also return a corrected replacement that fixes every issue while testing the same supplied objective. The replacement must be a complete question with 4-6 choices, one valid key, explanation, whyWrong for every option, objectiveIds, objectiveFacet, topic, taskType, and orderLevel. Do not return a replacement when the supplied evidence cannot support one.\n` +
-    `{"reviews":[{"index":0,"approved":true,"objectiveAligned":true,"discrimination":{"closestAlternative":"non-key letter","stemClue":"exact final-stem quote","whyAlternativeFails":"lecture-supported distinction","keyUniquelySupported":true,"alternativeAlsoCorrect":false},"issues":[],"reasoning":{"orderLevel":"second-order","steps":["interpret a discriminating clue","apply the supplied relationship to choose the key"],"sourceQuotes":["exact supporting quote from lecture facts or text"],"allStepsRequired":true,"connectedChain":true,"singleEndpoint":true,"choiceShortcut":false},"replacement":null},{"index":1,"approved":false,"issues":["weak_explanation"],"replacement":{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"A","explanation":"...","whyWrong":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"objectiveIds":["exact objective id"],"objectiveFacet":"...","topic":"...","taskType":"mechanism","orderLevel":"second-order"}}]}\n` +
+    `{"reviews":[{"index":0,"approved":true,"objectiveAligned":true,"objectiveAlignment":{"objectiveId":"assigned id","objectiveClause":"exact assigned objective clause","testedRelationship":"source-supported relationship"},"sourceRelationshipIds":[],"discrimination":{"closestAlternative":"non-key letter","stemClue":"exact final-stem quote","whyAlternativeFails":"lecture-supported distinction","keyUniquelySupported":true,"alternativeAlsoCorrect":false},"issues":[],"reasoning":{"orderLevel":"second-order","steps":["interpret a discriminating clue","apply the supplied relationship to choose the key"],"sourceQuotes":["exact supporting quote from lecture facts or text"],"allStepsRequired":true,"connectedChain":true,"singleEndpoint":true,"choiceShortcut":false},"replacement":null},{"index":1,"approved":false,"issues":["weak_explanation"],"replacement":{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"A","explanation":"...","whyWrong":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"objectiveIds":["exact objective id"],"objectiveFacet":"...","topic":"...","taskType":"mechanism","orderLevel":"second-order"}}]}\n` +
     `Use short issue codes from: incorrect_key, ambiguous_key, unsupported_fact, objective_mismatch, duplicate_choices, duplicate_question, answer_leak, weak_explanation, inconsistent_vignette, non_discriminating_clues, multiple_true_choices, repetitive_task_ending, school_style_mismatch, disconnected_recall_tasks, answer_choice_shortcut.`
   );
 }
@@ -1308,6 +1324,7 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
         qualityAudit: {
           version: 1,
           reviewedAt: new Date().toISOString(),
+          relationshipIds:Array.isArray(review.sourceRelationshipIds)?review.sourceRelationshipIds.filter(id=>(cfg.relationshipTargets || []).some(row=>row.id===id)):[],
           ...(cfg.requireBlindKeyCheck && !blindSolveIssue(blindByIndex.get(index),question,cfg) ? { blindSolve: { status: "matched", answer: blindByIndex.get(index).answer, sourceQuotes: blindByIndex.get(index).reasoning.sourceQuotes.slice(0,3) } } : {}),
           reviewPolicy: verifiedDiscrimination(review.discrimination, question) ? QUESTION_REUSE_REVIEW_POLICY : "legacy-without-discriminator",
           ...(verifiedDiscrimination(review.discrimination, question) ? { discrimination: verifiedDiscrimination(review.discrimination, question) } : {}),
@@ -1527,7 +1544,7 @@ QUESTIONS:\n${JSON.stringify(questions.map(auditQuestionPayload))}
 OTHER BATCH STEMS (comparison only; never factual evidence):\n${JSON.stringify(cfg.comparisonItems || cfg.comparisonStems || [])}
 Reject duplicate_reasoning_route when the same decisive fact/relationship answers an earlier batch item, even with a different stem or objective ID.
 REQUIRED REVIEW COUNT: ${questions.length}; REQUIRED INDEXES: ${JSON.stringify(questions.map((_, index) => index))}. Review ALL items. evidenceIds must come ONLY from the SOURCE EVIDENCE CATALOG above, NEVER from QUESTIONS or generated plans. If no catalog excerpt supports a claim, reject it as unsupported_fact.
-Return ONLY JSON: {"reviews":[{"index":0,"approved":true,"objectiveAligned":true,"discrimination":{"closestAlternative":"non-key letter","stemClue":"exact final-stem quote","whyAlternativeFails":"lecture-supported distinction","keyUniquelySupported":true,"alternativeAlsoCorrect":false},"objectiveFacet":"tested clause","issues":[],"rationale":"brief evidence-based judgment","reasoning":{"orderLevel":"second-order","steps":["interpret clue","apply required relationship"],"evidenceIds":["E1"],"allStepsRequired":true,"connectedChain":true,"singleEndpoint":true,"choiceShortcut":false}}]}
+Return ONLY JSON: {"reviews":[{"index":0,"approved":true,"objectiveAligned":true,"objectiveAlignment":{"objectiveId":"assigned id","objectiveClause":"exact assigned objective clause","testedRelationship":"source-supported relationship"},"sourceRelationshipIds":[],"discrimination":{"closestAlternative":"non-key letter","stemClue":"exact final-stem quote","whyAlternativeFails":"lecture-supported distinction","keyUniquelySupported":true,"alternativeAlsoCorrect":false},"objectiveFacet":"tested clause","issues":[],"rationale":"brief evidence-based judgment","reasoning":{"orderLevel":"second-order","steps":["interpret clue","apply required relationship"],"evidenceIds":["E1"],"allStepsRequired":true,"connectedChain":true,"singleEndpoint":true,"choiceShortcut":false}}]}
 Issue codes: incorrect_key, ambiguous_key, unsupported_fact, objective_mismatch, duplicate_choices, duplicate_question, answer_leak, weak_explanation, inconsistent_vignette, non_discriminating_clues, multiple_true_choices, repetitive_task_ending, school_style_mismatch, disconnected_recall_tasks, answer_choice_shortcut, order_level_mismatch.`;
 }
 

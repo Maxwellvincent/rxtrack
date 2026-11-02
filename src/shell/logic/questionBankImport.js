@@ -1,3 +1,5 @@
+import * as sourceUseStore from "../../stores/sourceUse.js";
+import {allowedGenerationExamples,isEvaluationReserved} from "../../engine/sourceUse.js";
 import { archiveQuestionSource } from "../../storageUpload.js";
 import { parseExamPDF } from "../../examParser.js";
 import { callAIJSON, callAIWithImage } from "../../aiClient.js";
@@ -117,6 +119,7 @@ export async function processQuestionBankFiles({
   wrongOnly = false,
   sourceKind = "school",
   useLlm = false,
+  reserveForEvaluation = false,
   schoolResultsData = {},
   schoolResultsLoading = false,
   schoolResultsError = null,
@@ -124,6 +127,7 @@ export async function processQuestionBankFiles({
   update = noop,
   onUploaded,
 }) {
+  if(reserveForEvaluation) useLlm=false;
   const files = selectQuestionBankFiles(selectedFiles);
   if (!files.length) return "No supported question-bank files found.";
 
@@ -380,11 +384,17 @@ export async function processQuestionBankFiles({
 
   if (banksChanged) {
     update("Saving imported question banks and answer-key metadata…");
+    let registry=userId?await sourceUseStore.change(userId,current=>current):sourceUseStore.read(userId);
+    if(reserveForEvaluation) {
+      for(const filename of new Set(report.pendingAnalyses.map(entry=>entry.filename))) {
+        registry=await sourceUseStore.reserve(userId,filename,pendingBanks[filename] || [],true);
+      }
+    }
     await Promise.all([
       questionBanksStore.writeAwait(userId, pendingBanks),
       questionBankMetaStore.writeAwait(userId, pendingMeta),
       ...report.pendingAnalyses.map(({ filename, analysis }) => questionBankAnalysisStore.writeAwait(userId, filename, analysis)),
-      questionStyleProfileStore.writeAwait(userId, buildStyleProfile(Object.values(pendingBanks).flat())),
+      questionStyleProfileStore.writeAwait(userId, buildStyleProfile(allowedGenerationExamples(Object.entries(pendingBanks).flatMap(([filename,questions])=>questions.map(question=>({...question,sourceFile:question.sourceFile || filename}))),registry))),
     ]);
     onUploaded?.();
   }
@@ -393,6 +403,7 @@ export async function processQuestionBankFiles({
   for (const [index, entry] of report.pendingAnalyses.entries()) {
     update(`Analyzing ${index + 1}/${report.pendingAnalyses.length} · ${entry.filename}`);
     try {
+      if(reserveForEvaluation || isEvaluationReserved({sourceFile:entry.filename},sourceUseStore.read(userId))) continue;
       const reviewed = await callAIJSON(
         "You are a strict medical education reviewer. Preserve uploaded answer keys and clearly label uncertainty.",
         buildQuestionBankCritiquePrompt(entry.analysis, entry.questions, objectives, lectures),

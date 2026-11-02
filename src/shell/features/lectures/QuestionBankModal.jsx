@@ -1,3 +1,4 @@
+import * as sourceUseStore from "../../../stores/sourceUse.js";
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "../../../ui/Button.jsx";
 import { useQuestionBanks } from "../../hooks/useQuestionBanks.js";
@@ -19,6 +20,8 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], obje
   const [wrongOnly, setWrongOnly] = useState(false);
   const [sourceKind, setSourceKind] = useState("school");
   const [useLlm, setUseLlm] = useState(false);
+  const [reserveForEvaluation,setReserveForEvaluation]=useState(false);
+  const sourceUse=useStoreResource(sourceUseStore,userId);
   const [showManage, setShowManage] = useState(false);
   const [showAllBanks, setShowAllBanks] = useState(false);
   const [, setMetaRevision] = useState(0);
@@ -42,7 +45,8 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], obje
           userId,
           wrongOnly,
           sourceKind: uploadSourceKind,
-          useLlm,
+          useLlm:reserveForEvaluation ? false : useLlm,
+          reserveForEvaluation,
           schoolResultsData: schoolResultsRes.data,
           schoolResultsLoading: schoolResultsRes.loading,
           schoolResultsError: schoolResultsRes.error,
@@ -53,7 +57,7 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], obje
       });
       onClose?.();
     },
-    [blockId, blockName, lectures, objectives, userId, wrongOnly, sourceKind, useLlm, onClose, onUploaded, schoolResultsRes]
+    [blockId, blockName, lectures, objectives, userId, wrongOnly, sourceKind, useLlm, reserveForEvaluation, onClose, onUploaded, schoolResultsRes]
   );
 
   const remove = useCallback(
@@ -74,7 +78,7 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], obje
   const allNames = Object.keys(banks).sort();
   const names = (showAllBanks ? allNames : allNames.filter((name) => blockNames.has(name)));
   const totalQuestions = names.reduce((n, name) => n + (banks[name]?.length || 0), 0);
-  const styleSources = collectStyleSources(banks, meta, questionRatingsStore.read(userId).ratings || {});
+  const styleSources = collectStyleSources(banks, meta, questionRatingsStore.read(userId).ratings || {},sourceUse.data);
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 sm:py-8" onClick={onClose}>
@@ -98,6 +102,10 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], obje
           <button type="button" onClick={() => setShowAllBanks(true)} className={`border-b-2 px-3 py-2 text-sm font-bold ${showAllBanks ? "border-accent text-accent-text" : "border-transparent text-text-3"}`}>All banks · {allNames.length}</button>
         </div>
 
+        <details className="mb-3 text-sm"><summary className="cursor-pointer">Evaluation source settings</summary>
+          <label className="mt-2 flex items-start gap-2"><input type="checkbox" checked={reserveForEvaluation} onChange={event=>setReserveForEvaluation(event.target.checked)} />Reserve these files for evaluation</label>
+          <p className="mt-1 text-xs text-text-3">Reserved questions stay available as originals but are excluded from generation examples and style calibration. Previous exposure stays unknown; reserving does not make a question unseen.</p>
+        </details>
         <div className="mb-3 flex flex-col gap-2">
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-4" aria-label="Question source type">
             <button type="button" onClick={() => setSourceKind("school")} className={`rounded-lg border p-2 text-left text-xs ${sourceKind === "school" ? "border-accent bg-accent-soft text-text-1" : "border-border text-text-3"}`}>

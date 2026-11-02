@@ -1,3 +1,5 @@
+import * as sourceUseStore from "../stores/sourceUse.js";
+import {allowedGenerationExamples} from "./sourceUse.js";
 // mentalModel.js — builds a reasoning framework from a lecture's extracted atoms:
 // big picture -> components -> relationships -> mechanisms/flows -> cause-and-effect ->
 // clinical application. Not a summary — every node is meant to have atoms attached to it.
@@ -76,10 +78,12 @@ const EMPTY_MODEL = {
   reasoningLadders: [],
 };
 
-export async function generateMentalModel({ atoms = [], objectives = [], examples = [], subject = "this lecture", orderBlueprint = null } = {}, deps = {}) {
+export async function generateMentalModel({ atoms = [], objectives = [], examples = [], subject = "this lecture", orderBlueprint = null, userId = null } = {}, deps = {}) {
   const { callAIJSON, maxTokens = 3000 } = deps;
   if (!atoms.length) return { error: "Nothing to build a framework from — extract atoms first.", model: null };
   try {
+    examples=allowedGenerationExamples(examples);
+    if(examples.some(question=>question._trackSourceUse))examples=await sourceUseStore.context(userId,examples);
     const prompt = buildMentalModelPrompt({ atoms, objectives, examples, subject, orderBlueprint });
     const result = await callAIJSON(SYSTEM, prompt, EMPTY_MODEL, maxTokens);
     const model = {

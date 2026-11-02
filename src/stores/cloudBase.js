@@ -20,7 +20,7 @@ import { applyLocalCap, SKIP_ON_PULL } from "./capped.js";
  * writes — `{ data: value }` — so a converted store reads what is there today
  * with no migration.
  */
-import { doc, onSnapshot, setDoc, serverTimestamp } from "firebase/firestore";
+import { doc, onSnapshot, setDoc, serverTimestamp, runTransaction } from "firebase/firestore";
 import { db } from "../firebase.js";
 import { encodeDocId } from "../idCodec.js";
 import { notifyStoreChanged, subscribeToStore, writeJson } from "./base.js";
@@ -38,7 +38,7 @@ export function __setCloudBackendForTests(fake) {
   entries.clear();
 }
 function api() {
-  return backend || { doc, onSnapshot, setDoc, serverTimestamp };
+  return backend || { doc, onSnapshot, setDoc, serverTimestamp, runTransaction };
 }
 
 const cacheKey = (userId, logicalKey) => `${userId || "anon"}:${logicalKey}`;
@@ -264,6 +264,24 @@ export function writeCloudAwait(userId, logicalKey, value) {
   return Promise.resolve(
     put(docRef(userId, logicalKey), { data: stripUndefined(value), updatedAt: stamp() }, { merge: false })
   ).then(() => value); // deliberately no .catch — rejection must propagate to the caller
+}
+
+/** Atomic read/modify/write; publish cache state only after the transaction commits. */
+export async function updateCloudAwait(userId, logicalKey, update) {
+  if (!userId) throw new Error("Sign in before changing this record.");
+  const {runTransaction: transact, serverTimestamp: stamp} = api();
+  const ref = docRef(userId, logicalKey);
+  const value = await transact(db, async transaction => {
+    const snapshot = await transaction.get(ref);
+    const next = stripUndefined(update(snapshot.exists() ? snapshot.data()?.data : undefined));
+    transaction.set(ref, {data: next, updatedAt: stamp()});
+    return next;
+  });
+  const entry = entryFor(userId, logicalKey);
+  entry.value = value; entry.hydrated = true; entry.error = null;
+  mirrorLocally(userId, logicalKey, value);
+  notifyStoreChanged(logicalKey, {userId, source: "confirmed-transaction"});
+  return value;
 }
 
 /** Same change notification channel as the localStorage stores. */
