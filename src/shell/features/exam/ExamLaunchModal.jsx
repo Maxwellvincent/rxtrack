@@ -1,3 +1,4 @@
+import {SCHOOL_EXAM_TARGET_PERCENT} from "../../logic/performanceTargets.js";
 import { BPM_BLUEPRINTS, SUBJECT_LABELS, subjectTargets, blueprintInventory } from "./bpmBlueprint.js";
 import { useEffect, useState } from "react";
 import { examDurationMinutes } from "./examTiming.js";
@@ -189,7 +190,7 @@ export function ExamLaunchModal({
                 <span className="block text-sm font-semibold text-text-1">{option.label}</span><span className="block text-xs text-text-3">{option.note}</span>
               </button>)}
             </div>
-            {studyMode === "repair" && <p className="mt-2 text-xs text-text-2">Cycles recognition → mechanism → clinical application → fresh retest. An objective leaves this queue after at least 5 recent answers reach 78%.</p>}
+            {studyMode === "repair" && <p className="mt-2 text-xs text-text-2">Cycles recognition → mechanism → clinical application → fresh retest. An objective leaves this queue after at least 5 recent answers reach {SCHOOL_EXAM_TARGET_PERCENT}%.</p>}
           </div>
 
           <div>

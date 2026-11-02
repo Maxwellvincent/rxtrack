@@ -756,8 +756,10 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
         </div>
       </div>
 
+      <details className="mb-5 rounded-xl border border-border p-3"><summary className="cursor-pointer text-sm font-semibold">Optional school subject weighting</summary>
       <BpmBlueprintDashboard blockId={blockId} userId={userId} objectivesByLecture={blueprintContext.objectivesByLecture} lectures={blueprintContext.lectures}
         onReview={onNavigateToLecture} onStart={exam=>{setSelectedBlueprint(String(exam));setLaunchError(null);setShowLaunchModal(true);}} />
+      </details>
 
       <nav className="mb-5 flex flex-wrap gap-2 border-b border-border pb-3" aria-label="Exam center sections">
         {[["start", "Start & continue"], ["banks", `Question banks${blockQuestionBanks.length ? ` · ${blockQuestionBanks.length}` : ""}`], ["results", "Results & weak lectures"]].map(([id, label]) => (
