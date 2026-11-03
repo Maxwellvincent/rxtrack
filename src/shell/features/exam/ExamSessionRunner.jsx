@@ -1,3 +1,4 @@
+import {ReservedAssessmentReport,ReservedAssessmentFigure} from './ReservedAssessmentReport.jsx';
 import { SourceBankRepair } from './SourceBankRepair.jsx';
 import { updateExamSessionTransaction } from '../../../supabase.js';
 import { practiceSection, practiceSections, sectionQuestionIndices, firstSectionQuestion } from './practiceSections.js';
@@ -81,6 +82,7 @@ function SavedPracticeSummary({ session, baseline, userId, labels, onExit, onRes
 }
 
 function sessionLabel(session) {
+  if(session.purpose==='reserved-assessment')return 'Reserved assessment';
   if (session.sourceType !== "question-bank") return "Exam";
   return /examsoft|esoft|imcq/i.test(session.sourceFile || "") ? "School quiz" : "Homework";
 }
@@ -242,9 +244,11 @@ function SyncIndicator({ status }) {
   );
 }
 
-function ChoiceList({ questionId, choices, picked, revealed, correct, onPick, locked = false, choiceColumns = [], choiceLayout = null }) {
+function ChoiceList({questionId,...props}) {
+  return <QuestionChoices key={questionId} {...props}/>;
+}
+function QuestionChoices({ choices, picked, revealed, correct, onPick, locked = false, choiceColumns = [], choiceLayout = null }) {
   const [crossed, setCrossed] = useState(new Set());
-  useEffect(() => setCrossed(new Set()), [questionId]);
   return (
     <div className="flex flex-col gap-1.5">
       {orderedChoiceEntries(choices).map(([letter, text]) => {
@@ -293,12 +297,14 @@ function ChoiceList({ questionId, choices, picked, revealed, correct, onPick, lo
   );
 }
 
-function MissDiagnosis({ question, selectedChoice, initialResult = null, onComplete, onSkip, onNavigateToLecture }) {
+function MissDiagnosis({question,initialResult=null,...props}) {
+  return <QuestionMissDiagnosis key={`${question?.questionId}:${JSON.stringify(initialResult)}`} question={question} initialResult={initialResult} {...props}/>;
+}
+function QuestionMissDiagnosis({ question, selectedChoice, initialResult = null, onComplete, onSkip, onNavigateToLecture }) {
   const [patient, setPatient] = useState("");
   const [ask, setAsk] = useState("");
   const [prediction, setPrediction] = useState("");
   const [result, setResult] = useState(initialResult);
-  useEffect(() => setResult(initialResult), [question?.questionId, initialResult]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   async function diagnose() {
@@ -369,7 +375,7 @@ function QuestionNavigator({ questions, session, currentIndex, onSelect, indices
   );
 }
 
-function ExamFormat({ controller, submitOpts, objectivesById, lectureLabelsByLectureId, userId }) {
+function ExamFormat({ controller, submitOpts, objectivesById, lectureLabelsByLectureId, userId, saveExitAction }) {
   const { session, currentIndex, setCurrentIndex, remainingMs, answerQuestion, submit, submitting } =
     controller;
   const questions = session.questions || [];
@@ -392,16 +398,16 @@ function ExamFormat({ controller, submitOpts, objectivesById, lectureLabelsByLec
         </div>
       </div>
 
+      {session.purpose==='reserved-assessment' && <p className="text-xs text-text-2">Reserved timed assessment · answers hidden until submission · unanswered questions count in the score. Saving and resuming retains the original deadline.</p>}
       <QuestionNavigator questions={questions} session={session} currentIndex={currentIndex} onSelect={setCurrentIndex} />
 
       {!q && session.fillStatus === "generating" && <div role="status" className="rounded-lg border border-accent/40 bg-bg-elevated p-4 text-sm text-text-2">Preparing the first questions for this scope…</div>}
 
       {q && (
         <div className="rounded-lg border border-border bg-bg-elevated p-3">
-          <QuestionMeta question={q} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} />
-          <LeadInCue stem={q.stem} />
+          {session.purpose!=="reserved-assessment" && <><QuestionMeta question={q} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} /><LeadInCue stem={q.stem} /></>}
           <QuestionStem text={q.stem} questionId={q.questionId} />
-          <SchoolQuestionFigure question={q} userId={userId} />
+          {session.purpose==='reserved-assessment' ? <ReservedAssessmentFigure question={q}/> : <SchoolQuestionFigure question={q} userId={userId} />}
           <ChoiceList
             questionId={q.questionId}
             choices={q.choices}
@@ -433,9 +439,10 @@ function ExamFormat({ controller, submitOpts, objectivesById, lectureLabelsByLec
         </div>
       </div>
       <div className="flex flex-col gap-2 rounded-lg border-2 border-border-strong bg-panel p-3 sm:flex-row sm:items-center sm:justify-between">
-        <div><div className="text-xs font-bold text-text-1">Finished reviewing?</div><div className="font-mono text-[11px] text-text-3">{answeredCount} answered · {questions.length - answeredCount} {session.sourceType === "question-bank" ? "unanswered · remain available in this set" : "return to reserve"}</div></div>
+        {session.purpose==='reserved-assessment' && saveExitAction}
+        <div><div className="text-xs font-bold text-text-1">{session.purpose==='reserved-assessment'?'Finish assessment':'Finished reviewing?'}</div><div className="font-mono text-[11px] text-text-3">{answeredCount} answered · {questions.length - answeredCount} {session.purpose==='reserved-assessment' ? "unanswered · counted in the assessment score" : session.sourceType === "question-bank" ? "unanswered · remain available in this set" : "return to reserve"}</div></div>
         <Button variant="outline" disabled={submitting || session.fillStatus === "generating"} onClick={() => {
-          if (window.confirm(`Submit ${answeredCount} answered questions for grading? ${questions.length - answeredCount} unanswered questions will not count against you.`)) submit(submitOpts);
+          if (window.confirm(session.purpose==='reserved-assessment' ? `Submit this assessment? ${questions.length - answeredCount} unanswered questions will count in the assessment score.` : `Submit ${answeredCount} answered questions for grading? ${questions.length - answeredCount} unanswered questions will not count against you.`)) submit(submitOpts);
         }}>{submitting ? "Grading answered questions…" : `Submit ${sessionLabel(session).toLowerCase()} · finish & grade`}</Button>
       </div>
     </div>
@@ -618,7 +625,8 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, object
   const correctCount = scoreableAnswered.filter((q) => pickedFor(session, q.questionId) === q.correct).length;
   const incorrectCount = scoreableAnswered.length - correctCount;
   const unlinkedMisses = scoreableAnswered.filter(q => !q.lectureId && pickedFor(session, q.questionId) !== q.correct).length;
-  const percent = scoreableAnswered.length ? Math.round(correctCount / scoreableAnswered.length * 100) : 0;
+  const scoreDenominator=session.purpose==='reserved-assessment' ? questions.filter(q=>!questionRatingsStore.isExcluded(userId,q) && !(session.scoringExcludedQuestionIds || []).includes(q.questionId)).length : scoreableAnswered.length;
+  const percent = scoreDenominator ? Math.round(correctCount / scoreDenominator * 100) : 0;
   const visible = questions.filter((q) => {
     const picked = pickedFor(session, q.questionId);
     if (filter === "correct") return !questionRatingsStore.isExcluded(userId, q) && picked === q.correct;
@@ -672,9 +680,10 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, object
         <p className="mt-1 text-xs text-text-3">Exports {incorrectCount} missed questions with their figures and full choices, plus space to reason. Answers are left out.</p>
         {worksheetError && <p role="alert" className="mt-2 text-xs text-bad">{worksheetError}</p>}
       </div>}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <ReservedAssessmentReport session={session} excludedIds={questions.filter(q=>questionRatingsStore.isExcluded(userId,q)).map(q=>q.questionId)} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} />
+      {session.purpose!=='reserved-assessment' && <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         {[["Score", `${percent}%`], ["Correct", correctCount], ["Incorrect", incorrectCount], ["Unused", questions.length - answered.length]].map(([label, value]) => <div key={label} className="rounded-lg border border-border bg-panel p-3"><div className="font-mono text-[10px] uppercase text-text-3">{label}</div><div className="text-lg font-bold text-text-1">{value}</div></div>)}
-      </div>
+      </div>}
       <div className="flex flex-wrap gap-2">
         {[["incorrect", `Incorrect (${incorrectCount})`], ["correct", `Correct (${correctCount})`], ["unused", `Unused (${questions.length - answered.length})`], ["all", `All (${questions.length})`]].map(([value, label]) => <button key={value} type="button" onClick={() => setFilter(value)} aria-pressed={filter === value} className={`rounded-lg border-2 px-3 py-2 text-xs font-bold ${filter === value ? "border-accent bg-accent/15 ring-2 ring-accent/30" : "border-border"}`}>{filter === value ? "✓ " : ""}{label}</button>)}
       </div>
@@ -775,8 +784,7 @@ export function ExamSessionRunner({
   // per Task 7's idempotent/resumable design.
   useEffect(() => {
     if (session?.status === "finalizing") submit(submitOpts);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once per
-    // observed "finalizing" transition, not on every submit identity change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- Follow finalizing transitions, not submit identity changes.
   }, [session?.status]);
 
   if (loading) return <div className="text-sm text-text-3">Loading session…</div>;
@@ -861,7 +869,7 @@ export function ExamSessionRunner({
       {session.fillStatus === "generating" && <ExamPreparationStatus session={session} />}
       {session.fillStatus === "partial" && <p role="status" className="text-sm text-text-3">{session.questions?.length || 0} questions available. You can continue with these questions.</p>}
       {session.format === "exam" ? (
-        <ExamFormat userId={userId} controller={{ ...controller, session }} submitOpts={submitOpts} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} />
+        <ExamFormat saveExitAction={saveExitAction} userId={userId} controller={{ ...controller, session }} submitOpts={submitOpts} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} />
       ) : (
         <PracticeFormat
           key={`${userId}:${session.sessionId}`}

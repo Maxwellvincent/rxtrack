@@ -1,3 +1,4 @@
+import {compareReservedAssessments} from '../../../engine/reservedAssessment.js';
 import { useState } from 'react';
 import { useQuestionBanks } from '../../hooks/useQuestionBanks.js';
 import { useQuestionBankMeta } from '../../hooks/useQuestionBankMeta.js';
@@ -20,6 +21,7 @@ export function SchoolAlignmentPanel({ blockId, userId, sessions = [], historyRe
   const covered=new Set(links.flatMap(x=>x.links.filter(l=>l.basis==='school-code').map(l=>l.targetId)));
   const objectiveIds=new Set(objectives.map(o=>o.id || o.code || o.objective || o.text));
   const comparison=compareSchoolResults(blockId,sessions,Object.values(results.data || {}));
+  const reservedPairs=compareReservedAssessments(blockId,sessions,Object.values(results.data || {}));
   const loading=banks.loading || meta.loading || objectiveData.loading;
   async function save(e) {
     e.preventDefault();const form=e.currentTarget, data=new FormData(form);
@@ -47,6 +49,7 @@ export function SchoolAlignmentPanel({ blockId, userId, sessions = [], historyRe
     {!historyReady ? <p>Waiting for complete exam-session history before comparing.</p> : comparison.pairs.map(r=><p key={r.id} className="my-2 rounded border border-border p-2">
       {r.date} · {r.name} ({r.kind}): {r.percent}% school result · {r.practiceAccuracy==null?'No comparable timed practice recorded':`${(r.practiceAccuracy*100).toFixed(1)}% prior practice (${r.practiceCount} questions); school minus practice: ${r.gap.toFixed(1)} percentage points`}.
     </p>)}
+    {historyReady && reservedPairs.some(pair=>pair.assessmentCount>0 || pair.exposedSittingsExcluded>0) && <details className="my-3"><summary className="cursor-pointer">Reserved assessment comparisons</summary><p className="my-2 text-xs text-text-2">Prior seven days, excluding exam-day practice and sittings with known prior exposure. Unanswered items count. These comparisons are descriptive; unknown earlier exposure and overlapping content prevent a calibrated prediction.</p>{reservedPairs.filter(pair=>pair.assessmentCount>0 || pair.exposedSittingsExcluded>0).map(pair=><p key={pair.reportId} className="my-2">{pair.name} ({pair.kind}) · {pair.schoolPercent}% school result versus {pair.assessmentPercent==null?"no qualifying":pair.assessmentPercent.toFixed(1)+"%"} reserved assessment ({pair.questionCount} questions, {pair.assessmentCount} sittings). Earlier exposure remains unknown for {pair.unknownPriorExposure} delivered questions. {pair.exposedSittingsExcluded} exposed or repeat sittings omitted.</p>)}</details>}
     <p className="my-2 text-text-2">One pair cannot establish prediction. Difficulty, objective coverage, exam format and prior exposure still differ. Your {SCHOOL_EXAM_TARGET_PERCENT}% target is a benchmark, not a pass guarantee.</p>
     <form onSubmit={save} className="grid gap-2 sm:grid-cols-2">
       <label>School result name<input required name="name" maxLength={100} className="block w-full rounded border border-border bg-bg p-2" placeholder="ER block exam" /></label>

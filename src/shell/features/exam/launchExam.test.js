@@ -3,6 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // Pure orchestration logic: mock the sibling functions this module calls
 // into, following the same DI-via-vi.mock approach useExamSessionController.test.jsx
 // uses for supabase.js/finalize.js.
+// This orchestration test assumes a hydrated empty exposure registry. Real
+// cloud timing must not decide whether its school fixture is available.
+vi.mock('../../../stores/sourceUse.js',()=>({read:()=>({}),isHydrated:()=>true,readError:()=>null}));
 const allocateQuestionsMock = vi.fn();
 const generateExamQuestionsMock = vi.fn();
 const createExamSessionMock = vi.fn();

@@ -4,6 +4,8 @@ import * as questionFigures from "../../../stores/questionFigures.js";
 import { questionReferencesVisual } from "../../../engine/questionVisual.js";
 import { questionClarityIssues } from "../../../engine/questionClarity.js";
 import { createSessionShape } from "../../../examSessions.js";
+import * as sourceUse from '../../../stores/sourceUse.js';
+import { listExamSessions } from '../../../supabase.js';
 import { createExamSession } from "../../../supabase.js";
 import { examDurationMs } from "./examTiming.js";
 import { linkSourceLecture, prepareBankQuestionSet } from "./questionBankLinks.js";
@@ -44,9 +46,10 @@ export function prepareQuestionBankQuestions(questions, { blockId, filename, ana
 }
 
 export async function launchQuestionBankSession(
-  { userId, blockId, filename, questions, analysis = null, lectures = [], format = "exam" },
+  { userId, blockId, filename, questions, analysis = null, lectures = [], format = "exam", purpose = "practice" },
   deps = {}
 ) {
+  if(purpose==='reserved-assessment' && format!=='exam')return {ok:false,error:'Reserved assessments must be timed with answers hidden until submission.'};
   const create = deps.createExamSession || createExamSession;
   const { questions: sourceQuestions, removedDuplicateCount } = prepareBankQuestionSet(questions || [], analysis);
   if (!sourceQuestions.length) return { ok: false, error: "This question bank is empty." };
@@ -56,6 +59,8 @@ export async function launchQuestionBankSession(
   const heldSet = new Set(held);
   const eligible = withFigures.filter(q => !heldSet.has(q));
   if (!eligible.length && held.length) return {ok:false,error:'All questions in this bank are awaiting source-key review. No answers have been inferred.'};
+  const unsafeFigures=purpose==='reserved-assessment' ? eligible.filter(q=>(q.hasImage || q.imageDependent || questionReferencesVisual(q.stem)) && (!q.sourceFigureCropped || !q.sourceImageUrl)).length : 0;
+  if(unsafeFigures)return {ok:false,error:`${unsafeFigures} figure questions need saved figure-only crops before this assessment. Prepare the exhibits in source review first; full PDF pages can include answer keys.`};
   const invalidCount = eligible.filter((question) => !validBankQuestion(question)).length;
   if (invalidCount) {
     return {
@@ -66,6 +71,8 @@ export async function launchQuestionBankSession(
 
   const sessionId = makeSessionId();
   const prepared = prepareQuestionBankQuestions(eligible, { blockId, filename, analysis, lectures });
+  // History loading must not consume the learner's timed question budget.
+  const assessmentHistory=purpose==='reserved-assessment' ? await (deps.listExamSessions || listExamSessions)(userId,null) : null;
   const startedAt = format === "exam" ? Date.now() : null;
   const session = createSessionShape({
     sessionId,
@@ -78,6 +85,11 @@ export async function launchQuestionBankSession(
     sourceType: "question-bank",
     sourceFile: filename,
   });
+  if(purpose==='reserved-assessment'){
+    // Read full account history, including other blocks and unfinished sittings. Never turn a failed read into an empty history.
+    session.purpose=purpose;
+    session.assessment=await (deps.beginAssessment || sourceUse.beginAssessment)(userId,prepared,assessmentHistory,sessionId,startedAt);
+  }
   if (held.length) session.sourceExclusions = held.map(q => ({id:q.id || null,section:q.sourceSection || '',number:q.sourceQuestionNumber || q.num || null,reason:'source-key-review'}));
   const result = await create(userId, session);
   if (!result?.ok) return { ok: false, error: result?.error || "Could not create the quiz session." };

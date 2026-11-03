@@ -1,3 +1,6 @@
+import {SourceUseAdmin} from '../../SourceUseAdmin.jsx';
+import * as sourceUseStore from '../../../stores/sourceUse.js';
+import {isEvaluationReserved} from '../../../engine/sourceUse.js';
 import {subscribeExamSessionChanges} from "../../../examSessionChanges.js";
 import {MissedPracticeActions} from "./MissedPracticeActions.jsx";
 import {useQuestionPractice} from "../../hooks/useQuestionPractice.js";
@@ -142,6 +145,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   const lecturesRes = useLectures(blockId, userId);
   const objectivesRes = useObjectives(null, userId);
   const blueprintEvidenceRes = useStoreResource(learnerEvidenceStore, userId);
+  const sourceUseRes=useStoreResource(sourceUseStore,userId);
   const questionRatingsRes = useStoreResource(questionRatingsStore, userId);
   const questionStats = useLectureQuestionStats(userId);
   const practiceHistory = useQuestionPractice(userId,blockId);
@@ -538,7 +542,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   },[userId,blockId]);
   const statsForBank = (bank) => {
     const names = new Set([bank.filename, ...(bank.aliases || [])]);
-    const attempts = bankAttempts.filter((session) => names.has(session.sourceFile)).sort((a, b) => (a.submittedAt || 0) - (b.submittedAt || 0));
+    const attempts = bankAttempts.filter((session) => names.has(session.sourceFile) && session.purpose!=="reserved-assessment").sort((a, b) => (a.submittedAt || 0) - (b.submittedAt || 0));
     const scored = attempts.map((session) => {
       const answers = new Map((session.answers || []).map((answer) => [answer.questionId, answer]));
       const answered = (session.questions || []).filter((question) => answers.has(question.questionId));
@@ -671,7 +675,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
     }
   };
 
-  const handleBankLaunch = async (bank, format, selectedQuestions = null) => {
+  const handleBankLaunch = async (bank, format, selectedQuestions = null, purpose = "practice") => {
     if (bankLaunching) return;
     setBankLaunching(`${bank.filename}:${format}`);
     setLaunchError(null);
@@ -684,6 +688,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
         analysis: bank.analysis,
         lectures,
         format,
+        purpose,
       });
       if (result.ok) {
         if (result.removedDuplicateCount) setLaunchWarning(`${result.removedDuplicateCount} repeated question${result.removedDuplicateCount === 1 ? " was" : "s were"} skipped for this run. The source bank is unchanged.`);
@@ -914,6 +919,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           <div className="mb-3 flex gap-1 overflow-x-auto border-b border-border" role="tablist" aria-label="School question bank categories">
             {bankGroups.map(([group]) => <button key={group} type="button" role="tab" aria-selected={activeBankCategory === group} onClick={() => setBankCategory(group)} className={`shrink-0 border-b-2 px-4 py-3 text-sm font-bold ${activeBankCategory === group ? "border-accent text-accent-text" : "border-transparent text-text-3 hover:text-text-1"}`}>{group}</button>)}
           </div>
+          <SourceUseAdmin title="Assessment setup" userId={userId} banks={Object.fromEntries(blockQuestionBanks.filter(bank=>bank.sourceKind!=="clicker").map(bank=>[bank.filename,bank.questions]))} />
           <div className="space-y-2">
             {(bankGroups.find(([group]) => group === activeBankCategory)?.[1] || []).map((bank) => {
               const distinctQuestionSet = prepareBankQuestionSet(bank.questions, bank.analysis);
@@ -921,6 +927,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
               const expectedCount = bank.expectedQuestions || (/examsoftpractice/i.test(cleanLectureTitle(bank.filename)) ? 30 : null);
               const incomplete = expectedCount && bank.questions.length < expectedCount;
               const exampleOnly = bank.sourceKind === "clicker";
+              const reserved=distinctQuestionSet.questions.length>0 && distinctQuestionSet.questions.every(q=>isEvaluationReserved({...q,sourceFile:bank.filename},sourceUseRes.data || {}));
               const stats = statsForBank(bank);
               const missedOnly = missedBankQuestions({bank, sessions:[...bankAttempts,...resumableSessions], blockId, ratings:questionRatingsRes.data?.ratings || {}});
               const analysis = bank.analysis;
@@ -932,18 +939,20 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
                 <div key={bank.filename} className="flex flex-col gap-2 rounded-lg border border-border bg-panel px-3 py-2 sm:flex-row sm:items-center">
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[13px] font-medium text-text-1">{bank.displayName || cleanLectureTitle(bank.filename)}</div>
-                    <div className="font-mono text-[11px] text-text-3">{distinctQuestionSet.questions.length} distinct questions{distinctQuestionSet.removedDuplicateCount ? ` · ${distinctQuestionSet.removedDuplicateCount} repeats skipped` : ""} · {minutes} min timed · {sourceLabel(bank.sourceKind, bank.filename)}{bank.assignedDate ? ` · assigned ${bank.assignedDate}` : ""} · {stats.attempts} attempt{stats.attempts === 1 ? "" : "s"}{stats.latest ? ` · latest ${stats.latest.score}%` : ""}{stats.improvement != null ? ` · ${stats.improvement >= 0 ? "+" : ""}${stats.improvement}% change` : ""}</div>
+                    <div className="font-mono text-[11px] text-text-3">{distinctQuestionSet.questions.length} distinct questions{distinctQuestionSet.removedDuplicateCount ? ` · ${distinctQuestionSet.removedDuplicateCount} repeats skipped` : ""} · {minutes} min timed · {sourceLabel(bank.sourceKind, bank.filename)}{bank.assignedDate ? ` · assigned ${bank.assignedDate}` : ""} · {stats.attempts} practice attempt{stats.attempts === 1 ? "" : "s"}{stats.latest ? ` · latest ${stats.latest.score}%` : ""}{stats.improvement != null ? ` · ${stats.improvement >= 0 ? "+" : ""}${stats.improvement}% change` : ""}</div>
                     <QuestionBankMappingStatus userId={userId} blockId={blockId} filename={bank.filename} lectures={lectures} objectives={objectives}/>
                     {analysis && <div className="mt-1 text-[11px] text-text-2">Analysis: {analysis.clinicalQuestionCount || 0} clinical cue item{analysis.clinicalQuestionCount === 1 ? "" : "s"} · {analysis.objectiveCount || 0} objective link{analysis.objectiveCount === 1 ? "" : "s"}{focusSummary ? ` · ${focusSummary}` : ""} · {analysis.status === "reviewed" ? "reviewed" : "source-key review ready"}</div>}
                     {stats.latest?.missed?.length > 0 && <div className="mt-1 text-[11px] text-text-2">Mental-model repair: {stats.latest.missed.length} missed concept{stats.latest.missed.length === 1 ? "" : "s"}</div>}
-                    {resumableBankSession && partialScore && <div className="mt-1 text-[11px] text-accent-text">In progress · {partialScore.answered}/{resumableBankSession.questions?.length || 0} answered{partialScore.accuracy != null ? ` · ${partialScore.accuracy}% so far (${partialScore.correct} right, ${partialScore.incorrect} wrong)` : ""}</div>}
+                    {resumableBankSession && partialScore && <div className="mt-1 text-[11px] text-accent-text">In progress · {partialScore.answered}/{resumableBankSession.questions?.length || 0} answered{resumableBankSession.purpose!=="reserved-assessment" && partialScore.accuracy != null ? ` · ${partialScore.accuracy}% so far (${partialScore.correct} right, ${partialScore.incorrect} wrong)` : ""}</div>}
+                    {reserved && <p className="mt-1 text-xs text-accent-text">Reserved for assessment · excluded from generation examples. Prior exposure will be checked at launch.</p>}
                     {stats.attempts > 0 && <details className="mt-2 text-xs text-text-2">
                       <summary className="cursor-pointer font-semibold">Attempt history · {stats.attempts}</summary>
                       <div className="mt-2 flex flex-wrap gap-2">{stats.history.map((attempt, index) => <Button key={attempt.session.sessionId || attempt.session.id} variant="outline" onClick={() => setActiveSessionId(attempt.session.sessionId || attempt.session.id)}>Review attempt {index + 1} · {attempt.score}%</Button>)}</div>
                     </details>}
+                    {bankAttempts.filter(s=>s.purpose==="reserved-assessment" && bankNames.has(s.sourceFile)).map((s,i)=><Button key={s.sessionId} variant="outline" onClick={()=>setActiveSessionId(s.sessionId)}>Assessment result {i+1}</Button>)}
                     {incomplete && <div className="mt-1 text-[11px] font-bold text-bad">⚠ Incomplete import: {bank.questions.length}/{expectedCount}. Re-upload this PDF once to replace the old parse.</div>}
                     {exampleOnly && <div className="mt-1 text-[11px] text-accent-text">Example-only bank: use these clicker stems and images to guide generation; unkeyed slides are not scored as practice questions.</div>}
-                    {analysis?.items?.length > 0 && <details className="mt-2 text-xs text-text-2">
+                    {!reserved && analysis?.items?.length > 0 && <details className="mt-2 text-xs text-text-2">
                       <summary className="cursor-pointer font-semibold">Question critique & lecture links</summary>
                       <div className="mt-2 space-y-2">{analysis.items.slice(0, 8).map((item) => {
                         const linkedQuestion = bank.questions.find((question, index) => String(question?.id ?? question?.num ?? index + 1) === String(item.id ?? item.num));
@@ -966,9 +975,9 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
                     <Button variant="ghost" disabled={!!bankLaunching || bankEditBusy} onClick={() => renameBank(bank)}>{bankEditBusy ? "Saving…" : "Rename"}</Button>
                     <Button variant="ghost" disabled={!!bankLaunching || bankEditBusy} onClick={() => scheduleBank(bank)}>{bankEditBusy ? "Saving…" : bank.assignedDate ? "Change date" : "Assign date"}</Button>
                     {stats.latest && <Button variant="ghost" onClick={() => setActiveSessionId(stats.latest.session.sessionId || stats.latest.session.id)}>Review latest</Button>}
-                    {!exampleOnly && <Button variant="outline" disabled={!!bankLaunching} onClick={() => handleBankLaunch(bank, "practice")}>Practice</Button>}
-                    {!exampleOnly && <MissedPracticeActions questions={missedOnly} lectures={lectures} blockId={blockId} busy={!!bankLaunching} onLaunch={questions=>handleBankLaunch(bank,"practice",questions)} />}
-                    {!exampleOnly && <Button disabled={!!bankLaunching} onClick={() => handleBankLaunch(bank, "exam")}>Timed quiz</Button>}
+                    {!exampleOnly && !reserved && <Button variant="outline" disabled={!!bankLaunching || sourceUseRes.loading || !!sourceUseRes.error} onClick={() => handleBankLaunch(bank, "practice")}>Practice</Button>}
+                    {!exampleOnly && !reserved && <MissedPracticeActions questions={missedOnly} lectures={lectures} blockId={blockId} busy={!!bankLaunching || sourceUseRes.loading || !!sourceUseRes.error} onLaunch={questions=>handleBankLaunch(bank,"practice",questions)} />}
+                    {!exampleOnly && <Button disabled={!!bankLaunching || sourceUseRes.loading || !!sourceUseRes.error} onClick={() => handleBankLaunch(bank, "exam", null, reserved ? "reserved-assessment" : "practice")}>{reserved ? "Reserved timed assessment" : "Timed quiz"}</Button>}
                   </div>
                 </div>
               );

@@ -1,3 +1,4 @@
+import {beginReservedAssessment} from '../engine/reservedAssessment.js';
 import {readJson,writeJson} from './base.js';
 import {readCloud,isHydrated as hydrated,readError as error,subscribeToCloudStore,updateCloudAwait} from './cloudBase.js';
 import {emptySourceUse,reserveSource,recordSourceContext} from '../engine/sourceUse.js';
@@ -15,4 +16,10 @@ export async function context(userId,questions){
  let allowed=[];
  await change(userId,current=>{const result=recordSourceContext(current,questions);allowed=result.allowed;return result.registry;});
  return allowed;
+}
+
+export async function beginAssessment(userId,questions,history,sessionId,at){
+ let snapshot;
+ await change(userId,current=>{const result=beginReservedAssessment(current,questions,history,sessionId,at);snapshot=result.snapshot;return result.registry;});
+ return snapshot;
 }

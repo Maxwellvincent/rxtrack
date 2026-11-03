@@ -112,3 +112,26 @@ it('starts complete items while retaining explicitly held source keys outside sc
  expect(session.sourceExclusions).toEqual([expect.objectContaining({number:10,reason:'source-key-review'})]);
  expect(held.correct).toBeNull();
 });
+
+it('creates a reserved timed assessment only after durable exposure tracking and a complete history read',async()=>{
+ const createExamSession=vi.fn().mockResolvedValue({ok:true});
+ const listExamSessions=vi.fn().mockResolvedValue([{sessionId:'prior'}]);
+ const beginAssessment=vi.fn().mockResolvedValue({policy:'test',unknownPriorExposure:1});
+ await launchQuestionBankSession({userId:'u',blockId:'b',filename:'School',questions:[QUESTIONS[0]],format:'exam',purpose:'reserved-assessment'}, {createExamSession,listExamSessions,beginAssessment});
+ expect(listExamSessions).toHaveBeenCalledWith('u',null);
+ expect(beginAssessment.mock.invocationCallOrder[0]).toBeLessThan(createExamSession.mock.invocationCallOrder[0]);
+ expect(createExamSession.mock.calls[0][1]).toMatchObject({purpose:'reserved-assessment',format:'exam',assessment:{unknownPriorExposure:1}});
+});
+it('does not start an assessment when exposure persistence or history reads fail',async()=>{
+ const createExamSession=vi.fn(),args={userId:'u',blockId:'b',filename:'School',questions:[QUESTIONS[0]],format:'exam',purpose:'reserved-assessment'};
+ await expect(launchQuestionBankSession(args,{createExamSession,listExamSessions:async()=>{throw Error('history offline');}})).rejects.toThrow('history offline');
+ await expect(launchQuestionBankSession(args,{createExamSession,listExamSessions:async()=>[],beginAssessment:async()=>{throw Error('registry offline');}})).rejects.toThrow('registry offline');
+ expect(createExamSession).not.toHaveBeenCalled();
+ expect((await launchQuestionBankSession({...args,format:'practice'},{createExamSession})).ok).toBe(false);
+});
+
+it('does not expose full PDF pages in reserved figure assessments',async()=>{
+ const createExamSession=vi.fn();
+ const result=await launchQuestionBankSession({userId:'u',blockId:'b',filename:'School',questions:[{...QUESTIONS[0],hasImage:true,sourceImageUrl:'https://example.com/full-page.png'}],format:'exam',purpose:'reserved-assessment'},{createExamSession});
+ expect(result.ok).toBe(false);expect(result.error).toContain('figure-only crops');expect(createExamSession).not.toHaveBeenCalled();
+});

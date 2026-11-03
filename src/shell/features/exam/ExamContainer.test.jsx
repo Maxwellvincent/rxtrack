@@ -10,6 +10,8 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 // data source so this file only exercises ExamContainer's own view-state
 // wiring (launch modal -> active session -> dashboard), not any earlier
 // task's internals — those already have their own test files.
+const sourceUseReadMock=vi.fn(()=>({}));
+vi.mock('../../../stores/sourceUse.js',()=>({read:()=>sourceUseReadMock(),isHydrated:()=>true,readError:()=>null,subscribe:()=>()=>{},reserve:vi.fn()}));
 const launchExamSessionMock = vi.fn();
 const launchQuestionBankSessionMock = vi.fn();
 const questionBanksReadMock = vi.fn(() => ({}));
@@ -136,6 +138,7 @@ async function flush() {
 
 beforeEach(() => {
   installDomStorage();
+  sourceUseReadMock.mockReturnValue({});
   launchExamSessionMock.mockReset();
   launchQuestionBankSessionMock.mockReset();
   questionBanksReadMock.mockReset();
@@ -591,4 +594,18 @@ it('starts a separate missed-only practice from saved homework instead of restar
  await act(async()=>button.click());
  expect(launchQuestionBankSessionMock).toHaveBeenCalledWith(expect.objectContaining({filename:'ESoft.pdf',format:'practice',questions:[questions[1]]}));
  expect(host.querySelector('[data-testid="session-runner"]')?.textContent).toContain('missed-run');unmount();
+});
+
+it('offers a separate reserved timed assessment without exposing practice or partial correctness',async()=>{
+ const questions=[{id:'q',stem:'Which?',choices:{A:'a',B:'b'},correct:'A'}];
+ questionBanksReadMock.mockReturnValue({'Reserved.pdf':questions});
+ questionBankMetaReadMock.mockReturnValue({x:{filename:'Reserved.pdf',blockId:'b1'}});
+ sourceUseReadMock.mockReturnValue({sources:{'Reserved.pdf':{reserved:true}}});
+ launchQuestionBankSessionMock.mockResolvedValue({ok:true,sessionId:'assessment'});
+ const {host,unmount}=render(<ExamContainer blockId="b1" userId="u1"/>);await flush();
+ await act(async()=>[...host.querySelectorAll('button')].find(b=>b.textContent.includes('Question banks')).click());await flush();
+ expect([...host.querySelectorAll('button')].some(b=>b.textContent==='Practice')).toBe(false);
+ const launch=[...host.querySelectorAll('button')].find(b=>b.textContent==='Reserved timed assessment');expect(launch).toBeTruthy();
+ await act(async()=>launch.click());
+ expect(launchQuestionBankSessionMock).toHaveBeenCalledWith(expect.objectContaining({purpose:'reserved-assessment',format:'exam'}));unmount();
 });

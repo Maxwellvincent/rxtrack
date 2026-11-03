@@ -791,3 +791,35 @@ it("never recommends a perfect-score lecture as a missed-lecture repair", () => 
  expect(section.querySelector('details').textContent).toContain('Perfect lecture');
  unmount();
 });
+
+it('keeps reserved assessment answers and reading hints hidden until submission',()=>{
+ const controller=baseController();controller.session.purpose='reserved-assessment';controller.session.sourceType='question-bank';
+ controller.session.sourceFile='Reserved.pdf';controller.session.questions[0].explanation='SECRET KEY';
+ controllerMock.mockReturnValue(controller);
+ const {host,unmount}=render(<ExamSessionRunner sessionId="s1" userId="u1" />);
+ expect(host.textContent).toContain('answers hidden until submission');expect(host.textContent).not.toContain('SECRET KEY');expect(host.textContent).not.toContain('Show reading cue');
+ unmount();
+});
+it('scores reserved assessments over the full valid set including unanswered items',()=>{
+ const controller=baseController();controller.session.purpose='reserved-assessment';controller.session.sourceType='question-bank';controller.session.status='submitted';controller.session.answers=[{questionId:'q1',value:'A'}];
+ controller.session.assessment={knownPriorExposure:0,unknownPriorExposure:2};controllerMock.mockReturnValue(controller);
+ const {host,unmount}=render(<ExamSessionRunner sessionId="s1" userId="u1" />);
+ expect(host.querySelector('[aria-label="Reserved assessment result"]').textContent).toContain('50%');
+ expect(host.textContent).toContain('1 unanswered counted in the score');expect(host.textContent).toContain('unknown earlier exposure');unmount();
+});
+
+it('saves and exits reserved timed assessments without revealing partial correctness',async()=>{
+ const controller=baseController();controller.session.purpose='reserved-assessment';controller.session.sourceType='question-bank';controllerMock.mockReturnValue(controller);const onExit=vi.fn();
+ const {host,unmount}=render(<ExamSessionRunner sessionId="s1" userId="u1" onExit={onExit}/>);
+ const save=[...host.querySelectorAll('button')].find(b=>b.textContent==='Save & exit');expect(save).toBeTruthy();
+ await act(async()=>save.click());expect(controller.saveProgress).toHaveBeenCalled();expect(onExit).toHaveBeenCalled();
+ expect(host.textContent).not.toContain('% so far');unmount();
+});
+
+it('shows only the frozen exhibit during a reserved assessment, with no PDF browsing or crop controls',()=>{
+ const controller=baseController();controller.session.purpose='reserved-assessment';controller.session.sourceType='question-bank';
+ Object.assign(controller.session.questions[0],{hasImage:true,sourceFigureCropped:true,sourceImageUrl:'https://example.com/crop.png',originalSourceImageUrl:'https://example.com/key-page.png'});
+ controllerMock.mockReturnValue(controller);const {host,unmount}=render(<ExamSessionRunner sessionId="s1" userId="u1"/>);
+ expect(host.querySelector('img').getAttribute('src')).toBe('https://example.com/crop.png');
+ expect(host.textContent).not.toContain('Source page controls');expect(host.textContent).not.toContain('Adjust figure crop');unmount();
+});

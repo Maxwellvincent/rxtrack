@@ -13,6 +13,7 @@ import { sessionEvidenceEvent } from "./sessionEvidence.js";
 export async function checkpointExamSession(userId, sessionId, { lectures = [] } = {}) {
   const session = await updateExamSessionTransaction(userId, sessionId, current => {
     if (current?.status !== "in_progress") return null;
+    if(current.purpose==='reserved-assessment')return {...current,assessmentSavedAt:Date.now()};
     return { ...current, progressSavedAt: Date.now(), checkpointScoringPolicy: "quality-protected-v1",
       checkpointAnswers: current.answers || [],
       questions: (current.questions || []).map(q => {
@@ -21,6 +22,7 @@ export async function checkpointExamSession(userId, sessionId, { lectures = [] }
       }) };
   });
   if (!session || session.status !== "in_progress") throw new Error("This session could not be checkpointed. Please reload its status.");
+  if(session.purpose==='reserved-assessment')return session;
   const protectedSession = protectSessionScoring(session, questionRatings.read(userId).ratings);
   const excluded = new Set(protectedSession.scoringExcludedQuestionIds || []);
   const questions = new Map((protectedSession.questions || []).map(q => [q.questionId, q]));
@@ -41,6 +43,6 @@ export async function checkpointExamSession(userId, sessionId, { lectures = [] }
 /** Keep pending picks out of dashboards; never count unanswered items. */
 export function scoredSessionSnapshot(session, ratings = {}) {
   if (session.status === "submitted") return protectSessionScoring(session, ratings);
-  if (session.status !== "in_progress" || !session.progressSavedAt) return null;
+  if (session.purpose==='reserved-assessment' || session.status !== "in_progress" || !session.progressSavedAt) return null;
   return protectSessionScoring({ ...session, answers: session.checkpointAnswers || [], submittedAt: session.progressSavedAt, isCheckpoint: true }, ratings);
 }
