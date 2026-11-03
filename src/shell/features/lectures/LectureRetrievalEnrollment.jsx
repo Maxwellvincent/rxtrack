@@ -26,7 +26,7 @@ export function LectureRetrievalEnrollment({userId,blockId,lectureId,title,refer
   };
   const complete=async()=>{
     const at=Date.now(), eventId=crypto.randomUUID();
-    if(await save(data=>recordLectureNotes(data,{blockId,lectureId,title,reference:notes.trim() || (!model ? reference : '')},at,eventId),{at,eventId})) {
+    if(await save(data=>recordLectureNotes(data,{blockId,lectureId,title,completedReview:true,reference:notes.trim() || (!model ? reference : '')},at,eventId),{at,eventId})) {
       setNotes('');setNotice('Slides & notes review saved together. Your next review is shown here and in Today.');
     }
   };

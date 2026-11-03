@@ -25,3 +25,14 @@ it('commits one slide and notes session together and deduplicates retry',async()
  await expect(recordCombinedLectureReview('u',input,data=>recordLectureNotes(data,input,at,'new'),at,'new')).rejects.toThrow('Offline');
  expect(JSON.stringify(state.docs)).toBe(before);
 });
+
+it('clears the completion queue when a lecture model has no routine review',async()=>{
+ state.docs={};state.fail=false;
+ const input={blockId:'b',lectureId:'l',title:'Lecture'},at=Date.now();
+ await recordCombinedLectureReview('u',input,data=>{
+  const next=recordLectureNotes(data,input,at,'released');
+  Object.values(next.models)[0].nextReviewAt=null;return next;
+ },at,'released');
+ const completion=Object.values(state.docs).find(data=>data.l__b).l__b;
+ expect(completion.reviewDates).toEqual([]);
+});

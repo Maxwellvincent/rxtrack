@@ -11,7 +11,8 @@ export function recordLectureNotes(data, input, now, eventId) {
     notesCompletedAt: now,
     notesCompletions: [...(model.notesCompletions || []), { id:eventId, at:now }].slice(-100),
     // A notes update isn't proof of successful retrieval. Keep existing review history.
-    nextReviewAt: model.nextReviewAt == null ? now + DAY : Math.min(model.nextReviewAt, now + DAY),
+    nextReviewAt: input.completedReview ? now + DAY
+      : model.nextReviewAt == null ? now + DAY : Math.min(model.nextReviewAt, now + DAY),
     status: model.status === 'Released' ? 'New' : model.status,
   };
   return { ...enrolled, models: { ...enrolled.models, [model.id]: next } };

@@ -3,12 +3,12 @@ import {createRoot} from 'react-dom/client';
 import {beforeEach,it,expect,vi} from 'vitest';
 import {installDomStorage} from '../../../stores/testEnv.js';
 import {createRetrievalModel,gradeModel} from '../../../engine/modelRetrieval.js';
-const state=vi.hoisted(()=>({data:null,fail:false,writes:0}));
+const state=vi.hoisted(()=>({data:null,fail:false,writes:0,combined:0}));
 vi.mock('../../hooks/useStoreResource.js',()=>({useStoreResource:()=>({data:state.data,loading:false,error:null})}));
-vi.mock('../../../stores/modelRetrieval.js',()=>({retrievalStore:{read:()=>state.data,update:async(_,transform)=>{if(state.fail)throw new Error('Save failed');state.data=transform(state.data);state.writes++;return state.data;}}}));
+vi.mock('../../../stores/modelRetrieval.js',()=>({recordCombinedLectureReview:async(_,input,transform)=>{if(state.fail)throw new Error('Save failed');state.data=transform(state.data);state.combined++;return state.data;},retrievalStore:{read:()=>state.data,update:async(_,transform)=>{if(state.fail)throw new Error('Save failed');state.data=transform(state.data);state.writes++;return state.data;}}}));
 import {ModelRetrievalCard} from './ModelRetrievalCard.jsx';
 globalThis.IS_REACT_ACT_ENVIRONMENT=true;
-beforeEach(()=>{installDomStorage();state.fail=false;state.writes=0;state.data={settings:{sameDay:true},models:{m:createRetrievalModel({id:'m',title:'Test model',prompt:'Reconstruct the pathway',reference:'SECRET REFERENCE',blockId:'b'},Date.now()-1000,{sameDay:true})}};});
+beforeEach(()=>{installDomStorage();state.fail=false;state.writes=0;state.combined=0;state.data={settings:{sameDay:true},models:{m:createRetrievalModel({id:'m',title:'Test model',prompt:'Reconstruct the pathway',reference:'SECRET REFERENCE',blockId:'b'},Date.now()-1000,{sameDay:true})}};});
 function mount(props={}){const host=document.createElement('div');document.body.append(host);const root=createRoot(host);act(()=>root.render(<ModelRetrievalCard userId="u" blockId="b" {...props}/>));return {host,close:()=>act(()=>root.unmount())};}
 const button=(host,text)=>[...host.querySelectorAll('button')].find(b=>b.textContent.includes(text));
 async function click(b){await act(async()=>{b.click();await Promise.resolve();});}
@@ -30,4 +30,15 @@ it('surfaces a lecture notes review after a new low-scoring linked result',async
  expect(host.textContent).toContain('Describe the course of a nerve pathway');
  expect(host.textContent).not.toContain('SECRET REFERENCE');
  close();
+});
+
+it('uses the combined lecture save from Today, while standalone models stay separate',async()=>{
+ state.data.models.m.lectureId='l';
+ const {host,close}=mount();await click(button(host,'Start review'));await reachGrade(host);await click(button(host,'Solid'));
+ expect(state.combined).toBe(1);expect(state.writes).toBe(0);expect(state.data.models.m.history).toHaveLength(1);close();
+});
+it('keeps a lecture review open if its combined save fails',async()=>{
+ state.data.models.m.lectureId='l';
+ const {host,close}=mount();await click(button(host,'Start review'));await reachGrade(host);state.fail=true;await click(button(host,'Solid'));
+ expect(state.combined).toBe(0);expect(state.data.models.m.history).toHaveLength(0);expect(button(host,'Solid')).toBeTruthy();close();
 });

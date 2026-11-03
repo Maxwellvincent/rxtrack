@@ -1,9 +1,9 @@
 import { objectivePracticePlan } from "../../../engine/objectivePractice.js";
 import { modelWithNotesEvidence } from "../../../engine/lectureNotesReview.js";
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from '../../../ui/Button.jsx';
 import { useStoreResource } from '../../hooks/useStoreResource.js';
-import { retrievalStore } from '../../../stores/modelRetrieval.js';
+import { retrievalStore, recordCombinedLectureReview } from '../../../stores/modelRetrieval.js';
 import { createRetrievalModel, gradeModel, selectDailyModels, settingsFor, dayKey, reviewDayKey } from '../../../engine/modelRetrieval.js';
 
 const field='w-full rounded-lg border border-border bg-bg-elevated p-2 text-sm text-text-1';
@@ -21,6 +21,7 @@ export function ModelRetrievalCard({userId,blockId,examDate,objectivesForLecture
   const [scratch,setScratch]=useState('');
   const [steps,setSteps]=useState({framework:false,objectives:false,repair:false});
   const [busy,setBusy]=useState(false);
+  const saving=useRef(false);
   const [notice,setNotice]=useState('');
   const [creating,setCreating]=useState(false);
   const [draft,setDraft]=useState({title:'',prompt:'',reference:'',lecture:'',subject:'',tags:'',minutes:3,priority:1});
@@ -34,15 +35,17 @@ export function ModelRetrievalCard({userId,blockId,examDate,objectivesForLecture
   const blockModels=models.filter(m=>m.blockId===blockId);
   const canReview=model=>plan.slotsLeft>0 && model.minutes<=plan.minutesLeft && !(model.history||[]).some(h=>reviewDayKey(h)===dayKey(now));
   const start=model=>{setActiveId(model.id);setRevealed(false);setSteps({framework:false,objectives:false,repair:false});setScratch('');setNotice('');};
-  const save = async transform => {
-    if(busy || resource.loading || resource.error) return false;
-    setBusy(true);setNotice('');
+  const save = async (transform, session) => {
+    if(saving.current || resource.loading || resource.error) return false;
+    saving.current=true;setBusy(true);setNotice('');
     try {
       // Read again at action time, not the earlier render, so new synced data is retained.
-      await retrievalStore.update(userId,transform);
+      if(session?.lectureId) {
+        await recordCombinedLectureReview(userId,{lectureId:session.lectureId,blockId,examDate},transform,session.at,session.eventId);
+      } else await retrievalStore.update(userId,transform);
       return true;
     } catch(error) {setNotice(error.message || 'Could not save. Your review is still open; try again.');return false;}
-    finally {setBusy(false);}
+    finally {saving.current=false;setBusy(false);}
   };
   const grade=async value=>{
     const at=Date.now(), eventId=newId();
@@ -54,7 +57,7 @@ export function ModelRetrievalCard({userId,blockId,examDate,objectivesForLecture
       const {notesAdvice:_notesAdvice,...projected}=project(model);
       saved={...current,models:{...current.models,[activeId]:gradeModel(projected,value,at,eventId)}};
       return saved;
-    });
+    },{lectureId:active?.lectureId,at,eventId});
     if(ok){
       const next=selectDailyModels(Object.values(saved.models).map(project),saved.settings,at,blockId,examDate).selected[0];
       setNow(at);

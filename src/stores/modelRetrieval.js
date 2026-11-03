@@ -49,7 +49,8 @@ export async function recordCombinedLectureReview(userId, input, transform, at, 
     const result = appendActivity(completion, { ...input, activityType:'review', reviewKind:'slides-notes',
       note:'Slides & notes review', now:new Date(at), id:eventId });
     const model=Object.values(next.models).find(item=>item.lectureId===input.lectureId && item.blockId===input.blockId);
-    const entry={...result.entry, ...(model?.nextReviewAt != null ? {reviewDates:[studyDayKey(new Date(model.nextReviewAt))]} : {})};
+    if (!model || !result) throw new Error('A linked lecture review is required.');
+    const entry={...result.entry, reviewDates:model.nextReviewAt == null ? [] : [studyDayKey(new Date(model.nextReviewAt))]};
     return { models:next, completion:{...result.store,[result.key]:entry} };
   };
   if (!userId) {

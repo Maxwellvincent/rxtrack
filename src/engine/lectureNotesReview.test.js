@@ -41,3 +41,12 @@ describe('lecture notes completion and review',()=>{
   expect(selectDailyModels([graded],{},4000,'b').selected).toHaveLength(0);
  });
 });
+
+it('a completed slides-and-notes review moves an overdue reminder to tomorrow without granting retrieval success',()=>{
+ const input={lectureId:'l',blockId:'b',title:'Lecture'};
+ let data=recordLectureNotes({settings:{},models:{}},input,1000,'first');
+ const now=1000+5*DAY;
+ data=recordLectureNotes(data,{...input,completedReview:true},now,'second');
+ const model=Object.values(data.models)[0];
+ expect(model.nextReviewAt).toBe(now+DAY);expect(model.history).toEqual([]);expect(model.solidStreak).toBe(0);
+});
