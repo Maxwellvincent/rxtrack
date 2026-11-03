@@ -542,7 +542,7 @@ export function LectureList({
           <h2 className="text-2xl font-bold text-text-1">Lectures</h2>
           <div className="text-sm text-text-3">Find the next useful lecture, not another endless list.</div>
         </div>
-        <div className="desk-count-summary text-sm text-text-2"><strong>{allRows.filter(r=>r.total>0 && r.done).length}</strong> complete · {allRows.filter(r=>r.total>0).length} lectures with objectives · {counts.all} resources · <strong>{questionTotals.answered.toLocaleString()}</strong> questions completed{questionAccuracy == null ? "" : ` · ${questionAccuracy}% accuracy`}</div>
+        <div className="desk-count-summary text-sm text-text-2"><strong>{allRows.filter(r=>r.total>0 && r.done).length}</strong> complete · {allRows.filter(r=>r.total>0).length} lectures with objectives · {counts.all} resources · <strong>{questionTotals.answered.toLocaleString()}</strong> lecture-linked answers{questionAccuracy == null ? "" : ` · ${questionAccuracy}% accuracy`}</div>
       </div>
 
       {logged && <div className="mb-2 font-mono text-[12px] text-good">{logged}</div>}

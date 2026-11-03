@@ -267,7 +267,7 @@ export function normalizeSomCodesInText(text) {
   // A formerly broad iterative replacement could cross a row boundary and
   // join the last word of one objective to the next SOM code.
   out = out.replace(
-    /SOM\.\s*[A-Za-z0-9]+(?:\.\s*[A-Za-z0-9]+)+\.\s*\d{4}/gi,
+    /SOM\.\s*[A-Za-z0-9]+(?:\.\s*[A-Za-z0-9]+)+\.\s*[A-Za-z]?\d{4}/gi,
     (code) => code.replace(/\s/g, "")
   );
   // Convert "; NNNN" or ", NNNN" continuations directly after a SOM code into
@@ -364,7 +364,7 @@ export function buildObjEntry(code, objText, lec, blockId) {
  * string, the de-dupe keeps one, and the rest of the objectives are lost. A
  * Pelvis and Perineum lecture with 46 codes yielded exactly 1.
  */
-const SOM_CODE = /SOM(?:\.\s?[A-Za-z0-9]+)+\.\s?\d{4}/g;
+const SOM_CODE = /SOM(?:\.\s?[A-Za-z0-9]+)+\.\s?[A-Za-z]?\d{4}/g;
 
 /**
  * Objectives listed as `CODE text`, one after another.

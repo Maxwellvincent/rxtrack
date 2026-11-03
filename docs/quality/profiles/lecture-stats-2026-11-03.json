@@ -1,0 +1,16 @@
+{
+  "method": "Synthetic immutable in-memory cloud snapshots; warm reads only, not page-load timing.",
+  "before": {
+    "fixture": "5000 synthetic pending events / 40 lectures",
+    "iterations": 50,
+    "totalMs": 158.55012499999998,
+    "answered": 5000
+  },
+  "after": {
+    "fixture": "5000 synthetic pending events / 40 lectures",
+    "iterations": 50,
+    "totalMs": 0.11558300000001509,
+    "answered": 5000
+  },
+  "unchangedAnswerTotal": true
+}

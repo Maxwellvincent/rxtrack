@@ -130,3 +130,22 @@ it("does not increment exam totals twice when checkpoint/finalization is retried
  await stats.recordAnswerAwait(null, "l", true, "exam:another:q");
  expect(stats.statsForLecture(null, "l")).toEqual({ answered: 2, correct: 1, accuracy: .5 });
 });
+
+it('reuses unchanged cloud projections but invalidates every contributing input',()=>{
+ const backend=makeBackend();__setCloudBackendForTests(backend.api);
+ try{
+  const user='projection-user';stats.read(user);
+  const emit=(key,data)=>backend.listeners.get(`users/${user}/kv/${key}`).next({exists:()=>true,data:()=>({data}),metadata:{fromCache:true}});
+  emit(stats.key,{l:{answered:1,correct:1}});
+  expect(stats.isHydrated(user)).toBe(false);
+  emit('rxt-learner-evidence-v1',{evidenceJournal:[]});emit('rxt-question-ratings-v1',{ratings:{}});
+  expect(stats.isHydrated(user)).toBe(true);
+  const first=stats.read(user);expect(stats.read(user)).toBe(first);
+  emit('rxt-learner-evidence-v1',{evidenceJournal:[{eventId:'checkpoint',questionKey:'q',lectureId:'l',pendingLectureStats:true,correct:false}]});
+  const second=stats.read(user);expect(second).not.toBe(first);expect(second.l).toMatchObject({answered:2,correct:1});
+  emit(stats.key,{l:{answered:3,correct:2}});expect(stats.read(user).l.answered).toBe(4);
+  const third=stats.read(user);emit('rxt-question-ratings-v1',{ratings:{}});expect(stats.read(user)).not.toBe(third);
+  backend.listeners.get(`users/${user}/kv/rxt-learner-evidence-v1`).error(new Error('offline'));
+  expect(stats.readError(user).message).toBe('offline');
+ }finally{resetCloudStores();__setCloudBackendForTests(null);}
+});

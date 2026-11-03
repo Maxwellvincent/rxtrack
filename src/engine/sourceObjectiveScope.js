@@ -12,8 +12,13 @@ export function sourceObjectiveTextConflict(a, b) {
 
 const codeWithoutBloom=row=>codeOf(row).replace(/^SOM\.MK(?:\.[IVX]+|[IVX]+)\./,"SOM.MK.");
 const normalizedText=row=>String(row.objective || row.text || "").toLowerCase().replace(/\s+/g," ").replace(/[. -]+$/g,"").trim();
+function mergedAdjacentObjective(row,source){
+ const text=normalizedText(row),clean=normalizedText(source);
+ if(!clean || !text.startsWith(clean))return false;
+ return [...String(row.objective || row.text || '').matchAll(/\bSOM(?:\.[A-Za-z0-9]+)+\.[A-Za-z]?\d{4}\b/gi)].some(match=>match[0].toUpperCase()!==codeOf(source));
+}
 export function sourceObjectiveMatch(row,source){
- return codeOf(row)===codeOf(source)?!sourceObjectiveTextConflict(row,source):codeWithoutBloom(row)===codeWithoutBloom(source) && normalizedText(row)===normalizedText(source);
+ return codeOf(row)===codeOf(source)?!sourceObjectiveTextConflict(row,source) && !mergedAdjacentObjective(row,source):codeWithoutBloom(row)===codeWithoutBloom(source) && normalizedText(row)===normalizedText(source);
 }
 
 /** Only an explicit objective page/table can replace links; slide keywords are not authority. */
@@ -28,7 +33,7 @@ export function lectureSourceObjectives(text, lecture, blockId) {
   const table=end<0?tail.slice(0,6000):tail.slice(0,end);
   // Rejoin split two-column codes and normalize whitespace within full codes.
   const aligned=table.replace(/\bBPM\s+(\d)/g,"BPM$1")
-   .replace(/SOM\s*\.\s*[A-Za-z0-9]+(?:\s*\.\s*[A-Za-z0-9]+)+\s*\.\s*\d{4}/gi,code=>code.replace(/\s/g,""))
+   .replace(/SOM\s*\.\s*[A-Za-z0-9]+(?:\s*\.\s*[A-Za-z0-9]+)+\s*\.\s*[A-Za-z]?\d{4}/gi,code=>code.replace(/\s/g,""))
    .replace(/(SOM(?:\.[A-Za-z0-9]+)+\.?)[ \t]*([^\n]*)\n[ \t]*([A-Za-z]+\.\d{4})[ \t]*([^\n]*)/g,
     (_match,prefix,first,suffix,last)=>`${prefix}${suffix}  ${[first,last].filter(Boolean).join(" ")}`);
   const rows=extractCodeDelimited(aligned,lecture,blockId).filter(row=>codeOf(row) && OBJECTIVE_START_RE.test(String(row.objective || row.text || "").slice(0,40)));
@@ -55,6 +60,10 @@ export function repairSourceObjectiveLinks(objectives, lecture, sourceObjectives
   if (row.manuallyAligned) return row;
   if (supported.has(codeOf(row))) {
    const source = sourceByCode.get(codeOf(row));
+   if(mergedAdjacentObjective(row,source)){
+    changed=true;
+    return {...row,objective:source.objective || source.text,text:source.objective || source.text,linkedLecId:lecture.id,sourceFile:lecture.id,sourceTextRepair:{reason:"adjacent-source-code-merged",previousObjective:row.objective || row.text,sourceCode:codeOf(source)}};
+   }
    if (sourceObjectiveTextConflict(row, source)) {
     // Keep the old identity/evidence intact and recover a distinct source identity.
     if (!row.linkedLecId && row.lectureLinkRepair?.reason === "source-code-wording-conflict") return row;

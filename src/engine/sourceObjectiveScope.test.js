@@ -1,5 +1,5 @@
 import { it, expect } from "vitest";
-import { lectureSourceObjectives, repairSourceObjectiveLinks } from "./sourceObjectiveScope.js";
+import { lectureSourceObjectives, repairSourceObjectiveLinks, sourceObjectiveMatch } from "./sourceObjectiveScope.js";
 const lecture = { id: "olfaction", blockId: "NB", lectureType: "DLA", lectureNumber: 4 };
 const text = "Chemical Senses DLA: Olfaction\n\fObjectives\nA student should be able to:\nSOM.MK.I.BPM2.1.NB.1.NSCI.0266 Describe different smell qualities and explain the functional anatomy of the olfactory system\nSOM.MK.I.BPM2.1.NB.1.NSCI.0267 Describe the olfactory pathways and their cortical areas\fOlfactory stimuli\nOther slide text";
 it("recognizes a two-objective olfaction page and repairs foreign thyroid links without deleting evidence", () => {
@@ -69,4 +69,32 @@ it("updates the stale lecture number when a source-backed objective moves to its
  const row={id:"practiced",code,objective,linkedLecId:"eye",lectureNumber:20,attempts:4};
  const result=repairSourceObjectiveLinks([row],ear,[{code,objective}]);
  expect(result[0]).toMatchObject({id:"practiced",linkedLecId:"ear",lectureNumber:22,attempts:4});
+});
+
+it('keeps NB35 letter-prefixed M0184 separate from its denervation neighbor',()=>{
+ const source=`Learning Objectives
+SOM.MK.I.BPM2.4.NB.2.NSCI.0180 define negative and positive manifestations of peripheral nervous disease
+SOM.MK.I.BPM2.1.NB.1.NSCI.0181 explain the concept and measurement of nerve conduction velocity
+SOM.MK.II.BPM2.4.NB.2.NSCI.0182 describe the structure of a peripheral nerve and traumatic events leading to structural damage and dysfunction
+SOM.MK.II.BPM2.4.NB.2.NSCI.0183 explain events related to muscular denervation and reinnervation following lower motor neuronal axotomy
+SOM.MK.II.BPM2.4.NB.2.NSCI.M0184 explain acute demyelinating neuropathy (e.g., Guillain-Barré syndrome)
+SOM.MK.II.BPM2.4.NB.2.NSCI.0185 explain chronic forms of neuropathy (e.g.,lead poisoning, alcoholic, diabetes mellitus)\fLecture body`;
+ const rows=lectureSourceObjectives(source,{id:'nb35',lectureNumber:35},'nb2');
+ expect(rows).toHaveLength(6);
+ expect(rows.find(row=>row.code.endsWith('M0184')).objective).toBe('explain acute demyelinating neuropathy (e.g., Guillain-Barré syndrome)');
+ expect(rows.find(row=>row.code.endsWith('0183')).objective).not.toContain('M0184');
+ expect(rows.find(row=>row.code.endsWith('0181')).code).toContain('.NB.1.');
+});
+
+it('repairs an already imported merged row without replacing its identity, notes or practice evidence',()=>{
+ const code='SOM.MK.II.BPM2.4.NB.2.NSCI.0183',nextCode='SOM.MK.II.BPM2.4.NB.2.NSCI.M0184';
+ const lecture={id:'nb35',lectureNumber:35};
+ const source=lectureSourceObjectives(`Learning Objectives\n${code} explain events related to muscular denervation and reinnervation\n${nextCode} explain acute demyelinating neuropathy\fBody`,lecture,'nb2');
+ const old={id:'practiced',code,blockId:'nb2',linkedLecId:'nb35',lectureNumber:35,objective:`${source[0].objective} ${nextCode} explain acute demyelinating neuropathy`,notes:'my notes',attempts:11};
+ expect(sourceObjectiveMatch(old,source[0])).toBe(false);
+ const repaired=repairSourceObjectiveLinks([old],lecture,source);
+ expect(repaired.find(row=>row.id==='practiced')).toMatchObject({notes:'my notes',attempts:11,objective:source[0].objective,sourceTextRepair:{reason:'adjacent-source-code-merged'}});
+ expect(repaired).toHaveLength(2);
+ expect(repairSourceObjectiveLinks(repaired,lecture,source)).toBe(repaired);
+ expect(old.objective).toContain(nextCode);
 });

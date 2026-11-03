@@ -15,6 +15,7 @@ import * as questionRatings from "./questionRatings.js";
  */
 import {
   isHydrated as cloudIsHydrated,
+  readError as cloudReadError,
   readCloud,
   subscribeToCloudStore,
   writeCloud,
@@ -25,6 +26,8 @@ import { mergeQuestionStats } from "./merge.js";
 
 export const key = "rxt-lecture-qstats";
 const fallback = {};
+const emptyEvidence={};
+const projectionCache=new WeakMap();
 
 function readStored(userId) {
   if (!userId) return readJson(userId, key, fallback) || fallback;
@@ -33,8 +36,11 @@ function readStored(userId) {
 
 export function read(userId) {
  const stored = readStored(userId);
- const excluded = excludedEvidenceKeys(questionRatings.read(userId).ratings);
- const evidence = userId ? readCloud(userId, "rxt-learner-evidence-v1", {}) : readJson(userId, "rxt-learner-evidence-v1", {});
+ const ratings=questionRatings.read(userId).ratings;
+ const evidence = userId ? readCloud(userId, "rxt-learner-evidence-v1", emptyEvidence) : readJson(userId, "rxt-learner-evidence-v1", emptyEvidence);
+ const cached=projectionCache.get(stored);
+ if(cached?.evidence===evidence && cached?.ratings===ratings)return cached.value;
+ const excluded = excludedEvidenceKeys(ratings);
  const next = { ...stored };
  for (const event of evidence?.evidenceJournal || []) {
   if (event.pendingLectureStats && event.lectureId && !excluded.has(evidenceIdentity(event.questionKey))) {
@@ -50,6 +56,7 @@ export function read(userId) {
   if (!row) continue;
   next[event.lectureId] = { ...row, answered: Math.max(0, (Number(row.answered) || 0) - 1), correct: Math.max(0, (Number(row.correct) || 0) - (event.correct ? 1 : 0)) };
  }
+ projectionCache.set(stored,{evidence,ratings,value:next});
  return next;
 }
 
@@ -113,12 +120,14 @@ export async function recordAnswerAwait(userId, lectureId, wasCorrect, eventId =
 }
 
 /** `{ answered, correct, accuracy }` for one lecture; zeroes for one never quizzed. */
-export function statsForLecture(userId, lectureId) {
-  const entry = (lectureId && read(userId)[lectureId]) || {};
+export function selectLectureStats(data,lectureId) {
+  const entry = (lectureId && data?.[lectureId]) || {};
   const answered = Number.isFinite(entry.answered) ? entry.answered : 0;
   const correct = Number.isFinite(entry.correct) ? entry.correct : 0;
   return { answered, correct, accuracy: answered > 0 ? correct / answered : null };
 }
+
+export function statsForLecture(userId,lectureId){return selectLectureStats(read(userId),lectureId);}
 
 /** Forget one lecture's counts — pairs with clearing its round progress. */
 export function clearLecture(userId, lectureId) {
@@ -136,5 +145,7 @@ export function subscribe(cb) {
 }
 
 export function isHydrated(userId) {
-  return !userId || cloudIsHydrated(userId, key);
+  return !userId || (cloudIsHydrated(userId, key) && cloudIsHydrated(userId,"rxt-learner-evidence-v1") && questionRatings.isHydrated(userId));
 }
+
+export function readError(userId){return userId?(cloudReadError(userId,key) || cloudReadError(userId,"rxt-learner-evidence-v1") || questionRatings.readError(userId)):null;}

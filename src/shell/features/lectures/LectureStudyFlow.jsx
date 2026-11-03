@@ -1,3 +1,4 @@
+import {useLectureStats} from '../../hooks/useLectureQuestionStats.js';
 import * as relationshipsStore from '../../../stores/sourceRelationships.js';
 import {relationshipPages,relationshipCoverage} from '../../../engine/sourceRelationships.js';
 import {RelationshipRetestSummary} from './RelationshipRetestSummary.jsx';
@@ -9,7 +10,6 @@ import { latestLearningRecords } from "../../../engine/learningLoop.js";
 import { ObjectiveLearningReport } from "../../../ui/ObjectiveLearningReport.jsx";
 import { lectureSourceObjectives } from "../../../engine/sourceObjectiveScope.js";
 import { schoolContinuationQuestions } from "./lectureQuizContinuation.js";
-import * as lectureMetadataStore from "../../../stores/lectures.js";
 import { streamedTutorFeedback } from "../../../llmBridge.js";
 import { ObjectiveProgressChart } from "./ObjectiveProgressChart.jsx";
 import { preparationJobKey, getPreparationJob, startPreparationJob, subscribePreparationJob, cancelOtherAccountJobs } from "../../../questionPreparationJobs.js";
@@ -75,7 +75,6 @@ import { ROUND_SIZE, prioritizeAtomRounds, extractAtoms, isActiveQuizComplete, l
 import {
   clearRoundProgress,
   readRoundProgress,
-  resumeRound,
   saveRoundProgress,
 } from "./lectureProgress.js";
 import * as questionStats from "../../../stores/lectureQuestionStats.js";
@@ -406,11 +405,6 @@ export function LectureStudyFlow({
   const [objectiveNotice, setObjectiveNotice] = useState("");
   const [renamedTitle, setRenamedTitle] = useState("");
   const objectiveResource = useObjectives(null, userId);
-  const objectiveCommands = useMemo(() => createObjectiveCommands({
-    read: () => objectivesStore.read(userId) || {},
-    write: (next) => objectivesStore.write(userId, next),
-    notify: () => window.dispatchEvent(new CustomEvent("rxt-objectives-updated")),
-  }), [userId]);
   const linkedObjectives = useMemo(() => selectBlockObjectives(objectiveResource.data, blockId)
     .filter((o) => o?.linkedLecId === lecture?.id), [objectiveResource.data, blockId, lecture?.id]);
   const mismatchedLectureObjectives = useMemo(() => linkedObjectives
@@ -431,11 +425,9 @@ export function LectureStudyFlow({
   // Rounds already finished, read once on mount — this component is keyed by lecture id, so it
   // remounts (and re-reads) whenever you switch lectures.
   const [done, setDone] = useState(() => readRoundProgress(userId, lecture?.id));
-  // Refreshed when a round ends rather than per answer: the panel is not on screen mid-round.
-  const [qStats, setQStats] = useState(() => questionStats.statsForLecture(userId, lecture?.id));
+  const qStats=useLectureStats(userId,lecture?.id);
   // The real progress bar: atoms answered correctly at least once, out of the atoms this lecture
-  // actually has right now. Empty until atoms load (the effect below recomputes it then), same
-  // staleness contract as qStats — refreshed at round/quiz end and on manual exit, not live.
+  // actually has right now. Empty until atoms load (the effect below recomputes it then), refreshed at round/quiz end and on manual exit.
   const [atomMastery, setAtomMastery] = useState({ masteredCount: 0, totalCount: 0 });
   const refreshAtomMastery = useCallback(
     (currentAtoms) => {
@@ -1293,9 +1285,6 @@ export function LectureStudyFlow({
   }, [figures, lecture, userId]);
 
   const rounds = useMemo(() => prioritizeAtomRounds(atoms, focusObjectiveIds), [atoms, focusObjectiveIds]);
-  /** The round Study should open on — one value, so the button's label and its action agree. */
-  const nextRound = resumeRound(done, rounds.length);
-
   /** Questions for one round only — five atoms, with mastered-objective skip + HY sort. */
   const runRound = useCallback(async (index) => {
     if (schoolExamplesLoading) {
@@ -1796,10 +1785,7 @@ export function LectureStudyFlow({
         <div className="mb-3 flex items-center justify-between gap-3">
           <button
             onClick={() => {
-              // Answers already persisted per-question (AtomQuiz's recordAnswer/recordAtomAnswer)
-              // even though this round wasn't finished — re-read so the bars reflect them instead
-              // of sitting on whatever they were at round start.
-              setQStats(questionStats.statsForLecture(userId, lecture?.id));
+              // Atom mastery refreshes on exit; question totals subscribe live.
               refreshAtomMastery();
               setQuestions(null);
             }}
@@ -1874,7 +1860,7 @@ export function LectureStudyFlow({
               saveRoundProgress(userId, lecture?.id, nextDone);
               setDone(nextDone);
             }
-            setQStats(questionStats.statsForLecture(userId, lecture?.id));
+
             refreshAtomMastery();
             const score = total > 0 ? Math.round((correct / total) * 100) : 0;
 
@@ -2435,7 +2421,7 @@ export function LectureStudyFlow({
 
       </section>
       <section hidden={workspace!=="practice"} aria-label="Practice this lecture">
-      <div className="my-3 flex flex-wrap justify-between gap-2"><h2 className="text-lg font-semibold">Test this lecture</h2><p className="text-sm text-text-3">{qStats.answered ? `${qStats.answered} answered · ${accuracyPct}% correct` : "No questions answered yet"}</p></div>
+      <div className="my-3 flex flex-wrap justify-between gap-2"><h2 className="text-lg font-semibold">Test this lecture</h2><p className="text-sm text-text-3">{qStats.loading ? "Loading practice history…" : qStats.answered ? `${qStats.answered} answered · ${accuracyPct}% correct` : "No questions answered yet"}</p></div>
       {pendingQuiz && <div role="status" className="my-3 rounded-lg border border-border bg-panel p-3 text-sm">
         <strong>{pendingQuiz.questions.length}/{pendingQuiz.count} questions ready</strong>
         <p className="mt-1 text-text-2">Your ready questions are saved. Finish or exit the current quiz before retrying the remaining {pendingQuiz.count - pendingQuiz.questions.length} slots, or choose a shorter quiz.</p>
