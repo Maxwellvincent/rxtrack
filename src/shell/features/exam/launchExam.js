@@ -1,7 +1,7 @@
 import * as sourceUseStore from "../../../stores/sourceUse.js";
 import {allowedGenerationExamples} from "../../../engine/sourceUse.js";
 import { allocateBlueprint, readSlot, questionSlot } from "./bpmBlueprint.js";
-import { connectionFailure, holdPreparationWorker } from "./preparationRecovery.js";
+import { blocksPreparationLecture, holdPreparationWorker } from "./preparationRecovery.js";
 // Task 8, Part B — orchestration for launching an Integrated Exam session.
 //
 // Thin wrapper: allocates questions (Task 4), generates them (Task 5),
@@ -182,7 +182,7 @@ async function runLaunch(
         // Questions generated to fill this running attempt belong to its session,
         // not to the already-prepared source set. Keep that named set immutable.
         await progressQueue;
-        await pool.finishSessionFill(sessionId, { requestedCount: questionCount, durationMinutes, error: fillError, blockedLectureIds: (result.errors || []).filter(e => !connectionFailure(e.message)).map(e => e.lectureId) });
+        await pool.finishSessionFill(sessionId, { requestedCount: questionCount, durationMinutes, error: fillError, blockedLectureIds: (result.errors || []).filter(e => blocksPreparationLecture(e.message)).map(e => e.lectureId) });
         await pool.finish(sessionId, { status: fillError ? "partial" : "complete",
           readyCount: savedQuestions.length + (result.questions?.length || 0), errors: result.errors || [],
           durationMs: Date.now() - startedGenerationAt }).catch(() => {});

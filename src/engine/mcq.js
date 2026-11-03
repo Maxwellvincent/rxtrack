@@ -1,3 +1,4 @@
+import {capacityKind} from '../providerCapacity.js';
 import {compactAnswerRoute,ANSWER_ROUTE_POLICY,answerRouteIssue} from './questionAnswerRoute.js';
 import {GENERATED_QUESTION_CONTRACT,QUESTION_CHOICE_CONTRACT,QUESTION_CONTRACT_VERSION,questionAdmissionIssues} from './questionContract.js';
 import * as sourceUseStore from "../stores/sourceUse.js";
@@ -42,9 +43,18 @@ export function withQuestionAIRouting(call) {
       const budget = options.bridgeTimeoutMs || options.timeoutMs;
       const remaining = budget ? budget - (Date.now() - started) : null;
       if (remaining != null && remaining <= 0) throw error;
-      return call(system, prompt, fallback, maxTokens, provider, temperature, { ...policy,
-        bridgeBackend: "ollama-cloud", bridgeModelTier: options.bridgeModelTier || "routine",
-        ...(remaining != null ? { bridgeTimeoutMs: remaining, timeoutMs: remaining } : {}) });
+      try {
+        return await call(system, prompt, fallback, maxTokens, provider, temperature, { ...policy,
+          bridgeBackend: "ollama-cloud", bridgeModelTier: options.bridgeModelTier || "routine",
+          ...(remaining != null ? { bridgeTimeoutMs: remaining, timeoutMs: remaining } : {}) });
+      } catch(fallbackError) {
+        options.signal?.throwIfAborted();
+        if(capacityKind(error) && capacityKind(fallbackError)) {
+          const combined=new Error(`AI capacity unavailable: Codex ${capacityKind(error)==='rate-limit'?'rate limit (HTTP 429)':'usage limit'} reached; Ollama Cloud ${capacityKind(fallbackError)==='rate-limit'?'rate limit (HTTP 429)':'usage limit'} reached. Automatic retries are paused. Try again after the provider limits reset; reviewed questions remain saved.`);
+          combined.code='AI_PROVIDER_CAPACITY';combined.retryAt=Math.max(error.retryAt || 0,fallbackError.retryAt || 0);throw combined;
+        }
+        throw fallbackError;
+      }
     }
   };
 }

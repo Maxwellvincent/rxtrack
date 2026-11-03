@@ -21,3 +21,9 @@ it('does not switch providers for offline, content, cancellation or explicit-rou
   expect(call).toHaveBeenCalledOnce();
  }
 });
+
+it('retains both capacity failures instead of masking the primary usage limit',async()=>{
+ const call=vi.fn().mockRejectedValueOnce(new Error('Codex usage limit reached')).mockRejectedValueOnce(new Error('bridge 502 ollama-cloud HTTP 429'));
+ await expect(withQuestionAIRouting(call)('s','p',{},3000)).rejects.toThrow('Codex usage limit reached; Ollama Cloud rate limit');
+ expect(call).toHaveBeenCalledTimes(2);
+});

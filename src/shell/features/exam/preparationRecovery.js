@@ -1,3 +1,4 @@
+import {capacityKind} from '../../../providerCapacity.js';
 import { questionSlot } from "./bpmBlueprint.js";
 import { startBackgroundJob } from "../../backgroundJobs.js";
 
@@ -6,7 +7,8 @@ export function holdPreparationWorker(userId, sessionId) {
   const key = `${userId}:${sessionId}`; running.add(key);
   return () => running.delete(key);
 }
-export const connectionFailure = message => /timed?\s*out|timeout|network|offline|failed to fetch|unavailable|connection/i.test(String(message || ""));
+export const connectionFailure = message => !capacityKind(message) && /timed?\s*out|timeout|network|offline|failed to fetch|unavailable|connection/i.test(String(message || ""));
+export const blocksPreparationLecture=message=>!capacityKind(message) && !connectionFailure(message);
 export function waitForConnection() {
   if (typeof navigator === "undefined" || navigator.onLine !== false) return Promise.resolve();
   return new Promise(resolve => window.addEventListener("online", resolve, { once: true }));
@@ -46,7 +48,7 @@ export async function recoverExamPreparation({ session, userId, pool, generate, 
       }); } catch (error) { result = { errors: [{ message: error?.message || String(error) }] }; }
       await pool.finishSessionFill(session.sessionId, { requestedCount: claimed.targetQuestionCount, durationMinutes: claimed.durationMinutes,
         error: (result.errors || []).map(e => e.message).join(" "),
-        blockedLectureIds: [...new Set([...(claimed.fillBlockedLectureIds || []), ...(result.errors || []).filter(e => !connectionFailure(e.message)).map(e => e.lectureId).filter(Boolean)])] });
+        blockedLectureIds: [...new Set([...(claimed.fillBlockedLectureIds || []), ...(result.errors || []).filter(e => blocksPreparationLecture(e.message)).map(e => e.lectureId).filter(Boolean)])] });
       if (result.errors?.length) throw new Error("Some missing questions still need preparation. Reviewed questions remain saved.");
       return "Question preparation resumed and saved.";
     };

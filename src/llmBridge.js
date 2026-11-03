@@ -1,3 +1,4 @@
+import {capacityKind,capacityError,retryAfterMs} from './providerCapacity.js';
 // Local LLM bridge — optional, free, subscription-powered.
 //
 // `llm-bridge` (C:/Users/Itachi91/Projects/llm-bridge) runs on loopback and proxies to the
@@ -27,6 +28,7 @@ const PROBE_TIMEOUT_MS = 4_000;
 let probe = { at: 0, ok: false };
 let cooldownUntil = 0;
 let questionPreparation = null;
+const providerCooldowns=new Map();
 
 /** True while the cached probe result is still worth reusing. */
 export function probeIsFresh(p, now = Date.now()) {
@@ -39,6 +41,7 @@ export function resetBridgeProbe() {
   probe = { at: 0, ok: false };
   cooldownUntil = 0;
   questionPreparation = null;
+  providerCooldowns.clear();
 }
 
 /** Off by default is wrong here — the point is zero-cost when available. Explicit opt-out only. */
@@ -86,6 +89,8 @@ export async function questionPreparationCapabilities() {
  */
 export async function bridgeComplete(req) {
   req.signal?.throwIfAborted();
+  const paused=req.backendOnly && providerCooldowns.get(req.backend);
+  if(paused && Date.now()<paused.retryAt)throw paused;
   if (Date.now() < cooldownUntil) return null;
   if (!(await bridgeAvailable())) return null;
   try {
@@ -109,7 +114,13 @@ export async function bridgeComplete(req) {
       if (!r.ok) {
         const payload = await r.json().catch(() => ({}));
         const message = typeof payload.error === "string" ? payload.error : payload.error?.message;
-        throw new Error(`bridge ${r.status}${message ? `: ${String(message).slice(0, 2000)}` : ""}`);
+        const raw=`bridge ${r.status}${message ? `: ${String(message).slice(0, 2000)}` : ""}`;
+        const kind=capacityKind(`bridge ${r.status}: ${message || ''}`);
+        if(req.backendOnly && kind){
+          const error=capacityError(req.backend,kind,retryAfterMs(r.headers?.get?.('Retry-After')));
+          providerCooldowns.set(req.backend,error);throw error;
+        }
+        throw new Error(raw);
       }
       return r.json();
     }, req.timeoutMs || 300_000, req.signal, "Local AI bridge");
@@ -123,6 +134,7 @@ export async function bridgeComplete(req) {
         new CustomEvent("rxt-bridge-used", { detail: { backend: data.backend } })
       );
     }
+    if(req.backendOnly)providerCooldowns.delete(req.backend);
     if(data.usage)req.onUsage?.(data.usage);
     return data.text;
   } catch (err) {
@@ -159,7 +171,7 @@ export async function bridgePdf2md(file, timeoutMs = 900000) {
  * strictly parseable result; never reconstruct truncated questions or keys.
  */
 export function repairQuestionMetadataBrace(text) {
-  const tokens = [...text.matchAll(/"(?:\\.|[^"\\])*"|[{}\[\],:]/g)];
+  const tokens = [...text.matchAll(/"(?:\\.|[^"\\])*"|[{}[\],:]/g)];
   const stack = [];
   const removals = [];
   let justClosedWhyWrong = false;

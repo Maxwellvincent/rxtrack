@@ -31,3 +31,12 @@ it("does not launch recovery beside an existing live worker", async () => {
  try { await recoverExamPreparation({ session, userId: "u", pool }); expect(pool.claimSessionFill).not.toHaveBeenCalled(); }
  finally { release(); }
 });
+
+it('does not auto-retry capacity failures or mark their lecture content permanently blocked',async()=>{
+ const {connectionFailure,blocksPreparationLecture}=await import('./preparationRecovery.js');
+ const message='AI capacity unavailable: Codex usage limit reached; Ollama Cloud HTTP 429';
+ expect(connectionFailure(message)).toBe(false);expect(blocksPreparationLecture(message)).toBe(false);
+ const pool={claimSessionFill:vi.fn()};
+ await recoverExamPreparation({session:{...session,fillError:message},userId:'u',pool});
+ expect(pool.claimSessionFill).not.toHaveBeenCalled();
+});

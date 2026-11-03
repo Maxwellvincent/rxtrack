@@ -130,3 +130,19 @@ it("preserves unescaped LaTeX commands when combined with the Cloud brace defect
   expect(result.questions[0].whyWrong.A).toBe(String.raw`$\omega$ blocks entry`);
   expect(parseBridgeJSON(String.raw`{"text":"line\nnext; quoted \"word\"; slash \\"}`)).toEqual({ text: 'line\nnext; quoted "word"; slash \\' });
 });
+
+it('pauses strict provider retries independently and honors Retry-After even behind a bridge 502',async()=>{
+ installDomStorage();resetBridgeProbe();vi.useFakeTimers();
+ const fetchMock=vi.fn().mockResolvedValueOnce({ok:true})
+  .mockResolvedValueOnce({ok:false,status:502,headers:{get:()=> '120'},json:async()=>({error:'all backends failed | ollama-cloud HTTP 429'})})
+  .mockResolvedValueOnce({ok:true,json:async()=>({backend:'codex',text:'ok'})})
+  .mockResolvedValueOnce({ok:true})
+  .mockResolvedValueOnce({ok:true,json:async()=>({backend:'ollama-cloud',text:'ok'})});
+ vi.stubGlobal('fetch',fetchMock);
+ const req={prompt:'private quiz',backend:'ollama-cloud',backendOnly:true};
+ await expect(bridgeComplete(req)).rejects.toThrow('rate limit');
+ await expect(bridgeComplete(req)).rejects.toThrow('Automatic retries are paused');expect(fetchMock).toHaveBeenCalledTimes(2);
+ expect(await bridgeComplete({...req,backend:'codex'})).toBe('ok');
+ await vi.advanceTimersByTimeAsync(120001);
+ expect(await bridgeComplete(req)).toBe('ok');expect(fetchMock).toHaveBeenCalledTimes(5);
+});
