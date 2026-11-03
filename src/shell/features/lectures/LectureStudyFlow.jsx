@@ -31,7 +31,7 @@ import { Button } from "../../../ui/Button.jsx";
 import { callAIJSON } from "../../../aiClient.js";
 import { withDeadline } from "../../../asyncDeadline.js";
 import { LectureReviewLog } from "./LectureReviewLog.jsx";
-import { questionPreparationDeps, QUESTION_PREPARATION_BUDGET_MS } from "../../../questionPreparation.js";
+import { questionPreparationDeps, questionPreparationStatus, QUESTION_PREPARATION_BUDGET_MS } from "../../../questionPreparation.js";
 import {
   fetchLectureContent,
   fetchLectureSourceUrl,
@@ -1817,6 +1817,7 @@ export function LectureStudyFlow({
             )}
           </div>
         )}
+        {quizPreparation && <p role="status" aria-live="polite" className="mb-2 text-sm text-text-2">{quizPreparation.ready}/{quizPreparation.requested} questions ready · {questionPreparationStatus(quizPreparation)}</p>}
         {quizPreparation && <button type="button" className="mb-2 text-sm underline" onClick={() => preparationControllerRef.current?.abort(new Error("Question preparation stopped. Reviewed questions are saved."))}>Stop preparing more · keep ready questions</button>}
 
         <AtomQuiz
@@ -2600,7 +2601,7 @@ export function LectureStudyFlow({
               <div className="mt-3 h-2 overflow-hidden rounded-full bg-border" aria-hidden="true">
                 <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${Math.round((quizPreparation.ready / quizPreparation.requested) * 100)}%` }} />
               </div>
-              <p className="mt-2 text-xs text-text-3">Accepted questions stay saved while only missing slots are refilled. Small replacement rounds focus on the remaining objectives.</p>
+              <p className="mt-2 text-xs text-text-3">{questionPreparationStatus(quizPreparation)}. Accepted questions stay saved. Preparation pauses if three replacement rounds add nothing.</p>
             </div>
           )}
 

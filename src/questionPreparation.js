@@ -78,10 +78,20 @@ export async function questionPreparationDeps(callAIJSON) {
   return {
     callAIJSON: routed, reviewAIJSON: routed,
     prepareConcurrency: Date.now() < limitDeadline() ? 1 : 3, prepareBatchSize: 3, reviewBatchSize: 3,
-    prepareSpareCandidates: 2, continueAfterEmptyRounds: true, focusedRefill: true,
+    prepareSpareCandidates: 2, continueAfterEmptyRounds: true, maxEmptyRounds: 3, focusedRefill: true,
     // Allow reviewed replacement waves to finish in the background. Smaller
     // batches reduce per-call output and release verified questions sooner.
     // This is a shared ceiling, not a fresh timeout for each request.
     maxPreparationMs: QUESTION_PREPARATION_BUDGET_MS,
   };
+}
+
+// Counts refer only to independently accepted items; active calls are not ready questions.
+export function questionPreparationStatus(progress) {
+  const calls = progress?.diagnostics?.calls || [];
+  const running = calls.filter(call => call.status === "running");
+  const drafts = running.filter(call => call.stage === "draft").length;
+  const reviews = running.length - drafts;
+  const stages = [drafts ? `Writing ${drafts} batch${drafts === 1 ? "" : "es"}` : "", reviews ? `Checking ${reviews} batch${reviews === 1 ? "" : "es"}` : ""].filter(Boolean);
+  return stages.join(" · ") || "Preparing remaining questions";
 }

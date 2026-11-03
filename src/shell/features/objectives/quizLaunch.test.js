@@ -1093,3 +1093,18 @@ it('keeps a mastered parent in allocation when its linked source concepts remain
  expect(planned.some(o=>o.id==='known')).toBe(true);
  expect(planned.reduce((n,o)=>n+o._targetQuestionCount,0)).toBe(5);
 });
+
+it("pauses unproductive refills even when recovery waves are enabled and publishes live calls", async () => {
+  const callAIJSON = vi.fn().mockResolvedValue({ questions: [] });
+  const progress = [];
+  const result = await prepareObjectiveQuiz(
+    { objectives: [], atoms: [{ term: "Source", content: "Lecture evidence." }], questionCount: 20 },
+    { callAIJSON, skipQuestionAudit: true, continueAfterEmptyRounds: true, maxEmptyRounds: 3 },
+    update => progress.push(update)
+  );
+  expect(callAIJSON).toHaveBeenCalledTimes(3);
+  expect(result.reason).toContain("3 replacement rounds added no accepted questions");
+  expect(progress.some(update => update.diagnostics.calls.some(call => call.status === "running"))).toBe(true);
+  expect(result.diagnostics.calls.every(call => call.status !== "running")).toBe(true);
+  expect(result.questions).toEqual([]);
+});

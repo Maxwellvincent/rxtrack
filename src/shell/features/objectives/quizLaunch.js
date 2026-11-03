@@ -654,6 +654,7 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
     params[6] = { ...options, timeoutMs: Math.min(Number(options.timeoutMs) || remaining, remaining) };
     const event = { stage, status: "running", startedMs: Date.now() - startedAt, provider: "unreported" };
     diagnostics.calls.push(event);
+    reportProgress({ requested: diagnostics.requested, ready: diagnostics.accepted, phase: stage === "draft" ? "generating" : "reviewing" });
     return withDeadline(signal => {
       params[6] = { ...params[6], signal, onProviderEvent: ({ provider }) => { event.provider = provider; } };
       return call(...params);
@@ -662,7 +663,10 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
     }, error => {
       event.status = /abort|stop/i.test(String(error?.message)) ? "cancelled" : /timeout|timed out|deadline/i.test(String(error?.message)) ? "timeout" : "failed";
       throw error;
-    }).finally(() => { event.durationMs = Date.now() - startedAt - event.startedMs; });
+    }).finally(() => {
+      event.durationMs = Date.now() - startedAt - event.startedMs;
+      reportProgress({ requested: diagnostics.requested, ready: diagnostics.accepted, phase: "reviewing" });
+    });
   } : call;
   const boundedDeps = {
     ...deps,
@@ -877,7 +881,13 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
       // Stop instead of making the learner wait through several more minute-long
       // generation and review calls.
     }
-    if (!deps.continueAfterEmptyRounds && consecutiveEmptyRounds >= Math.max(3, Math.ceil(allocationPlan.length / batchSize))) stopPreparation = true;
+    const emptyRoundLimit = Number(deps.maxEmptyRounds) > 0
+      ? Math.floor(Number(deps.maxEmptyRounds))
+      : !deps.continueAfterEmptyRounds ? Math.max(3, Math.ceil(allocationPlan.length / batchSize)) : Infinity;
+    if (consecutiveEmptyRounds >= emptyRoundLimit) {
+      lastError = `Preparation paused after ${consecutiveEmptyRounds} replacement rounds added no accepted questions. Ready questions are saved; retry only the missing slots.`;
+      stopPreparation = true;
+    }
     // An empty wave may only represent a difficult group of objectives.
     // The existing attempt ceiling and shared deadline bound cost; allow fresh
     // replacements instead of stopping before the requested slots are filled.

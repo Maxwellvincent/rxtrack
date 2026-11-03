@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 vi.mock("./llmBridge.js", () => ({ questionPreparationCapabilities: vi.fn() }));
 import { questionPreparationCapabilities } from "./llmBridge.js";
-import { questionPreparationDeps, resetQuestionProviderLimit, QUESTION_PREPARATION_BUDGET_MS } from "./questionPreparation.js";
+import { questionPreparationDeps, questionPreparationStatus, resetQuestionProviderLimit, QUESTION_PREPARATION_BUDGET_MS } from "./questionPreparation.js";
 
 beforeEach(() => { resetQuestionProviderLimit(); questionPreparationCapabilities.mockResolvedValue({ writer: "ollama-cloud", reviewer: "codex" }); });
 afterEach(() => { vi.useRealTimers(); });
@@ -58,4 +58,15 @@ it("retries one empty cloud reply inside the original deadline", async () => {
   expect(call.mock.calls.map(args => args[6].bridgeBackend)).toEqual(["codex", "ollama-cloud", "ollama-cloud"]);
   const next = await questionPreparationDeps(call);
   expect(next.prepareConcurrency).toBe(1);
+});
+
+it("shows active writing and independent review without counting them as ready", () => {
+  expect(questionPreparationStatus({ diagnostics: { calls: [
+    { stage: "draft", status: "running" }, { stage: "review", status: "running" },
+    { stage: "draft", status: "complete" },
+  ] } })).toBe("Writing 1 batch · Checking 1 batch");
+});
+it("bounds repeated empty preparation rounds", async () => {
+  const deps = await questionPreparationDeps(vi.fn());
+  expect(deps.maxEmptyRounds).toBe(3);
 });
