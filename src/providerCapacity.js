@@ -1,8 +1,8 @@
 /** Capacity failures are not malformed questions or network reconnection events. */
 export function capacityKind(error) {
  const message=String(error?.message || error || '');
- if(/\b429\b|too many requests|rate[ -]?limit/i.test(message))return 'rate-limit';
- if(/\b402\b|usage[ -]?limit|quota|credits? (?:exhaust|deplet)|insufficient.*credit|monthly cap|budget.*(?:reach|exceed)/i.test(message))return 'usage-limit';
+ if(/\b429\b|too many requests|\brate[ -]?limit(?:ed)?\b/i.test(message))return 'rate-limit';
+ if(/\b402\b|usage[ -]?limit|\bquota\b.{0,24}(?:exceed|exhaust|reach|limit)|(?:exceed|exhaust|insufficient|over).{0,24}\bquota\b|credits? (?:exhaust|deplet)|insufficient.*credit|monthly cap|budget.*(?:reach|exceed)/i.test(message))return 'usage-limit';
  return null;
 }
 export function retryAfterMs(value,now=Date.now()) {
