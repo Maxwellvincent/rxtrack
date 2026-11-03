@@ -32,7 +32,7 @@ it('does not call a continuation-only original an eligible reference sample',()=
 
 it('includes in-class examples without inventing keys or claiming unseen exposure',()=>{
  const packet=buildQuestionAuditBaseline({banks:{'In Class Questions.pdf':[q('keyed'),q('unkeyed',{correct:null}),q('held',{sourceKeyReviewStatus:'stem-mismatch'})]}});
- expect(packet.version).toBe(5);
+ expect(packet.version).toBe(6);
  expect(packet.sampled.clicker).toBe(2);
  const item=packet.samples.find(row=>row.originalId==='unkeyed');
  expect(item).toMatchObject({role:'clicker',correct:null,answerKeyAvailable:false,referenceUse:'construction-only',exposureToGeneration:'unknown'});
@@ -73,4 +73,11 @@ it('marks missing and conflicting objective IDs explicitly rather than guessing 
 it('does not resolve an explicit block link using another blocks matching ID',()=>{
  const packet=buildQuestionAuditBaseline({objectives:[{id:'o',text:'Other block clause',blockId:'old'}],generated:{l:{questions:[q('scoped',{objectiveIds:['o'],blockId:'new'})]}}});
  expect(packet.samples[0].objectiveLinks[0].status).toBe('unresolved');
+});
+
+it('exports only allowlisted independent answer-route evidence',()=>{
+ const packet=buildQuestionAuditBaseline({generated:{l:{questions:[q('route',{qualityAudit:{contractVersion:'route-contract',blindSolve:{status:'matched',answer:'A',answerRoutePolicy:'route-policy',answerRoute:{kind:'calculation',stemClue:'patient has a finding',requiredRelationship:'Apply a supplied measurement relationship',whyNotRestatement:'New measurements require applying the source rule.',outcomeRestatement:false,choiceShortcut:false,secret:'PRIVATE_SECRET'}}}})]}}});
+ expect(packet.samples[0].questionContractVersion).toBe('route-contract');
+ expect(packet.samples[0].blindSolve.answerRoute.kind).toBe('calculation');
+ expect(JSON.stringify(packet)).not.toContain('PRIVATE_SECRET');
 });

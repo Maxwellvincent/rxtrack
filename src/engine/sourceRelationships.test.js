@@ -1,3 +1,4 @@
+import {answerRoute} from './testFixtures/answerRoute.js';
 import {describe,it,expect} from 'vitest';
 import {createSourceRelationship,mergeSourceRelationships,relationshipCoverage,relationshipTargets,bindReviewedRelationships} from './sourceRelationships.js';
 import {QUESTION_REUSE_REVIEW_POLICY} from './questionReuse.js';
@@ -48,7 +49,7 @@ describe('source-backed relationship identity',()=>{
 });
 const reviewed=()=>({stem:'A patient loses vibration sensation in the left leg. Which pathway is affected?',choices:{A:'Dorsal columns',B:'Other pathway'},correct:'A',objectiveIds:['o'],orderLevel:'second-order',generationVersion:'v2',
  reasoningAudit:{version:2,status:'verified',reviewPolicy:REASONING_REVIEW_POLICY,orderLevel:'second-order',sourceQuotes:[quote],connectedChain:true,singleEndpoint:true,choiceShortcut:false},
- qualityAudit:{status:'approved',reviewPolicy:QUESTION_REUSE_REVIEW_POLICY,reviewedAt:'2026-11-02T00:00:00Z',semanticObjectiveAlignment:true,objectiveId:'o',objectiveAlignment:{objectiveId:'o',objectiveClause:'vibration pathways'},blindSolve:{status:'matched',answer:'A',sourceQuotes:[quote]},discrimination:{closestAlternative:'B',stemClue:'loses vibration sensation',whyAlternativeFails:'The supplied modality follows a different pathway.',keyUniquelySupported:true,alternativeAlsoCorrect:false}}});
+ qualityAudit:{status:'approved',reviewPolicy:QUESTION_REUSE_REVIEW_POLICY,reviewedAt:'2026-11-02T00:00:00Z',semanticObjectiveAlignment:true,objectiveId:'o',objectiveAlignment:{objectiveId:'o',objectiveClause:'vibration pathways'},blindSolve:{answerRoute:answerRoute('A patient loses vibration sensation in the left leg. Which pathway is affected?'),status:'matched',answer:'A',sourceQuotes:[quote]},discrimination:{closestAlternative:'B',stemClue:'loses vibration sensation',whyAlternativeFails:'The supplied modality follows a different pathway.',keyUniquelySupported:true,alternativeAlsoCorrect:false}}});
 it('binds a currently reviewed question only to an explicit clause and original located source',()=>{
  const cfg={blockId:'b',lectureId:'lec',objectives:[objective],sourcePages:pages};
  expect(bindReviewedRelationships(reviewed(),cfg).sourceRelationshipIds).toEqual([bundle().relationship.id]);

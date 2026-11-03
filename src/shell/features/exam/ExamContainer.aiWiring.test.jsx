@@ -1,3 +1,4 @@
+import {answerRoute} from '../../../engine/testFixtures/answerRoute.js';
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { act } from "react";
@@ -161,7 +162,7 @@ function reviewResponse(system, prompt) {
   return { reviews: questions.map((q, index) => {
     const key = Object.keys(q.choices).find(letter => q.choices[letter] === "Loss of endogenous insulin secretion");
     const reasoning = { orderLevel: "second-order", steps: ["Interpret low C-peptide", "Infer reduced endogenous insulin secretion"], sourceQuotes: ["Low C-peptide demonstrates reduced endogenous insulin secretion."], allStepsRequired: true, connectedChain: true, singleEndpoint: true, choiceShortcut: false };
-    if (String(system).startsWith("Solve from lecture evidence")) return {index, answer: key, unique: true, reasoning};
+    if (String(system).startsWith("Solve from lecture evidence")) return {index, answer: key, unique: true, reasoning,answerRoute:answerRoute(q.stem)};
     return {index, approved: true, objectiveAligned: true, issues: [], reasoning,
       discrimination: {closestAlternative: Object.keys(q.choices).find(letter => q.choices[letter] === "Excess cortisol secretion"), stemClue: "low serum C-peptide concentration", whyAlternativeFails: "Cortisol excess does not explain the reduced endogenous insulin secretion.", keyUniquelySupported: true, alternativeAlsoCorrect: false}};
   }) };

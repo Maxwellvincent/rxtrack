@@ -1,3 +1,4 @@
+import {answerRoute} from './testFixtures/answerRoute.js';
 import { describe, it, expect } from "vitest";
 import { vi } from "vitest";
 import { buildRepairPrompt, buildSchoolTemplatePlan, explanationOnlyReplacement, questionMatchesObjectiveDomain, normalizeQuestions, buildMcqPrompt, generateMcqs, buildExemplarParsePrompt, parseExemplarsFromMd, buildAtomQuestionsPrompt, generateFromAtoms, selectStyleExemplars, exemplarSourceTier, buildQuestionAuditPrompt, auditGeneratedQuestions, locallyValidClinicalQuestions, locallyUsableQuestions, buildStyleFingerprint, questionEndingTask, diversifyQuestionEndings, buildQuestionSourceBlueprint, styleProfilePrompt } from "./mcq.js";
@@ -1190,7 +1191,7 @@ it('requires a separate source-grounded solve without leaking or silently changi
  const reviewer=vi.fn(async(_system,prompt)=>{
   if(prompt.startsWith('Independently solve')){
    expect(prompt).not.toContain('PRIVATE_PROPOSED_EXPLANATION');expect(prompt).not.toContain('"correct":');
-   return {reviews:[{index:0,answer,unique:true,reasoning:{sourceQuotes:[quote]}}]};
+   return {reviews:[{index:0,answer,unique:true,answerRoute:answerRoute(question.stem),reasoning:{sourceQuotes:[quote]}}]};
   }
   return {reviews:[{index:0,approved:true,issues:[]}]};
  });
@@ -1202,4 +1203,27 @@ it('requires a separate source-grounded solve without leaking or silently changi
  answer='B';
  const withheld=await auditGeneratedQuestions([question],cfg,{skipRepair:true,reviewAIJSON:reviewer});
  expect(withheld.questions).toEqual([]);expect(withheld.rejections[0].issues).toContain('blind_key_disagreement');expect(question.correct).toBe('A');
+});
+
+it('carries an independent shortcut rejection into targeted repair despite key-aware approval',async()=>{
+ const good={stem:'An upstream input is interrupted while a local response persists during testing. Which mechanism explains the preserved local response?',choices:{A:'Local response mechanism',B:'Upstream response mechanism',C:'Loss of all responses',D:'Increased upstream drive'},correct:'A',explanation:'Local mechanisms can support responses independently of the upstream input.',orderLevel:'second-order'};
+ const bad={...good,stem:'A response was lost and later returns successfully. Which event best explains the return of the response?'};
+ const quote='Local responses persist after the upstream input is interrupted.';
+ const reviewer=vi.fn(async(_system,prompt)=>{
+  const items=JSON.parse(prompt.split('\nQUESTIONS:\n')[1].split('\n')[0]);
+  return {reviews:items.map((item,index)=>prompt.startsWith('Independently solve')?{index,answer:'A',unique:true,reasoning:{sourceQuotes:[quote]},answerRoute:answerRoute(item.stem,item.stem===bad.stem?{kind:'outcome-restatement',outcomeRestatement:true}:{kind:'relationship-application'})}:{index,approved:true,objectiveAligned:true,issues:[]})};
+ });
+ const repair=vi.fn().mockResolvedValue({questions:[]});
+ const result=await auditGeneratedQuestions([good,bad],{lectureText:quote.repeat(4),requireBlindKeyCheck:true},{reviewAIJSON:reviewer,repairAIJSON:repair});
+ expect(result.questions).toHaveLength(1);expect(result.questions[0].stem).toBe(good.stem);
+ expect(result.rejections).toEqual(expect.arrayContaining([expect.objectContaining({index:1,issues:['answer_choice_shortcut']})]));
+ expect(repair).toHaveBeenCalledTimes(1);expect(repair.mock.calls[0][1]).toContain('answer_choice_shortcut');
+ expect(repair.mock.calls[0][1]).toContain('Add a supported discriminator');
+ expect(repair.mock.calls[0][1]).toContain(bad.stem);expect(repair.mock.calls[0][1]).not.toContain(good.stem);
+});
+
+it('does not let a positive approval override the same reviewer reporting a shortcut',async()=>{
+ const question={stem:'A local response remains present after the upstream input has been interrupted. Which source-supported mechanism explains the preserved response?',choices:{A:'Local mechanism',B:'Upstream mechanism',C:'Loss of the response',D:'Increased upstream drive'},correct:'A',orderLevel:'second-order',explanation:'The response remains independent of the interrupted upstream input.'};
+ const result=await auditGeneratedQuestions([question],{}, {skipRepair:true,reviewAIJSON:async()=>({reviews:[{index:0,approved:true,objectiveAligned:true,issues:[],answerRoute:answerRoute(question.stem,{choiceShortcut:true})}]})});
+ expect(result.questions).toEqual([]);expect(result.rejections[0].issues).toContain('answer_choice_shortcut');
 });

@@ -1,0 +1,2 @@
+// Explicit independent-review fixture; never imported by production modules.
+export const answerRoute=(stem,patch={})=>({kind:'connected-integration',stemClue:stem,requiredRelationship:'Apply the supplied causal relationships to distinguish the predicted response.',whyNotRestatement:'The supplied finding requires the source relationship rather than a synonym for the observed outcome.',outcomeRestatement:false,choiceShortcut:false,...patch});

@@ -1,8 +1,9 @@
+import {compactAnswerRoute} from './questionAnswerRoute.js';
 import {isEvaluationReserved,sourceExposure} from "./sourceUse.js";
 import { usableSchoolExemplar, requiresSchoolFigure, schoolExemplarIssues } from "./schoolSourceIntegrity.js";
 import { buildStyleFingerprint, exemplarSourceTier } from './mcq.js';
 
-export const BASELINE_VERSION = 5;
+export const BASELINE_VERSION = 6;
 const stableKey = q => JSON.stringify([q.sourceFile || '', q.lectureId || '', q.id || q.questionId || '', q.stem || '']);
 // Reproducible spread, not newest-only or highest-scoring selection.
 function rank(value) {
@@ -76,9 +77,10 @@ function reviewItem(q,role,objectives=[],sourceUse={}) {
   explanation:q.explanation || null, whyWrong:q.whyWrong || {},
   figureRequired:requiresSchoolFigure(q),
   figureIncluded:false, generationVersion:q.generationVersion || null,
-  blindSolve:q.qualityAudit?.blindSolve ? {status:q.qualityAudit.blindSolve.status || null,answer:q.qualityAudit.blindSolve.answer || null,sourceQuotes:(q.qualityAudit.blindSolve.sourceQuotes || []).slice(0,3)} : null,
+  blindSolve:q.qualityAudit?.blindSolve ? {status:q.qualityAudit.blindSolve.status || null,answer:q.qualityAudit.blindSolve.answer || null,sourceQuotes:(q.qualityAudit.blindSolve.sourceQuotes || []).slice(0,3),answerRoutePolicy:q.qualityAudit.blindSolve.answerRoutePolicy || null,answerRoute:q.qualityAudit.blindSolve.answerRoute?compactAnswerRoute(q.qualityAudit.blindSolve.answerRoute):null} : null,
   reviewedAt:q.qualityAudit?.reviewedAt || null,
   qualityReviewPolicy:q.qualityAudit?.reviewPolicy || null,
+  questionContractVersion:q.qualityAudit?.contractVersion || null,
   reviewedDiscrimination:q.qualityAudit?.discrimination ? {closestAlternative:q.qualityAudit.discrimination.closestAlternative || null,stemClue:q.qualityAudit.discrimination.stemClue || null,whyAlternativeFails:q.qualityAudit.discrimination.whyAlternativeFails || null,keyUniquelySupported:q.qualityAudit.discrimination.keyUniquelySupported===true,alternativeAlsoCorrect:q.qualityAudit.discrimination.alternativeAlsoCorrect===true} : null,
   reviewedObjectiveId:q.qualityAudit?.objectiveId || null,
   reviewedBestSourceObjectiveCode:q.qualityAudit?.objectiveAlignment?.bestSourceObjectiveCode || null,

@@ -1,3 +1,4 @@
+import {compactAnswerRoute,ANSWER_ROUTE_POLICY,answerRouteIssue} from './questionAnswerRoute.js';
 import {GENERATED_QUESTION_CONTRACT,QUESTION_CHOICE_CONTRACT,QUESTION_CONTRACT_VERSION,questionAdmissionIssues} from './questionContract.js';
 import * as sourceUseStore from "../stores/sourceUse.js";
 import { allowedGenerationExamples } from "./sourceUse.js";
@@ -1264,7 +1265,7 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
     }
     const reviews = Array.isArray(raw?.reviews) ? raw.reviews : [];
     const byIndex = new Map(reviews.map((review) => [Number(review?.index), review]));
-    const rejections = questions.flatMap((question, index) => {
+    const rejectionRows = questions.map((question, index) => {
       const structuralIssues=questionAdmissionIssues(question);
       if(structuralIssues.length)return [{objectiveIds:question.objectiveIds || [],issues:structuralIssues,rationale:"Incomplete question structure cannot enter a new set."}];
       const review = byIndex.get(index);
@@ -1275,9 +1276,11 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
       }
       const distinctionIssue = discriminationIssue(review, question, cfg);
       if (review?.approved === true && distinctionIssue) return [{ objectiveIds: question.objectiveIds || [], issues: [distinctionIssue], rationale: "Establish a unique key against the closest alternative using an exact clue from the final stem and lecture-supported reasoning. Repair missing distinctions without inventing findings." }];
+      const declaredRouteIssue=review?.answerRoute?answerRouteIssue(review.answerRoute,question,cfg):null;
+      if(review?.approved===true && declaredRouteIssue)return [{objectiveIds:question.objectiveIds || [],issues:[declaredRouteIssue],rationale:"The reviewer reported an answer-route defect despite an approval flag. Repair the necessary inference and competing alternatives; approval alone cannot override this contradiction."}];
       if(cfg.requireBlindKeyCheck && review?.approved===true && !discriminationIssue(review,question,cfg)){
         const issue=blindSolveIssue(blindByIndex.get(index),question,cfg);
-        if(issue)return [{objectiveIds:question.objectiveIds || [],issues:[issue],rationale:"A separate solve without the writer's key did not establish a unique, source-grounded matching answer. Repair the question and re-review it; never silently rekey or accept an unsupported answer."}];
+        if(issue)return [{objectiveIds:question.objectiveIds || [],issues:[issue],rationale:issue==="answer_choice_shortcut"?"The key-hidden solve found that the options or a renamed stated outcome supply the answer without the required relationship. Add a supported discriminator among plausible alternatives; do not pad the vignette or relabel recall.":issue==="unverified_answer_route"?"The key-hidden solver did not supply a verifiable necessary relationship and an actual stem clue. The correct letter alone cannot establish application.":"A separate solve without the writer's key did not establish a unique, source-grounded matching answer. Repair the question and re-review it; never silently rekey or accept an unsupported answer."}];
       }
       const target = (cfg.objectives || []).find(o => (question.objectiveIds || []).includes(String(o.id || o.code)))?._targetOrder;
       const reasoning = cfg.requireReasoningAudit && review?.approved === true ? verifyReasoningReview(review, question, cfg) : null;
@@ -1288,6 +1291,7 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
       }
       return review?.approved === false ? [{ objectiveIds: question.objectiveIds || [], issues: review.issues || [], rationale: String(review.rationale || "").slice(0, 600) }] : [];
     });
+    const rejections=rejectionRows.flatMap((rows,index)=>rows.map(row=>({...row,index})));
     if (!reviews.length) return keepLocallyValidated(raw.error || "malformed reviewer response");
     const nonBlockingReviewIssues = new Set(["repetitive_task_ending", "order_level_mismatch"]);
     const approved = questions.flatMap((question, index) => {
@@ -1300,7 +1304,7 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
           qualityAudit: { version: 1, status: "local-validated", checks: ["clinical-structure", "valid-key", "distinct-choices", "no-answer-leak"] },
         }] : [];
       }
-      if (objectiveAlignmentIssue(review, question, cfg) || discriminationIssue(review, question, cfg)) return [];
+      if (objectiveAlignmentIssue(review, question, cfg) || discriminationIssue(review, question, cfg) || (review.answerRoute && answerRouteIssue(review.answerRoute,question,cfg))) return [];
       if (cfg.requireBlindKeyCheck && blindSolveIssue(blindByIndex.get(index),question,cfg)) return [];
       const issues = Array.isArray(review.issues) ? review.issues.map(String) : [];
       const blockingIssues = issues.filter((issue) => !nonBlockingReviewIssues.has(issue));
@@ -1331,7 +1335,7 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
           contractVersion:QUESTION_CONTRACT_VERSION,
           reviewedAt: new Date().toISOString(),
           relationshipIds:Array.isArray(review.sourceRelationshipIds)?review.sourceRelationshipIds.filter(id=>(cfg.relationshipTargets || []).some(row=>row.id===id)):[],
-          ...(cfg.requireBlindKeyCheck && !blindSolveIssue(blindByIndex.get(index),question,cfg) ? { blindSolve: { status: "matched", answer: blindByIndex.get(index).answer, sourceQuotes: blindByIndex.get(index).reasoning.sourceQuotes.slice(0,3) } } : {}),
+          ...(cfg.requireBlindKeyCheck && !blindSolveIssue(blindByIndex.get(index),question,cfg) ? { blindSolve: { status: "matched", answer: blindByIndex.get(index).answer, sourceQuotes: blindByIndex.get(index).reasoning.sourceQuotes.slice(0,3), ...(blindByIndex.get(index).answerRoute?{answerRoute:compactAnswerRoute(blindByIndex.get(index).answerRoute),answerRoutePolicy:ANSWER_ROUTE_POLICY}:{}) } } : {}),
           reviewPolicy: verifiedDiscrimination(review.discrimination, question) ? QUESTION_REUSE_REVIEW_POLICY : "legacy-without-discriminator",
           ...(verifiedDiscrimination(review.discrimination, question) ? { discrimination: verifiedDiscrimination(review.discrimination, question) } : {}),
           status: acceptedWithNotes || issues.length ? "approved-with-notes" : "approved",
@@ -1404,8 +1408,8 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
         const rejectedItems = questions.map((question, index) => ({
           index,
           question: auditQuestionPayload(question),
-          issues: byIndex.get(index)?.issues || ["reviewer_rejected"],
-          reviewRationale: byIndex.get(index)?.rationale || "",
+          issues: [...new Set([...(byIndex.get(index)?.issues || []),...(rejections.find(row=>row.index===index)?.issues || [])])],
+          reviewRationale: [...new Set([byIndex.get(index)?.rationale,rejections.find(row=>row.index===index)?.rationale].filter(Boolean))].join(" "),
           requiredOrder: (cfg.objectives || []).find(o => (question.objectiveIds || []).includes(String(o.id || o.code)))?._targetOrder || "",
           reviewedOrder: byIndex.get(index)?.reasoning?.orderLevel || "",
         })).filter(item => !retainedStems.has(item.question.stem));

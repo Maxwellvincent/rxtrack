@@ -1,10 +1,11 @@
+import {answerRoute} from './testFixtures/answerRoute.js';
 import { expect, it } from "vitest";
 import { hasCurrentReasoningAudit, REASONING_REVIEW_POLICY } from "./questionOrder.js";
 import { hasReusableQuestionReview, isReusableForObjective, QUESTION_REUSE_REVIEW_POLICY } from "./questionReuse.js";
 
 const current = () => ({ stem: "The response persists after upstream input is blocked.", choices: { A: "Local response", B: "Upstream response" }, correct: "A", generationVersion: "v2", objectiveIds: ["o"], orderLevel: "second-order",
   reasoningAudit: { status: "verified", version: 2, reviewPolicy: REASONING_REVIEW_POLICY, orderLevel: "second-order", connectedChain: true, singleEndpoint: true, choiceShortcut: false },
-  qualityAudit: { blindSolve: {status:"matched",answer:"A",sourceQuotes:["Source-supported local response relationship."]}, discrimination: { closestAlternative: "B", stemClue: "persists after upstream input is blocked", whyAlternativeFails: "The response does not depend on the blocked input.", keyUniquelySupported: true, alternativeAlsoCorrect: false }, status: "approved", reviewPolicy: QUESTION_REUSE_REVIEW_POLICY, reviewedAt: "2026-10-31T12:00:00Z", semanticObjectiveAlignment: true, objectiveId: "o" },
+  qualityAudit: { blindSolve: {answerRoute:answerRoute("The response persists after upstream input is blocked."),status:"matched",answer:"A",sourceQuotes:["Source-supported local response relationship."]}, discrimination: { closestAlternative: "B", stemClue: "persists after upstream input is blocked", whyAlternativeFails: "The response does not depend on the blocked input.", keyUniquelySupported: true, alternativeAlsoCorrect: false }, status: "approved", reviewPolicy: QUESTION_REUSE_REVIEW_POLICY, reviewedAt: "2026-10-31T12:00:00Z", semanticObjectiveAlignment: true, objectiveId: "o" },
 });
 
 it("separates new-set eligibility from historical reasoning evidence without mutating a record", () => {
@@ -41,4 +42,12 @@ it('requires re-review under the blind-first policy without deleting older evide
  expect(hasReusableQuestionReview(old)).toBe(false);
  expect(hasCurrentReasoningAudit(old)).toBe(true);
  expect(old.qualityAudit.blindSolve.status).toBe('matched');
+});
+
+it('withholds recent cached questions without the new independent answer-route review',()=>{
+ const prior=current();prior.qualityAudit.reviewPolicy='2026-11-02-blind-first';
+ expect(hasReusableQuestionReview(prior)).toBe(false);
+ const missing=current();delete missing.qualityAudit.blindSolve.answerRoute;
+ expect(hasReusableQuestionReview(missing)).toBe(false);
+ expect(hasCurrentReasoningAudit(missing)).toBe(true);
 });

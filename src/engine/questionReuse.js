@@ -1,3 +1,4 @@
+import {answerRouteIssue} from './questionAnswerRoute.js';
 import {QUESTION_REVIEW_POLICY,questionAdmissionIssues} from './questionContract.js';
 import { verifiedDiscrimination } from "./questionDiscrimination.js";
 import { hasCurrentReasoningAudit, normalizeQuestionOrder, REASONING_REVIEW_POLICY } from "./questionOrder.js";
@@ -15,6 +16,7 @@ export function hasReusableQuestionReview(question = {}) {
     || !["approved", "approved-with-notes"].includes(quality.status) || !Number.isFinite(Date.parse(quality.reviewedAt))) return false;
   if (!verifiedDiscrimination(quality.discrimination, question)) return false;
   if (quality.blindSolve?.status !== "matched" || quality.blindSolve.answer !== question.correct || !quality.blindSolve.sourceQuotes?.some(q=>typeof q==="string" && q.trim().length>=16)) return false;
+  if(answerRouteIssue(quality.blindSolve.answerRoute,question,{requireReasoningAudit:true}))return false;
   const ids = question.objectiveIds || [];
   return ids.length === 0 || (ids.length === 1 && quality.semanticObjectiveAlignment === true && quality.objectiveId === ids[0]);
 }
