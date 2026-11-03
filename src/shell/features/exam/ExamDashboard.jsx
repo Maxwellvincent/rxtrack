@@ -1,3 +1,5 @@
+import { sessionEvidenceEvent } from './sessionEvidence.js';
+import { objectivePracticePlan } from '../../../engine/objectivePractice.js';
 import { buildLectureRepairContext } from "./lectureRepairContext.js";
 export { buildLectureRepairContext } from "./lectureRepairContext.js";
 import {subscribeExamSessionChanges} from "../../../examSessionChanges.js";
@@ -106,12 +108,23 @@ function accuracyClass(accuracy) {
 export function computeObjectiveReadiness(sessions, objectives = [], { restrictToKnown = false } = {}) {
   const knownIds = new Set((objectives || []).map((o) => o?.id).filter(Boolean));
   const stats = {};
-  for (const [sessionIndex, session] of (sessions || []).entries()) {
+  const readinessEvents=[];
+  const evidenceIds=new Set();
+  const time=value=>typeof value==='number' ? value : Date.parse(value)||0;
+  const ordered=[...(sessions || [])].sort((a,b)=>time(a.startedAt || a.submittedAt)-time(b.startedAt || b.submittedAt));
+  for (const [sessionIndex, session] of ordered.entries()) {
     const sessionKey = session?.sessionId || session?.id || session?.submittedAt || `session-${sessionIndex}`;
     for (const question of session?.questions || []) {
       const answer = (session.answers || []).find((a) => a.questionId === question.questionId);
       if (!answer) continue;
       const correct = !!answer && answer.value === question.correct;
+      const event=sessionEvidenceEvent({...session,sessionId:sessionKey},question,answer);
+      const rawAt=answer.answeredAt || session.progressSavedAt || session.submittedAt || session.startedAt;
+      const at=typeof rawAt==='number' ? rawAt : Date.parse(rawAt);
+      if(!evidenceIds.has(event.eventId)) {
+        evidenceIds.add(event.eventId);
+        readinessEvents.push({...event,at:Number.isFinite(at)?at:0});
+      }
       for (const objectiveId of question.objectiveIds || []) {
         if ((restrictToKnown || knownIds.size) && !knownIds.has(objectiveId)) continue;
         const prev = stats[objectiveId] || { attempts: 0, correct: 0, sessions: new Set(), taskTypes: new Set(), latestCorrect: false };
@@ -128,18 +141,14 @@ export function computeObjectiveReadiness(sessions, objectives = [], { restrictT
   const total = knownIds.size || testedIds.length;
   const attempts = testedIds.reduce((sum, id) => sum + stats[id].attempts, 0);
   const correct = testedIds.reduce((sum, id) => sum + stats[id].correct, 0);
-  const ready = testedIds.filter((id) => {
-    const stat = stats[id];
-    return stat.attempts >= 3 && stat.sessions.size >= 2 && stat.taskTypes.size >= 2
-      && stat.correct / stat.attempts >= 0.8 && stat.latestCorrect;
-  }).length;
+  const readinessEvidence=readinessEvents.sort((a,b)=>a.at-b.at).reduce((data,event)=>learnerEvidenceStore.applyEvidence(data,event),{});
+  const readyIds=new Set(objectivePracticePlan(testedIds.map(id=>({id})),readinessEvidence).rows.filter(row=>row.ready).map(row=>row.id));
+  const ready = readyIds.size;
   const provisional = testedIds.filter((id) => {
     const stat = stats[id];
-    return stat.attempts >= 2 && stat.correct / stat.attempts >= 0.8 && !(
-      stat.attempts >= 3 && stat.sessions.size >= 2 && stat.taskTypes.size >= 2 && stat.latestCorrect
-    );
+    return !readyIds.has(id) && stat.attempts >= 2 && stat.correct / stat.attempts >= 0.8;
   }).length;
-  const weak = testedIds.filter((id) => stats[id].attempts >= 2 && stats[id].correct / stats[id].attempts < 0.6).length;
+  const weak = testedIds.filter((id) => !readyIds.has(id) && stats[id].attempts >= 2 && stats[id].correct / stats[id].attempts < 0.6).length;
   return {
     tested: testedIds.length,
     total,
@@ -347,7 +356,7 @@ export function ExamDashboard({ blockId, userId, lectures = [], questionStats = 
         {[
           ["Objective coverage", `${Math.round(readiness.coverage * 100)}%`],
           ["Exam accuracy", readiness.accuracy === null ? "—" : `${Math.round(readiness.accuracy * 100)}%`],
-          ["Durably ready objectives", String(readiness.ready)],
+          ["Practice-ready objectives", String(readiness.ready)],
           ["Provisional objectives", String(readiness.provisional)],
           ["Weak objectives", String(readiness.weak)],
           ["Average pace", pacing.secondsPerQuestion === null ? "—" : `${Math.round(pacing.secondsPerQuestion)} sec/q`],

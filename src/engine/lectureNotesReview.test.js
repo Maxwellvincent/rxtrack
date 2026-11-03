@@ -50,3 +50,8 @@ it('a completed slides-and-notes review moves an overdue reminder to tomorrow wi
  const model=Object.values(data.models)[0];
  expect(model.nextReviewAt).toBe(now+DAY);expect(model.history).toEqual([]);expect(model.solidStreak).toBe(0);
 });
+
+it('does not keep a recovered practice-ready objective in the lifetime-low-score repair list',()=>{
+ const advice=lectureNotesRecommendation([{id:'o',text:'Explain the pathway',attempts:50,correct:10,ready:true}]);
+ expect(advice.weak).toBe(0);expect(advice.ready).toBe(1);
+});

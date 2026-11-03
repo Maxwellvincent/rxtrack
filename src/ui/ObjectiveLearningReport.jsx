@@ -32,7 +32,8 @@ export function ObjectiveLearningReport({objectives=[],evidence={},records=[],on
  <p>Your answer: {item.selected || "Not recorded"}</p><p>Keyed answer: {item.keyed || "Not recorded"}</p>
  {item.explanation && <p className="mt-1">{item.explanation}</p>}
  </div>)}
- <p className="mt-2 text-xs">Longer-term readiness: {row.label}. {row.attempts} distinct questions · {row.sessionCount} sessions · {row.taskTypeCount} question types.</p>
+ <p className="mt-2 text-xs">Practice evidence: {row.label}. {row.attempts} distinct questions · {row.sessionCount} sessions · {row.taskTypeCount} question types.</p>
+ {row.readinessBasis==="recent-fresh-recovery" && <p className="mt-1 text-xs">Recent recovery: {row.recovery.correct}/{row.recovery.count} fresh questions correct across spaced sessions, including verified application. Lifetime accuracy remains {Math.round(row.accuracy*100)}%; exam readiness is not established.</p>}
  {row.missingRequirements.length>0 && <p className="mt-1 text-xs">For consistent understanding: {row.missingRequirements.join("; ")}.</p>}
  {row.sourceCue && <details className="mt-2 text-xs"><summary className="cursor-pointer">Supporting source excerpt</summary><p className="mt-1">{row.sourceCue}</p></details>}
  </details>

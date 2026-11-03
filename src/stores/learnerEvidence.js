@@ -106,7 +106,10 @@ function bumpObjective(bucket, id, event) {
     const prior = orderLevels[event.orderLevel] || { attempts: 0, correct: 0 };
     orderLevels[event.orderLevel] = { attempts: prior.attempts + 1, correct: prior.correct + (event.correct ? 1 : 0) };
   }
-  return { ...next, [id]: { ...entry, sessions, taskTypes, sources, questionKeys: nextQuestionKeys, orderLevels, lastFreshAnswer: {correct:event.correct,confidence:event.confidence ?? null,orderLevel:event.orderLevel ?? null,reasoningVerified:event.reasoningVerified === true} } };
+  return { ...next, [id]: { ...entry, sessions, taskTypes, sources, questionKeys: nextQuestionKeys, orderLevels, recentFreshAnswers: questionKey ? [...(previous.recentFreshAnswers || []), {
+    questionKey, correct:event.correct, at:event.at, sessionKey:event.sessionKey || null, taskType:event.taskType || null,
+    orderLevel:event.orderLevel || null, reasoningVerified:event.reasoningVerified === true,
+  }].slice(-8) : previous.recentFreshAnswers || [], lastFreshAnswer: {correct:event.correct,confidence:event.confidence ?? null,orderLevel:event.orderLevel ?? null,reasoningVerified:event.reasoningVerified === true} } };
 }
 
 export function applyEvidence(model, rawEvent) {

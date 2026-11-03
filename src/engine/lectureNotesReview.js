@@ -20,7 +20,7 @@ export function recordLectureNotes(data, input, now, eventId) {
 
 /** Practical suggestions based on observed coverage; not a claim about learning style. */
 export function lectureNotesRecommendation(rows = [], model = {}, evidence = {}, now = Date.now()) {
-  const weak = rows.filter(row => row.attempts >= 2 && row.correct / row.attempts < 0.6)
+  const weak = rows.filter(row => !row.ready && row.attempts >= 2 && row.correct / row.attempts < 0.6)
     .sort((a,b) => a.correct/a.attempts-b.correct/b.attempts || b.attempts-a.attempts);
   const untested = rows.filter(row => !row.attempts);
   const developing = rows.filter(row => row.attempts && !row.ready && !weak.includes(row));

@@ -1,3 +1,4 @@
+import { objectiveRecovery, minimumRecoveryQuestions } from './objectiveRecovery.js';
 import { objectiveOrderProfile } from "./questionOrder.js";
 
 export const OBJECTIVE_MIN_ATTEMPTS = 3;
@@ -33,6 +34,7 @@ function normalizedEvidence(objective, entry) {
     sources: useEvidence ? entry?.sources || {} : {},
     taskTypes: useEvidence ? entry?.taskTypes || {} : {},
     lastFreshAnswer: useEvidence ? entry?.lastFreshAnswer || null : null,
+    recentFreshAnswers: useEvidence ? entry?.recentFreshAnswers || [] : [],
     orderLevels: useEvidence ? entry?.orderLevels || {} : {},
   };
 }
@@ -43,21 +45,17 @@ function normalizedEvidence(objective, entry) {
  * one task type, or doing everything in one sitting can increase the real work.
  */
 export function minimumQuestionsToObjectiveReadiness(progress = {}) {
+  const recoveryMinimum=minimumRecoveryQuestions(progress.recentFreshAnswers || [],progress.latestCorrect);
   const attempts = Math.max(0, Number(progress.attempts) || 0);
   const correct = Math.min(attempts, Math.max(0, Number(progress.correct) || 0));
   const needsSession = (Number(progress.sessionCount) || 0) < OBJECTIVE_MIN_SESSIONS;
   const needsTaskType = (Number(progress.taskTypeCount) || 0) < OBJECTIVE_MIN_TASK_TYPES;
   const needsLatestCorrect = attempts > 0 && !progress.latestCorrect;
 
-  for (let additional = 0; additional < 1000; additional += 1) {
-    const nextAttempts = attempts + additional;
-    const nextCorrect = correct + additional;
-    const enoughAnswers = nextAttempts >= OBJECTIVE_MIN_ATTEMPTS;
-    const enoughAccuracy = nextAttempts > 0 && nextCorrect / nextAttempts >= OBJECTIVE_MIN_ACCURACY;
-    const canAddMissingVariety = additional > 0 || (!needsSession && !needsTaskType && !needsLatestCorrect);
-    if (enoughAnswers && enoughAccuracy && canAddMissingVariety) return additional;
-  }
-  return 1000;
+  const lifetimeMinimum=Math.max(0, OBJECTIVE_MIN_ATTEMPTS-attempts,
+    Math.ceil((OBJECTIVE_MIN_ACCURACY*attempts-correct-1e-9)/(1-OBJECTIVE_MIN_ACCURACY)),
+    needsSession || needsTaskType || needsLatestCorrect ? 1 : 0);
+  return Math.min(lifetimeMinimum,recoveryMinimum);
 }
 
 export function objectivePracticePlan(objectives = [], evidenceModel = {}) {
@@ -65,6 +63,7 @@ export function objectivePracticePlan(objectives = [], evidenceModel = {}) {
     const progress = normalizedEvidence(objective, evidenceModel?.objectives?.[objective.id]);
     const remaining = minimumQuestionsToObjectiveReadiness(progress);
     const accuracy = progress.attempts ? progress.correct / progress.attempts : null;
+    const recovery=objectiveRecovery(progress.recentFreshAnswers,progress.latestCorrect);
     const ready = remaining === 0;
     const worked = progress.attempts > 0;
     const profile = objectiveOrderProfile(objective);
@@ -76,7 +75,7 @@ export function objectivePracticePlan(objectives = [], evidenceModel = {}) {
       ? "third-order" : "second-order";
     const missingRequirements = [
       ...(progress.attempts < OBJECTIVE_MIN_ATTEMPTS ? ["more distinct questions"] : []),
-      ...(accuracy != null && accuracy < OBJECTIVE_MIN_ACCURACY ? ["repair missed connections"] : []),
+      ...(!recovery.recovered && accuracy != null && accuracy < OBJECTIVE_MIN_ACCURACY ? ["repair missed connections"] : []),
       ...(!progress.latestCorrect && progress.attempts ? ["a correct fresh retest"] : []),
       ...(progress.sessionCount < OBJECTIVE_MIN_SESSIONS ? ["another session"] : []),
       ...(progress.taskTypeCount < OBJECTIVE_MIN_TASK_TYPES ? ["a different question type"] : []),
@@ -92,6 +91,8 @@ export function objectivePracticePlan(objectives = [], evidenceModel = {}) {
       targetOrder,
       missingRequirements,
       remaining,
+      recovery,
+      readinessBasis:recovery.recovered ? "recent-fresh-recovery" : ready ? "lifetime-practice" : "insufficient",
       ready,
       worked,
       state: ready ? "ready" : struggling ? "struggling" : worked ? "developing" : "untested",

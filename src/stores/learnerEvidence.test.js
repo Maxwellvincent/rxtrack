@@ -107,3 +107,14 @@ it('keeps the latest fresh confidence for progression without boosting from repe
  const wrong=applyEvidence(repeat,{...first,questionKey:'q2',correct:false,at:3});
  expect(wrong.objectives.o.lastFreshAnswer.correct).toBe(false);
 });
+
+it('retains fresh structured outcomes without letting repeat successes manufacture recovery',()=>{
+ const event={objectiveIds:['o'],questionKey:'same',correct:false,sessionKey:'s1',taskType:'mechanism',orderLevel:'second-order',reasoningVerified:true,at:1000};
+ const first=applyEvidence(null,event);
+ const repeated=applyEvidence(first,{...event,correct:true,at:2000,sessionKey:'s2'});
+ expect(repeated.objectives.o.recentFreshAnswers).toHaveLength(1);
+ expect(repeated.objectives.o.recentFreshAnswers[0]).toMatchObject({correct:false,sessionKey:'s1',reasoningVerified:true});
+ const fresh=applyEvidence(repeated,{...event,questionKey:'new',correct:true,at:3000});
+ expect(fresh.objectives.o.recentFreshAnswers).toHaveLength(2);
+ expect(first.objectives.o.attempts).toBe(1);
+});

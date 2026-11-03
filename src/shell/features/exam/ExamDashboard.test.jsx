@@ -421,3 +421,17 @@ it("includes saved unfinished work, report topics and recent review priorities",
  expect(map.textContent).toContain("Pathway report topic");
  unmount();
 });
+
+it('does not count repeat recognition as varied objective readiness',()=>{
+ const sessions=Array.from({length:4},(_,i)=>({sessionId:`s${i}`,submittedAt:1000+i*86400000,
+  questions:[{questionId:'q',questionKey:'same',correct:'A',objectiveIds:['o'],taskType:i%2?'mechanism':'clinical-application'}],answers:[{questionId:'q',value:'A'}]}));
+ expect(computeObjectiveReadiness(sessions,[{id:'o'}]).ready).toBe(0);
+});
+it('uses the same fresh recovery rule in the exam summary and preserves historical accuracy',()=>{
+ const audit={status:'verified',version:2,connectedChain:true,singleEndpoint:true,choiceShortcut:false,orderLevel:'second-order'};
+ const sessions=Array.from({length:15},(_,i)=>({sessionId:`s${i}`,submittedAt:1000+i*86400000,
+  questions:[{questionId:`q${i}`,questionKey:`fresh${i}`,stem:'A patient has a focal lesion. Which pathway explains the deficit?',correct:'A',objectiveIds:['o'],taskType:i%2?'mechanism':'clinical-application',orderLevel:'second-order',reasoningAudit:audit}],
+  answers:[{questionId:`q${i}`,value:i>=11?'A':'B'}]}));
+ const result=computeObjectiveReadiness(sessions,[{id:'o'}]);
+ expect(result.ready).toBe(1);expect(result.weak).toBe(0);expect(result.accuracy).toBeCloseTo(4/15);
+});
