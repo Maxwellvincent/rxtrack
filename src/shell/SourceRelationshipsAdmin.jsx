@@ -26,7 +26,7 @@ function LectureRelationships({userId,lecture,objectives}){
   <button className="my-2 rounded border border-border px-2 py-1" disabled={busy} onClick={load}>Load original source text</button>
   <ul className="space-y-2">{Object.values(catalog.data?.relationships || {}).map(row=>{
    const current=rows.find(current=>current.id===row.id);
-   return <li key={row.id} className="rounded border border-border p-2"><strong>{row.label}</strong><p className="text-xs text-text-3">Page {row.page} · {row.kind} · {current?`${current.attempts} distinct questions answered`:'Source changed or parent link unresolved'}{row.visualReviewRequired?' · visual review required':''}</p><details><summary>Source evidence</summary><p>{row.quote}</p><p className="text-xs">{row.id}</p></details></li>;
+   return <li key={row.id} className="rounded border border-border p-2"><strong>{row.label}</strong><p className="text-xs text-text-3">Page {row.page} · {row.kind} · {current?`${current.attempts} distinct questions answered · ${current.practiceState} · ${current.delayedFreshCorrect} delayed fresh correct`:'Source changed or parent link unresolved'}{row.visualReviewRequired?' · visual review required':''}</p><details><summary>Source evidence</summary><p>{row.quote}</p><p className="text-xs">{row.id}</p></details></li>;
   })}</ul>
   <details className="mt-3"><summary>Add a source-backed relationship</summary><p className="my-2 text-xs text-text-3">Quote the original page and the exact parent objective clause. A located quote establishes provenance, not medical certification. Figure records require visual review and cannot fill text-only quiz slots.</p>
    <form onSubmit={save} className="grid gap-2">

@@ -1,3 +1,6 @@
+import * as relationshipsStore from '../../../stores/sourceRelationships.js';
+import {relationshipPages,relationshipCoverage} from '../../../engine/sourceRelationships.js';
+import {RelationshipRetestSummary} from './RelationshipRetestSummary.jsx';
 import {LectureWorkspaceNav} from './LectureWorkspaceNav.jsx';
 import * as sourceUseStore from "../../../stores/sourceUse.js";
 import { hasReusableQuestionReview, isReusableForObjective } from "../../../engine/questionReuse.js";
@@ -900,6 +903,23 @@ export function LectureStudyFlow({
   const questionBanksRes = useQuestionBanks(userId);
   const questionBankMetaRes = useQuestionBankMeta(userId);
   const sourceUseResource=useStoreResource(sourceUseStore,userId);
+  const relationshipAdapter=useMemo(()=>({
+    read:id=>lecture?.id?relationshipsStore.read(id,lecture.id):{},
+    isHydrated:id=>!lecture?.id || relationshipsStore.isHydrated(id,lecture.id),
+    readError:id=>lecture?.id?relationshipsStore.readError(id,lecture.id):null,
+    subscribe:callback=>lecture?.id?relationshipsStore.subscribe(lecture.id,callback):()=>{},
+  }),[lecture?.id]);
+  const relationshipResource=useStoreResource(relationshipAdapter,userId);
+  const [relationshipNow,setRelationshipNow]=useState(()=>Date.now());
+  useEffect(()=>{
+    if(workspace!=="progress")return;
+    setRelationshipNow(Date.now());
+    const timer=setInterval(()=>setRelationshipNow(Date.now()),60000);
+    return ()=>clearInterval(timer);
+  },[workspace]);
+  const relationshipRows=useMemo(()=>relationshipCoverage(relationshipResource.data,learnerEvidence.data || {},{
+    blockId,lectureId:lecture?.id,objectives:lectureObjectives,pages:relationshipPages({...lecture,chunks:lectureChunks},text),
+  },relationshipNow),[relationshipResource.data,learnerEvidence.data,blockId,lecture,lectureObjectives,lectureChunks,text,relationshipNow]);
   const schoolExemplars = useMemo(
     () => sourceUseResource.loading || sourceUseResource.error ? [] : selectExemplarsForBlock(questionBanksRes.data, questionBankMetaRes.data, blockId,sourceUseResource.data),
     [questionBanksRes.data, questionBankMetaRes.data, blockId,sourceUseResource.data,sourceUseResource.loading,sourceUseResource.error]
@@ -2003,6 +2023,7 @@ export function LectureStudyFlow({
       <LectureWorkspaceNav value={workspace} onChange={setWorkspace} />
       {error && <div className="mb-3 rounded-lg border border-bad bg-bg-elevated p-3 text-xs text-bad">{error}</div>}
       <section hidden={workspace!=="progress"} aria-label="Lecture review progress">
+      <RelationshipRetestSummary rows={relationshipRows} loading={relationshipResource.loading} error={relationshipResource.error} />
       <LectureReviewLog key={`${userId}:${lecture?.id}`} userId={userId} lectureId={lecture?.id} blockId={blockId} logActivity={logActivity} />
       <LectureRetrievalEnrollment key={`${userId}:${blockId}:${lecture?.id}`} userId={userId} blockId={blockId} lectureId={lecture?.id} title={renamedTitle || title} reference={mentalModel?.bigPicture || ""} rows={objectivePractice.rows} evidenceModel={learnerEvidence.data} />
       {/* Status panel — shown once atoms are loaded */}

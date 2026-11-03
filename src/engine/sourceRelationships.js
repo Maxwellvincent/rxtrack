@@ -1,3 +1,4 @@
+import {relationshipPractice} from './relationshipPractice.js';
 import {stableRecordId} from './sourceUse.js';
 import {hasReusableQuestionReview} from './questionReuse.js';
 const norm=value=>String(value || '').normalize('NFKC').toLowerCase().replace(/\s+/g,' ').trim();
@@ -43,22 +44,23 @@ export function validSourceRelationships(catalog,{blockId,lectureId,objectives=[
     && objective && (!objective.blockId || objective.blockId===blockId) && (!(objective.linkedLecId || objective.lectureId) || (objective.linkedLecId || objective.lectureId)===lectureId) && norm(facet.clause).length>=8 && norm(row.quote).length>=16 && norm(objective.objective || objective.text).includes(norm(facet.clause)) && source && norm(source.text).includes(norm(row.quote));
  });
 }
-export function relationshipCoverage(catalog,evidence={},scope={}) {
+export function relationshipCoverage(catalog,evidence={},scope={},now=Date.now()) {
  const journal=evidence.learningJournal || evidence.evidenceJournal || [];
  return validSourceRelationships(catalog,scope).map(row=>{
-  const latest=new Map();
+  const latest=new Map(),events=[];
   for(const event of [...journal].sort((a,b)=>(a.at||0)-(b.at||0))){
    if(event.blockId!==row.blockId || event.lectureId!==row.lectureId || !event.objectiveIds?.includes(row.objectiveId)
     || event.relationshipSourceVersion!==row.sourceVersion || !event.sourceRelationshipIds?.includes(row.id) || typeof event.correct!=='boolean' || !event.questionKey)continue;
-   latest.set(event.questionKey,event);
+   events.push(event);latest.set(event.questionKey,event);
   }
   const answers=[...latest.values()].sort((a,b)=>(a.at||0)-(b.at||0));
-  return {...row,attempts:answers.length,correct:answers.filter(answer=>answer.correct).length,lastCorrect:answers.at(-1)?.correct ?? null,lastAt:answers.at(-1)?.at || null};
+  return {...row,...relationshipPractice(events,now),attempts:answers.length,correct:answers.filter(answer=>answer.correct).length,lastCorrect:answers.at(-1)?.correct ?? null,lastAt:answers.at(-1)?.at || null};
  });
 }
-export function relationshipTargets(catalog,evidence,scope,count=3){
- const ranked=relationshipCoverage(catalog,evidence,scope).filter(row=>row.kind!=='figure')
-  .sort((a,b)=>Number(a.attempts>0)-Number(b.attempts>0) || Number(b.lastCorrect===false)-Number(a.lastCorrect===false) || (a.lastAt || 0)-(b.lastAt || 0));
+export function relationshipTargets(catalog,evidence,scope,count=3,now=Date.now()){
+ const priority={repair:0,due:1,unseen:2};
+ const ranked=relationshipCoverage(catalog,evidence,scope,now).filter(row=>row.kind!=='figure' && row.practiceState!=='waiting')
+  .sort((a,b)=>priority[a.practiceState]-priority[b.practiceState] || (a.dueAt || 0)-(b.dueAt || 0));
  const queues=new Map();
  for(const row of ranked){if(!queues.has(row.objectiveId))queues.set(row.objectiveId,[]);queues.get(row.objectiveId).push(row);}
  const selected=[];
@@ -69,7 +71,7 @@ export function relationshipTargets(catalog,evidence,scope,count=3){
 }
 export function relationshipPrompt(targets=[]){
  if(!targets.length)return '';
- return '\nSOURCE-LOCATED OBJECTIVE RELATIONSHIPS (partial inventory, not medical certification):\n'+JSON.stringify(targets.map(row=>({id:row.id,facetId:row.facetId,objectiveId:row.objectiveId,label:row.label,quote:row.quote,page:row.page})))+'\nTest these relationships within the allocated parent objectives. Return sourceRelationshipIds only for relationships actually required by the final question. Do not infer coverage from a label or incidental mention. The independent review must confirm the relationship IDs and exact assigned objective clause. Unsupported or figure-dependent relationships cannot receive text-only coverage.\n';
+ return '\nSOURCE-LOCATED OBJECTIVE RELATIONSHIPS (partial inventory, not medical certification):\n'+JSON.stringify(targets.map(row=>({id:row.id,facetId:row.facetId,objectiveId:row.objectiveId,label:row.label,quote:row.quote,page:row.page,practiceState:row.practiceState,dueAt:row.dueAt,previousQuestionKeys:row.previousQuestionKeys})))+'\nTest these relationships within the allocated parent objectives. For repair, distinguish the confused relationship with a supported near-transfer case. For due retests, use a genuinely fresh question in a new supported context, preserving the same relationship and requested reasoning depth. A familiar question or changed demographics alone is not a delayed fresh retest. Do not claim mastery or semantic transfer from wording changes. Return sourceRelationshipIds only for relationships actually required by the final question. Do not infer coverage from a label or incidental mention. The independent review must confirm the relationship IDs and exact assigned objective clause. Unsupported or figure-dependent relationships cannot receive text-only coverage.\n';
 }
 /** Bind only independent ownership/source review to the current catalog. */
 export function bindReviewedRelationships(question,cfg={}) {

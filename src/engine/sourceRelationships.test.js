@@ -71,3 +71,11 @@ it('uses the latest answer chronologically after repeated-question updates',()=>
  const event={blockId:'b',lectureId:'lec',objectiveIds:['o'],correct:true,sourceRelationshipIds:[row.id],relationshipSourceVersion:row.sourceVersion};
  expect(relationshipCoverage(catalog(),{learningJournal:[{...event,questionKey:'q1',at:1},{...event,questionKey:'q2',at:2},{...event,questionKey:'q1',at:3,correct:false}]},scope)[0]).toMatchObject({attempts:2,lastAt:3,lastCorrect:false});
 });
+it('schedules only current-source due relationships and leaves same-day successes cooling down',()=>{
+ const c=catalog(),row=bundle().relationship,day=24*60*60*1000;
+ const event={blockId:'b',lectureId:'lec',objectiveIds:['o'],questionKey:'q',correct:true,sessionKey:'s1',at:100,sourceRelationshipIds:[row.id],relationshipSourceVersion:row.sourceVersion};
+ expect(relationshipTargets(c,{learningJournal:[event]},scope,3,200)).toEqual([]);
+ expect(relationshipTargets(c,{learningJournal:[event]},scope,3,day+100)[0]).toMatchObject({practiceState:'due',previousQuestionKeys:['q']});
+ expect(relationshipTargets(c,{learningJournal:[{...event,correct:false}]},scope,3,200)[0].practiceState).toBe('repair');
+ expect(relationshipTargets(c,{learningJournal:[],evidenceJournal:[event]},scope,3,200)[0].practiceState).toBe('unseen');
+});
