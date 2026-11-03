@@ -107,6 +107,10 @@ export function appendActivity(store, { lectureId, blockId, activityType, confid
     ...(reviewKind ? { reviewKind } : {}),
   };
 
+  if ((current?.activityLog || []).some(existing => existing.id === activity.id)) {
+    return { store, key, entry: current };
+  }
+
   // Newest first — the trend calculation reads the head of this list.
   const activityLog = [activity, ...(Array.isArray(current?.activityLog) ? current.activityLog : [])].sort(
     (a, b) => new Date(b?.date || 0) - new Date(a?.date || 0)

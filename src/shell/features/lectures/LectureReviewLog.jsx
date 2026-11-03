@@ -5,7 +5,7 @@ import { useStoreResource } from '../../hooks/useStoreResource.js';
 import { completionKey } from '../../logic/completionLog.js';
 import { lectureReviewStats } from './lectureReviewStats.js';
 
-export function LectureReviewLog({ userId, lectureId, blockId, logActivity }) {
+export function LectureReviewLog({ userId, lectureId, blockId, logActivity, historyOnly=false }) {
   const completion = useStoreResource(completionStore, userId);
   const questions = useLectureStats(userId,lectureId);
   const [minutes, setMinutes] = useState('');
@@ -29,22 +29,22 @@ export function LectureReviewLog({ userId, lectureId, blockId, logActivity }) {
   };
   return <section className="my-4 rounded-lg border border-border bg-panel px-4 py-3" aria-label="Lecture review history">
     <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
-      <span><strong>{stats.count}</strong> PowerPoint reviews · <strong>{questions.loading ? "—" : answered}</strong> questions answered{!questions.loading && answered > 0 ? ` · ${Math.round(correct / answered * 100)}% correct` : ''}</span>
+      <span><strong>{stats.count}</strong> slide reviews · <strong>{questions.loading ? "—" : answered}</strong> questions answered{!questions.loading && answered > 0 ? ` · ${Math.round(correct / answered * 100)}% correct` : ''}</span>
       <span className="text-text-3">{stats.lastReview ? `Slides last reviewed ${stats.lastReview.slice(0, 10)}` : 'Slides not yet reviewed'}</span>
     </div>
-    <details className="mt-2 text-sm"><summary className="cursor-pointer text-accent-text">Log PowerPoint review & history</summary>
-      <p className="my-2 text-xs text-text-3">Log a completed slide review or start the clock while reviewing. A slide review records exposure; it does not establish objective mastery.</p>
-      <div className="flex flex-wrap items-center gap-3">
+    <details className="mt-2 text-sm"><summary className="cursor-pointer text-accent-text">Review history</summary>
+      <p className="my-2 text-xs text-text-3">Completed slide reviews are kept here. Historical slide-only entries remain unchanged.</p>
+      {!historyOnly && <div className="flex flex-wrap items-center gap-3">
         {!startedAt && <><label>Minutes (optional) <input aria-label="Review minutes" type="number" min="1" max="1440" value={minutes} onChange={event => setMinutes(event.target.value)} className="ml-1 w-20 rounded border border-border bg-bg px-2 py-1" /></label><button type="button" className="underline" onClick={() => { setStartedAt(Date.now()); setNotice('Review clock running. Finish when your slide review is complete.'); }}>Start review clock</button></>}
         <button type="button" className="rounded bg-accent px-3 py-2 text-white" disabled={saving || completion.loading || !logActivity} onClick={save}>{startedAt ? 'Finish & log review' : 'Log completed review'}</button>
         {startedAt && <button type="button" className="underline" onClick={() => { setStartedAt(null); setNotice('Clock discarded; no review logged.'); }}>Discard clock</button>}
-      </div>
+      </div>}
       {questions.error && <p role="alert" className="mt-2 text-xs text-bad">Some question history could not sync; counts may be incomplete.</p>}
       {completion.loading && <p className="mt-2 text-xs">Loading review history before adding a new entry…</p>}
       {notice && <p role="status" className="mt-2 text-xs">{notice}</p>}
       {completion.error && <p className="mt-2 text-xs text-bad">Cloud connection interrupted. Showing available saved history.</p>}
       <p className="mt-3 text-xs text-text-3">{stats.minutes} logged minutes · {questions.loading ? "Loading scored question history…" : `${correct} correct / ${answered} answered`}</p>
-      <ul className="mt-2 max-h-40 overflow-auto text-xs">{stats.reviews.map((review, index) => <li key={review.id || index} className="py-1">{review.date?.slice(0, 10)} · PowerPoint review{review.durationMinutes ? ` · ${review.durationMinutes} min` : ''}</li>)}</ul>
+      <ul className="mt-2 max-h-40 overflow-auto text-xs">{stats.reviews.map((review, index) => <li key={review.id || index} className="py-1">{review.date?.slice(0, 10)} · {review.reviewKind === 'slides-notes' ? 'Slides & notes review' : 'PowerPoint review (historical)'}{review.durationMinutes ? ` · ${review.durationMinutes} min` : ''}</li>)}</ul>
     </details>
   </section>;
 }

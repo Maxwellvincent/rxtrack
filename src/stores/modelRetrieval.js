@@ -3,6 +3,8 @@ import { readJson, writeJson } from './base.js';
 import { applyModelEvidence } from '../engine/modelRetrieval.js';
 import { doc, runTransaction, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebase.js';
+import { studyDayKey } from '../studyDay.js';
+import { appendActivity } from '../shell/logic/completionLog.js';
 import { encodeDocId } from '../idCodec.js';
 export const key='rxt-model-retrieval-v1';
 const empty={version:1,settings:{},models:{}};
@@ -37,4 +39,31 @@ export async function recordRetrievalEvidence(userId, modelId, event) {
     return {...current,models:{...current.models,[modelId]:applyModelEvidence(model,event,current.settings)}};
   });
   return true;
+}
+
+/** One explicit slide-and-notes session, committed together without inferring older history. */
+export async function recordCombinedLectureReview(userId, input, transform, at, eventId) {
+  const completionKey = 'rxt-completion';
+  const apply = (models, completion) => {
+    const next = transform(models);
+    const result = appendActivity(completion, { ...input, activityType:'review', reviewKind:'slides-notes',
+      note:'Slides & notes review', now:new Date(at), id:eventId });
+    const model=Object.values(next.models).find(item=>item.lectureId===input.lectureId && item.blockId===input.blockId);
+    const entry={...result.entry, ...(model?.nextReviewAt != null ? {reviewDates:[studyDayKey(new Date(model.nextReviewAt))]} : {})};
+    return { models:next, completion:{...result.store,[result.key]:entry} };
+  };
+  if (!userId) {
+    const next=apply(retrievalStore.read(userId),readJson(userId,completionKey,{}));
+    writeJson(userId,key,next.models);writeJson(userId,completionKey,next.completion);return next.models;
+  }
+  const modelRef=doc(db,'users',userId,'kv',encodeDocId(key));
+  const completionRef=doc(db,'users',userId,'kv',encodeDocId(completionKey));
+  return runTransaction(db,async transaction=>{
+    const models=await transaction.get(modelRef);
+    const completion=await transaction.get(completionRef);
+    const next=apply(models.exists()?models.data().data:empty,completion.exists()?completion.data().data:{});
+    transaction.set(modelRef,{data:next.models,updatedAt:serverTimestamp()});
+    transaction.set(completionRef,{data:next.completion,updatedAt:serverTimestamp()});
+    return next.models;
+  });
 }

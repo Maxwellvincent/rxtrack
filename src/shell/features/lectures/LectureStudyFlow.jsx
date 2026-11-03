@@ -2010,7 +2010,7 @@ export function LectureStudyFlow({
       {error && <div className="mb-3 rounded-lg border border-bad bg-bg-elevated p-3 text-xs text-bad">{error}</div>}
       <section hidden={workspace!=="progress"} aria-label="Lecture review progress">
       <RelationshipRetestSummary rows={relationshipRows} loading={relationshipResource.loading} error={relationshipResource.error} />
-      <LectureReviewLog key={`${userId}:${lecture?.id}`} userId={userId} lectureId={lecture?.id} blockId={blockId} logActivity={logActivity} />
+      <details><summary className="cursor-pointer text-sm">Slide review history</summary><LectureReviewLog historyOnly key={`${userId}:${lecture?.id}`} userId={userId} lectureId={lecture?.id} blockId={blockId} logActivity={logActivity} /></details>
       <LectureRetrievalEnrollment key={`${userId}:${blockId}:${lecture?.id}`} userId={userId} blockId={blockId} lectureId={lecture?.id} title={renamedTitle || title} reference={mentalModel?.bigPicture || ""} rows={objectivePractice.rows} evidenceModel={learnerEvidence.data} />
       {/* Status panel — shown once atoms are loaded */}
       {stage === "quiz" && atoms.length > 0 && (
