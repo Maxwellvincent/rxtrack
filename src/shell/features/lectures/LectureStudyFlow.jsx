@@ -1661,6 +1661,8 @@ export function LectureStudyFlow({
   const prefetchInFlightRef = useRef(false);
   useEffect(() => {
     if (quizPreparation || busy || !questions?.length || !lecture?.id || !userId || schoolExamplesLoading || prefetchInFlightRef.current) return;
+    // A stopped short quiz must not immediately launch another hidden refill.
+    if (activeRequestedCount > questions.length || pendingQuiz) return;
     const key = `${userId}:${lecture.id}:${quizSessionId}`;
     if (prefetchQuizRef.current === key) return;
     prefetchQuizRef.current = key;
@@ -1682,7 +1684,7 @@ export function LectureStudyFlow({
       ...await questionPreparationDeps(callAIJSON), maxPrepareAttempts: 1, maxPreparationMs: 90000, prepareConcurrency: 1,
       onAccepted: batch => generatedQuestionsStore.addQuestions(userId, lecture.id, batch),
     }))().catch(() => {}).finally(() => { prefetchInFlightRef.current = false; });
-  }, [quizPreparation, busy, questions, lecture?.id, userId, quizSessionId, schoolExamplesLoading, orderedObjectives,
+  }, [quizPreparation, busy, questions, activeRequestedCount, pendingQuiz, lecture?.id, userId, quizSessionId, schoolExamplesLoading, orderedObjectives,
     learnerEvidence.data, title, text, blockId, atoms, schoolExemplars, clinicalCorrelateLibrary, qStats.accuracy]);
 
   const reviewableQuizQuestions = lecture?.id
