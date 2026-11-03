@@ -1715,7 +1715,7 @@ export function LectureStudyFlow({
   useEffect(() => {
     if (!autoOpenQuiz || autoOpenedRef.current || stage !== "quiz" || !atoms.length) return;
     autoOpenedRef.current = true;
-    setQuizPicker({ count: [5,10,15].includes(autoQuizCount) ? autoQuizCount : 15, difficulty: resolveDefaultDifficulty(qStats.accuracy) });
+    setQuizPicker({ count: [5,10,15,20,25,50,100].includes(autoQuizCount) ? autoQuizCount : 15, difficulty: resolveDefaultDifficulty(qStats.accuracy) });
   }, [autoOpenQuiz, autoQuizCount, stage, atoms.length, qStats.accuracy]);
 
 
@@ -2502,8 +2502,8 @@ export function LectureStudyFlow({
             <div className="rounded-sm border border-border bg-bg-elevated p-4 flex flex-col gap-3">
               <div className="flex items-center gap-4">
                 <span className="font-condensed text-[12px] font-semibold uppercase tracking-wide text-text-3 w-20">Questions</span>
-                <div className="flex gap-1.5">
-                  {[5, 10, 15, 25, 50, 100].map((n) => (
+                <div className="flex flex-wrap gap-1.5">
+                  {[5, 10, 15, 20, 25, 50, 100].map((n) => (
                     <button
                       key={n}
                       onClick={() => setQuizPicker((p) => ({ ...p, count: n }))}
