@@ -610,6 +610,22 @@ describe("independent generated-question audit", () => {
     expect(result.warning).toMatch(/structural checks/i);
   });
 
+  it("releases approved items without waiting for repairs to rejected neighbors", async () => {
+    const rejected = { ...questions[0], stem: "A distinct patient has weakness following loss of descending motor input. Which neuronal pathway accounts for this finding?" };
+    const reviewAIJSON = vi.fn().mockResolvedValue({ reviews: [
+      { index: 0, approved: true, objectiveAligned: true, issues: [] },
+      { index: 1, approved: false, issues: ["answer_leak"], rationale: "Reconstruct the revealed endpoint." },
+    ] });
+    const repairAIJSON = vi.fn(() => new Promise(() => {}));
+    const result = await auditGeneratedQuestions([questions[0], rejected], {}, {
+      reviewBatchSize: 5, releaseVerifiedFirst: true, reviewAIJSON, repairAIJSON,
+    });
+    expect(result.questions).toHaveLength(1);
+    expect(result.questions[0].stem).toBe(questions[0].stem);
+    expect(result.rejections[0].issues).toContain("answer_leak");
+    expect(repairAIJSON).not.toHaveBeenCalled();
+  });
+
   it.each([true, false])("repairs only rejected items and rechecks them while preserving accepted work (%s)", async (repairApproved) => {
     const bad = { stem: "A 68-year-old man has weakness of the right hand after an interruption of descending motor output. The downstream connection to muscle remains intact. Which of the following neuronal populations most directly produces contraction of the hand muscles?", choices: { A: "Spinal motor neurons", B: "Cerebral neurons", C: "Sensory neurons", D: "Thalamic neurons", E: "Bulbar neurons" }, correct: "A", objectiveIds: [], explanation: "The direct spinal motor output contracts hand muscle." };
     const repaired = { ...bad, stem: "A patient develops hand weakness. Examination identifies a source-supported finding that distinguishes the affected motor pathway from its closest alternative. Which neuronal population accounts for this pattern in the supplied case?", questionPlan: { templateId: "T-kept", retainedPattern: "weakness then classification", changedRelationship: "replace answer giveaway" } };

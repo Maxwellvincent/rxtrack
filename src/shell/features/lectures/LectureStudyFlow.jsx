@@ -31,7 +31,7 @@ import { Button } from "../../../ui/Button.jsx";
 import { callAIJSON } from "../../../aiClient.js";
 import { withDeadline } from "../../../asyncDeadline.js";
 import { LectureReviewLog } from "./LectureReviewLog.jsx";
-import { questionPreparationDeps, questionPreparationStatus, QUESTION_PREPARATION_BUDGET_MS } from "../../../questionPreparation.js";
+import { questionPreparationDeps, questionPreparationStatus, questionPreparationBudget } from "../../../questionPreparation.js";
 import {
   fetchLectureContent,
   fetchLectureSourceUrl,
@@ -1516,6 +1516,7 @@ export function LectureStudyFlow({
     };
     if (reserve.length) appendPrepared([]);
 
+    const preparationBudget = questionPreparationBudget(missing);
     const job = startPreparationJob(jobKey, { userId, controller, count, difficulty, initialQuestions: reserve }, currentJob => withDeadline(async (signal) => prepareObjectiveQuiz(
       {
         objectives: quizObjectives,
@@ -1541,7 +1542,7 @@ export function LectureStudyFlow({
       {
         ...await questionPreparationDeps(callAIJSON),
         // Leave time to return the detailed engine result before the outer guard.
-        maxPreparationMs: QUESTION_PREPARATION_BUDGET_MS - 5000,
+        maxPreparationMs: preparationBudget - 5000,
         signal,
         onAccepted: (questions) => {
           if (lecture?.id) generatedQuestionsStore.addQuestions(userId, lecture.id, questions);
@@ -1556,7 +1557,7 @@ export function LectureStudyFlow({
         setQuizPreparation({ ...progress, requested: count, ready: reserve.length + progress.ready });
         if (progress.diagnostics) { const report = { ...progress.diagnostics, requested: count, accepted: reserve.length + progress.diagnostics.accepted }; setPreparationDetails(report); saveQuestionDiagnostics(userId, lecture?.id, report); }
       } }
-    ), QUESTION_PREPARATION_BUDGET_MS, controller.signal, "Quiz preparation").catch(error => recoverPreparationFailure(currentJob,error)));
+    ), preparationBudget, controller.signal, "Quiz preparation").catch(error => recoverPreparationFailure(currentJob,error)));
     const result = await job.promise;
     if (preparationRunRef.current !== runId) return;
     // The outer deadline can finish before cancelled jobs deliver their last

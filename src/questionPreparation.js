@@ -2,6 +2,22 @@ import { createRequestGate } from "./requestConcurrency.js";
 import { questionPreparationCapabilities } from "./llmBridge.js";
 
 export const QUESTION_PREPARATION_BUDGET_MS = 600_000;
+export function questionPreparationBudget(count) {
+  const requested = Math.max(1, Math.floor(Number(count) || 1));
+  return Math.max(QUESTION_PREPARATION_BUDGET_MS, Math.min(900_000, requested * 45_000));
+}
+export const QUESTION_PREPARATION_POLICY = Object.freeze({
+  prepareConcurrency: 3,
+  prepareBatchSize: 5,
+  reviewBatchSize: 5,
+  starterBatchSize: 1,
+  parallelIndependentReview: true,
+  releaseVerifiedFirst: true,
+  prepareSpareCandidates: 2,
+  continueAfterEmptyRounds: true,
+  maxEmptyRounds: 3,
+  focusedRefill: true,
+});
 
 const LIMIT_KEY = "rxt_codex_lecture_limit_until";
 const RECHECK_MS = 15 * 60_000;
@@ -88,10 +104,9 @@ export async function questionPreparationDeps(callAIJSON) {
     }
   };
   return {
+    ...QUESTION_PREPARATION_POLICY,
     callAIJSON: routed, reviewAIJSON: routed,
-    prepareConcurrency: Date.now() < limitDeadline() ? 1 : 2, prepareBatchSize: 3, reviewBatchSize: 3,
-    starterBatchSize: 1, parallelIndependentReview: true,
-    prepareSpareCandidates: 2, continueAfterEmptyRounds: true, maxEmptyRounds: 3, focusedRefill: true,
+    prepareConcurrency: Date.now() < limitDeadline() ? 1 : QUESTION_PREPARATION_POLICY.prepareConcurrency,
     // Allow reviewed replacement waves to finish in the background. Smaller
     // batches reduce per-call output and release verified questions sooner.
     // This is a shared ceiling, not a fresh timeout for each request.

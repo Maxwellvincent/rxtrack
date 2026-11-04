@@ -3,7 +3,7 @@ import { buildMcqPrompt, buildRepairPrompt, objectiveConstructionPrompt } from "
 import { linkedConceptInstruction } from "./linkedConceptCoverage.js";
 
 const objective = { id: "clinical", objective: "Describe clinical manifestations of cerebellar disease", _targetOrder: "second-order" };
-const lectureText = "Clinical manifestations of cerebellar disease include gait ataxia and limb dysmetria.\f" + "Neighboring anatomical terminology. ".repeat(100);
+const lectureText = "Clinical manifestations of cerebellar disease include gait ataxia and limb dysmetria.\n" + "Neighboring anatomical terminology. ".repeat(100);
 
 describe("objective-first construction", () => {
   it("retrieves each objective independently of competing tagged facts", () => {

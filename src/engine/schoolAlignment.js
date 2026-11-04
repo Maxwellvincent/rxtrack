@@ -34,6 +34,18 @@ export function schoolEvidencePrompt(examples, objectives, atoms) {
   ).join('\n') + '\nExact school codes are source annotations, not independently validated mappings. Stored objective links and word-overlap links are retrieval candidates only, not proven ownership: verify conceptual fit against the lecture. Learn the lead-in task, clue-to-mechanism reasoning and distractor distinctions; write a NEW case. Repetition in this small bank is not an exam blueprint. Cover all requested objectives, including ones absent from the bank.\n';
 }
 
+/** Keep a bounded lecture intact so pathway tables and neighboring distinctions
+ * are available to both the writer and independent reviewers. */
+export function completeLectureEvidence(text, budget = 26000) {
+  const pages = String(text || '').split(/\f/);
+  if (pages.length < 2) return null;
+  const factual = pages.map((text, index) => ({ text, index }))
+    .filter(page => (page.text.match(/SOM\.[A-Z0-9.]+/g) || []).length < 3 && page.text.trim());
+  const length = factual.reduce((sum, page) => sum + page.text.length, 0);
+  if (!length || length > budget) return null;
+  return factual.map(page => `[Lecture excerpt ${page.index + 1}]\n${page.text.trim()}`).join('\n\n');
+}
+
 export function retrieveLectureEvidence(text, objectives = [], atoms = [], budget = 7000) {
   // Repeated objective/index slides establish scope, not factual support. They used to
   // occupy the entire retrieval budget and hide the explanatory (blue) slides.

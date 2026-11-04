@@ -2,10 +2,17 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 vi.mock("./llmBridge.js", () => ({ questionPreparationCapabilities: vi.fn() }));
 import { withQuestionAIRouting } from "./engine/mcq.js";
 import { questionPreparationCapabilities } from "./llmBridge.js";
-import { questionPreparationDeps, questionPreparationStatus, resetQuestionProviderLimit, QUESTION_PREPARATION_BUDGET_MS } from "./questionPreparation.js";
+import { questionPreparationDeps, questionPreparationStatus, questionPreparationBudget, resetQuestionProviderLimit, QUESTION_PREPARATION_BUDGET_MS } from "./questionPreparation.js";
 
 beforeEach(() => { resetQuestionProviderLimit(); questionPreparationCapabilities.mockResolvedValue({ writer: "ollama-cloud", reviewer: "codex" }); });
 afterEach(() => { vi.useRealTimers(); });
+it("bounds background time by the number of missing questions", () => {
+  expect(questionPreparationBudget(5)).toBe(600000);
+  expect(questionPreparationBudget(15)).toBe(675000);
+  expect(questionPreparationBudget(20)).toBe(900000);
+  expect(questionPreparationBudget(200)).toBe(900000);
+  expect(questionPreparationBudget(NaN)).toBe(600000);
+});
 describe("question preparation routing", () => {
   it("fails promptly instead of silently using local Ollama when the route is unavailable", async () => {
     questionPreparationCapabilities.mockResolvedValue(null);
@@ -19,7 +26,10 @@ describe("question preparation routing", () => {
     await deps.callAIJSON("system", "draft", {}, 8000, undefined, undefined, { timeoutMs: 1234 });
     await deps.reviewAIJSON("system", "review", {}, 8000, undefined, undefined, { timeoutMs: 987 });
     expect(call.mock.calls.every(args => args[6].bridgeBackend === "codex" && args[6].bridgeOnly && args[6].bridgeBackendOnly)).toBe(true);
-    expect(deps.reviewBatchSize).toBe(3);
+    expect(deps.reviewBatchSize).toBe(5);
+    expect(deps.prepareBatchSize).toBe(5);
+    expect(deps.prepareConcurrency).toBe(3);
+    expect(deps.releaseVerifiedFirst).toBe(true);
     expect(deps.maxPreparationMs).toBe(QUESTION_PREPARATION_BUDGET_MS);
     expect(QUESTION_PREPARATION_BUDGET_MS).toBe(600000);
   });

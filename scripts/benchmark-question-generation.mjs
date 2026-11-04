@@ -14,11 +14,13 @@ const server = await createServer({
   server: { middlewareMode: true, hmr: false }, appType: "custom",
   optimizeDeps: { noDiscovery: true, include: [] },
 });
-let generateMcqs, auditGeneratedQuestions, parseBridgeJSON, prepareObjectiveQuiz;
+let generateMcqs, auditGeneratedQuestions, parseBridgeJSON, prepareObjectiveQuiz, preparationPolicy, questionPreparationBudget, createRequestGate;
 try {
   ({ generateMcqs, auditGeneratedQuestions } = await server.ssrLoadModule("/src/engine/mcq.js"));
   ({ parseBridgeJSON } = await server.ssrLoadModule("/src/llmBridge.js"));
   if (process.argv.includes("--prepare")) ({ prepareObjectiveQuiz } = await server.ssrLoadModule("/src/shell/features/objectives/quizLaunch.js"));
+  ({ QUESTION_PREPARATION_POLICY: preparationPolicy, questionPreparationBudget } = await server.ssrLoadModule("/src/questionPreparation.js"));
+  ({ createRequestGate } = await server.ssrLoadModule("/src/requestConcurrency.js"));
 } finally {
   await server.close();
 }
@@ -37,8 +39,9 @@ const direct = !process.argv.includes("--bridge");
 const saveReport = createBenchmarkReportWriter(output);
 const calls = [];
 const started = performance.now();
-const budget = Number(option("--budget-ms", "240000"));
-const callAIJSON = async (system, prompt, fallback, maxTokens, _provider, _temperature, options = {}) => {
+const defaultBudget = process.argv.includes("--production-policy") ? questionPreparationBudget(Number(option("--count", cfg.count))) - 5000 : 240000;
+const budget = Number(option("--budget-ms", String(defaultBudget)));
+const providerRequest = async (system, prompt, fallback, maxTokens, _provider, _temperature, options = {}) => {
   const stage = /Independently (?:audit|solve)/.test(prompt) ? "review" : /^Repair every/.test(prompt) ? "repair" : "draft";
   const timing = { stage, promptChars: prompt.length, maxTokens };
   calls.push(timing);
@@ -82,6 +85,9 @@ const callAIJSON = async (system, prompt, fallback, maxTokens, _provider, _tempe
     await saveReport({ calls, elapsedSeconds: (performance.now() - started) / 1000 });
   }
 };
+// Match healthy production's shared provider ceiling, including draft/review overlap.
+const requestGate = createRequestGate(3);
+const callAIJSON = (...params) => requestGate(() => providerRequest(...params), params[6]?.signal);
 const reviewFile = option("--review-only", "");
 const draft = reviewFile ? JSON.parse(await readFile(reviewFile, "utf8")) : null;
 const questions = draft?.calls?.find(call => call.stage === "draft")?.result?.questions;
@@ -105,8 +111,12 @@ if (prepare) {
     objectives: cfg.objectives, atoms: cfg.atoms || [], exemplars: cfg.examples || [],
     questionCount: Math.max(0, requested - initialQuestions.length), plannedCount: requested, initialQuestions, avoidQuestions: [...(cfg.avoidQuestions || []), ...initialQuestions], avoidStems: [...(cfg.avoidQuestions || []).map(q=>q.stem), ...initialQuestions.map(q => q.stem)], generationVersion: "v2", difficulty: cfg.difficulty || "medium",
     evidenceModel: cfg.evidenceModel || {}, clinicalCorrelateLibrary: cfg.clinicalCorrelateLibrary || [],
-  }, { callAIJSON, reviewAIJSON: callAIJSON, repairAIJSON: callAIJSON, maxPreparationMs: budget, maxPrepareAttempts: Number(option("--max-attempts", "1")), skipRepair: !process.argv.includes("--allow-repair"), prepareConcurrency: Number(option("--concurrency", "1")),
-    ...(process.argv.includes("--production-policy") ? { prepareBatchSize: 3, reviewBatchSize: 3, prepareSpareCandidates: 0, continueAfterEmptyRounds: true, focusedRefill: true } : {}),
+  }, {
+    ...(process.argv.includes("--production-policy") ? preparationPolicy : {}),
+    callAIJSON, reviewAIJSON: callAIJSON, repairAIJSON: callAIJSON, maxPreparationMs: budget,
+    ...(process.argv.includes("--max-attempts") || !process.argv.includes("--production-policy") ? { maxPrepareAttempts: Number(option("--max-attempts", "1")) } : {}),
+    skipRepair: !process.argv.includes("--allow-repair"),
+    ...(process.argv.includes("--concurrency") ? { prepareConcurrency: Number(option("--concurrency", "1")) } : {}),
   }, progress => console.log(JSON.stringify({ event: "progress", ...progress })));
 } else {
   result = reviewFile

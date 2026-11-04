@@ -1,5 +1,5 @@
 import { describe,it,expect } from 'vitest';
-import { alignSchoolQuestions,retrieveLectureEvidence,schoolEvidencePrompt } from './schoolAlignment.js';
+import { alignSchoolQuestions,retrieveLectureEvidence,schoolEvidencePrompt,completeLectureEvidence } from './schoolAlignment.js';
 import { selectStyleExemplars,buildMcqPrompt,buildSchoolTemplatePlan } from './mcq.js';
 import { numberedAuditEvidence } from './auditEvidence.js';
 const objective={id:'o1',code:'SOM.MK.ER.PHYS.1076',text:'Granulosa aromatase converts androgen substrate into estrogen'};
@@ -124,3 +124,15 @@ it('prioritizes exact school annotations over stored retrieval candidates while 
  expect(plan.supportingExamples.map(q=>q.sourceKind)).toContain('homework');
  expect(plan.supportingExamples[0].candidateObjectiveLinks[0].basis).toBe('candidate-stored-link');
 });
+
+ it('preserves complete pathway pages without repeated objective inventories',()=>{
+  const index='SOM.NB.1 First objective SOM.NB.2 Second objective SOM.NB.3 Third objective';
+  const route='Specific input route through relay A. '+ 'Continuation of the pathway table. '.repeat(40)+'Distinct output route through relay B.';
+  const text=[index,route,'Clinical distinction across the neighboring source page.'].join('\f');
+  const complete=completeLectureEvidence(text);
+  expect(complete).toContain(route);expect(complete).not.toContain(index);
+  const catalog=numberedAuditEvidence({lectureText:text},complete);
+  expect(catalog).toContain('Distinct output route through relay B.');
+  expect(completeLectureEvidence(text,100)).toBeNull();
+  expect(completeLectureEvidence(route)).toBeNull();
+ });
