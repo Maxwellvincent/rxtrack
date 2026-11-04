@@ -56,14 +56,19 @@ export async function questionPreparationDeps(callAIJSON) {
       options.onProviderEvent?.({ provider: backend });
       return callAIJSON(...args);
     };
+    const exhausted = error => {
+      const failure=error instanceof Error ? error : new Error(String(error));
+      failure.questionRouteExhausted=true;
+      return failure;
+    };
     const cloudCall = async () => {
       try { return await call("ollama-cloud"); }
       catch (error) {
         options.signal?.throwIfAborted();
         // One replacement request for a blank or malformed provider reply. Keep the original
         // deadline and never retry quota, validation or source-grounding failures.
-        if (!/empty reply|returned no text|not valid or repairable json|invalid json/i.test(String(error?.message || error))) throw error;
-        return call("ollama-cloud");
+        if (!/empty reply|returned no text|not valid or repairable json|invalid json/i.test(String(error?.message || error))) throw exhausted(error);
+        return call("ollama-cloud").catch(error=>{throw exhausted(error);});
       }
     };
     if (Date.now() < limitDeadline()) return cloudCall();
@@ -72,7 +77,11 @@ export async function questionPreparationDeps(callAIJSON) {
       options.signal?.throwIfAborted();
       if (!isCodexUsageLimit(error)) throw error;
       recordLimit(error);
-      return cloudCall();
+      try { return await cloudCall(); }
+      catch(cloudError){
+        cloudError.message=`Codex usage limit reached. ${cloudError.message}`;
+        throw cloudError;
+      }
     }
   };
   return {

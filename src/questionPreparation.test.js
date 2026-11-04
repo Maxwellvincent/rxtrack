@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 vi.mock("./llmBridge.js", () => ({ questionPreparationCapabilities: vi.fn() }));
+import { withQuestionAIRouting } from "./engine/mcq.js";
 import { questionPreparationCapabilities } from "./llmBridge.js";
 import { questionPreparationDeps, questionPreparationStatus, resetQuestionProviderLimit, QUESTION_PREPARATION_BUDGET_MS } from "./questionPreparation.js";
 
@@ -69,4 +70,11 @@ it("shows active writing and independent review without counting them as ready",
 it("bounds repeated empty preparation rounds", async () => {
   const deps = await questionPreparationDeps(vi.fn());
   expect(deps.maxEmptyRounds).toBe(3);
+});
+
+it("does not repeat a fallback already exhausted by the preparation route",async()=>{
+ const call=vi.fn().mockRejectedValueOnce(new Error("Codex usage limit reached")).mockRejectedValue(new Error("Ollama Cloud HTTP 429"));
+ const deps=await questionPreparationDeps(call);
+ await expect(withQuestionAIRouting(deps.callAIJSON)("system","draft")).rejects.toThrow("Codex usage limit reached. Ollama Cloud HTTP 429");
+ expect(call).toHaveBeenCalledTimes(2);
 });

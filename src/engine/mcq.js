@@ -39,6 +39,7 @@ export function withQuestionAIRouting(call) {
     try { return await call(system, prompt, fallback, maxTokens, provider, temperature, policy); }
     catch (error) {
       options.signal?.throwIfAborted();
+      if (error?.questionRouteExhausted) throw error;
       if (backend !== "codex" || options.bridgeBackend || !/quota|usage.?limit|rate.?limit|credit|exhaust|429|limit.*reach|not configured|not installed|not found/i.test(error?.message || "")) throw error;
       const budget = options.bridgeTimeoutMs || options.timeoutMs;
       const remaining = budget ? budget - (Date.now() - started) : null;
@@ -439,7 +440,7 @@ async function protectGenerationContext(cfg) {
 
 /** Generate MCQs via an injected callAIJSON (testable without a live model). */
 export async function generateMcqs(cfg = {}, deps = {}) {
-  try { if((cfg.examples || []).some(question=>question._trackSourceUse || question.evaluationReserved)) cfg = await protectGenerationContext(cfg); } catch(error) { return {questions:[],error:`Source exposure tracking failed: ${error.message}`}; }
+  try { if((cfg.examples || []).some(question=>question._trackSourceUse || question.evaluationReserved)) cfg = await protectGenerationContext(cfg); } catch(error) { return {questions:[],failureKind:"source_tracking",error:`Source exposure tracking failed: ${error.message}`}; }
   cfg = schoolCalibratedConfig(cfg);
   cfg = { ...cfg, promptProfile: cfg.promptProfile || "compact" };
   const { maxTokens = 8000 } = deps;
@@ -911,7 +912,7 @@ export function backfillTopicsFromAtoms(raw, atoms, objectives = []) {
 }
 
 export async function generateFromAtoms(cfg = {}, deps = {}) {
-  try { if((cfg.examples || []).some(question=>question._trackSourceUse || question.evaluationReserved)) cfg = await protectGenerationContext(cfg); } catch(error) { return {questions:[],error:`Source exposure tracking failed: ${error.message}`}; }
+  try { if((cfg.examples || []).some(question=>question._trackSourceUse || question.evaluationReserved)) cfg = await protectGenerationContext(cfg); } catch(error) { return {questions:[],failureKind:"source_tracking",error:`Source exposure tracking failed: ${error.message}`}; }
   cfg = schoolCalibratedConfig(cfg);
   const { maxTokens = 8000 } = deps;
   const callAIJSON = withQuestionAIRouting(deps.callAIJSON);
@@ -1204,7 +1205,11 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
         try{
           const solved=await reviewer("Solve from lecture evidence without the writer's proposed answer. Return JSON only.",buildBlindSolvePrompt(group.map(row=>row.question),cfg),{reviews:[]},1200*group.length);
           for(const [local,row] of group.entries())blindByIndex.set(row.index,(solved?.reviews || []).find(r=>Number(r.index)===local));
-        }catch{for(const row of group)blindByIndex.set(row.index,null);}
+        }catch(error){
+          // Capacity/transport failure is not evidence that a question is bad.
+          // Preserve it rather than issuing another review and reporting a rejection.
+          return {questions:[],failureKind:"review_unavailable",error:`Independent answer verification unavailable: ${preparationErrorMessage(error)}`};
+        }
       }
     }
     if (cfg.promptProfile === "compact" && reviewBatchSize > 1 && questions.length > 1) {
@@ -1215,12 +1220,26 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
       for (let offset = 0; offset < questions.length; offset += reviewBatchSize) {
         const group = questions.slice(offset, offset + reviewBatchSize);
         try {
-          const result = await reviewer(AUDIT_SYSTEM, buildQuestionAuditPrompt(group, cfg), { reviews: [] }, (deps.auditMaxTokens || 1600) * group.length);
+          let result = await reviewer(AUDIT_SYSTEM, buildQuestionAuditPrompt(group, cfg), { reviews: [] }, (deps.auditMaxTokens || 1600) * group.length);
+          const incomplete = group.map((question,index)=>({question,index,review:result?.reviews?.find(entry=>Number(entry.index)===index)}))
+            .filter(({question,review})=>review?.approved===true && (!cfg.requireReasoningAudit || verifyReasoningReview(review,question,cfg))
+              && objectiveAlignmentIssue(review,question,cfg)==="unverified_objective_alignment");
+          if(incomplete.length){
+           try {
+            const correction = await reviewer(AUDIT_SYSTEM,
+              `${buildQuestionAuditPrompt(incomplete.map(row=>row.question),cfg)}\nPREVIOUS REVIEW FAILED DETERMINISTIC VERIFICATION: ${JSON.stringify(incomplete.map(({review},index)=>({...review,index})))}\nRe-audit only these unchanged items. Supply complete objectiveAlignment fields, including bestSourceObjectiveCode and whyAssignedOverNeighbor. Quote the exact assigned clause. Reject a genuine mismatch; missing fields are not approval. Return local indexes for this subset.`,
+              {reviews:[]},(deps.auditMaxTokens || 1600)*incomplete.length);
+            const replacements=new Map(incomplete.map((row,index)=>[row.index,correction?.reviews?.find(entry=>Number(entry.index)===index)]));
+            result={...result,reviews:(result?.reviews || []).map(review=>replacements.has(Number(review.index))
+              ? {...(replacements.get(Number(review.index)) || {approved:false,issues:["unverified_objective_alignment"]}),index:review.index} : review)};
+           } catch(error) { reviewError=error?.message || String(error); }
+          }
           for (let index = 0; index < group.length; index++) {
             const review = result?.reviews?.find(entry => Number(entry.index) === index);
             if (review) reviews.push({ ...review, index: offset + index });
-            else reviewError = `Independent reviewer unavailable: no review returned for question ${offset + index + 1}.`;
+            else reviewError ||= `Independent reviewer unavailable: no review returned for question ${offset + index + 1}.`;
           }
+          if(reviewError) break;
         } catch (error) { reviewError = error?.message || String(error); break; }
       }
       raw = { reviews, error: reviewError };
@@ -1366,6 +1385,9 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
     // rejected batch entered the repair path. Let the independent reviewer
     // return an in-place correction, then apply the same deterministic
     // structure/domain screens before it can enter the quiz.
+    if (cfg.requireReasoningAudit && raw.error) {
+      return {questions:uniqueQuestions(approved),rejections,failureKind:"review_unavailable",error:preparationErrorMessage(raw.error),warning:preparationErrorMessage(raw.error)};
+    }
     const reviewerReplacements = cfg.requireReasoningAudit && deps.skipRepair ? [] : reviews.flatMap((review) => {
       if (review?.approved === true || !review?.replacement) return [];
       const normalized = stampQuestionOrders(

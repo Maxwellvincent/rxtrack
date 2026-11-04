@@ -9,7 +9,7 @@ import { getLearnerProfile } from "../../../stores/tutorSessions.js";
 import { feedbackFor } from "../../../stores/questionRatings.js";
 import { lectureSourceObjectives, repairSourceObjectiveLinks, sourceObjectiveTextConflict, sourceObjectiveMatch } from "../../../engine/sourceObjectiveScope.js";
 import { cleanSchoolQuestion } from "../../../engine/schoolSourceText.js";
-import { preparationErrorMessage } from "../../../preparationError.js";
+import { preparationErrorMessage, preparationReviewSummary } from "../../../preparationError.js";
 import { withDeadline } from "../../../asyncDeadline.js";
 import { hasCurrentReasoningAudit } from "../../../engine/questionOrder.js";
 /**
@@ -713,6 +713,7 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
   reportProgress({ requested, ready: 0, attempt: 0, phase: "generating" });
   const concurrency = Math.min(3, Math.max(1, Math.floor(Number(deps.prepareConcurrency) || 1)));
   let stopPreparation = false;
+  let terminalFailureReason = "";
   let nextAttempt = 1;
   const pendingJobs = new Map();
   // Near-complete batches get three bounded final-slot attempts, but never
@@ -819,6 +820,11 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
     const { attempt, result } = await Promise.race([...pendingJobs.values()].map(job => job.promise));
     pendingJobs.delete(attempt);
     {
+      if(result.failureKind === "source_tracking" || result.failureKind === "review_unavailable") {
+        stopPreparation=true;
+        terminalFailureReason ||= preparationErrorMessage(result.error);
+        reject(result.failureKind === "source_tracking" ? "source_tracking_failure" : "review_service_unavailable");
+      }
       lastError = result.error ? preparationErrorMessage(result.error) : lastError;
       if (result.error && !result.questions?.length && !result.rejections?.length) {
         reject(/json|response|usable|question list/i.test(lastError) ? "draft_response_unusable" : "generation_or_review_failure");
@@ -884,7 +890,7 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
     const emptyRoundLimit = Number(deps.maxEmptyRounds) > 0
       ? Math.floor(Number(deps.maxEmptyRounds))
       : !deps.continueAfterEmptyRounds ? Math.max(3, Math.ceil(allocationPlan.length / batchSize)) : Infinity;
-    if (consecutiveEmptyRounds >= emptyRoundLimit) {
+    if (!stopPreparation && consecutiveEmptyRounds >= emptyRoundLimit) {
       lastError = `Preparation paused after ${consecutiveEmptyRounds} replacement rounds added no accepted questions. Ready questions are saved; retry only the missing slots.`;
       stopPreparation = true;
     }
@@ -893,6 +899,8 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
     // replacements instead of stopping before the requested slots are filled.
   }
 
+  if (terminalFailureReason) lastError = terminalFailureReason;
+  else if (accepted.length < requested) lastError = [lastError, preparationReviewSummary(diagnostics.rejections)].filter(Boolean).join(" ");
   if (accepted.length < requested) {
     const usablePartial = accepted.length >= Math.min(requested, Math.max(3, Math.ceil(requested * 0.6)));
     return {
