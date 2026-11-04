@@ -733,7 +733,8 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
       const focusedRefill = deps.focusedRefill === true && enforceAllocation
         && accepted.length + (args.initialQuestions || []).length > 0
         && requested - accepted.length <= batchSize;
-      const draftSize = focusedRefill ? 1 : batchSize;
+      const starter = attempt === 1 && !(args.initialQuestions || []).length && Number(deps.starterBatchSize) > 0;
+      const draftSize = focusedRefill ? 1 : starter ? Math.min(batchSize, Math.floor(Number(deps.starterBatchSize))) : batchSize;
       const allocationOffset = ((attempt - 1) * batchSize) % Math.max(1, allocationPlan.length);
       const rotatedPlan = [...allocationPlan.slice(allocationOffset), ...allocationPlan.slice(0, allocationOffset)];
       const batchAllocation = remainingObjectiveAllocation(rotatedPlan, [...(args.initialQuestions || []), ...accepted, ...reserved], Math.min(remaining, draftSize));
@@ -743,7 +744,7 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
       if (!batchCount) break;
       // A capable batched reviewer can compare a few alternatives for the last
       // slots in one startup. Reserve only real slots, never the spare drafts.
-      const spareCandidates = focusedRefill ? 0 : Math.min(2, Math.max(0, Math.floor(Number(deps.prepareSpareCandidates) || 0)));
+      const spareCandidates = focusedRefill || requested - accepted.length > batchSize ? 0 : Math.min(2, Math.max(0, Math.floor(Number(deps.prepareSpareCandidates) || 0)));
       const candidateCount = Number(deps.reviewBatchSize) > 1 && attempt > 1
         ? Math.min(ATOM_QUIZ_CAP, batchCount + spareCandidates) : batchCount;
       const candidateAllocation = batchAllocation.map(objective => ({ ...objective }));

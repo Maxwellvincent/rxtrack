@@ -1108,3 +1108,14 @@ it("pauses unproductive refills even when recovery waves are enabled and publish
   expect(result.diagnostics.calls.every(call => call.status !== "running")).toBe(true);
   expect(result.questions).toEqual([]);
 });
+
+it('requests a one-item starter while other batches continue at the normal size',async()=>{
+ const pending=[];
+ const callAIJSON=vi.fn((_system,prompt)=>new Promise(resolve=>pending.push({prompt,resolve})));
+ const work=prepareObjectiveQuiz({questionCount:20,lectureText:'Lecture evidence about sensory pathways. '.repeat(30),objectives:[],atoms:[]},
+  {callAIJSON,starterBatchSize:1,prepareBatchSize:3,prepareConcurrency:3,maxPrepareAttempts:3,skipQuestionAudit:true,prepareSpareCandidates:2,reviewBatchSize:3});
+ await Promise.resolve();expect(pending).toHaveLength(3);
+ expect(pending[0].prompt).toContain('exactly 1 NEW');
+ expect(pending[1].prompt).toContain('exactly 3 NEW');expect(pending[2].prompt).toContain('exactly 3 NEW');
+ pending.forEach(row=>row.resolve({error:'provider unavailable'}));await work;
+});

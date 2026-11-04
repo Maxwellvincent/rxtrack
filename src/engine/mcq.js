@@ -1198,7 +1198,8 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
     let raw;
     const reviewBatchSize = Math.min(5, Math.max(1, Math.floor(Number(deps.reviewBatchSize) || 1)));
     const blindByIndex=new Map();
-    if(cfg.requireBlindKeyCheck){
+    const solveBlind = async () => {
+     if(cfg.requireBlindKeyCheck){
       const candidates=questions.map((question,index)=>({question,index})).filter(({question})=>structurallyUsableSet.has(question));
       for(let offset=0;offset<candidates.length;offset+=reviewBatchSize){
         const group=candidates.slice(offset,offset+reviewBatchSize);
@@ -1212,6 +1213,12 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
         }
       }
     }
+     return null;
+    };
+    // Neither reviewer sees the other verdict. The blind prompt still excludes
+    // the writer's key, explanation and plan. The shared route gate bounds calls.
+    const blindWork = deps.parallelIndependentReview ? solveBlind() : null;
+    if (!blindWork) { const failure=await solveBlind(); if(failure)return failure; }
     if (cfg.promptProfile === "compact" && reviewBatchSize > 1 && questions.length > 1) {
       // Explicit capability opt-in. Local models retain item-by-item auditing;
       // capable reviewers amortize startup while still returning every verdict.
@@ -1292,6 +1299,7 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
     } else {
       raw = await reviewer(AUDIT_SYSTEM, buildQuestionAuditPrompt(questions, cfg), { reviews: [] }, deps.auditMaxTokens || 4000);
     }
+    if(blindWork){const failure=await blindWork;if(failure)return failure;}
     const reviews = Array.isArray(raw?.reviews) ? raw.reviews : [];
     const byIndex = new Map(reviews.map((review) => [Number(review?.index), review]));
     const rejectionRows = questions.map((question, index) => {
@@ -1541,7 +1549,7 @@ Objectives define the target; lecture facts/excerpts alone establish factual tru
 For second/third-order targets, a named agent/structure followed by its explicitly taught effect is a lookup shortcut, even inside a clinical vignette. If the lecture directly pairs N with effect B, do not ask "N causes which effect?". Instead describe a source-supported selective intervention or discriminating observation and ask a further supported prediction. Likewise, do not describe a defining morphology and simply ask its name. Keep competing alternatives at the same requested endpoint; do not hide an extra intermediate just to raise depth. Do not use broad lead-ins such as "which event is impaired?" when several downstream events are impaired; ask a precise measurable endpoint. Any control or unchanged parameter must be supplied by the hypothetical experimental setup or supported by the source, not assumed from biology.
 For application targets, choose the task family that fits the assigned objective and lecture evidence: clinical localization, lesion consequences, structure-function inference, imaging interpretation, mechanism discrimination or an experimental prediction. Do not default every objective to an experiment. Use the school examples to decide whether to name the structure or ask the learner to infer it; do not automatically add a hidden identification step. Do not introduce toxin names, receptor subtypes, second messengers, ion species or timings unless the source explicitly supports their role. Use generic transmitter or experimental labels when specific names are unnecessary.
 ${(cfg.objectives || []).some(objective => /cranial|foramin|foramen|skull|nerve/i.test(objective.objective || objective.text || "")) ? "Only for explicitly requested challenge anatomy application, combine two explicitly supported relationships: infer the unnamed structure/nerve from a function, sensory territory, deficit or anatomical observation, then infer its route, opening, location or consequence. Do not name the nerve/foramen and ask its directly paired fact. A Roman numeral or mnemonic lookup is recall even with a clinical wrapper; do not label it advanced. Both links must appear in the lecture evidence. If a target has only nomenclature evidence, report that specific source shortfall rather than inventing a lesion or function." : ""}
-Use a focused clinical, experimental, imaging, anatomy or laboratory scenario. Include only discriminating clues. Hide diagnosis when it must be inferred. Ask one mechanism, structure, pathway or downstream prediction. Choices must be plausible near-neighbors of the same category; one unambiguous best answer. No decorative story, answer leak, equivalent choices, unsupported disease/drug/finding, or image reference without a supplied image. Preserve tables when appropriate using choiceLayout and choiceColumns; ${QUESTION_CHOICE_CONTRACT} Explanation must connect clues to the mechanism. whyWrong must explain why each distractor was tempting and the decisive contradiction; include the correct option's rationale too.
+Use a focused clinical, experimental, imaging, anatomy or laboratory scenario. Include only discriminating clues. Hide diagnosis when it must be inferred. Ask one mechanism, structure, pathway or downstream prediction. Choices must be plausible near-neighbors of the same category; one unambiguous best answer. No decorative story, answer leak, equivalent choices, unsupported disease/drug/finding, or image reference without a supplied image. Preserve tables when appropriate using choiceLayout and choiceColumns; follow the complete answer-choice contract above. Explanation must connect clues to the mechanism. whyWrong must explain why each distractor was tempting and the decisive contradiction; include the correct option's rationale too.
 When the lecture supports physiology but no named clinical condition, use a lecture-grounded experiment: a perturbation/blocker, its relevant recording or observation, then a predicted consequence. Do not invent a vague patient symptom to decorate a definition. Never turn "a researcher studies X" into "which is the first step/feature of X" and label it second-order. Name the process if school examples do so; ask only the relationship needed at the school-calibrated level. For transmitter-release timing, trace the taught sequence precisely; events after a response cannot be its initiating cause.
 ${synthesisGuard}
 Before returning, check the explanation and EACH whyWrong against your source excerpts. Explain a distractor using the same supported relationship and the conflicting clue, not additional textbook facts about that distractor. A correct key is insufficient if the explanation imports unsupported enzyme lifetimes, recycling rules, receptor kinetics or assumed unchanged functions.
@@ -1593,7 +1601,7 @@ Issue codes: incorrect_key, ambiguous_key, unsupported_fact, objective_mismatch,
 
 export function buildMcqPrompt(cfg = {}) {
   cfg = schoolCalibratedConfig(cfg);
-  return (cfg.reasoningPolicy === "challenge" ? "EXPLICIT CHALLENGE POLICY: requested depth applies.\n" : SCHOOL_DIFFICULTY_CONTRACT + "\n") + (cfg.promptProfile === "compact" ? buildCompactMcqPrompt(cfg) : buildFullMcqPrompt(cfg));
+  return (cfg.reasoningPolicy === "challenge" ? "EXPLICIT CHALLENGE POLICY: requested depth applies.\n" : cfg.promptProfile === "compact" ? "" : SCHOOL_DIFFICULTY_CONTRACT + "\n") + (cfg.promptProfile === "compact" ? buildCompactMcqPrompt(cfg) : buildFullMcqPrompt(cfg));
 }
 
 function buildFullMcqPrompt({ subject = "this lecture", lectureText = "", examples = [], styleProfile = null, objectives = [], atoms = [], difficulty = "medium", count = 10, studyMode = "balanced", generationVersion = "v2", feedback = null, clinicalCorrelateLibrary = [], orderBlueprint = null, focusNotes = "", reasoningDepthPlan = null, requireReasoningAudit = false, avoidStems = [] } = {}) {

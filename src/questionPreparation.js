@@ -1,3 +1,4 @@
+import { createRequestGate } from "./requestConcurrency.js";
 import { questionPreparationCapabilities } from "./llmBridge.js";
 
 export const QUESTION_PREPARATION_BUDGET_MS = 600_000;
@@ -5,6 +6,7 @@ export const QUESTION_PREPARATION_BUDGET_MS = 600_000;
 const LIMIT_KEY = "rxt_codex_lecture_limit_until";
 const RECHECK_MS = 15 * 60_000;
 let limitedUntil = 0;
+const preparationRequestGate=createRequestGate(()=>Date.now()<limitDeadline()?1:3);
 
 export function isCodexUsageLimit(error) {
   return /(?:hit|reached|exceeded|exhausted).{0,40}(?:usage|rate|quota|limit)|(?:usage|rate)[ -]?limit|quota.{0,30}(?:exceeded|exhausted)|resource_exhausted/i.test(String(error?.message || error));
@@ -37,10 +39,11 @@ export async function questionPreparationDeps(callAIJSON) {
   if (!cloudAvailable || capability?.reviewer !== "codex") {
     throw new Error("Lecture question provider route is unavailable. Check the bridge connection and reload RxTrack; generation was stopped before falling back to local Ollama.");
   }
+  const gate=preparationRequestGate;
   const routed = async (...params) => {
     const options = params[6] || {};
     const deadline = options.timeoutMs ? Date.now() + Number(options.timeoutMs) : null;
-    const call = backend => {
+    const call = backend => gate(() => {
       options.signal?.throwIfAborted();
       const remaining = deadline === null ? null : deadline - Date.now();
       if (remaining !== null && remaining <= 0) throw new Error("Question preparation deadline exceeded before provider fallback");
@@ -55,7 +58,7 @@ export async function questionPreparationDeps(callAIJSON) {
       };
       options.onProviderEvent?.({ provider: backend });
       return callAIJSON(...args);
-    };
+    }, options.signal);
     const exhausted = error => {
       const failure=error instanceof Error ? error : new Error(String(error));
       failure.questionRouteExhausted=true;
@@ -86,7 +89,8 @@ export async function questionPreparationDeps(callAIJSON) {
   };
   return {
     callAIJSON: routed, reviewAIJSON: routed,
-    prepareConcurrency: Date.now() < limitDeadline() ? 1 : 3, prepareBatchSize: 3, reviewBatchSize: 3,
+    prepareConcurrency: Date.now() < limitDeadline() ? 1 : 2, prepareBatchSize: 3, reviewBatchSize: 3,
+    starterBatchSize: 1, parallelIndependentReview: true,
     prepareSpareCandidates: 2, continueAfterEmptyRounds: true, maxEmptyRounds: 3, focusedRefill: true,
     // Allow reviewed replacement waves to finish in the background. Smaller
     // batches reduce per-call output and release verified questions sooner.

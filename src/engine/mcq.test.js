@@ -1227,3 +1227,18 @@ it('does not let a positive approval override the same reviewer reporting a shor
  const result=await auditGeneratedQuestions([question],{}, {skipRepair:true,reviewAIJSON:async()=>({reviews:[{index:0,approved:true,objectiveAligned:true,issues:[],answerRoute:answerRoute(question.stem,{choiceShortcut:true})}]})});
  expect(result.questions).toEqual([]);expect(result.rejections[0].issues).toContain('answer_choice_shortcut');
 });
+
+it('overlaps independent reviews without leaking the proposed key and still waits for both verdicts',async()=>{
+ const quote='Local responses persist after the upstream input is blocked.';
+ const question={stem:'A patient has weakness after upstream input is blocked. A local response persists despite this interruption. Which mechanism explains the preserved response?',choices:{A:'Local response mechanism',B:'Upstream input mechanism',C:'Absent response',D:'Unrelated response'},correct:'A',explanation:'The preserved local response is independent of the interrupted upstream input. PRIVATE_WRITER_KEY'};
+ const pending=[];
+ const reviewer=vi.fn((_system,prompt)=>new Promise(resolve=>pending.push({prompt,resolve})));
+ const work=auditGeneratedQuestions([question],{requireBlindKeyCheck:true,lectureText:quote.repeat(4)},{parallelIndependentReview:true,skipRepair:true,reviewAIJSON:reviewer});
+ await Promise.resolve();expect(pending).toHaveLength(2);
+ const blind=pending.find(row=>row.prompt.startsWith('Independently solve'));
+ expect(blind.prompt).not.toContain('PRIVATE_WRITER_KEY');expect(blind.prompt).not.toContain('"correct":');
+ pending.find(row=>row!==blind).resolve({reviews:[{index:0,approved:true,issues:[]}]});
+ let done=false;work.then(()=>{done=true;});await Promise.resolve();expect(done).toBe(false);
+ blind.resolve({reviews:[{index:0,answer:'B',unique:true,reasoning:{sourceQuotes:[quote]}}]});
+ const result=await work;expect(result.questions).toEqual([]);expect(result.rejections[0].issues).toContain('blind_key_disagreement');
+});

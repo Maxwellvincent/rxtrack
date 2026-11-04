@@ -1502,7 +1502,7 @@ export function LectureStudyFlow({
       }
       progressiveQuestions = progressiveQuestions.slice(0, count);
       if (preparationRunRef.current !== runId) return;
-      if (!startedEarly && progressiveQuestions.length >= Math.min(3, count)) {
+      if (!startedEarly && progressiveQuestions.length >= 1) {
         startedEarly = true;
         setAdHocQuiz(true);
         startQuizSession([...progressiveQuestions], { expectedCount: count });
