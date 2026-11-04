@@ -670,10 +670,10 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
   } : call;
   const boundedDeps = {
     ...deps,
-    // Preserve accepted work and repair only rejected candidates from partial batches.
-    // Wholly rejected batches still use fresh refills within the shared deadline.
+    // Give rejected candidates their exact review feedback before replacing them.
+    // A wholly rejected batch can still contain repairable clinical distinctions.
     skipRepair: deps.skipRepair ?? false,
-    repairPartialOnly: deps.repairPartialOnly ?? true,
+    repairPartialOnly: deps.repairPartialOnly ?? false,
     callAIJSON: boundCall(deps.callAIJSON, "draft"),
     reviewAIJSON: boundCall(deps.reviewAIJSON, "review"),
     repairAIJSON: boundCall(deps.repairAIJSON, "repair"),

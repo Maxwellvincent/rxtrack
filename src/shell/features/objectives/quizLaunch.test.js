@@ -660,7 +660,7 @@ describe("prepareObjectiveQuiz", () => {
     expect(result.questions.length).toBeGreaterThan(0);
   });
 
-  it("feeds rejection reasons into fresh refills without whole-batch repair requests", async () => {
+  it("repairs wholly rejected batches with precise feedback before fresh refills", async () => {
     const prompts = [];
     const q = { stem: "A patient's aqueduct is narrowed while cerebrospinal fluid production continues. Imaging demonstrates upstream pressure. Which ventricular change is expected?", choices: { A: "Upstream expansion", B: "Upstream collapse", C: "No change", D: "Isolated fourth ventricle expansion" }, correct: "A", objectiveIds: ["o1"] };
     const callAIJSON = vi.fn(async (_system, prompt) => {
@@ -669,10 +669,12 @@ describe("prepareObjectiveQuiz", () => {
       return { questions: [q] };
     });
     await prepareObjectiveQuiz({ objectives: [{ id: "o1", objective: "Analyze CSF obstruction" }], atoms: [{ term: "Aqueduct", content: "Aqueduct obstruction prevents passage into the fourth ventricle." }], questionCount: 3, generationVersion: "v2" }, { callAIJSON, maxPrepareAttempts: 2 });
-    const drafts = prompts.filter(p => !p.startsWith("Independently audit"));
+    const drafts = prompts.filter(p => !p.startsWith("Independently audit") && !p.startsWith("Repair every"));
+    const repairs = prompts.filter(p => p.startsWith("Repair every"));
     expect(drafts).toHaveLength(2);
     expect(drafts[1]).toContain("The named intermediate gives away the key");
-    expect(prompts.some(p => p.startsWith("Repair every"))).toBe(false);
+    expect(repairs).toHaveLength(2);
+    expect(repairs[0]).toContain("The named intermediate gives away the key");
   });
 
   it("treats unverifiable claimed approvals as retryable quality failures", async () => {
