@@ -15,3 +15,14 @@ it('requires a unique matching solve and exact factual grounding without rekeyin
  expect(blindSolveIssue({...solved,reasoning:{sourceQuotes:['Invented quoted explanation.']}},q,{lectureText:source})).toBe('unverified_blind_solution');
  expect(q.correct).toBe('A');
 });
+
+it('does not offer extracted notes as blind-solve citations when original lecture evidence is required',()=>{
+ const note='EXTRACTED_ONLY_NOTE: this paraphrase is absent from the original lecture.';
+ const prompt=buildBlindSolvePrompt([q],{lectureText:source,atoms:[{term:'Note',content:note}]});
+ expect(prompt).not.toContain(note);expect(prompt).not.toContain('extracted-fact');expect(prompt).toContain('Local responses persist');
+});
+it('retains extracted-fact evidence when no original lecture is supplied',()=>{
+ const note='Local responses persist after upstream input is interrupted.';
+ const prompt=buildBlindSolvePrompt([q],{atoms:[{term:'Local response',content:note}]});
+ expect(prompt).toContain(note);expect(prompt).toContain('extracted-fact');
+});

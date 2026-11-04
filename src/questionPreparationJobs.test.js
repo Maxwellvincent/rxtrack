@@ -29,3 +29,22 @@ it("cancels and removes jobs when the signed-in account changes", async () => {
   expect(getPreparationJob("account-job")).toBeUndefined();
   await job.promise;
 });
+
+it('preserves accepted work and rejection reasons when an outer deadline wins',async()=>{
+ const {recoverPreparationFailure}=await import('./questionPreparationJobs.js');
+ const job={initialQuestions:[{stem:'Saved reviewed item'}],questions:[{stem:'Saved reviewed item'},{stem:'New reviewed item'}],latestProgress:{diagnostics:{requested:19,accepted:0,rejections:{unverified_objective_alignment:3},calls:[{stage:'draft',status:'running'}]}}};
+ const result=recoverPreparationFailure(job,new Error('Quiz preparation timed out'));
+ expect(result.questions).toHaveLength(2);expect(result.diagnostics.accepted).toBe(1);
+ expect(result.reason).toContain('objective mapping not fully verified');expect(result.reason).toContain('timed out');
+ expect(result.diagnostics.calls[0].status).toBe('cancelled');expect(job.latestProgress.diagnostics.calls[0].status).toBe('running');
+});
+
+it('retains accepted callbacks if a running preparation job throws',async()=>{
+ const job=startPreparationJob('deadline-retention', {initialQuestions:[]},async current=>{
+  current.accept([{stem:'Independently accepted question'}]);
+  current.progress({diagnostics:{accepted:1,rejections:{unsupported_fact:2},calls:[]}});
+  throw new Error('Quiz preparation timed out');
+ });
+ const result=await job.promise;expect(result.questions).toHaveLength(1);expect(result.reason).toContain('timed out');
+ expect(result.diagnostics.rejections.unsupported_fact).toBe(2);
+});

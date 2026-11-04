@@ -29,3 +29,13 @@ Normal batches no longer request two spare drafts for every three slots. Spares 
 An identical duplicated school-calibration contract and repeated choice-contract block were removed from the compact writing prompt. All source evidence and examples remain available. A local NB35 lecture-only fixture fell from 38,207 to 35,771 prompt characters (6.4%); this is a fixture measurement, not a model latency claim.
 
 Controlled tests verify concurrent independent calls, rejection on blind-key disagreement, no early acceptance, bounded provider concurrency, queued cancellation, one-item starter allocation, and preservation of appended quiz state. With synthetic independent review delays of 30 and 50 ms, the review critical path becomes 50 rather than 80 ms. No claim is made that live provider latency or a full 20-question completion improved by that percentage. Live provider response and acceptance yield remain separate constraints.
+
+## NB37 timeout investigation
+
+Local replay of the 2026-11-04 NB37 run found six editorial approvals. Applying the recorded independent blind verdicts and evidence checks explained why only two were admitted: some blind checks cited extracted-only notes, another reported a shortcut, and another could not establish a unique answer. Several other drafts were explicitly rejected for unsupported facts, recall-level tasks under an application target, or objective mismatch. These are not 18 accepted questions lost by the UI.
+
+The blind catalog previously offered extracted facts even when its validator required every citation to occur in the original lecture. It now offers only retrieved original-lecture spans when an original lecture of sufficient length exists. Extracted-fact evidence remains available in atom-only mode. The validator and source-grounding requirement are unchanged. A model must independently produce a new valid verdict; old rejected questions are not silently reclassified or credited.
+
+Lecture preparation gives the inner engine five seconds to finalize before the unchanged outer ten-minute guard. If the outer deadline still wins, the job result retains accepted callbacks, request/rejection metadata and the leading review outcomes. In-flight drafts are never promoted. Retained progress marks interrupted calls cancelled at the client boundary, which does not claim the remote provider stopped executing.
+
+Unit and replay checks are separate from a live provider recheck. The proposed two-question NB37 recheck was blocked by automatic approval review pending explicit authorization for that material and destination; it was not sent. No private lecture text, stems, model outputs or user identifiers are committed here.
