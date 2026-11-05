@@ -330,6 +330,7 @@ export async function callAIJSON(
       backend: options.bridgeBackend,
       backendOnly: options.bridgeBackendOnly,
       modelTier: options.bridgeModelTier,
+      purpose: options.bridgePurpose,
     });
     if (bridged !== null) return parseBridgeJSON(bridged);
   } catch (err) {

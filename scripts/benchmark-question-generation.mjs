@@ -14,12 +14,12 @@ const server = await createServer({
   server: { middlewareMode: true, hmr: false }, appType: "custom",
   optimizeDeps: { noDiscovery: true, include: [] },
 });
-let generateMcqs, auditGeneratedQuestions, parseBridgeJSON, prepareObjectiveQuiz, preparationPolicy, questionPreparationBudget, createRequestGate;
+let generateMcqs, auditGeneratedQuestions, parseBridgeJSON, prepareObjectiveQuiz, preparationPolicy, localPreparationPolicy, questionPreparationBudget, createRequestGate;
 try {
   ({ generateMcqs, auditGeneratedQuestions } = await server.ssrLoadModule("/src/engine/mcq.js"));
   ({ parseBridgeJSON } = await server.ssrLoadModule("/src/llmBridge.js"));
   if (process.argv.includes("--prepare")) ({ prepareObjectiveQuiz } = await server.ssrLoadModule("/src/shell/features/objectives/quizLaunch.js"));
-  ({ QUESTION_PREPARATION_POLICY: preparationPolicy, questionPreparationBudget } = await server.ssrLoadModule("/src/questionPreparation.js"));
+  ({ QUESTION_PREPARATION_POLICY: preparationPolicy, LOCAL_QUESTION_PREPARATION_POLICY: localPreparationPolicy, questionPreparationBudget } = await server.ssrLoadModule("/src/questionPreparation.js"));
   ({ createRequestGate } = await server.ssrLoadModule("/src/requestConcurrency.js"));
 } finally {
   await server.close();
@@ -39,7 +39,7 @@ const direct = !process.argv.includes("--bridge");
 const saveReport = createBenchmarkReportWriter(output);
 const calls = [];
 const started = performance.now();
-const defaultBudget = process.argv.includes("--production-policy") ? questionPreparationBudget(Number(option("--count", cfg.count))) - 5000 : 240000;
+const defaultBudget = process.argv.includes("--production-policy") ? questionPreparationBudget(Number(option("--count", cfg.count)), option("--backend", "codex") === "ollama") - 5000 : 240000;
 const budget = Number(option("--budget-ms", String(defaultBudget)));
 const providerRequest = async (system, prompt, fallback, maxTokens, _provider, _temperature, options = {}) => {
   const stage = /Independently (?:audit|solve)/.test(prompt) ? "review" : /^Repair every/.test(prompt) ? "repair" : "draft";
@@ -55,7 +55,7 @@ const providerRequest = async (system, prompt, fallback, maxTokens, _provider, _
       prompt: `${system}\n\nReply with ONLY valid JSON. No markdown fence, no commentary.\n\n${prompt}`,
       format: "json", stream: false, think: false, keep_alive: "10m",
       options: { num_ctx: 8192, temperature: 0.35, num_predict: maxTokens },
-    } : { system, prompt, json: true, maxTokens, timeoutMs: Math.max(1, Math.ceil(remaining)), backend: option("--backend", options.bridgeBackend || "codex"), backendOnly: options.bridgeBackendOnly, modelTier: options.bridgeModelTier };
+    } : { system, prompt, json: true, maxTokens, timeoutMs: Math.max(1, Math.ceil(remaining)), backend: option("--backend", options.bridgeBackend || "codex"), backendOnly: options.bridgeBackendOnly, modelTier: options.bridgeModelTier, purpose: "lecture-questions" };
     const response = await fetch(direct ? "http://localhost:11434/api/generate" : "http://127.0.0.1:4319/complete", {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(request),
       signal: benchmarkRequestSignal(remaining, options),
@@ -113,6 +113,8 @@ if (prepare) {
     evidenceModel: cfg.evidenceModel || {}, clinicalCorrelateLibrary: cfg.clinicalCorrelateLibrary || [],
   }, {
     ...(process.argv.includes("--production-policy") ? preparationPolicy : {}),
+    ...(option("--backend", "codex") === "ollama" ? localPreparationPolicy : {}),
+    isLocalPreparation: () => option("--backend", "codex") === "ollama",
     callAIJSON, reviewAIJSON: callAIJSON, repairAIJSON: callAIJSON, maxPreparationMs: budget,
     ...(process.argv.includes("--max-attempts") || !process.argv.includes("--production-policy") ? { maxPrepareAttempts: Number(option("--max-attempts", "1")) } : {}),
     skipRepair: !process.argv.includes("--allow-repair"),

@@ -146,3 +146,15 @@ it('pauses strict provider retries independently and honors Retry-After even beh
  await vi.advanceTimersByTimeAsync(120001);
  expect(await bridgeComplete(req)).toBe('ok');expect(fetchMock).toHaveBeenCalledTimes(5);
 });
+
+it('keeps cloud tier cooldowns separate so a routine limit does not block Kimi',async()=>{
+ installDomStorage(); resetBridgeProbe();
+ const fetchMock=vi.fn().mockResolvedValueOnce({ok:true})
+  .mockResolvedValueOnce({ok:false,status:502,headers:{get:()=> '120'},json:async()=>({error:'ollama-cloud HTTP 429'})})
+  .mockResolvedValueOnce({ok:true,json:async()=>({backend:'ollama-cloud',text:'ok'})});
+ vi.stubGlobal('fetch',fetchMock);
+ await expect(bridgeComplete({prompt:'draft',backend:'ollama-cloud',backendOnly:true,modelTier:'routine'})).rejects.toThrow('rate limit');
+ expect(await bridgeComplete({prompt:'review',backend:'ollama-cloud',backendOnly:true,modelTier:'escalation',purpose:'lecture-questions'})).toBe('ok');
+ const body=JSON.parse(fetchMock.mock.calls[2][1].body);
+ expect(body.modelTier).toBe('escalation');expect(body.purpose).toBe('lecture-questions');
+});

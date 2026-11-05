@@ -23,8 +23,9 @@ describe("AI JSON failure handling", () => {
 
 it("passes the shared preparation deadline into the bridge instead of leaving a five-minute orphan", async () => {
   bridgeCall.mockResolvedValue('{"ok":true}');
-  expect(await callAIJSON("s", "u", {}, 1000, undefined, undefined, { timeoutMs: 100, bridgeTimeoutMs: 500 })).toEqual({ ok: true });
+  expect(await callAIJSON("s", "u", {}, 1000, undefined, undefined, { timeoutMs: 100, bridgeTimeoutMs: 500, bridgePurpose: "lecture-questions" })).toEqual({ ok: true });
   expect(bridgeCall.mock.calls[0][0].timeoutMs).toBe(100);
+  expect(bridgeCall.mock.calls[0][0].purpose).toBe("lecture-questions");
   expect(call).not.toHaveBeenCalled();
 });
 

@@ -934,7 +934,9 @@ it('reports provider timings and rejection categories without retaining source o
     params[6].onProviderEvent({provider:'codex'});
     return { questions: [] };
   });
-  const result = await prepareObjectiveQuiz({ objectives:[{id:'o1',objective:'Analyze neurotransmitter release'}], lectureText:'Private source text about neurotransmitter release. '.repeat(20), questionCount:3, generationVersion:'v2' }, {callAIJSON:call,maxPrepareAttempts:1,skipQuestionAudit:true});
+  const progress = vi.fn();
+  const result = await prepareObjectiveQuiz({ objectives:[{id:'o1',objective:'Analyze neurotransmitter release'}], lectureText:'Private source text about neurotransmitter release. '.repeat(20), questionCount:3, generationVersion:'v2' }, {callAIJSON:call,maxPrepareAttempts:1,skipQuestionAudit:true}, progress);
+  expect(progress.mock.calls.some(([snapshot]) => snapshot.diagnostics.calls.some(event => event.provider === 'codex' && event.status === 'running'))).toBe(true);
   expect(result.diagnostics.calls[0]).toMatchObject({provider:'codex',stage:'draft',status:'complete'});
   expect(result.diagnostics.elapsedMs).toBeGreaterThanOrEqual(0);
   expect(JSON.stringify(result.diagnostics)).not.toContain('Private source text');

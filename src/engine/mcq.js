@@ -4,6 +4,7 @@ import {GENERATED_QUESTION_CONTRACT,QUESTION_CHOICE_CONTRACT,QUESTION_CONTRACT_V
 import * as sourceUseStore from "../stores/sourceUse.js";
 import { allowedGenerationExamples } from "./sourceUse.js";
 import { buildBlindSolvePrompt, blindSolveIssue } from "./blindQuestionSolve.js";
+import { buildLocalMcqPrompt, buildLocalAuditPrompt } from "./localQuestionPrompts.js";
 import { discriminationIssue, verifiedDiscrimination, DISCRIMINATION_REVIEW_CONTRACT } from "./questionDiscrimination.js";
 import { QUESTION_REUSE_REVIEW_POLICY } from "./questionReuse.js";
 import { objectiveAlignmentIssue, objectiveOwnershipPrompt } from "./objectiveOwnership.js";
@@ -442,7 +443,7 @@ async function protectGenerationContext(cfg) {
 export async function generateMcqs(cfg = {}, deps = {}) {
   try { if((cfg.examples || []).some(question=>question._trackSourceUse || question.evaluationReserved)) cfg = await protectGenerationContext(cfg); } catch(error) { return {questions:[],failureKind:"source_tracking",error:`Source exposure tracking failed: ${error.message}`}; }
   cfg = schoolCalibratedConfig(cfg);
-  cfg = { ...cfg, promptProfile: cfg.promptProfile || "compact" };
+  cfg = { ...cfg, promptProfile: deps.isLocalPreparation?.() ? "local" : cfg.promptProfile || "compact" };
   const { maxTokens = 8000 } = deps;
   const callAIJSON = withQuestionAIRouting(deps.callAIJSON);
   const text = String(cfg.lectureText || "");
@@ -957,6 +958,7 @@ function auditQuestionPayload(question, index) {
 
 export function buildQuestionAuditPrompt(questions, cfg = {}) {
   cfg = schoolCalibratedConfig(cfg);
+  if (cfg.promptProfile === "local") return buildLocalAuditPrompt(questions.map(auditQuestionPayload), cfg);
   if (cfg.promptProfile === "compact") return buildCompactAuditPrompt(questions, cfg);
   const objectives = (cfg.objectives || []).map((objective) => ({
     id: String(objective.id || objective.code || ""),
@@ -1006,6 +1008,9 @@ export function buildQuestionAuditPrompt(questions, cfg = {}) {
 }
 
 export function buildRepairPrompt(items, cfg = {}) {
+  if (cfg.promptProfile === "local") {
+    return `Repair every rejected question using its assigned objective and source evidence. Preserve valid case details, choice count and task depth. Replace an off-target relationship when objective_mismatch is reported. Independently recheck every repair.\n${buildLocalMcqPrompt({ ...cfg, count: items.length })}\nREJECTED ITEMS:\n${JSON.stringify(items)}`;
+  }
   const objectives = (cfg.objectives || []).map((o) => ({ id: o.id || o.code, text: o.objective || o.text, targetOrder: o._targetOrder, suggestedOrder: o._suggestedOrder }));
   const atoms = (cfg.atoms || []).map((a) => ({ term: a.term, content: a.content, objectiveIds: a.objectiveIds || [] }));
   const examples = selectStyleExemplars(cfg.examples || [], cfg.promptProfile === "compact" ? 2 : 6, cfg.difficulty, { objectives: cfg.objectives, atoms: cfg.atoms }).map((q) => ({ stem: q.stem, choices: q.choices, correct: q.correct }));
@@ -1157,6 +1162,7 @@ export function explanationOnlyReplacement(question, review) {
 
 export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
   cfg = schoolCalibratedConfig(cfg);
+  if (deps.isLocalPreparation?.()) cfg = { ...cfg, promptProfile: "local" };
   if (!questions.length) return { questions: [] };
   if (deps.skipQuestionAudit === true) return { questions };
   const transport = withQuestionAIRouting(deps.reviewAIJSON || deps.callAIJSON);
@@ -1220,7 +1226,7 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
     // the writer's key, explanation and plan. The shared route gate bounds calls.
     const blindWork = deps.parallelIndependentReview ? solveBlind() : null;
     if (!blindWork) { const failure=await solveBlind(); if(failure)return failure; }
-    if (cfg.promptProfile === "compact" && reviewBatchSize > 1 && questions.length > 1) {
+    if (["compact", "local"].includes(cfg.promptProfile) && reviewBatchSize > 1 && questions.length > 1) {
       // Explicit capability opt-in. Local models retain item-by-item auditing;
       // capable reviewers amortize startup while still returning every verdict.
       const reviews = [];
@@ -1251,7 +1257,7 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
         } catch (error) { reviewError = error?.message || String(error); break; }
       }
       raw = { reviews, error: reviewError };
-    } else if (cfg.promptProfile === "compact" && questions.length > 0) {
+    } else if (["compact", "local"].includes(cfg.promptProfile) && questions.length > 0) {
       // Small local models repeatedly reviewed only index zero of a batch,
       // then quoted generated explanations instead of the lecture. Give each
       // item an independent, source-focused review; merge indexes ourselves.
@@ -1634,6 +1640,7 @@ Issue codes: incorrect_key, ambiguous_key, unsupported_fact, objective_mismatch,
 
 export function buildMcqPrompt(cfg = {}) {
   cfg = schoolCalibratedConfig(cfg);
+  if (cfg.promptProfile === "local") return buildLocalMcqPrompt(cfg, selectStyleExemplars(cfg.examples || [], 1, cfg.difficulty, cfg));
   return (cfg.reasoningPolicy === "challenge" ? "EXPLICIT CHALLENGE POLICY: requested depth applies.\n" : cfg.promptProfile === "compact" ? "" : SCHOOL_DIFFICULTY_CONTRACT + "\n") + (cfg.promptProfile === "compact" ? buildCompactMcqPrompt(cfg) : buildFullMcqPrompt(cfg));
 }
 

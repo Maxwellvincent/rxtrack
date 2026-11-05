@@ -1516,7 +1516,8 @@ export function LectureStudyFlow({
     };
     if (reserve.length) appendPrepared([]);
 
-    const preparationBudget = questionPreparationBudget(missing);
+    const preparationDeps = await questionPreparationDeps(callAIJSON);
+    const preparationBudget = questionPreparationBudget(missing, preparationDeps.localFallbackAvailable);
     const job = startPreparationJob(jobKey, { userId, controller, count, difficulty, initialQuestions: reserve }, currentJob => withDeadline(async (signal) => prepareObjectiveQuiz(
       {
         objectives: quizObjectives,
@@ -1540,7 +1541,7 @@ export function LectureStudyFlow({
         focusNotes: reasoningGuidance(learnerEvidence.data?.testTaking?.missTypes, missing),
       },
       {
-        ...await questionPreparationDeps(callAIJSON),
+        ...preparationDeps,
         // Leave time to return the detailed engine result before the outer guard.
         maxPreparationMs: preparationBudget - 5000,
         signal,

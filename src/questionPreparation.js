@@ -1,10 +1,13 @@
 import { createRequestGate } from "./requestConcurrency.js";
 import { questionPreparationCapabilities } from "./llmBridge.js";
+import { capacityKind } from "./providerCapacity.js";
 
 export const QUESTION_PREPARATION_BUDGET_MS = 600_000;
-export function questionPreparationBudget(count) {
+export function questionPreparationBudget(count, allowLocalFallback = false) {
   const requested = Math.max(1, Math.floor(Number(count) || 1));
-  return Math.max(QUESTION_PREPARATION_BUDGET_MS, Math.min(900_000, requested * 45_000));
+  const perQuestion = allowLocalFallback ? 180_000 : 45_000;
+  const ceiling = allowLocalFallback ? 3_600_000 : 900_000;
+  return Math.max(QUESTION_PREPARATION_BUDGET_MS, Math.min(ceiling, requested * perQuestion));
 }
 export const QUESTION_PREPARATION_POLICY = Object.freeze({
   prepareConcurrency: 3,
@@ -18,11 +21,19 @@ export const QUESTION_PREPARATION_POLICY = Object.freeze({
   maxEmptyRounds: 3,
   focusedRefill: true,
 });
+export const LOCAL_QUESTION_PREPARATION_POLICY = Object.freeze({
+  prepareConcurrency: 1,
+  prepareBatchSize: 1,
+  reviewBatchSize: 1,
+  parallelIndependentReview: false,
+});
 
 const LIMIT_KEY = "rxt_codex_lecture_limit_until";
 const RECHECK_MS = 15 * 60_000;
 let limitedUntil = 0;
+const cloudLimitErrors = new Map();
 const preparationRequestGate=createRequestGate(()=>Date.now()<limitDeadline()?1:3);
+const localRequestGate=createRequestGate(1);
 
 export function isCodexUsageLimit(error) {
   return /(?:hit|reached|exceeded|exhausted).{0,40}(?:usage|rate|quota|limit)|(?:usage|rate)[ -]?limit|quota.{0,30}(?:exceeded|exhausted)|resource_exhausted/i.test(String(error?.message || error));
@@ -43,23 +54,30 @@ function recordLimit(error) {
 
 export function resetQuestionProviderLimit() {
   limitedUntil = 0;
+  cloudLimitErrors.clear();
   try { localStorage.removeItem(LIMIT_KEY); } catch { /* optional storage */ }
 }
 
 // Codex writes and independently reviews by default. A genuine usage-limit
-// response switches both requests to separate Ollama Cloud passes, otherwise
-// a depleted Codex reviewer would prevent the fallback writer from being useful.
+// response switches both requests together. Local Ollama remains available when
+// both subscription and cloud capacity are exhausted; all reviews still run.
 export async function questionPreparationDeps(callAIJSON) {
   const capability = await questionPreparationCapabilities();
   const cloudAvailable = capability?.writer === "ollama-cloud" || capability?.fallbackWriter === "ollama-cloud";
-  if (!cloudAvailable || capability?.reviewer !== "codex") {
-    throw new Error("Lecture question provider route is unavailable. Check the bridge connection and reload RxTrack; generation was stopped before falling back to local Ollama.");
+  const cloudTiers = [...new Set((capability?.cloudTiers || [{ tier: "routine" }])
+    .map(entry => entry.tier).filter(tier => ["routine", "escalation", "quality"].includes(tier)))];
+  const remoteFallbacks = [...new Set(capability?.fallbackWriters || [])]
+    .filter(provider => ["openrouter", "openai"].includes(provider));
+  const localAvailable = capability?.localWriter === "ollama" || capability?.writer === "ollama";
+  const codexAvailable = capability?.writer === "codex" || capability?.reviewer === "codex";
+  if ((!cloudAvailable && !localAvailable && !codexAvailable) || !["codex", "ollama-cloud", "ollama"].includes(capability?.reviewer)) {
+    throw new Error("Lecture question provider route is unavailable. Check the bridge connection and available models, then reload RXTrack.");
   }
   const gate=preparationRequestGate;
   const routed = async (...params) => {
     const options = params[6] || {};
     const deadline = options.timeoutMs ? Date.now() + Number(options.timeoutMs) : null;
-    const call = backend => gate(() => {
+    const call = (backend, tier = "routine") => (backend === "ollama" ? localRequestGate : gate)(() => {
       options.signal?.throwIfAborted();
       const remaining = deadline === null ? null : deadline - Date.now();
       if (remaining !== null && remaining <= 0) throw new Error("Question preparation deadline exceeded before provider fallback");
@@ -70,9 +88,11 @@ export async function questionPreparationDeps(callAIJSON) {
         bridgeBackend: backend,
         bridgeBackendOnly: true,
         bridgeOnly: true,
-        ...(backend === "ollama-cloud" ? { bridgeModelTier: "routine" } : {}),
+        bridgePurpose: "lecture-questions",
+        ...(backend === "ollama-cloud" ? { bridgeModelTier: tier } : {}),
       };
-      options.onProviderEvent?.({ provider: backend });
+      const model = backend === "ollama-cloud" ? capability?.cloudTiers?.find(entry => entry.tier === tier)?.model : capability?.localModel;
+      options.onProviderEvent?.({ provider: backend, ...(backend !== "codex" && model ? { model } : {}) });
       return callAIJSON(...args);
     }, options.signal);
     const exhausted = error => {
@@ -80,25 +100,65 @@ export async function questionPreparationDeps(callAIJSON) {
       failure.questionRouteExhausted=true;
       return failure;
     };
-    const cloudCall = async () => {
-      try { return await call("ollama-cloud"); }
-      catch (error) {
-        options.signal?.throwIfAborted();
-        // One replacement request for a blank or malformed provider reply. Keep the original
-        // deadline and never retry quota, validation or source-grounding failures.
-        if (!/empty reply|returned no text|not valid or repairable json|invalid json/i.test(String(error?.message || error))) throw exhausted(error);
-        return call("ollama-cloud").catch(error=>{throw exhausted(error);});
+    const fallbackCall = async () => {
+      let lastError = null;
+      for (const tier of cloudAvailable ? cloudTiers : []) {
+        const paused = cloudLimitErrors.get(tier);
+        if (paused && Date.now() < paused.retryAt) { lastError = paused; continue; }
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          try {
+            const result = await call("ollama-cloud", tier);
+            cloudLimitErrors.delete(tier);
+            return result;
+          }
+          catch (error) {
+            options.signal?.throwIfAborted();
+            if (capacityKind(error)) {
+              lastError = Object.assign(error instanceof Error ? error : new Error(String(error)), {
+                retryAt: Number(error?.retryAt) || Date.now() + 60000,
+              });
+              cloudLimitErrors.set(tier, lastError);
+              break;
+            }
+            lastError = error;
+            if (attempt || !/empty reply|returned no text|not valid or repairable json|invalid json/i.test(String(error?.message || error))) break;
+          }
+        }
       }
+      for (const provider of remoteFallbacks) {
+        const paused = cloudLimitErrors.get(provider);
+        if (paused && Date.now() < paused.retryAt) { lastError = paused; continue; }
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          try {
+            const result = await call(provider);
+            cloudLimitErrors.delete(provider);
+            return result;
+          } catch (error) {
+            options.signal?.throwIfAborted();
+            lastError = error;
+            if (capacityKind(error)) {
+              lastError = Object.assign(error instanceof Error ? error : new Error(String(error)), {
+                retryAt: Number(error?.retryAt) || Date.now() + 60000,
+              });
+              cloudLimitErrors.set(provider, lastError);
+              break;
+            }
+            if (attempt || !/empty reply|returned no text|not valid or repairable json|invalid json/i.test(String(error?.message || error))) break;
+          }
+        }
+      }
+      if (localAvailable) return call("ollama").catch(error => { throw exhausted(error); });
+      throw exhausted(lastError || [...cloudLimitErrors.values()].at(-1) || new Error("No fallback question model is available."));
     };
-    if (Date.now() < limitDeadline()) return cloudCall();
+    if (!codexAvailable || Date.now() < limitDeadline()) return fallbackCall();
     try { return await call("codex"); }
     catch (error) {
       options.signal?.throwIfAborted();
       if (!isCodexUsageLimit(error)) throw error;
       recordLimit(error);
-      try { return await cloudCall(); }
+      try { return await fallbackCall(); }
       catch(cloudError){
-        cloudError.message=`Codex usage limit reached. ${cloudError.message}`;
+        if (!/^Codex usage limit reached\./i.test(cloudError.message)) cloudError.message=`Codex usage limit reached. ${cloudError.message}`;
         throw cloudError;
       }
     }
@@ -106,7 +166,11 @@ export async function questionPreparationDeps(callAIJSON) {
   return {
     ...QUESTION_PREPARATION_POLICY,
     callAIJSON: routed, reviewAIJSON: routed,
-    prepareConcurrency: Date.now() < limitDeadline() ? 1 : QUESTION_PREPARATION_POLICY.prepareConcurrency,
+    localFallbackAvailable: localAvailable,
+    isLocalPreparation: () => localAvailable && (!codexAvailable || Date.now() < limitDeadline()
+      && cloudTiers.every(tier => cloudLimitErrors.has(tier))
+      && remoteFallbacks.every(provider => cloudLimitErrors.has(provider))),
+    ...(Date.now() < limitDeadline() || !codexAvailable ? LOCAL_QUESTION_PREPARATION_POLICY : {}),
     // Allow reviewed replacement waves to finish in the background. Smaller
     // batches reduce per-call output and release verified questions sooner.
     // This is a shared ceiling, not a fresh timeout for each request.
@@ -121,5 +185,8 @@ export function questionPreparationStatus(progress) {
   const drafts = running.filter(call => call.stage === "draft").length;
   const reviews = running.length - drafts;
   const stages = [drafts ? `Writing ${drafts} batch${drafts === 1 ? "" : "es"}` : "", reviews ? `Checking ${reviews} batch${reviews === 1 ? "" : "es"}` : ""].filter(Boolean);
-  return stages.join(" · ") || "Preparing remaining questions";
+  const activity = stages.join(" · ") || "Preparing remaining questions";
+  if (running.some(call => call.provider === "ollama")) return `Local Ollama · ${activity}`;
+  if (running.some(call => call.provider === "ollama-cloud" && /^kimi/i.test(call.model || ""))) return `Kimi · ${activity}`;
+  return activity;
 }

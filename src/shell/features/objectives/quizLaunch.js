@@ -656,7 +656,11 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
     diagnostics.calls.push(event);
     reportProgress({ requested: diagnostics.requested, ready: diagnostics.accepted, phase: stage === "draft" ? "generating" : "reviewing" });
     return withDeadline(signal => {
-      params[6] = { ...params[6], signal, onProviderEvent: ({ provider }) => { event.provider = provider; } };
+      params[6] = { ...params[6], signal, onProviderEvent: ({ provider, model }) => {
+        event.provider = provider;
+        if (model) event.model = model;
+        reportProgress({ requested: diagnostics.requested, ready: diagnostics.accepted, phase: stage === "draft" ? "generating" : "reviewing" });
+      } };
       return call(...params);
     }, params[6].timeoutMs, options.signal || deps.signal, "Question preparation").then(result => {
       event.status = "complete"; return result;

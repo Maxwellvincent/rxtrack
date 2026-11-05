@@ -89,7 +89,8 @@ export async function questionPreparationCapabilities() {
  */
 export async function bridgeComplete(req) {
   req.signal?.throwIfAborted();
-  const paused=req.backendOnly && providerCooldowns.get(req.backend);
+  const providerKey = req.backend === "ollama-cloud" ? `${req.backend}:${req.modelTier || "routine"}` : req.backend;
+  const paused=req.backendOnly && providerCooldowns.get(providerKey);
   if(paused && Date.now()<paused.retryAt)throw paused;
   if (Date.now() < cooldownUntil) return null;
   if (!(await bridgeAvailable())) return null;
@@ -109,6 +110,7 @@ export async function bridgeComplete(req) {
         ...(req.backend ? { backend: req.backend } : {}),
         ...(req.backendOnly ? { backendOnly: true } : {}),
         ...(req.modelTier ? { modelTier: req.modelTier } : {}),
+        ...(req.purpose === "lecture-questions" ? { purpose: req.purpose } : {}),
       }),
     });
       if (!r.ok) {
@@ -118,7 +120,7 @@ export async function bridgeComplete(req) {
         const kind=capacityKind(`bridge ${r.status}: ${message || ''}`);
         if(req.backendOnly && kind){
           const error=capacityError(req.backend,kind,retryAfterMs(r.headers?.get?.('Retry-After')));
-          providerCooldowns.set(req.backend,error);throw error;
+          providerCooldowns.set(providerKey,error);throw error;
         }
         throw new Error(raw);
       }
@@ -134,7 +136,7 @@ export async function bridgeComplete(req) {
         new CustomEvent("rxt-bridge-used", { detail: { backend: data.backend } })
       );
     }
-    if(req.backendOnly)providerCooldowns.delete(req.backend);
+    if(req.backendOnly)providerCooldowns.delete(providerKey);
     if(data.usage)req.onUsage?.(data.usage);
     return data.text;
   } catch (err) {
