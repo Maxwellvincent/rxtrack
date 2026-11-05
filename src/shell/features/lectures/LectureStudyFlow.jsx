@@ -1516,7 +1516,19 @@ export function LectureStudyFlow({
     };
     if (reserve.length) appendPrepared([]);
 
-    const preparationDeps = await questionPreparationDeps(callAIJSON);
+    let preparationDeps;
+    try {
+      preparationDeps = await questionPreparationDeps(callAIJSON);
+    } catch (error) {
+      controller.abort();
+      if (preparationRunRef.current === runId) {
+        setBusy("");
+        setQuizPreparation(null);
+        setError(preparationErrorMessage(error));
+      }
+      return;
+    }
+    if (preparationRunRef.current !== runId || controller.signal.aborted) return;
     const preparationBudget = questionPreparationBudget(missing, preparationDeps.localFallbackAvailable);
     const job = startPreparationJob(jobKey, { userId, controller, count, difficulty, initialQuestions: reserve }, currentJob => withDeadline(async (signal) => prepareObjectiveQuiz(
       {
