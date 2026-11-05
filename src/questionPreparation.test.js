@@ -146,3 +146,21 @@ it("reaches local after all configured cloud tiers exhaust their allowance", asy
   expect(call.mock.calls.map(args=>args[6].bridgeBackend)).toEqual(['codex','ollama-cloud','ollama-cloud','ollama-cloud','ollama','ollama']);
   expect(deps.isLocalPreparation()).toBe(true);
 });
+
+it("uses advertised OpenRouter then OpenAI question fallbacks before local Ollama", async () => {
+  questionPreparationCapabilities.mockResolvedValue({
+    writer: "codex", reviewer: "codex", fallbackWriter: "ollama-cloud", localWriter: "ollama",
+    fallbackWriters: ["ollama-cloud", "openrouter", "openai", "ollama"],
+  });
+  const call = vi.fn()
+    .mockRejectedValueOnce(new Error("Codex usage limit reached"))
+    .mockRejectedValueOnce(new Error("Ollama Cloud HTTP 429"))
+    .mockRejectedValueOnce(new Error("OpenRouter HTTP 429"))
+    .mockResolvedValue({ questions: [] });
+  const deps = await questionPreparationDeps(call);
+  await deps.callAIJSON("system", "draft");
+  await deps.reviewAIJSON("system", "review");
+  expect(call.mock.calls.map(args => args[6].bridgeBackend)).toEqual([
+    "codex", "ollama-cloud", "openrouter", "openai", "openai",
+  ]);
+});
