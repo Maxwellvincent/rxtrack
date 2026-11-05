@@ -33,6 +33,7 @@ const fixture = option("--fixture", "");
 if (!fixture) throw new Error("Use --fixture <private generation config JSON> --output <report JSON>");
 const cfg = JSON.parse(await readFile(fixture, "utf8"));
 const output = option("--output", "/tmp/rxtrack-generation-benchmark.json");
+const bridgeUrl = option("--bridge-url", "http://127.0.0.1:4319").replace(/\/$/, "");
 // Stay local unless the caller deliberately opts into the bridge (whose
 // configured fallback may send content to an external subscription provider).
 const direct = !process.argv.includes("--bridge");
@@ -56,7 +57,7 @@ const providerRequest = async (system, prompt, fallback, maxTokens, _provider, _
       format: "json", stream: false, think: false, keep_alive: "10m",
       options: { num_ctx: 8192, temperature: 0.35, num_predict: maxTokens },
     } : { system, prompt, json: true, maxTokens, timeoutMs: Math.max(1, Math.ceil(remaining)), backend: option("--backend", options.bridgeBackend || "codex"), backendOnly: options.bridgeBackendOnly, modelTier: options.bridgeModelTier, purpose: "lecture-questions" };
-    const response = await fetch(direct ? "http://localhost:11434/api/generate" : "http://127.0.0.1:4319/complete", {
+    const response = await fetch(direct ? "http://localhost:11434/api/generate" : `${bridgeUrl}/complete`, {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(request),
       signal: benchmarkRequestSignal(remaining, options),
     });
