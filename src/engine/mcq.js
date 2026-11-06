@@ -1,3 +1,4 @@
+import { lectureEvidenceForConfig } from './lectureQuestionContext.js';
 import {capacityKind} from '../providerCapacity.js';
 import {compactAnswerRoute,ANSWER_ROUTE_POLICY,answerRouteIssue} from './questionAnswerRoute.js';
 import {GENERATED_QUESTION_CONTRACT,QUESTION_CHOICE_CONTRACT,QUESTION_CONTRACT_VERSION,questionAdmissionIssues} from './questionContract.js';
@@ -21,7 +22,7 @@ import { questionWritingBenchmarkPrompt } from "./questionWritingStandard.js";
 // remains separate task-pattern evidence so the source roles stay auditable.
 import { normAtomKey } from "./atomNorm.js";
 import { canonicalObjectiveIds } from "./objectiveLinks.js";
-import { alignSchoolQuestions, schoolEvidencePrompt, retrieveLectureEvidence, completeLectureEvidence } from "./schoolAlignment.js";
+import { alignSchoolQuestions, schoolEvidencePrompt, retrieveLectureEvidence } from "./schoolAlignment.js";
 import { uniqueQuestions } from "./questionSimilarity.js";
 import { buildClinicalCorrelateLibrary, buildClinicalCorrelatePlan, renderClinicalCorrelateLibrary } from "./clinicalCorrelates.js";
 import { buildOrderBlueprint, normalizeQuestionOrder, stampQuestionOrders, questionOrderDescription, verifyReasoningReview, hasCurrentReasoningAudit } from "./questionOrder.js";
@@ -972,7 +973,7 @@ export function buildQuestionAuditPrompt(questions, cfg = {}) {
     objectiveIds: atom.objectiveIds || [],
   }));
   const reviewQuery = questions.map(question => ({ term: question.topic || "", content: `${question.stem || ""} ${Object.values(question.choices || {}).join(" ")} ${question.explanation || ""}` }));
-  const evidence = completeLectureEvidence(cfg.lectureText) || retrieveLectureEvidence(String(cfg.lectureText || ""), cfg.objectives || [], [...(cfg.atoms || []), ...reviewQuery], cfg.requireReasoningAudit ? 14000 : 7000);
+  const evidence = lectureEvidenceForConfig(cfg) || retrieveLectureEvidence(String(cfg.lectureText || ""), cfg.objectives || [], [...(cfg.atoms || []), ...reviewQuery], cfg.requireReasoningAudit ? 14000 : 7000);
   const clinicalCorrelates = renderClinicalCorrelateLibrary(cfg.clinicalCorrelateLibrary || []);
   return (
     `Independently audit every generated question. Approve it only when ALL checks pass:\n` +
@@ -1010,7 +1011,7 @@ export function buildQuestionAuditPrompt(questions, cfg = {}) {
 
 export function buildRepairPrompt(items, cfg = {}) {
   if (cfg.promptProfile === "local") {
-    return `Repair every rejected question using its assigned objective and source evidence. Preserve valid case details, choice count and task depth. Replace an off-target relationship when objective_mismatch is reported. Independently recheck every repair.\n${buildLocalMcqPrompt({ ...cfg, count: items.length })}\nREJECTED ITEMS:\n${JSON.stringify(items)}`;
+    return `${buildLocalMcqPrompt({ ...cfg, count: items.length })}\nRepair only the rejected items below using their assigned objectives and exact source evidence. Preserve valid details, choice count and task depth. Return only the repairs; accepted items must not be rewritten. Repairs will be independently checked.\nREJECTED ITEMS:\n${JSON.stringify(items)}`;
   }
   const objectives = (cfg.objectives || []).map((o) => ({ id: o.id || o.code, text: o.objective || o.text, targetOrder: o._targetOrder, suggestedOrder: o._suggestedOrder }));
   const atoms = (cfg.atoms || []).map((a) => ({ term: a.term, content: a.content, objectiveIds: a.objectiveIds || [] }));
@@ -1024,7 +1025,7 @@ Match school task depth. Honor each objective's assigned targetOrder in every po
 
 OBJECTIVES:\n${JSON.stringify(objectives)}
 LECTURE FACTS:\n${JSON.stringify(atoms)}
-LECTURE EVIDENCE:\n${completeLectureEvidence(cfg.lectureText) || retrieveLectureEvidence(cfg.lectureText || "", cfg.objectives || [], items.map(item => ({ term: item.question?.topic || "", content: item.question?.stem || "" })), 6000)}
+LECTURE EVIDENCE:\n${lectureEvidenceForConfig(cfg) || retrieveLectureEvidence(cfg.lectureText || "", cfg.objectives || [], items.map(item => ({ term: item.question?.topic || "", content: item.question?.stem || "" })), 6000)}
 STYLE EXAMPLES:\n${JSON.stringify(examples)}
 REJECTED ITEMS:\n${JSON.stringify(items)}
 
@@ -1233,8 +1234,8 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
     const blindWork = deps.parallelIndependentReview ? solveBlind() : null;
     if (!blindWork) { const failure=await solveBlind(); if(failure)return failure; }
     if (["compact", "local"].includes(cfg.promptProfile) && reviewBatchSize > 1 && questions.length > 1) {
-      // Explicit capability opt-in. Local models retain item-by-item auditing;
-      // capable reviewers amortize startup while still returning every verdict.
+      // Small batches amortize source processing while each item still needs
+      // its own verdict, evidence, key check and objective ownership.
       const reviews = [];
       let reviewError = "";
       for (let offset = 0; offset < questions.length; offset += reviewBatchSize) {
@@ -1544,7 +1545,7 @@ function compactSource(cfg, queries = cfg.atoms || [], evidenceBudget = null) {
     ...(a.quantitativeDetails?.length ? { quantitativeDetails: a.quantitativeDetails } : {}) }));
   const clinical = clinicalTemplates(cfg).length > 0;
   const budget = evidenceBudget || (atoms.length ? (clinical ? 4500 : 2500) : (clinical ? 7500 : 4500));
-  const excerpts = completeLectureEvidence(cfg.lectureText) || (cfg.objectives?.length
+  const excerpts = lectureEvidenceForConfig(cfg) || (cfg.objectives?.length
     ? "Use the independently retrieved objective cards above."
     : retrieveLectureEvidence(cfg.lectureText || "", [], retrievalHints(cfg, queries), budget));
   return `KEY FACTS EXTRACTED FROM THE LECTURE (factual authority):\n${JSON.stringify(atoms)}\nLECTURE EXCERPTS (factual authority):\n${excerpts}`;
@@ -1553,7 +1554,7 @@ function compactSource(cfg, queries = cfg.atoms || [], evidenceBudget = null) {
 // Retrieve each objective independently so a broad neighboring topic or a tagged
 // definition cannot consume the evidence needed for the actual assigned task.
 export function objectiveConstructionPrompt(cfg = {}) {
-  const complete = completeLectureEvidence(cfg.lectureText);
+  const complete = lectureEvidenceForConfig(cfg);
   const targets = (cfg.objectives || []).map(objective => ({
     objectiveId: objective.id || objective.code,
     task: objective.objective || objective.text,
@@ -1638,7 +1639,7 @@ OBJECTIVES:\n${JSON.stringify(compactObjectives(cfg))}
 ${objectiveModalitySection(cfg.objectives || [])}
 ${cfg.linkedConceptTargets?.length ? `LINKED CONCEPT REVIEW: ${JSON.stringify(cfg.linkedConceptTargets.map(a=>({term:a.term,content:a.content,objectiveIds:a.objectiveIds,clinicalCues:a.clinicalCues||[]})))}. These are optional coverage suggestions within the assigned objective. Judge the actual relationship tested; do not reject an otherwise aligned question merely for choosing another supported concept. Require meaningful testing for any claimed concept coverage rather than incidental name-drops. Necessary distinguishing clues belong in the stem; answer-revealing terminology may be in the key and explanation. Reject missing necessary clues as insufficient_clues and overlapping synonyms as ambiguous_choices. Accept valid paraphrases; never require buzzword stuffing.` : ''}
 ${compactStyle(cfg)}
-${numberedAuditEvidence(cfg, completeLectureEvidence(cfg.lectureText) || retrieveLectureEvidence(cfg.lectureText || "", cfg.objectives || [], queries, Math.min(18000, 9000 + (questions.length - 1) * 4500)))}
+${numberedAuditEvidence(cfg, lectureEvidenceForConfig(cfg) || retrieveLectureEvidence(cfg.lectureText || "", cfg.objectives || [], queries, Math.min(18000, 9000 + (questions.length - 1) * 4500)))}
 QUESTIONS:\n${JSON.stringify(questions.map(auditQuestionPayload))}
 OTHER BATCH STEMS (comparison only; never factual evidence):\n${JSON.stringify(cfg.comparisonItems || cfg.comparisonStems || [])}
 Reject duplicate_reasoning_route when the same decisive fact/relationship answers an earlier batch item, even with a different stem or objective ID.

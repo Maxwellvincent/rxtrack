@@ -14,8 +14,9 @@ const server = await createServer({
   server: { middlewareMode: true, hmr: false }, appType: "custom",
   optimizeDeps: { noDiscovery: true, include: [] },
 });
-let generateMcqs, auditGeneratedQuestions, parseBridgeJSON, prepareObjectiveQuiz, preparationPolicy, localPreparationPolicy, questionPreparationBudget, createRequestGate;
+let generateMcqs, auditGeneratedQuestions, parseBridgeJSON, prepareObjectiveQuiz, preparationPolicy, localPreparationPolicy, questionPreparationBudget, createRequestGate, localQuestionSystem;
 try {
+  ({ LOCAL_QUESTION_SYSTEM: localQuestionSystem } = await server.ssrLoadModule("/src/engine/lectureQuestionContext.js"));
   ({ generateMcqs, auditGeneratedQuestions } = await server.ssrLoadModule("/src/engine/mcq.js"));
   ({ parseBridgeJSON } = await server.ssrLoadModule("/src/llmBridge.js"));
   if (process.argv.includes("--prepare")) ({ prepareObjectiveQuiz } = await server.ssrLoadModule("/src/shell/features/objectives/quizLaunch.js"));
@@ -43,7 +44,8 @@ const started = performance.now();
 const defaultBudget = process.argv.includes("--production-policy") ? questionPreparationBudget(Number(option("--count", cfg.count)), option("--backend", "codex") === "ollama") - 5000 : 240000;
 const budget = Number(option("--budget-ms", String(defaultBudget)));
 const providerRequest = async (system, prompt, fallback, maxTokens, _provider, _temperature, options = {}) => {
-  const stage = /Independently (?:audit|solve)/.test(prompt) ? "review" : /^Repair every/.test(prompt) ? "repair" : "draft";
+  if (option("--backend", "codex") === "ollama") system = localQuestionSystem;
+  const stage = /Independently (?:audit|solve)/.test(prompt) ? "review" : /Repair (?:every|only)/.test(prompt) ? "repair" : "draft";
   const timing = { stage, promptChars: prompt.length, maxTokens };
   calls.push(timing);
   const start = performance.now();

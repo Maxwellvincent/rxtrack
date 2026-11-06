@@ -1,3 +1,4 @@
+import { LOCAL_QUESTION_SYSTEM } from './engine/lectureQuestionContext.js';
 import { createRequestGate } from "./requestConcurrency.js";
 import { questionPreparationCapabilities } from "./llmBridge.js";
 import { capacityKind } from "./providerCapacity.js";
@@ -13,18 +14,20 @@ export const QUESTION_PREPARATION_POLICY = Object.freeze({
   prepareConcurrency: 3,
   prepareBatchSize: 5,
   reviewBatchSize: 5,
-  starterBatchSize: 1,
+  starterBatchSize: 5,
   parallelIndependentReview: true,
   releaseVerifiedFirst: true,
-  prepareSpareCandidates: 2,
+  prepareSpareCandidates: 0,
   continueAfterEmptyRounds: true,
   maxEmptyRounds: 3,
   focusedRefill: true,
 });
 export const LOCAL_QUESTION_PREPARATION_POLICY = Object.freeze({
   prepareConcurrency: 1,
-  prepareBatchSize: 1,
-  reviewBatchSize: 1,
+  prepareBatchSize: 3,
+  starterBatchSize: 3,
+  reviewBatchSize: 3,
+  prepareSpareCandidates: 0,
   parallelIndependentReview: false,
 });
 
@@ -84,6 +87,7 @@ export async function questionPreparationDeps(callAIJSON) {
       const args = [...params];
       const selectedPrompt = backend === 'ollama' && options.localPrompt ? options.localPrompt : args[1];
       args[1] = selectedPrompt;
+      if (backend === 'ollama') args[0] = LOCAL_QUESTION_SYSTEM;
       options.onPromptSelected?.(selectedPrompt);
       const { localPrompt: _localPrompt, onPromptSelected: _onPromptSelected, ...transportOptions } = options;
       args[6] = {
@@ -171,6 +175,7 @@ export async function questionPreparationDeps(callAIJSON) {
     ...QUESTION_PREPARATION_POLICY,
     callAIJSON: routed, reviewAIJSON: routed,
     localFallbackAvailable: localAvailable,
+    preparationPolicy: () => localAvailable && (!codexAvailable || Date.now() < limitDeadline() && cloudTiers.every(tier => cloudLimitErrors.has(tier)) && remoteFallbacks.every(provider => cloudLimitErrors.has(provider))) ? LOCAL_QUESTION_PREPARATION_POLICY : QUESTION_PREPARATION_POLICY,
     isLocalPreparation: () => localAvailable && (!codexAvailable || Date.now() < limitDeadline()
       && cloudTiers.every(tier => cloudLimitErrors.has(tier))
       && remoteFallbacks.every(provider => cloudLimitErrors.has(provider))),

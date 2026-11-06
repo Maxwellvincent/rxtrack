@@ -103,8 +103,8 @@ it("uses local Ollama after Codex and cloud capacity failures and keeps reviews 
   expect(call.mock.calls.map(args => args[6].bridgeBackend)).toEqual(["codex", "ollama-cloud", "ollama", "ollama"]);
   expect(call.mock.calls.every(args => args[6].bridgePurpose === "lecture-questions")).toBe(true);
   const retry = await questionPreparationDeps(call);
-  expect(retry.prepareBatchSize).toBe(1);
-  expect(retry.reviewBatchSize).toBe(1);
+  expect(retry.prepareBatchSize).toBe(3);
+  expect(retry.reviewBatchSize).toBe(3);
   expect(retry.prepareConcurrency).toBe(1);
 });
 
@@ -177,4 +177,12 @@ it('switches to the bounded prompt on the first local fallback and identifies it
  await deps.callAIJSON('system','next cloud request',{},1600,undefined,undefined,{localPrompt:'next local request'});
  expect(call.mock.calls[3][6].bridgeBackend).toBe('ollama');
  expect(call.mock.calls[3][1]).toBe('next local request');
+});
+it('uses batched starts and switches the next scheduling wave to the local policy automatically',async()=>{
+ questionPreparationCapabilities.mockResolvedValue({writer:'codex',reviewer:'codex',fallbackWriter:'ollama-cloud',localWriter:'ollama'});
+ const call=vi.fn().mockRejectedValueOnce(new Error('Codex usage limit reached')).mockRejectedValueOnce(new Error('Ollama Cloud HTTP 429')).mockResolvedValue({});
+ const deps=await questionPreparationDeps(call);
+ expect(deps.preparationPolicy()).toMatchObject({prepareBatchSize:5,starterBatchSize:5,reviewBatchSize:5});
+ await deps.callAIJSON('system','prompt');
+ expect(deps.preparationPolicy()).toMatchObject({prepareConcurrency:1,prepareBatchSize:3,starterBatchSize:3,reviewBatchSize:3,prepareSpareCandidates:0});
 });

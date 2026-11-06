@@ -1,3 +1,4 @@
+import { prepareLectureQuestionContext } from '../../../engine/lectureQuestionContext.js';
 import * as relationshipsStore from "../../../stores/sourceRelationships.js";
 import {relationshipPages,relationshipTargets,relationshipPrompt,bindReviewedRelationships} from "../../../engine/sourceRelationships.js";
 import * as sourceUseStore from "../../../stores/sourceUse.js";
@@ -341,6 +342,7 @@ export function buildQuizConfig({
   lectureTitle,
   lectureIdHint = null,
   lectureText: suppliedLectureText = "",
+  lectureQuestionContext = null,
   blockId,
   lectures = [],
   exemplars = [],
@@ -394,6 +396,7 @@ export function buildQuizConfig({
       objectives: selected,
       atoms,
       lectureText,
+      lectureQuestionContext,
       examples: exemplars,
       styleProfile: currentStyleProfile,
       avoidStems,
@@ -556,6 +559,7 @@ export async function startObjectiveQuiz(args, deps = {}) {
   if (built.error && !atoms.length) return { error: built.error, questions: [] };
 
   const { config, lectureId } = built;
+  if (config && !config.lectureQuestionContext) config.lectureQuestionContext = prepareLectureQuestionContext(config);
 
   const hasText = String(config?.lectureText || "").trim().length >= MIN_LECTURE_TEXT;
   const hasObjectives = (config?.objectives || []).length > 0;
@@ -637,6 +641,8 @@ export function remainingObjectiveAllocation(plan = [], answered = [], limit = 5
  */
 export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {}) {
   args = sourceScopedQuizArgs(args);
+  const contextConfig = buildQuizConfig(args)?.config;
+  if (contextConfig) args = { ...args, lectureQuestionContext: prepareLectureQuestionContext(contextConfig) };
 
   // Draft, review and repair share one wall-clock budget. Independent per-call
   // five-minute timeouts otherwise multiply into a very long preparation run.
@@ -729,16 +735,18 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
       break;
     }
     const reserved = [...pendingJobs.values()].flatMap(job => job.reserved);
-    while (!stopPreparation && pendingJobs.size < concurrency && nextAttempt <= attemptLimit()) {
+    while (!stopPreparation && pendingJobs.size < Math.min(concurrency, deps.preparationPolicy?.().prepareConcurrency || concurrency) && nextAttempt <= attemptLimit()) {
       const attempt = nextAttempt;
       const reservationStart = reserved.length;
       const remaining = requested - accepted.length - reserved.length;
       if (remaining <= 0) break;
+      const activePolicy = deps.preparationPolicy?.() || deps;
+      const activeBatchSize = Math.min(batchSize, Number(activePolicy.prepareBatchSize) || batchSize);
       const focusedRefill = deps.focusedRefill === true && enforceAllocation
         && accepted.length + (args.initialQuestions || []).length > 0
-        && requested - accepted.length <= batchSize;
-      const starter = attempt === 1 && !(args.initialQuestions || []).length && Number(deps.starterBatchSize) > 0;
-      const draftSize = focusedRefill ? 1 : starter ? Math.min(batchSize, Math.floor(Number(deps.starterBatchSize))) : batchSize;
+        && remaining === 1;
+      const starter = attempt === 1 && !(args.initialQuestions || []).length && Number(activePolicy.starterBatchSize) > 0;
+      const draftSize = focusedRefill ? 1 : starter ? Math.min(activeBatchSize, Math.floor(Number(activePolicy.starterBatchSize))) : activeBatchSize;
       const allocationOffset = ((attempt - 1) * batchSize) % Math.max(1, allocationPlan.length);
       const rotatedPlan = [...allocationPlan.slice(allocationOffset), ...allocationPlan.slice(0, allocationOffset)];
       const batchAllocation = remainingObjectiveAllocation(rotatedPlan, [...(args.initialQuestions || []), ...accepted, ...reserved], Math.min(remaining, draftSize));
@@ -798,7 +806,7 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
         ].filter(Boolean).join("\n"),
         avoidStems: [...(args.avoidStems || []), ...accepted.map(question => question.stem)],
       };
-      const draftDeps = focusedRefill ? { ...boundedDeps, skipRepair: false, repairPartialOnly: false } : boundedDeps;
+      const draftDeps = { ...boundedDeps, ...activePolicy, callAIJSON: boundedDeps.callAIJSON, reviewAIJSON: boundedDeps.reviewAIJSON, repairAIJSON: boundedDeps.repairAIJSON, ...(focusedRefill ? { skipRepair: false, repairPartialOnly: false } : {}) };
       const promise = startObjectiveQuiz(draftArgs, draftDeps).then(async result => {
         // Some writers return an empty list rather than a smaller usable batch when
         // asked for spare candidates. Retry once at the exact reserved-slot count;
