@@ -164,3 +164,17 @@ it("uses advertised OpenRouter then OpenAI question fallbacks before local Ollam
     "codex", "ollama-cloud", "openrouter", "openai", "openai",
   ]);
 });
+it('switches to the bounded prompt on the first local fallback and identifies its evidence catalog',async()=>{
+ questionPreparationCapabilities.mockResolvedValue({writer:'codex',reviewer:'codex',fallbackWriter:'ollama-cloud',localWriter:'ollama',localModel:'qwen3:8b'});
+ const selected=vi.fn();
+ const call=vi.fn().mockRejectedValueOnce(new Error('Codex usage limit reached')).mockRejectedValueOnce(new Error('Ollama Cloud HTTP 429')).mockResolvedValue({reviews:[]});
+ const deps=await questionPreparationDeps(call);
+ await deps.reviewAIJSON('system','large cloud catalog',{},1600,undefined,undefined,{localPrompt:'bounded local catalog',onPromptSelected:selected});
+ expect(call.mock.calls.map(args=>args[1])).toEqual(['large cloud catalog','large cloud catalog','bounded local catalog']);
+ expect(selected).toHaveBeenLastCalledWith('bounded local catalog');
+ expect(call.mock.calls[2][6]).not.toHaveProperty('localPrompt');
+ vi.useFakeTimers();vi.setSystemTime(Date.now()+61000);
+ await deps.callAIJSON('system','next cloud request',{},1600,undefined,undefined,{localPrompt:'next local request'});
+ expect(call.mock.calls[3][6].bridgeBackend).toBe('ollama');
+ expect(call.mock.calls[3][1]).toBe('next local request');
+});

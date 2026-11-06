@@ -82,8 +82,12 @@ export async function questionPreparationDeps(callAIJSON) {
       const remaining = deadline === null ? null : deadline - Date.now();
       if (remaining !== null && remaining <= 0) throw new Error("Question preparation deadline exceeded before provider fallback");
       const args = [...params];
+      const selectedPrompt = backend === 'ollama' && options.localPrompt ? options.localPrompt : args[1];
+      args[1] = selectedPrompt;
+      options.onPromptSelected?.(selectedPrompt);
+      const { localPrompt: _localPrompt, onPromptSelected: _onPromptSelected, ...transportOptions } = options;
       args[6] = {
-        ...options,
+        ...transportOptions,
         ...(remaining === null ? {} : { timeoutMs: remaining }),
         bridgeBackend: backend,
         bridgeBackendOnly: true,
@@ -115,7 +119,7 @@ export async function questionPreparationDeps(callAIJSON) {
             options.signal?.throwIfAborted();
             if (capacityKind(error)) {
               lastError = Object.assign(error instanceof Error ? error : new Error(String(error)), {
-                retryAt: Number(error?.retryAt) || Date.now() + 60000,
+                retryAt: Math.max(Number(error?.retryAt) || 0, Date.now() + RECHECK_MS),
               });
               cloudLimitErrors.set(tier, lastError);
               break;
@@ -138,7 +142,7 @@ export async function questionPreparationDeps(callAIJSON) {
             lastError = error;
             if (capacityKind(error)) {
               lastError = Object.assign(error instanceof Error ? error : new Error(String(error)), {
-                retryAt: Number(error?.retryAt) || Date.now() + 60000,
+                retryAt: Math.max(Number(error?.retryAt) || 0, Date.now() + RECHECK_MS),
               });
               cloudLimitErrors.set(provider, lastError);
               break;

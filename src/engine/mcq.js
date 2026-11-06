@@ -457,6 +457,7 @@ export async function generateMcqs(cfg = {}, deps = {}) {
     const result = await callAIJSON(MCQ_V2_SYSTEM, prompt, { questions: [] }, maxTokens, undefined, undefined, {
       ...(deps.aiOptions || {}),
       throwOnError: true,
+      localPrompt: buildMcqPrompt({ ...cfg, promptProfile: 'local' }),
     });
     if (result?.error) return { error: preparationErrorMessage(result.error), questions: [] };
     const candidates = questionCandidates(result);
@@ -1166,7 +1167,11 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
   if (!questions.length) return { questions: [] };
   if (deps.skipQuestionAudit === true) return { questions };
   const transport = withQuestionAIRouting(deps.reviewAIJSON || deps.callAIJSON);
-  const reviewer = typeof transport === "function" ? async (...args) => resolveAuditEvidence(await transport(...args), args[1]) : transport;
+  const reviewer = typeof transport === "function" ? async (...args) => {
+    let evidencePrompt = args[1];
+    args[6] = { ...(args[6] || {}), onPromptSelected: prompt => { evidencePrompt = prompt; } };
+    return resolveAuditEvidence(await transport(...args), evidencePrompt);
+  } : transport;
   const locallyValid = diversifyQuestionEndings(locallyValidClinicalQuestions(questions))
     .filter((question) => questionMatchesObjectiveDomain(question, cfg) && locallyUsableQuestions([question]).length > 0);
   // An explicit independent approval is stronger than the conservative clinical-shape screen.
@@ -1211,7 +1216,8 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
       for(let offset=0;offset<candidates.length;offset+=reviewBatchSize){
         const group=candidates.slice(offset,offset+reviewBatchSize);
         try{
-          const solved=await reviewer("Solve from lecture evidence without the writer's proposed answer. Return JSON only.",buildBlindSolvePrompt(group.map(row=>row.question),cfg),{reviews:[]},1200*group.length);
+          const solved=await reviewer("Solve from lecture evidence without the writer's proposed answer. Return JSON only.",buildBlindSolvePrompt(group.map(row=>row.question),cfg),{reviews:[]},1200*group.length,undefined,undefined,
+            {localPrompt:buildBlindSolvePrompt(group.map(row=>row.question),{...cfg,promptProfile:'local'})});
           for(const [local,row] of group.entries())blindByIndex.set(row.index,(solved?.reviews || []).find(r=>Number(r.index)===local));
         }catch(error){
           // Capacity/transport failure is not evidence that a question is bad.
@@ -1234,7 +1240,8 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
       for (let offset = 0; offset < questions.length; offset += reviewBatchSize) {
         const group = questions.slice(offset, offset + reviewBatchSize);
         try {
-          let result = await reviewer(AUDIT_SYSTEM, buildQuestionAuditPrompt(group, cfg), { reviews: [] }, (deps.auditMaxTokens || 1600) * group.length);
+          let result = await reviewer(AUDIT_SYSTEM, buildQuestionAuditPrompt(group, cfg), { reviews: [] }, (deps.auditMaxTokens || 1600) * group.length, undefined, undefined,
+            {localPrompt:buildQuestionAuditPrompt(group,{...cfg,promptProfile:'local'})});
           const incomplete = group.map((question,index)=>({question,index,review:result?.reviews?.find(entry=>Number(entry.index)===index)}))
             .filter(({question,review})=>review?.approved===true && (!cfg.requireReasoningAudit || verifyReasoningReview(review,question,cfg))
               && objectiveAlignmentIssue(review,question,cfg)==="unverified_objective_alignment");
@@ -1242,7 +1249,7 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
            try {
             const correction = await reviewer(AUDIT_SYSTEM,
               `${buildQuestionAuditPrompt(incomplete.map(row=>row.question),cfg)}\nPREVIOUS REVIEW FAILED DETERMINISTIC VERIFICATION: ${JSON.stringify(incomplete.map(({review},index)=>({...review,index})))}\nRe-audit only these unchanged items. Supply complete objectiveAlignment fields, including bestSourceObjectiveCode and whyAssignedOverNeighbor. Quote the exact assigned clause. Reject a genuine mismatch; missing fields are not approval. Return local indexes for this subset.`,
-              {reviews:[]},(deps.auditMaxTokens || 1600)*incomplete.length);
+              {reviews:[]},(deps.auditMaxTokens || 1600)*incomplete.length, undefined, undefined, {localPrompt:buildQuestionAuditPrompt(incomplete.map(row=>row.question),{...cfg,promptProfile:'local'})});
             const replacements=new Map(incomplete.map((row,index)=>[row.index,correction?.reviews?.find(entry=>Number(entry.index)===index)]));
             result={...result,reviews:(result?.reviews || []).map(review=>replacements.has(Number(review.index))
               ? {...(replacements.get(Number(review.index)) || {approved:false,issues:["unverified_objective_alignment"]}),index:review.index} : review)};
@@ -1273,7 +1280,8 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
         };
         try {
           const prompt = buildQuestionAuditPrompt([question], focused);
-          let result = await reviewer(AUDIT_SYSTEM, prompt, { reviews: [] }, deps.auditMaxTokens || 1600);
+          let result = await reviewer(AUDIT_SYSTEM, prompt, { reviews: [] }, deps.auditMaxTokens || 1600, undefined, undefined,
+            {localPrompt:buildQuestionAuditPrompt([question],{...focused,promptProfile:'local'})});
           let review = result?.reviews?.find(entry => Number(entry.index) === 0);
           const normalizeSource = value => String(value || "").toLowerCase().replace(/\s+/g, " ").trim();
           const factualSource = normalizeSource([cfg.lectureText || "", ...(cfg.atoms || []).map(a => `${a.term || ""} ${a.content || ""}`)].join(" "));
@@ -1284,7 +1292,7 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
           if (missingOwnership || (cfg.requireReasoningAudit && review?.approved === true && partialQuoteMatch && !verifyReasoningReview(review, question, cfg))) {
             // One correction attempt, never fuzzy-match or silently approve an
             // unsupported quotation. The full question must still pass review.
-            result = await reviewer(AUDIT_SYSTEM, `${prompt}\nPREVIOUS REVIEW FAILED DETERMINISTIC VERIFICATION:\n${JSON.stringify(review)}\nRe-audit this item. Supply the explicit objectiveAligned verdict and complete objectiveAlignment fields, including bestSourceObjectiveCode and whyAssignedOverNeighbor when source neighbors are present. An incomplete review is not approval; reject a genuine objective mismatch instead of forcing the assigned ID. Copy only exact contiguous source text, including table separators; do not merge columns or paraphrase. Check every sourceQuote against the supplied source. If the source or required reasoning cannot be verified, reject the item. Return one corrected review.`, { reviews: [] }, deps.auditMaxTokens || 1600);
+            result = await reviewer(AUDIT_SYSTEM, `${prompt}\nPREVIOUS REVIEW FAILED DETERMINISTIC VERIFICATION:\n${JSON.stringify(review)}\nRe-audit this item. Supply the explicit objectiveAligned verdict and complete objectiveAlignment fields, including bestSourceObjectiveCode and whyAssignedOverNeighbor when source neighbors are present. An incomplete review is not approval; reject a genuine objective mismatch instead of forcing the assigned ID. Copy only exact contiguous source text, including table separators; do not merge columns or paraphrase. Check every sourceQuote against the supplied source. If the source or required reasoning cannot be verified, reject the item. Return one corrected review.`, { reviews: [] }, deps.auditMaxTokens || 1600, undefined, undefined, {localPrompt:buildQuestionAuditPrompt([question],{...focused,promptProfile:'local'})});
             review = result?.reviews?.find(entry => Number(entry.index) === 0);
           }
           if (review) {
@@ -1304,7 +1312,7 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
       }
       raw = { reviews, error: reviewError };
     } else {
-      raw = await reviewer(AUDIT_SYSTEM, buildQuestionAuditPrompt(questions, cfg), { reviews: [] }, deps.auditMaxTokens || 4000);
+      raw = await reviewer(AUDIT_SYSTEM, buildQuestionAuditPrompt(questions, cfg), { reviews: [] }, deps.auditMaxTokens || 4000, undefined, undefined, {localPrompt:buildQuestionAuditPrompt(questions,{...cfg,promptProfile:'local'})});
     }
     if(blindWork){const failure=await blindWork;if(failure)return failure;}
     const reviews = Array.isArray(raw?.reviews) ? raw.reviews : [];
@@ -1473,7 +1481,8 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
           reviewedOrder: byIndex.get(index)?.reasoning?.orderLevel || "",
         })).filter(item => !retainedStems.has(item.question.stem));
         try {
-          const repairedRaw = await repairer(REPAIR_SYSTEM, buildRepairPrompt(rejectedItems, cfg), { questions: [] }, deps.repairMaxTokens || 6000);
+          const repairedRaw = await repairer(REPAIR_SYSTEM, buildRepairPrompt(rejectedItems, cfg), { questions: [] }, deps.repairMaxTokens || 6000, undefined, undefined,
+            {localPrompt:buildRepairPrompt(rejectedItems,{...cfg,promptProfile:'local'})});
           const repaired = stampQuestionOrders(ensureObjectiveAttribution(normalizeQuestions(repairedRaw), cfg.objectives || []), cfg.objectives || []).map((question) => ({ ...question, generationVersion: "v2" }));
           if (repaired.length) {
             const repairedAudit = await auditGeneratedQuestions(repaired, cfg, { ...deps, skipRepair: true });
