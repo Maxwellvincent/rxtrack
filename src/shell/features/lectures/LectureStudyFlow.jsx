@@ -1,8 +1,8 @@
+import {LectureProgressOverview} from './LectureProgressOverview.jsx';
 import {StudyGuidePanel} from './StudyGuidePanel.jsx';
 import {useLectureStats} from '../../hooks/useLectureQuestionStats.js';
 import * as relationshipsStore from '../../../stores/sourceRelationships.js';
 import {relationshipPages,relationshipCoverage} from '../../../engine/sourceRelationships.js';
-import {RelationshipRetestSummary} from './RelationshipRetestSummary.jsx';
 import {LectureWorkspaceNav} from './LectureWorkspaceNav.jsx';
 import * as sourceUseStore from "../../../stores/sourceUse.js";
 import { hasReusableQuestionReview, isReusableForObjective } from "../../../engine/questionReuse.js";
@@ -12,7 +12,6 @@ import { ObjectiveLearningReport } from "../../../ui/ObjectiveLearningReport.jsx
 import { lectureSourceObjectives } from "../../../engine/sourceObjectiveScope.js";
 import { schoolContinuationQuestions } from "./lectureQuizContinuation.js";
 import { streamedTutorFeedback } from "../../../llmBridge.js";
-import { ObjectiveProgressChart } from "./ObjectiveProgressChart.jsx";
 import { preparationJobKey, getPreparationJob, startPreparationJob, recoverPreparationFailure, subscribePreparationJob, cancelOtherAccountJobs } from "../../../questionPreparationJobs.js";
 import { preparationErrorMessage } from "../../../preparationError.js";
 import { readQuestionDiagnostics, saveQuestionDiagnostics } from "../../../questionDiagnostics.js";
@@ -31,7 +30,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../../../ui/Button.jsx";
 import { callAIJSON } from "../../../aiClient.js";
 import { withDeadline } from "../../../asyncDeadline.js";
-import { LectureReviewLog } from "./LectureReviewLog.jsx";
 import { questionPreparationDeps, questionPreparationStatus, questionPreparationBudget } from "../../../questionPreparation.js";
 import {
   fetchLectureContent,
@@ -429,7 +427,7 @@ export function LectureStudyFlow({
   const qStats=useLectureStats(userId,lecture?.id);
   // The real progress bar: atoms answered correctly at least once, out of the atoms this lecture
   // actually has right now. Empty until atoms load (the effect below recomputes it then), refreshed at round/quiz end and on manual exit.
-  const [atomMastery, setAtomMastery] = useState({ masteredCount: 0, totalCount: 0 });
+  const [_atomMastery, setAtomMastery] = useState({ masteredCount: 0, totalCount: 0 });
   const refreshAtomMastery = useCallback(
     (currentAtoms) => {
       const keys = (currentAtoms || atoms).map((a) => normAtomKey(a.term));
@@ -1954,31 +1952,7 @@ export function LectureStudyFlow({
     );
   }
 
-  // Objective status counts
-  const objMastered = objectivePractice.ready;
-  const objDeveloping = objectivePractice.developing;
-  const objStruggling = objectivePractice.struggling;
-  const objWorked = objectivePractice.worked;
-  const objUntested = objectivePractice.untested;
-  const objWorkedPct = lectureObjectives.length > 0 ? Math.round((objWorked / lectureObjectives.length) * 100) : 0;
-  const objMasteredPct = lectureObjectives.length > 0 ? Math.round((objMastered / lectureObjectives.length) * 100) : 0;
-  const objUntestedPct = lectureObjectives.length > 0 ? Math.round((objUntested / lectureObjectives.length) * 100) : 0;
-  // The real progress bar: atoms answered correctly at least once. Unlike the old rounds-done
-  // counter, this can't go stale relative to itself — it's read straight from the same store
-  // every answer writes to, not blended from a separate heuristic.
   const accuracyPct = qStats.accuracy == null ? 0 : Math.round(qStats.accuracy * 100);
-  // Banded rather than a gradient: the only decision this drives is whether the lecture goes back
-  // on the review pile, and 70% is where that answer changes.
-  const accuracyColor = accuracyPct >= 85 ? "text-good" : accuracyPct >= 70 ? "text-accent" : "text-bad";
-  // Same accuracy-based starting point runRound actually generates from — this used to always
-  // read the round INDEX alone, so it could show "Easy" while the round it was about to hand you
-  // was really Medium or Hard.
-  const baseDifficulty = resolveDefaultDifficulty(qStats.accuracy);
-  const currentDifficultyKey = roundDifficulty(baseDifficulty, round);
-  const currentDifficulty = currentDifficultyKey[0].toUpperCase() + currentDifficultyKey.slice(1);
-  const diffColor = {
-    easy: "text-good", medium: "text-accent", hard: "text-warn", expert: "text-bad",
-  }[currentDifficultyKey];
 
   return (
     <main className="mx-auto w-full max-w-[1120px] px-4 py-6 sm:px-6 lg:py-8">
@@ -2030,119 +2004,8 @@ export function LectureStudyFlow({
       {workspace==="learn" && <StudyGuidePanel mode="learn" userId={userId} blockId={blockId} lecture={lecture} objectives={lectureObjectives} />}
       {error && <div className="mb-3 rounded-lg border border-bad bg-bg-elevated p-3 text-xs text-bad">{error}</div>}
       <section hidden={workspace!=="progress"} aria-label="Lecture review progress">
-      <RelationshipRetestSummary rows={relationshipRows} loading={relationshipResource.loading} error={relationshipResource.error} />
-      <details><summary className="cursor-pointer text-sm">Slide review history</summary><LectureReviewLog historyOnly key={`${userId}:${lecture?.id}`} userId={userId} lectureId={lecture?.id} blockId={blockId} logActivity={logActivity} /></details>
+      <LectureProgressOverview historyLoading={learnerEvidence.loading} model={learnerEvidence.data || {}} ratings={questionRatingsStore.read(userId).ratings || {}} blockId={blockId} lectureId={lecture?.id} stats={qStats} objectivePractice={objectivePractice} relationshipRows={relationshipRows} />
       <LectureRetrievalEnrollment key={`${userId}:${blockId}:${lecture?.id}`} userId={userId} blockId={blockId} lectureId={lecture?.id} title={renamedTitle || title} reference={mentalModel?.bigPicture || ""} rows={objectivePractice.rows} evidenceModel={learnerEvidence.data} />
-      {/* Status panel — shown once atoms are loaded */}
-      {stage === "quiz" && atoms.length > 0 && (
-        <section id="lecture-progress" aria-label="Lecture progress" className="mt-5 overflow-hidden rounded-xl border border-accent/40 bg-bg-elevated divide-y divide-border/50">
-          <div className="flex items-center justify-between px-4 py-3">
-            <div><p className="font-condensed text-xs font-semibold uppercase tracking-[0.16em] text-accent">Progress</p><h3 className="text-lg font-semibold text-text-1">Objective readiness</h3></div>
-            <span className="font-mono text-[12px] text-text-3">Objective-first quiz</span>
-          </div>
-          <details className="px-4 py-2">
-            <summary className="cursor-pointer py-1 text-sm text-text-2">Progress &amp; objective readiness <span className="ml-2 text-xs text-text-3">{qStats.answered > 0 ? `${qStats.answered} answered · ${accuracyPct}% correct` : "Not yet practiced"}</span></summary>
-          {/* Primary progress: objectives determine quiz coverage and mastery. */}
-          {lectureObjectives.length > 0 && (
-          <div className="flex items-center gap-4 px-4 py-2.5">
-            <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-              <div className="flex items-center gap-2">
-                <span className="font-condensed text-[11px] font-semibold uppercase tracking-wide text-accent flex-shrink-0">Objectives worked</span>
-                <div className="flex-1 h-1.5 rounded-full bg-border overflow-hidden">
-                  <div className="h-full rounded-full bg-accent/60 transition-all" style={{ width: `${objWorkedPct}%` }} />
-                </div>
-                <span className="font-mono text-[11px] text-text-2 flex-shrink-0">{objWorked}/{lectureObjectives.length}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="font-condensed text-[11px] font-semibold uppercase tracking-wide text-text-3 flex-shrink-0">Not yet seen</span>
-                <div className="flex-1 h-1.5 rounded-full bg-border overflow-hidden">
-                  <div className="h-full rounded-full bg-text-3/35 transition-all" style={{ width: `${objUntestedPct}%` }} />
-                </div>
-                <span className="font-mono text-[11px] text-text-3 flex-shrink-0">{objUntested}/{lectureObjectives.length}</span>
-              </div>
-            </div>
-            <div className="flex items-center gap-1.5 flex-shrink-0">
-              <span className="font-condensed text-[11px] font-semibold uppercase tracking-wide text-text-3">Level</span>
-              <span className={`font-mono text-[11px] font-bold ${diffColor}`}>{currentDifficulty}</span>
-            </div>
-          </div>
-          )}
-
-          {/* Row 1b: questions answered — how much work this lecture has actually had. Accuracy is
-              shown next to it because the count alone cannot tell drilled-and-solid from
-              drilled-and-still-missing, which is the thing that decides what to review. */}
-          {qStats.answered > 0 && (
-            <div className="flex items-center gap-4 px-4 py-2.5">
-              <span className="font-condensed text-[11px] font-semibold uppercase tracking-wide text-text-3 flex-shrink-0">Questions</span>
-              <span className="font-mono text-[11px] text-text-2 flex-1 min-w-0">
-                {qStats.answered} answered
-                <span className="text-text-3"> · {qStats.correct} correct</span>
-              </span>
-              <span className={`font-mono text-[11px] font-bold flex-shrink-0 ${accuracyColor}`}>{accuracyPct}%</span>
-            </div>
-          )}
-
-          {/* Objective detail */}
-          {lectureObjectives.length > 0 && (
-            <div className="flex items-center gap-4 px-4 py-2.5">
-              <span className="font-condensed text-[11px] font-semibold uppercase tracking-wide text-text-3 flex-shrink-0">Objectives</span>
-              <div className="flex items-center gap-3 flex-1 min-w-0">
-                {objMastered > 0 && (
-                  <span className="flex items-center gap-1 font-mono text-[11px] text-good">
-                    <span className="h-2 w-2 rounded-full bg-good flex-shrink-0" />
-                    {objMastered} ready
-                  </span>
-                )}
-                {objDeveloping > 0 && (
-                  <span className="flex items-center gap-1 font-mono text-[11px] text-accent">
-                    <span className="h-2 w-2 rounded-full bg-accent flex-shrink-0" />
-                    {objDeveloping} developing
-                  </span>
-                )}
-                {objStruggling > 0 && (
-                  <span className="flex items-center gap-1 font-mono text-[11px] text-bad">
-                    <span className="h-2 w-2 rounded-full bg-bad flex-shrink-0" />
-                    {objStruggling} struggling
-                  </span>
-                )}
-                {objUntested > 0 && (
-                  <span className="flex items-center gap-1 font-mono text-[11px] text-text-3">
-                    <span className="h-2 w-2 rounded-full bg-border flex-shrink-0" />
-                    {objUntested} untested
-                  </span>
-                )}
-              </div>
-              <span className="font-mono text-[11px] text-text-2 flex-shrink-0">{objMasteredPct}% ready</span>
-            </div>
-          )}
-          {lectureObjectives.length > 0 && (
-            <details className="px-4 py-2.5 text-sm">
-              <summary className="flex min-h-8 cursor-pointer list-none items-center justify-between gap-3 text-text-2">
-                <span className="font-semibold">Your next objective practice</span>
-                <span className="font-mono text-[11px] text-text-3">
-                  {objectivePractice.minimumRemaining === 0
-                    ? "readiness floor met"
-                    : `at least ${objectivePractice.minimumRemaining} fresh correct answers`}
-                </span>
-              </summary>
-              <p className="mt-1 text-[12px] leading-relaxed text-text-3">
-                This is an estimate, not a completion promise. It assumes fresh correct answers across sessions and question types. Lecture quizzes and submitted generated Exam Mode questions both count when linked to an objective.
-              </p>
-              <ObjectiveProgressChart rows={objectivePractice.rows} />
-            </details>
-          )}
-          {/* Supporting evidence stays visible, but deliberately secondary to objective progress. */}
-          <div className="flex items-center justify-between px-4 py-2 text-[11px] text-text-3">
-            <span>Supporting lecture facts</span>
-            <span className="font-mono">{atomMastery.masteredCount}/{atomMastery.totalCount} reviewed · {atoms.length} available</span>
-          </div>
-        <details className="border-x border-accent/40 bg-bg-elevated px-4 pb-2 text-[12px] text-text-3">
-          <summary className="cursor-pointer py-2">How progress is counted</summary>
-          Questions answered here, in Study, Quiz, or submitted generated Exam Mode count when they carry this lecture's objective link. Readiness needs at least 3 attempts, 80% accuracy, a correct latest answer, 2 sessions, and 2 question types.
-        </details>
-          </details>
-        </section>
-      )}
 
 
       </section>
@@ -2439,7 +2302,7 @@ export function LectureStudyFlow({
 
       </section>
       <section hidden={workspace!=="progress"} aria-label="Recent lecture practice">
-      {recentLearningRecords.length>0 && <details className="my-3 rounded-lg border border-border p-3"><summary className="cursor-pointer font-semibold">Last practice · targeted follow-up</summary><div className="mt-3"><ObjectiveLearningReport objectives={lectureObjectives} evidence={learnerEvidence.data || {}} records={recentLearningRecords} busy={!!busy} onRetest={({count,objectives})=>runQuiz(count,"medium",[],false,objectives)} /></div></details>}
+      {recentLearningRecords.length>0 && <div className="my-3"><ObjectiveLearningReport objectives={lectureObjectives} evidence={learnerEvidence.data || {}} records={recentLearningRecords} busy={!!busy} onRetest={({count,objectives})=>runQuiz(count,"medium",[],false,objectives)} /></div>}
 
       </section>
       <section hidden={workspace!=="practice"} aria-label="Practice this lecture">

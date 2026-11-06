@@ -316,3 +316,14 @@ export async function bridgeStudyTables(file) {
   const result=await response.json();if(!response.ok)throw new Error(result.error || 'Local table extraction failed.');return result;
  },100000,undefined,'Local study-table extraction');
 }
+
+/** Small, local-only retrieval from the explicitly assigned NB2 review library. */
+export async function bridgeReviewContext(module,subject,objectives){
+ if(module!=='NB2'||!(await bridgeAvailable()))return {status:'unavailable',units:[]};
+ try{return await withDeadline(async signal=>{
+  const response=await fetch(`${BRIDGE_URL}/review-context`,{method:'POST',signal,headers:{'content-type':'application/json'},body:JSON.stringify({module,subject:String(subject || '').slice(0,500),objectives:(objectives || []).slice(0,30).map(o=>({id:o.id || o.code,text:String(o.objective || o.text || '').slice(0,1000)}))})});
+  if(!response.ok)throw new Error('Review library unavailable');const result=await response.json();
+  if(result.version!==1||!Array.isArray(result.units)||result.units.length>5||result.units.some(u=>typeof u.text!=='string'||u.text.length>4000||u.requiresFigure||u.held))throw new Error('Invalid review context');
+  return result;
+ },2000,undefined,'Local review-source retrieval');}catch{return {status:'unavailable',units:[]};}
+}

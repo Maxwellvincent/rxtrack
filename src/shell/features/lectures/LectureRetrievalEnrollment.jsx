@@ -1,3 +1,6 @@
+import * as completionStore from '../../../stores/completion.js';
+import {completionKey} from '../../logic/completionLog.js';
+import {lectureReviewStats} from './lectureReviewStats.js';
 import { useRef, useState } from 'react';
 import { Button } from '../../../ui/Button.jsx';
 import { useStoreResource } from '../../hooks/useStoreResource.js';
@@ -7,6 +10,8 @@ import { recordLectureNotes, lectureNotesRecommendation, modelWithNotesEvidence 
 
 export function LectureRetrievalEnrollment({userId,blockId,lectureId,title,reference='',rows=[],evidenceModel={}}) {
   const resource=useStoreResource(retrievalStore,userId);
+  const completion=useStoreResource(completionStore,userId);
+  const reviewHistory=lectureReviewStats(completion.data?.[completionKey(lectureId,blockId)]);
   const [busy,setBusy]=useState(false);
   const saving=useRef(false);
   const [notice,setNotice]=useState('');
@@ -43,13 +48,12 @@ export function LectureRetrievalEnrollment({userId,blockId,lectureId,title,refer
   return <section aria-label="Lecture notes and mental model" className="my-4 rounded-xl border border-border bg-bg-elevated p-4">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div><h3 className="text-sm font-semibold">Slides & notes review</h3>
-        <p className="mt-1 text-sm text-text-2">{model ? `Completed ${new Date(model.notesCompletedAt || model.confirmedCreatedAt || model.createdAt).toLocaleDateString()} · ${model.history?.length || 0} reviews` : 'Log your slides and notes together when you finish a review.'}</p></div>
+        <p className="mt-1 text-sm text-text-2">{model ? `Last reviewed ${new Date(model.notesCompletedAt || model.confirmedCreatedAt || model.createdAt).toLocaleDateString()}` : 'Log your slides and notes together when you finish a review.'}</p></div>
       {!model ? <Button variant="outline" disabled={busy||resource.loading||!!resource.error||!lectureId} onClick={complete}>{busy?'Saving…':'Log slides & notes review'}</Button>
         : <><Button variant="outline" disabled={busy||resource.loading||!!resource.error} onClick={complete}>Log slides & notes review</Button><Button variant="outline" disabled={busy||resource.loading||!!resource.error} onClick={()=>setReviewing(!reviewing)}>{reviewing?'Close review':'Check from memory'}</Button></>}
     </div>
     {model && <div className="mt-3 rounded-lg bg-panel p-3 text-sm">
       <p className="font-semibold">{due!=null&&due<=Date.now()?'Review due':`Next review: ${due==null?'as needed':new Date(due).toLocaleDateString()}`} · {advice.task}</p>
-      {!!advice.total && <p className="mt-1 text-xs text-text-3">{advice.summary}{advice.accuracy!=null?` · ${advice.accuracy}% across ${advice.attempts} objective-linked answers`:''}</p>}
       {reviewing && <><p className="mt-2">{advice.instruction}</p><ul className="mt-2 list-disc pl-5">{advice.targets.map(row=><li key={row.id}>{row.text || row.code}</li>)}</ul>
         <label className="mt-3 flex gap-2"><input type="checkbox" checked={checked} onChange={e=>setChecked(e.target.checked)}/>I tried from memory, checked my notes, and identified or corrected one gap.</label>
         <div className="mt-3 flex flex-wrap gap-2">{[['broken','Could not reconstruct'],['shaky','Some gaps remain'],['solid','Reconstructed clearly']].map(([value,label])=><Button key={value} variant="outline" disabled={!checked||busy||resource.loading} onClick={()=>grade(value)}>{label}</Button>)}</div>
@@ -57,8 +61,8 @@ export function LectureRetrievalEnrollment({userId,blockId,lectureId,title,refer
     </div>}
     <details className="mt-3 text-sm"><summary className="cursor-pointer text-accent-text">{model?'Optional notes / link':'Optional: attach your notes or model link'}</summary>
       <textarea aria-label="Your model reference" maxLength={12000} value={notes} onChange={e=>setNotes(e.target.value)} className="mt-2 w-full rounded-lg border border-border bg-bg-elevated p-2" placeholder="Paste a notes link, model, or a short description of what you drew. Optional." />
-      {model && <><p className="mt-2 text-xs text-text-3">{model.notesCompletions?.length || 1} completion / update logs · {model.history?.length || 0} recall reviews</p></>}
     </details>
+    {reviewHistory.count>0 && <details className="mt-3 text-sm"><summary className="cursor-pointer text-text-2">Review history · {reviewHistory.count}</summary><ul className="mt-2 space-y-1 text-xs text-text-3">{[...reviewHistory.reviews].reverse().map((review,i)=><li key={review.id || i}>{review.date?.slice(0,10)} · {review.reviewKind==='slides-notes'?'Slides & notes':'Slides (historical)'}{review.durationMinutes?` · ${review.durationMinutes} min`:''}</li>)}</ul></details>}
     {resource.error && <p role="alert" className="mt-2 text-sm">Notes tracking could not sync. Saving is disabled until the connection recovers.</p>}
     {notice && <p role="status" className="mt-2 text-sm">{notice}</p>}
   </section>;

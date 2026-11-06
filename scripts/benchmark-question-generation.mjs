@@ -127,7 +127,7 @@ if (prepare) {
 } else {
   result = reviewFile
     ? await auditGeneratedQuestions(questions || [], { ...cfg, promptProfile: "compact" }, { callAIJSON, reviewAIJSON, skipRepair: !cachedReviewFile })
-    : await generateMcqs(cfg, { callAIJSON });
+    : await generateMcqs(cfg, { ...(process.argv.includes("--production-policy") ? preparationPolicy : {}), callAIJSON, reviewAIJSON:callAIJSON });
 }
 if (prepare && initialQuestions.length) {
   result.questions = [...initialQuestions, ...(result.questions || [])];

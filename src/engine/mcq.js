@@ -1,3 +1,4 @@
+import {reviewModuleForBlock,reviewSourcePrompt} from './reviewSourceContext.js';
 import {selectGuideRows,studyGuidePrompt} from './studyGuides.js';
 import {buildBlindSourceReviewPrompt,decodeBlindSourceReviews} from './blindSourceReview.js';
 import { decodeLocalQuestionWire } from './localQuestionWire.js';
@@ -428,7 +429,7 @@ function withSchoolContext(questions, cfg) {
     objectiveId: row.objectiveId, templateId: example.templateId, sourceKind: example.sourceKind,
     sourceFile: example.sourceFile, sourceQuestionId: example.sourceQuestionId,
   })));
-  return questions.map(q=>({...q,generationEvidence:{version:1,role:'retrieved prompt context; not independent question validation',references,templateReferences,studyGuideReferences:(cfg.studyGuideRows || []).map(r=>({guideId:r.guideId,rowId:r.id,sourceVersion:r.sourceVersion,page:r.page,objectiveId:r.objectiveId,role:"candidate prompt context; no coverage credit"}))}}));
+  return questions.map(q=>({...q,generationEvidence:{version:1,role:'retrieved prompt context; not independent question validation',references,templateReferences,reviewSourceStatus:cfg.reviewSourceContext?.status || "not-configured",reviewSourceReferences:(cfg.reviewSourceContext?.units || []).map(u=>({sourceId:u.sourceId,sourceVersion:u.sourceVersion,sourceFile:u.sourceFile,page:u.page,unitId:u.id,objectiveId:u.objectiveId,role:"supplementary prompt context; no answer credit"})),studyGuideReferences:(cfg.studyGuideRows || []).map(r=>({guideId:r.guideId,rowId:r.id,sourceVersion:r.sourceVersion,page:r.page,objectiveId:r.objectiveId,role:"candidate prompt context; no coverage credit"}))}}));
 }
 
 async function protectGenerationContext(cfg) {
@@ -449,6 +450,11 @@ export async function generateMcqs(cfg = {}, deps = {}) {
   if(cfg.userId && cfg.blockId && cfg.studyGuideRows === undefined) {
     try {const store=await import('../stores/studyGuides.js');cfg={...cfg,studyGuideRows:selectGuideRows(await store.load(cfg.userId,cfg.blockId),cfg)};}
     catch(error){return {questions:[],failureKind:'source_sync',error:`Study guide sources could not sync: ${error.message}`};}
+  }
+  if(cfg.userId && cfg.blockId && cfg.reviewSourceContext===undefined){
+    try{const terms=await import('../stores/terms.js');const module=reviewModuleForBlock(terms.read(cfg.userId),cfg.blockId);
+      if(module){const bridge=await import('../llmBridge.js');cfg={...cfg,reviewSourceContext:await bridge.bridgeReviewContext(module,cfg.subject,cfg.objectives)};}
+    }catch{/* Optional review context must not prevent lecture-grounded generation. */}
   }
   cfg = schoolCalibratedConfig(cfg);
   cfg = { ...cfg, blindSourceReview:deps.blindSourceReview === true && cfg.requireBlindKeyCheck === true, promptProfile: deps.isLocalPreparation?.() ? "local" : cfg.promptProfile || "compact" };
@@ -1696,7 +1702,7 @@ Issue codes: incorrect_key, ambiguous_key, unsupported_fact, objective_mismatch,
 }
 
 export function buildMcqPrompt(cfg = {}) {
-  return buildBaseMcqPrompt(cfg)+studyGuidePrompt(cfg.studyGuideRows);
+  return buildBaseMcqPrompt(cfg)+studyGuidePrompt(cfg.studyGuideRows)+reviewSourcePrompt(cfg.reviewSourceContext);
 }
 function buildBaseMcqPrompt(cfg = {}) {
   cfg = schoolCalibratedConfig(cfg);

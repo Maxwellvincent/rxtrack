@@ -9,7 +9,7 @@ import {LectureRetrievalEnrollment} from './LectureRetrievalEnrollment.jsx';
 globalThis.IS_REACT_ACT_ENVIRONMENT=true;
 beforeEach(()=>{installDomStorage();state.data={settings:{},models:{}};state.fail=false;});
 function mount(){const host=document.createElement('div');document.body.append(host);const root=createRoot(host);act(()=>root.render(<LectureRetrievalEnrollment userId="u" blockId="b" lectureId="l" title="Lecture" reference="Saved framework"/>));return {host,close:()=>act(()=>root.unmount())};}
-it('requires explicit confirmation and saves the linked lecture reference',async()=>{const {host,close}=mount();expect(Object.keys(state.data.models)).toHaveLength(0);await act(async()=>host.querySelector('button').click());expect(host.textContent).toContain('Completed');expect(Object.values(state.data.models)[0]).toMatchObject({lectureId:'l',blockId:'b',reference:'Saved framework'});expect(host.textContent).toContain('Check from memory');
+it('requires explicit confirmation and saves the linked lecture reference',async()=>{const {host,close}=mount();expect(Object.keys(state.data.models)).toHaveLength(0);await act(async()=>host.querySelector('button').click());expect(host.textContent).toContain('Last reviewed');expect(Object.values(state.data.models)[0]).toMatchObject({lectureId:'l',blockId:'b',reference:'Saved framework'});expect(host.textContent).toContain('Check from memory');
 expect(Object.values(state.data.models)[0].notesCompletions).toHaveLength(1);close();});
 it('retains the enrollment action on save failure',async()=>{state.fail=true;const {host,close}=mount();await act(async()=>host.querySelector('button').click());expect(host.textContent).toContain('Could not save: Offline');expect(host.querySelector('button').disabled).toBe(false);expect(Object.keys(state.data.models)).toHaveLength(0);close();});
 
@@ -26,6 +26,6 @@ it('records a notes recall review without turning completion into mastery',async
  expect(model.history).toHaveLength(1);
  expect(model.history[0].grade).toBe('shaky');
  expect(model.notesCompletions).toHaveLength(1);
- expect(host.textContent).toContain('1 reviews');
+ expect(host.textContent).toContain('Review recorded.');
  close();
 });
