@@ -304,3 +304,15 @@ export function streamedTutorFeedback(raw) {
   let value = match[1].replace(/\\$/, "");
   try { return JSON.parse('"' + value + '"'); } catch { return ""; }
 }
+
+/** Deterministic local ruled-table extraction; no model or cloud OCR. */
+export async function bridgeStudyTables(file) {
+ if(!(await bridgeAvailable()))throw new Error('Open the local bridge to read study-table PDFs.');
+ if(file.size>20_000_000)throw new Error('Choose a PDF smaller than 20 MB.');
+ const bytes=new Uint8Array(await file.arrayBuffer());let binary='';
+ for(let i=0;i<bytes.length;i+=0x8000)binary+=String.fromCharCode(...bytes.subarray(i,i+0x8000));
+ return withDeadline(async signal=>{
+  const response=await fetch(`${BRIDGE_URL}/study-tables`,{method:'POST',signal,headers:{'content-type':'application/json'},body:JSON.stringify({data:btoa(binary)})});
+  const result=await response.json();if(!response.ok)throw new Error(result.error || 'Local table extraction failed.');return result;
+ },100000,undefined,'Local study-table extraction');
+}

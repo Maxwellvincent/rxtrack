@@ -1,3 +1,4 @@
+import {StudyGuidePanel} from './StudyGuidePanel.jsx';
 import {useLectureStats} from '../../hooks/useLectureQuestionStats.js';
 import * as relationshipsStore from '../../../stores/sourceRelationships.js';
 import {relationshipPages,relationshipCoverage} from '../../../engine/sourceRelationships.js';
@@ -2026,6 +2027,7 @@ export function LectureStudyFlow({
       <RenameLecture inline userId={userId} lectureId={lecture?.id} title={renamedTitle || title} onRenamed={(name) => { setRenamedTitle(name); onLectureRenamed?.(name); }} />
       </header>
       <LectureWorkspaceNav value={workspace} onChange={setWorkspace} />
+      {workspace==="learn" && <StudyGuidePanel mode="learn" userId={userId} blockId={blockId} lecture={lecture} objectives={lectureObjectives} />}
       {error && <div className="mb-3 rounded-lg border border-bad bg-bg-elevated p-3 text-xs text-bad">{error}</div>}
       <section hidden={workspace!=="progress"} aria-label="Lecture review progress">
       <RelationshipRetestSummary rows={relationshipRows} loading={relationshipResource.loading} error={relationshipResource.error} />
@@ -2145,6 +2147,7 @@ export function LectureStudyFlow({
 
       </section>
       <section hidden={workspace!=="sources"} aria-label="Lecture sources">
+      <StudyGuidePanel userId={userId} blockId={blockId} lecture={lecture} objectives={lectureObjectives} />
       {lecture?.sourceFiles?.length > 0 && (
         <details id="lecture-sources" className="mt-3 max-w-4xl rounded-lg border border-border bg-panel px-3 py-2">
           <summary className="cursor-pointer text-sm font-semibold text-text-2">

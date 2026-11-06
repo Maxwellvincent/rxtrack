@@ -1,3 +1,4 @@
+import {selectGuideRows,studyGuidePrompt} from './studyGuides.js';
 import {buildBlindSourceReviewPrompt,decodeBlindSourceReviews} from './blindSourceReview.js';
 import { decodeLocalQuestionWire } from './localQuestionWire.js';
 import { lectureEvidenceForConfig } from './lectureQuestionContext.js';
@@ -427,7 +428,7 @@ function withSchoolContext(questions, cfg) {
     objectiveId: row.objectiveId, templateId: example.templateId, sourceKind: example.sourceKind,
     sourceFile: example.sourceFile, sourceQuestionId: example.sourceQuestionId,
   })));
-  return questions.map(q=>({...q,generationEvidence:{version:1,role:'retrieved prompt context; not independent question validation',references,templateReferences}}));
+  return questions.map(q=>({...q,generationEvidence:{version:1,role:'retrieved prompt context; not independent question validation',references,templateReferences,studyGuideReferences:(cfg.studyGuideRows || []).map(r=>({guideId:r.guideId,rowId:r.id,sourceVersion:r.sourceVersion,page:r.page,objectiveId:r.objectiveId,role:"candidate prompt context; no coverage credit"}))}}));
 }
 
 async function protectGenerationContext(cfg) {
@@ -445,6 +446,10 @@ async function protectGenerationContext(cfg) {
 /** Generate MCQs via an injected callAIJSON (testable without a live model). */
 export async function generateMcqs(cfg = {}, deps = {}) {
   try { if((cfg.examples || []).some(question=>question._trackSourceUse || question.evaluationReserved)) cfg = await protectGenerationContext(cfg); } catch(error) { return {questions:[],failureKind:"source_tracking",error:`Source exposure tracking failed: ${error.message}`}; }
+  if(cfg.userId && cfg.blockId && cfg.studyGuideRows === undefined) {
+    try {const store=await import('../stores/studyGuides.js');cfg={...cfg,studyGuideRows:selectGuideRows(await store.load(cfg.userId,cfg.blockId),cfg)};}
+    catch(error){return {questions:[],failureKind:'source_sync',error:`Study guide sources could not sync: ${error.message}`};}
+  }
   cfg = schoolCalibratedConfig(cfg);
   cfg = { ...cfg, blindSourceReview:deps.blindSourceReview === true && cfg.requireBlindKeyCheck === true, promptProfile: deps.isLocalPreparation?.() ? "local" : cfg.promptProfile || "compact" };
   const { maxTokens = 8000 } = deps;
@@ -1691,6 +1696,9 @@ Issue codes: incorrect_key, ambiguous_key, unsupported_fact, objective_mismatch,
 }
 
 export function buildMcqPrompt(cfg = {}) {
+  return buildBaseMcqPrompt(cfg)+studyGuidePrompt(cfg.studyGuideRows);
+}
+function buildBaseMcqPrompt(cfg = {}) {
   cfg = schoolCalibratedConfig(cfg);
   if (cfg.blindSourceReview) return buildLocalMcqPrompt(cfg, selectStyleExemplars(cfg.examples || [], 3, cfg.difficulty, cfg));
   if (cfg.promptProfile === "local") return buildLocalMcqPrompt(cfg, selectStyleExemplars(cfg.examples || [], 1, cfg.difficulty, cfg));

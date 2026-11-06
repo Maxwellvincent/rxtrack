@@ -1,0 +1,15 @@
+# Supplementary study tables
+
+Study-table PDFs are parsed locally by the bridge's `/study-tables` endpoint with pdfplumber's ruled-table extraction. This path performs no model or cloud OCR request. The bridge uses `LLM_BRIDGE_TABLE_PYTHON` when configured, otherwise the installed workspace runtime or system Python; pdfplumber is required. Unruled/image-only PDFs fail explicitly rather than guessing cells.
+
+The extractor retains column headers, cells, section/subheading, page/table/row identifiers, table bounds, nearby context and notes, PDF content hash, and conservative cross-page continuation metadata. Split section headings are joined. Ambiguous cells are held. The original PDF can be archived in the existing account-scoped source storage when saved through Sources & tools; its page can be opened from a row.
+
+Guides are saved once per block through the existing transactional Firestore store contract, with signed-out local support. Content-version IDs make an identical reimport idempotent. Differing versions remain separate and storage ceilings reject an oversized addition without evicting prior content. Guide records do not change objectives, source relationships, answers, or learner evidence. A failed transaction is not reported as success.
+
+Retrieval requires an explicit NB/DLA lecture scope and objective keyword matches, including a small transparent alias set. These are candidate retrieval links, not verified objective mappings. An explicit lecture/use column takes precedence over a broad section. Whole rows are round-robin selected across matched objectives, with a six-row/6,500-character payload budget. Rows too large for the budget are omitted rather than truncated. Stars and bold do not define exam weighting.
+
+The shared MCQ generation boundary loads the block guide for both lecture and generated exam paths. The existing objective/exam allocation remains authoritative. Original school examples remain in the prompt. Supplementary comparisons are supplied only to the writer; independent blind review receives original lecture evidence and must establish key, source, objective, ambiguity and reasoning support. The emitted study-guide references describe candidate prompt context and grant no coverage credit. No supplementary row is registered as an original-lecture quote.
+
+Sources & tools contains the one-time import and extraction preview. Learn groups retrieved comparisons under objectives with details collapsed. The practice screen gains no editing controls or long list. Existing missed-concept and source-backed relationship tracking remain separate; no table reading or loose term mention creates mastery.
+
+Local document check: the supplied 58-page NB2 guide yielded 780 structured rows. A split lesion-localization heading was corrected during parser development. Cerebellar signs/symptoms retrieval selected gait, sitting/standing, eye, finger-to-nose, dysdiadochokinesia and tone/planning comparisons. The complete document has not been medically certified, and these checks do not establish a signed-in import or live generated-question acceptance.

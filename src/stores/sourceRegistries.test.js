@@ -3,6 +3,8 @@ import {installDomStorage} from './testEnv.js';
 import {__setCloudBackendForTests,resetCloudStores} from './cloudBase.js';
 import * as sourceUse from './sourceUse.js';
 import * as relationships from './sourceRelationships.js';
+import * as guides from './studyGuides.js';
+import {normalizeStudyGuide} from '../engine/studyGuides.js';
 import {sourceItemId} from '../engine/sourceUse.js';
 import {createSourceRelationship} from '../engine/sourceRelationships.js';
 let documents,queue,rejectNext;
@@ -37,4 +39,13 @@ it('merges source-backed records atomically per lecture without affecting learne
  expect(Object.keys(relationships.read('u','lec').relationships)).toHaveLength(2);
  expect(relationships.read('u','other').relationships).toEqual({});
  expect([...documents.keys()].every(key=>key.includes('source-relationships'))).toBe(true);
+});
+
+it('stores guides per account and block, replaces duplicate imports, and leaves study evidence untouched',async()=>{
+ const guide=normalizeStudyGuide({format:'rxtrack-study-guide',version:1,sourceVersion:'guide-v1',pageCount:1,rows:[{page:1,table:1,row:1,section:'NB 37',heading:'Clinical findings',label:'Gait',headers:['Region','Finding'],cells:['Vermis','Truncal ataxia']}]});
+ await guides.save('u','b',guide);await guides.save('u','b',guide);
+ expect(Object.keys((await guides.load('u','b')).guides)).toHaveLength(1);
+ expect(guides.read('other','b').guides).toEqual({});expect(guides.read('u','other').guides).toEqual({});
+ rejectNext=true;await expect(guides.save('u','b',{...guide,id:'new'})).rejects.toThrow('offline');
+ expect(guides.read('u','b').guides.new).toBeUndefined();expect([...documents.keys()].every(key=>key.includes('study-guides'))).toBe(true);
 });
