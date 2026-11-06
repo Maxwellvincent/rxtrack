@@ -1,10 +1,10 @@
 {
   "name": "functions",
-  "description": "RXTrack Cloud Functions — server-side AI gateway (Task 7)",
+  "description": "RXTrack Cloud Functions \u2014 server-side AI gateway (Task 7)",
   "main": "index.js",
   "type": "commonjs",
   "engines": {
-    "node": "20"
+    "node": "22"
   },
   "scripts": {
     "test": "vitest run handlers.test.js"
