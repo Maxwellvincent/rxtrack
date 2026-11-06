@@ -66,6 +66,7 @@ export function selectQuestionBankFiles(files = []) {
   const rank = (file) => {
     const name = String(file?.name || "").toLowerCase();
     if (name.endsWith(".pdf")) return 3;
+    if (name.endsWith(".pptx")) return 4;
     if (name.endsWith(".md") || name.endsWith(".markdown")) return 2;
     if (name.endsWith(".txt")) return 1;
     if (isQuestionBankImage(file)) return 1;
@@ -77,7 +78,7 @@ export function selectQuestionBankFiles(files = []) {
     const key = isQuestionBankImage(file)
       ? String(file?.webkitRelativePath || file?.name || "").replace(/\s+/g, " ").trim().toLowerCase()
       : String(file?.name || "")
-      .replace(/\.(?:pdf|md|markdown|txt)$/i, "")
+      .replace(/\.(?:pdf|pptx|md|markdown|txt)$/i, "")
       .replace(/\+/g, " ")
       .replace(/\s+/g, " ")
       .trim()

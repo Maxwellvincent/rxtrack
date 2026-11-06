@@ -136,17 +136,18 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], obje
         </div>
 
         <label className="mb-3 flex cursor-pointer items-center justify-between rounded-lg border-2 border-dashed border-border px-4 py-3 text-sm hover:border-border-strong">
-          <span className="text-text-2">{schoolResultsRes.loading ? "Syncing school-result history…" : "Add exam PDFs"}</span>
-          <span className="font-mono text-[12px] text-text-3">pdf · md · txt</span>
+          <span className="text-text-2">{schoolResultsRes.loading ? "Syncing school-result history…" : "Add question files"}</span>
+          <span className="font-mono text-[12px] text-text-3">pdf · pptx · md · txt</span>
           <input
             type="file"
             multiple
-            accept=".pdf,.md,.txt"
+            accept=".pdf,.pptx,.md,.txt"
             className="hidden"
-            disabled={schoolResultsRes.loading || !!schoolResultsRes.error}
+            disabled={banksRes.loading || !!banksRes.error || schoolResultsRes.loading || !!schoolResultsRes.error}
             onChange={(e) => { const fs = Array.from(e.target.files || []); e.target.value = ""; onFiles(fs); }}
           />
         </label>
+        <p className="mb-4 text-xs text-text-3">For daily class-deck updates, upload the latest file with the same name. New questions are added; unchanged questions keep their saved progress. PowerPoint conversion runs on your local bridge.</p>
         <label className="mb-4 flex cursor-pointer items-center justify-between rounded-lg border border-accent/40 bg-accent-soft px-4 py-3 text-sm hover:border-accent">
           <span className="text-text-1"><span className="block font-semibold">Import a homework folder</span><span className="text-xs text-text-3">Select a local Practice Questions folder; files are assigned to this block.</span></span>
           <span className="font-mono text-[12px] text-accent-text">folder</span>
@@ -155,9 +156,9 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], obje
             multiple
             webkitdirectory="true"
             directory="true"
-            accept=".pdf,.md,.markdown,.txt"
+            accept=".pdf,.pptx,.md,.markdown,.txt"
             className="hidden"
-            disabled={schoolResultsRes.loading || !!schoolResultsRes.error}
+            disabled={banksRes.loading || !!banksRes.error || schoolResultsRes.loading || !!schoolResultsRes.error}
             onChange={(e) => { const fs = Array.from(e.target.files || []); e.target.value = ""; onFiles(fs, "supplemental"); }}
           />
         </label>
@@ -171,7 +172,7 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], obje
             directory="true"
             accept=".png,.jpg,.jpeg,.webp"
             className="hidden"
-            disabled={schoolResultsRes.loading || !!schoolResultsRes.error}
+            disabled={banksRes.loading || !!banksRes.error || schoolResultsRes.loading || !!schoolResultsRes.error}
             onChange={(e) => { const fs = Array.from(e.target.files || []); e.target.value = ""; onFiles(fs, "clicker"); }}
           />
         </label>
@@ -183,7 +184,7 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], obje
             multiple
             accept=".png,.jpg,.jpeg,.webp"
             className="hidden"
-            disabled={schoolResultsRes.loading || !!schoolResultsRes.error}
+            disabled={banksRes.loading || !!banksRes.error || schoolResultsRes.loading || !!schoolResultsRes.error}
             onChange={(e) => { const fs = Array.from(e.target.files || []); e.target.value = ""; onFiles(fs, "clicker"); }}
           />
         </label>

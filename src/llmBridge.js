@@ -152,6 +152,21 @@ export async function bridgeComplete(req) {
 }
 
 /** Run the installed local pdf2md wrapper for image-heavy question-bank PDFs. */
+export async function bridgePresentationPdf(file) {
+  if (!(await bridgeAvailable())) throw new Error('Open your local bridge to import PowerPoint, or export the deck as PDF and import that file.');
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  const result = await withDeadline(async signal => {
+    const response = await fetch(`${BRIDGE_URL}/presentation/pdf`, { method: 'POST', signal,
+      headers: { 'content-type': 'application/json' }, body: JSON.stringify({ data: btoa(binary) }) });
+    if (!response.ok) throw new Error((await response.json().catch(() => ({})))?.error || 'Update your local bridge, or export the PowerPoint as PDF.');
+    return response.json();
+  }, 120000, undefined, 'Local PowerPoint conversion');
+  const data = Uint8Array.from(atob(result.data), c => c.charCodeAt(0));
+  return new File([data], file.name.replace(/\.pptx$/i, '.pdf'), { type: 'application/pdf' });
+}
+
 export async function bridgePdf2md(file, timeoutMs = 900000) {
   if (!file || !(await bridgeAvailable())) return null;
   const bytes = new Uint8Array(await file.arrayBuffer());

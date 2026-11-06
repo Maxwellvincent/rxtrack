@@ -55,7 +55,7 @@ export async function launchQuestionBankSession(
   if (!sourceQuestions.length) return { ok: false, error: "This question bank is empty." };
   const figures = await (deps.loadFigures || questionFigures.load)(userId, filename);
   const withFigures = sourceQuestions.map(q => questionFigures.apply(q, figures));
-  const held = withFigures.filter(q => ['stem-mismatch','key-text-conflict'].includes(q.sourceKeyReviewStatus) && !q.correct && q.sourceKeyCandidate);
+  const held = withFigures.filter(q => !q.correct && (['stem-mismatch','key-text-conflict','visual-choice-labels-missing'].includes(q.sourceKeyReviewStatus) && q.sourceKeyCandidate || q.sourceKind === 'clicker'));
   const heldSet = new Set(held);
   const eligible = withFigures.filter(q => !heldSet.has(q));
   if (!eligible.length && held.length) return {ok:false,error:'All questions in this bank are awaiting source-key review. No answers have been inferred.'};

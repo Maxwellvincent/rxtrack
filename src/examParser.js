@@ -263,7 +263,9 @@ export function parseMadcowPages(pages, examTitle = "") {
 // Lecture compilations restart local numbering and repeat keyed copies later.
 // Isolate both boundaries before invoking the ordinary single-question parser.
 export function parseLectureCompilationText(fullText, examTitle = "") {
-  const source = String(fullText || "").replace(/\r/g, "").replace(/\[PAGE_BREAK:\d+\]/g, "\f");
+  const source = String(fullText || "").replace(/\r/g, "").replace(/\[PAGE_BREAK:\d+\]/g, "\f")
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\bAnswer[ \t]*(?:Key[ \t]*)?:[ \t]*([A-Z])[ \t]*[.)]/g, 'Answer: $1.');
   const split = source.search(/Questions with Answers(?: and Explanations)?/i);
   if (split < 0) return null;
   const sections = (text) => {
@@ -303,8 +305,17 @@ export function parseLectureCompilationText(fullText, examTitle = "") {
           if (options.length === 1) correct = options[0][1];
         }
       }
-      const question = parseNumberedQuestionBankText(`1. ${block.body}\n${correct ? `Answer Key: 1 ${correct}` : ""}`, examTitle,
+      let question = parseNumberedQuestionBankText(`1. ${block.body}\n${correct ? `Answer Key: 1 ${correct}` : ""}`, examTitle,
         { singleSet: true, allowSingle: true, skipLectureSections: true })[0];
+      // Some sources put the complete answer grid (including its letters) in a
+      // bitmap. Keep that original item for figure review instead of rejecting
+      // the entire compilation or guessing a five-choice grid from its key.
+      if (!question && correct && !/(?:^|[\n\f])[ \t]*[A-Z][.)][ \t]+\S/.test(block.body)) {
+        question = { stem: block.body.replace(/\s+/g, ' ').trim(), choices: {}, hasImage: true,
+          sourceVisualChoicesUnverified: true, sourceKeyCandidate: correct,
+          sourceKeyReviewStatus: 'visual-choice-labels-missing' };
+        correct = null;
+      }
       if (!question) throw new Error(`Incomplete source question: ${section.code} Q${block.num}`);
       // Page-layout artifacts (wrapped hyphens and isolated figure labels) are not stem changes.
       const comparisonStem = body => body.normalize("NFKC").split(/\bAnswer(?: Key)?:/i)[0]
@@ -315,7 +326,7 @@ export function parseLectureCompilationText(fullText, examTitle = "") {
       const originalStem = comparisonStem(block.body);
       const answerStem = comparisonStem(matches[0]?.body || '');
       const stemMismatch = !!correct && originalStem !== answerStem;
-      const sourceKeyCandidate = correct;
+      const sourceKeyCandidate = correct || question.sourceKeyCandidate;
       const reportedKeyText = matches[0]?.body.match(/\bAnswer(?: Key)?:[ \t]*[A-Z][.)][ \t]*([^\n\f]+)/i)?.[1]?.normalize('NFKC').trim();
       const normalizeOption = value => String(value || '').normalize('NFKC').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
       const textKeyMatches = reportedKeyText ? Object.entries(question.choices).filter(([,value]) => normalizeOption(value) === normalizeOption(reportedKeyText)) : [];
@@ -1559,7 +1570,12 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
     const sequentialText = pages.map((p, index) => index === 0 ? p.text : `[PAGE_BREAK:${p.num}]\n${p.text}`).join("\n\n");
     const layoutText = pages.map((p, index) => index === 0 ? p.layoutText : `[PAGE_BREAK:${p.num}]\n${p.layoutText}`).join("\n\n");
     const title = cleanLectureTitle(file.name);
-    const candidates = [sequentialText, layoutText].map((text) => ({ text, questions: parseNumberedQuestionBankText(text, title) }));
+    const extractionErrors = [];
+    const candidates = [sequentialText, layoutText].flatMap((text) => {
+      try { return [{ text, questions: parseNumberedQuestionBankText(text, title) }]; }
+      catch (error) { extractionErrors.push(error); return []; }
+    });
+    if (!candidates.length) throw extractionErrors[0] || new Error('No complete source question set could be read.');
     // Never splice by ordinal across extraction strategies: a missing question
     // in one numbered section shifts every later ordinal and creates duplicates.
     candidates.sort((a, b) => {
@@ -1766,7 +1782,7 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
   // parser's self-reported output. Never overwrite a good bank with a silent
   // partial import (the 30-question ExamSoft file previously landed as 17).
   const keyedCount = questions.filter((question) => question.correct && question.choices?.[question.correct]).length;
-  const accountedKeys = rows => rows.filter(q => q.correct && q.choices?.[q.correct] || ['stem-mismatch','key-text-conflict'].includes(q.sourceKeyReviewStatus) && q.sourceKeyCandidate && q.choices?.[q.sourceKeyCandidate]).length;
+  const accountedKeys = rows => rows.filter(q => q.correct && q.choices?.[q.correct] || q.sourceKeyReviewStatus === 'visual-choice-labels-missing' && q.sourceKeyCandidate || ['stem-mismatch','key-text-conflict'].includes(q.sourceKeyReviewStatus) && q.sourceKeyCandidate && q.choices?.[q.sourceKeyCandidate]).length;
   if (expectedFromKey && (questions.length < expectedFromKey || accountedKeys(questions) < expectedFromKey)) {
     const recovered = parseNumberedQuestionBankText(fullText, examTitle);
     if (recovered.length >= expectedFromKey && accountedKeys(recovered) >= expectedFromKey) {
@@ -1792,7 +1808,7 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
     format,
     fullText,
     chunks,
-    sourceIssues: [...(pairedSource?.sourceIssues || []), ...questions.filter(q=>['stem-mismatch','key-text-conflict'].includes(q.sourceKeyReviewStatus)).map(q=>({questionId:q.id,issue:'source-key-review',message:`${q.sourceSection} Q${q.sourceQuestionNumber}: source wording differs; answer held for review.`}))],
+    sourceIssues: [...(pairedSource?.sourceIssues || []), ...questions.filter(q=>['stem-mismatch','key-text-conflict','visual-choice-labels-missing'].includes(q.sourceKeyReviewStatus)).map(q=>({questionId:q.id,issue:'source-key-review',message:`${q.sourceSection} Q${q.sourceQuestionNumber}: source wording or visual answer labels need verification; answer held for review.`}))],
     lectureNumber: detectLectureNumber(examTitle || ""),
     lectureTitle: examTitle || "",
   };

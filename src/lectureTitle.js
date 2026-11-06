@@ -4,7 +4,7 @@ export function cleanLectureTitle(value) {
   try { title = decodeURIComponent(title.replace(/\+/g, " ")); }
   catch { title = title.replace(/\+/g, " "); }
   return title
-    .replace(/\.(?:pdf|md|markdown|txt)$/i, "")
+    .replace(/\.(?:pdf|pptx|md|markdown|txt)$/i, "")
     .replace(/_+/g, " ")
     .replace(/\s+/g, " ")
     .trim();

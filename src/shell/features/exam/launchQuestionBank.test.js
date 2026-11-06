@@ -135,3 +135,14 @@ it('does not expose full PDF pages in reserved figure assessments',async()=>{
  const result=await launchQuestionBankSession({userId:'u',blockId:'b',filename:'School',questions:[{...QUESTIONS[0],hasImage:true,sourceImageUrl:'https://example.com/full-page.png'}],format:'exam',purpose:'reserved-assessment'},{createExamSession});
  expect(result.ok).toBe(false);expect(result.error).toContain('figure-only crops');expect(createExamSession).not.toHaveBeenCalled();
 });
+
+it('starts complete items while holding bitmap-only choices and unkeyed class examples', async () => {
+ const created = vi.fn().mockResolvedValue({ok:true});
+ const result = await launchQuestionBankSession({userId:'u',blockId:'b',filename:'Daily class deck',format:'practice',questions:[
+  QUESTIONS[0],
+  {...QUESTIONS[1],correct:null,choices:{},sourceKeyCandidate:'C',sourceKeyReviewStatus:'visual-choice-labels-missing'},
+  {...QUESTIONS[2],correct:null,sourceKind:'clicker'},
+ ]},{createExamSession:created,loadFigures:async()=>({})});
+ expect(result).toMatchObject({ok:true,questionCount:1,heldForReviewCount:2});
+ expect(created.mock.calls[0][1].sourceExclusions).toHaveLength(2);
+});

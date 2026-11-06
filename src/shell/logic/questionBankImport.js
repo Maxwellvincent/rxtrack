@@ -15,6 +15,8 @@ import { buildQuestionBankAnalysis, buildQuestionBankCritiquePrompt, mergeQuesti
 import * as questionBankAnalysisStore from "../../stores/questionBankAnalysis.js";
 import * as questionStyleProfileStore from "../../stores/questionStyleProfile.js";
 import { buildStyleProfile } from "../../engine/styleProfile.js";
+import { parseQuestionPptx } from "../../ingest/pptxQuestions.js";
+import { refreshQuestionBank } from "./questionBankRefresh.js";
 
 function extractImcqBreakdownKeys(text) {
   return [...String(text || "").matchAll(/\b([A-H])\s*[✓✔]/g)].map((match) => match[1].toUpperCase());
@@ -130,6 +132,10 @@ export async function processQuestionBankFiles({
   if(reserveForEvaluation) useLlm=false;
   const files = selectQuestionBankFiles(selectedFiles);
   if (!files.length) return "No supported question-bank files found.";
+  if (userId && (!questionBanksStore.isHydrated(userId) || questionBanksStore.readError(userId)
+    || !questionBankMetaStore.isHydrated(userId) || questionBankMetaStore.readError(userId))) {
+    throw new Error('Your saved question banks must finish syncing before an updated source can be imported safely. Reopen the importer once syncing finishes.');
+  }
 
   const report = { results: [], weakCategories: [], savedResults: [], pendingAnalyses: [], sourceWarnings: [] };
   let pendingBanks = { ...(questionBanksStore.read(userId) || {}) };
@@ -240,7 +246,9 @@ export async function processQuestionBankFiles({
       const pairedDoc = pairedAnswers.get(file);
       const pairedKey = pairedDoc?.answerKey;
       update(`${index + 1}/${files.length} · parsing ${file.name}…`);
-      let parsed = await parseExamPDF(file, (message) => update(`${index + 1}/${files.length} · ${file.name} — ${message}`), {
+      const isPptx = /\.pptx$/i.test(file.name || '');
+      const progress = message => update(`${index + 1}/${files.length} · ${file.name} — ${message}`);
+      let parsed = isPptx ? await parseQuestionPptx(file, progress) : await parseExamPDF(file, progress, {
         useLlm: pairedDoc?.structuredPair ? false : useLlm,
         pairedAnswerText: pairedDoc?.structuredPair ? pairedDoc.fullText : null,
         forcePairedKey: file === imcqSource && imcqKeys,
@@ -265,6 +273,9 @@ export async function processQuestionBankFiles({
       if (parsed.format === "answer-explanations") {
         report.sourceWarnings.push(`${file.name}: ${parsed.sourceNotice}`);
         report.sourceWarnings.push(...(parsed.sourceIssues || []).map(issue => `${file.name}: excluded ${issue}.`));
+      }
+      if (parsed.format !== 'answer-explanations' && !pairedDoc?.structuredPair) {
+        report.sourceWarnings.push(...(parsed.sourceIssues || []).map(issue => `${file.name}: ${issue.message || String(issue)}`));
       }
 
       if (pairedDoc?.structuredPair) {
@@ -295,14 +306,24 @@ export async function processQuestionBankFiles({
       // Keep the exact uploaded source in Storage so later app practice can
       // refer back to its figures/layout without embedding a PDF in Firestore
       // or localStorage. Parsed questions remain independently usable.
-      const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name || "");
+      const sourceFile = parsed.sourcePdfFile || file;
+      const isPdf = sourceFile.type === "application/pdf" || /\.pdf$/i.test(sourceFile.name || "");
       const sourceStoragePath = userId && isPdf
-        ? await archiveQuestionSource(() => uploadQuestionBankSource(userId, blockId, file), warning => report.sourceWarnings.push(`${bankTitle}: ${warning}`))
+        ? await archiveQuestionSource(() => uploadQuestionBankSource(userId, blockId, sourceFile), warning => report.sourceWarnings.push(`${bankTitle}: ${warning}`))
         : null;
 
       const pageUrls = new Map();
       const withDurableImages = [];
       for (const question of parsed?.questions || []) {
+        if (question.sourceImageDataUrl && globalThis.crypto?.subtle) {
+          const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(question.sourceImageDataUrl));
+          question.sourceImageFingerprint = [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+        }
+      }
+      const incoming = tagBankQuestions(parsed?.questions || [], { blockId, filename: bankTitle, wrongOnly, sourceKind: isPptx ? 'clicker' : sourceKind });
+      const previous = Object.entries(pendingBanks).find(([filename]) => cleanLectureTitle(filename) === bankTitle)?.[1] || [];
+      const refreshed = refreshQuestionBank(previous, incoming);
+      for (const question of refreshed.questions) {
         let sourceImageUrl = question.sourceImageUrl || null;
         const visualPage = Number(question.sourceVisualPage || question.sourcePage) || null;
         const visualKey = question.sourceSection ? `${visualPage}-${question.id}` : visualPage;
@@ -324,7 +345,8 @@ export async function processQuestionBankFiles({
         });
       }
 
-      const questions = tagBankQuestions(withDurableImages, { blockId, filename: bankTitle, wrongOnly, sourceKind });
+      const questions = withDurableImages;
+      if (previous.length && incoming.length) report.sourceWarnings.push(`${bankTitle}: ${refreshed.added} new or revised questions; ${refreshed.unchanged} unchanged questions kept with their saved links and answer history. ${refreshed.retained} earlier questions retained.`);
       if (questions.length) {
         pendingBanks = Object.fromEntries(Object.entries(pendingBanks).filter(([filename]) => cleanLectureTitle(filename) !== bankTitle));
         pendingBanks[bankTitle] = questions;
@@ -333,18 +355,18 @@ export async function processQuestionBankFiles({
           questions,
           objectives,
           lectures,
-          sourceKind,
+          sourceKind: isPptx ? 'clicker' : sourceKind,
           filename: bankTitle,
-          expectedQuestions: parsed.expectedQuestions,
+          expectedQuestions: questions.length,
           extractionMethod: "exam-parser",
         });
         report.pendingAnalyses.push({ filename: bankTitle, questions, analysis });
         pendingMeta = questionBankMetaStore.withRecordedUpload(pendingMeta, {
           filename: bankTitle,
           blockId,
-          sourceKind,
-          expectedQuestions: parsed.expectedQuestions,
-          extractionMethod: "exam-parser",
+          sourceKind: isPptx ? 'clicker' : sourceKind,
+          expectedQuestions: questions.length,
+          extractionMethod: isPptx ? 'powerpoint-local' : 'exam-parser',
           analysisStatus: "ready",
           sourceStoragePath,
         });
