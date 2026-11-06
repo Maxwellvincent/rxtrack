@@ -596,6 +596,7 @@ export async function startObjectiveQuiz(args, deps = {}) {
   return {
     ...(await generateFromAtoms(
       {
+        userId:args.userId,blockId,lectureId,
         atoms: objectivesAsAtoms(config?.objectives || []),
         objectives: config.objectives,
         difficulty: config?.difficulty,

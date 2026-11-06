@@ -327,3 +327,11 @@ export async function bridgeReviewContext(module,subject,objectives){
   return result;
  },2000,undefined,'Local review-source retrieval');}catch{return {status:'unavailable',units:[]};}
 }
+
+/** One-time migration only. Subsequent retrieval uses account storage, without a bridge. */
+export async function bridgeReviewLibrary(){
+ if(!(await bridgeAvailable()))return null;
+ const response=await fetch(`${BRIDGE_URL}/review-library/NB2`);
+ if(response.status===404)return null;if(!response.ok)throw new Error('Review library migration is unavailable.');
+ return response.json();
+}

@@ -1,4 +1,4 @@
-import {reviewModuleForBlock,reviewSourcePrompt} from './reviewSourceContext.js';
+import {attachReviewSources,reviewSourcePrompt} from './reviewSourceContext.js';
 import {selectGuideRows,studyGuidePrompt} from './studyGuides.js';
 import {buildBlindSourceReviewPrompt,decodeBlindSourceReviews} from './blindSourceReview.js';
 import { decodeLocalQuestionWire } from './localQuestionWire.js';
@@ -451,11 +451,7 @@ export async function generateMcqs(cfg = {}, deps = {}) {
     try {const store=await import('../stores/studyGuides.js');cfg={...cfg,studyGuideRows:selectGuideRows(await store.load(cfg.userId,cfg.blockId),cfg)};}
     catch(error){return {questions:[],failureKind:'source_sync',error:`Study guide sources could not sync: ${error.message}`};}
   }
-  if(cfg.userId && cfg.blockId && cfg.reviewSourceContext===undefined){
-    try{const terms=await import('../stores/terms.js');const module=reviewModuleForBlock(terms.read(cfg.userId),cfg.blockId);
-      if(module){const bridge=await import('../llmBridge.js');cfg={...cfg,reviewSourceContext:await bridge.bridgeReviewContext(module,cfg.subject,cfg.objectives)};}
-    }catch{/* Optional review context must not prevent lecture-grounded generation. */}
-  }
+  try{if(cfg.userId&&cfg.blockId)cfg=await attachReviewSources(cfg);}catch(error){return {questions:[],failureKind:'source_sync',error:error.message};}
   cfg = schoolCalibratedConfig(cfg);
   cfg = { ...cfg, blindSourceReview:deps.blindSourceReview === true && cfg.requireBlindKeyCheck === true, promptProfile: deps.isLocalPreparation?.() ? "local" : cfg.promptProfile || "compact" };
   const { maxTokens = 8000 } = deps;
@@ -930,13 +926,14 @@ export function backfillTopicsFromAtoms(raw, atoms, objectives = []) {
 
 export async function generateFromAtoms(cfg = {}, deps = {}) {
   try { if((cfg.examples || []).some(question=>question._trackSourceUse || question.evaluationReserved)) cfg = await protectGenerationContext(cfg); } catch(error) { return {questions:[],failureKind:"source_tracking",error:`Source exposure tracking failed: ${error.message}`}; }
+  try{if(cfg.userId&&cfg.blockId)cfg=await attachReviewSources(cfg);}catch(error){return {questions:[],failureKind:'source_sync',error:error.message};}
   cfg = schoolCalibratedConfig(cfg);
   const { maxTokens = 8000 } = deps;
   const callAIJSON = withQuestionAIRouting(deps.callAIJSON);
   const atoms = Array.isArray(cfg.atoms) ? cfg.atoms : [];
   if (!atoms.length) return { error: "No atoms to quiz — extract a lecture first.", questions: [] };
   try {
-    const prompt = buildAtomQuestionsPrompt(cfg);
+    const prompt = buildAtomQuestionsPrompt(cfg)+reviewSourcePrompt(cfg.reviewSourceContext);
     const result = await callAIJSON(MCQ_V2_SYSTEM, prompt, { questions: [] }, maxTokens);
     const questions = ensureClinicalCorrelateAttribution(stampQuestionOrders(ensureObjectiveAttribution(normalizeQuestions(backfillTopicsFromAtoms(result, atoms, cfg.objectives || [])), cfg.objectives || []), cfg.objectives || []), cfg.clinicalCorrelateLibrary).map(q => ({
       ...q,

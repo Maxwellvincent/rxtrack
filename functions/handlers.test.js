@@ -61,6 +61,7 @@ function makeFakeFirestore() {
         return {
           id,
           path: `${path}/${id}`,
+          async get(){const value=ensure(path)[id];return {exists:!!value,data:()=>value};},
           collection(name) {
             return collectionRef(`${path}/${id}/${name}`);
           },
@@ -384,4 +385,16 @@ describe("buildRecognitionBank", () => {
     const req = { data: { blockId: "B1" } };
     await expect(buildRecognitionBankHandler(req)).rejects.toMatchObject({ code: "unauthenticated" });
   });
+});
+
+describe('account review library for server generation',()=>{
+ it('reads only the caller account and block, without a Mac connection',async()=>{
+  const {loadRecognitionReviewContext}=await import('./index.js');const shared=await import('./review-sources.mjs');
+  const path='users/u1/kv',block='nb2';fakeDb.seed(path,shared.encodeReviewKey(shared.reviewManifestKey(block)),{data:{ready:true,blockId:block,module:'NB2',packs:[{id:'p',name:'review.pdf',module:'NB2',sourceVersion:'v',revision:'r',keys:['review-shard']}]}});
+  fakeDb.seed(path,shared.encodeReviewKey('review-shard'),{data:{blockId:block,revision:'r',units:[{id:'page',page:2,text:'Cerebellar lesion findings include impaired gait and limb coordination.',kind:'review-teaching'}]}});
+  const card={block_id:block,subject:'NB 37 Cerebellum',objective_id:'o',text:'Describe cerebellar lesion findings'};
+  expect((await loadRecognitionReviewContext(fakeDb,'u1',card,shared)).units).toHaveLength(1);
+  expect((await loadRecognitionReviewContext(fakeDb,'different-user',card,shared)).units).toEqual([]);
+  expect((await loadRecognitionReviewContext(fakeDb,'u1',{...card,block_id:'nb1'},shared)).units).toEqual([]);
+ });
 });

@@ -1,3 +1,4 @@
+import {reviewModuleForBlock} from '../engine/reviewSourceContext.js';
 import { CBSE_BLOCK_ID, ensureCbseTerms } from "./features/cbse/cbsePrep.js";
 import { useTerms } from "./hooks/useTerms.js";
 import * as termsStore from "../stores/terms.js";
@@ -217,6 +218,10 @@ function ShellMain({ theme, toggle, userId }) {
     selectedBlockId && blocks.some((b) => b.id === selectedBlockId)
       ? selectedBlockId
       : defaultBlockId(blocks, readCollapsedTerms(), examDates.data);
+  useEffect(()=>{
+    if(!userId||termsResource.loading||termsResource.error||reviewModuleForBlock(termsResource.data,activeBlockId)!=='NB2')return;
+    import('../stores/reviewLibrary.js').then(store=>store.ensureReviewLibrary(userId,activeBlockId)).catch(error=>console.warn('NB2 review-source sync:',error.message));
+  },[userId,activeBlockId,termsResource.loading,termsResource.error,termsResource.data]);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [sessionMode, setSessionMode] = useState(null); // null | 'engine' | 'calibrate'
   const [showAnki, setShowAnki] = useState(false);

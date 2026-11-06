@@ -203,6 +203,24 @@ function vignetteDocId(cardId, index) {
   return `${cardId}-v${index}`;
 }
 
+async function loadRecognitionReviewContext(firestore,uid,card,shared,cache=new Map()){
+  if(!card.block_id)return {units:[]};
+  const cacheKey=uid+':'+card.block_id;
+  if(cache.has(cacheKey))return shared.selectReviewContext(cache.get(cacheKey),{module:'NB2',subject:card.lecture || card.subject,objectives:[{id:card.objective_id || card.card_id || card._id,text:card.text}]});
+  const kv=firestore.collection('users').doc(uid).collection('kv');
+  const snap=await kv.doc(shared.encodeReviewKey(shared.reviewManifestKey(card.block_id))).get();
+  const manifest=snap.exists?snap.data()?.data:null;
+  if(!manifest?.ready){cache.set(cacheKey,[]);return {units:[]};}
+  if(manifest.blockId!==card.block_id||manifest.module!=='NB2')throw new HttpsError('failed-precondition','Review source scope mismatch.');
+  const packs=[];
+  for(const pack of manifest.packs){const units=[];for(const key of pack.keys){
+    const row=await kv.doc(shared.encodeReviewKey(key)).get();const data=row.exists?row.data()?.data:null;
+    if(!data||data.blockId!==card.block_id||data.revision!==pack.revision)throw new HttpsError('failed-precondition','Review sources are still syncing.');units.push(...data.units);
+  }packs.push({...pack,units});}
+  cache.set(cacheKey,packs);
+  return shared.selectReviewContext(packs,{module:'NB2',subject:card.lecture || card.subject,objectives:[{id:card.objective_id || card.card_id || card._id,text:card.text}]});
+}
+
 async function buildRecognitionBankHandler(req) {
   assertAllowed(req);
   const uid = req.auth.uid;
@@ -237,9 +255,12 @@ async function buildRecognitionBankHandler(req) {
   let processed = 0;
   const system = RECOGNITION_SYSTEM.replace("{{N}}", String(perCard));
 
+  const reviewSourceCache=new Map();
   for (const card of toProcess) {
     const cardId = card.card_id ?? card._id;
-    const prompt = `FACT (block ${card.block_id}, subject ${card.subject || "—"}):\n${card.text}`;
+    const reviewSources=await import('./review-sources.mjs');
+    const reviewContext=await loadRecognitionReviewContext(firestore,uid,card,reviewSources,reviewSourceCache);
+    const prompt = `FACT (block ${card.block_id}, subject ${card.subject || "—"}):\n${card.text}`+reviewSources.reviewInfluencePrompt(reviewContext);
     let vignettes = [];
     try {
       // Gemini first, Claude if it refuses — the same fallback aiComplete has
@@ -455,6 +476,7 @@ async function datalabConvertHandler(req) {
 // ── Exports ──────────────────────────────────────────────────────────────
 // Raw handlers exported for in-process unit testing (Task 7, Step 4) — call
 // directly with a fake { auth: { uid }, data } request, no emulator needed.
+exports.loadRecognitionReviewContext = loadRecognitionReviewContext;
 exports.buildRecognitionBankHandler = buildRecognitionBankHandler;
 exports.aiCompleteHandler = aiCompleteHandler;
 exports.datalabConvertHandler = datalabConvertHandler;
