@@ -1,3 +1,4 @@
+import { LOCAL_WRITER_WIRE, LOCAL_AUDIT_WIRE, LOCAL_FAST_WRITER_WIRE } from './localQuestionWire.js';
 import { GENERATED_QUESTION_CONTRACT } from './questionContract.js';
 import { numberedAuditEvidence } from './auditEvidence.js';
 import { retrieveLectureEvidence } from './schoolAlignment.js';
@@ -15,14 +16,14 @@ const scope = cfg => (preparedLectureCatalog(cfg) && cfg.lectureQuestionContext.
 export function buildLocalMcqPrompt(cfg, examples = []) {
   return `${catalog(cfg, cfg.atoms || [])}\nWrite ${cfg.count || 1} complete lecture-objective questions in this batch. Return JSON only.
 ${GENERATED_QUESTION_CONTRACT}
-Use a concise patient or functional scenario with a decisive observation. Apply the assigned objective's taught relationship to predict or explain something new. Second-order needs clue interpretation plus application; third-order needs two connected relationships. A defining phrase followed by its name, or a stated outcome followed by its synonym, remains recall. Competing options must require the relationship to distinguish them. Hypothetical settings are allowed; diagnostic relationships and necessary negative findings require lecture evidence. Explain the decisive clue and one positive contradiction per alternative. Source silence is not a reason a distractor is wrong. Use the exact source routes; never combine neighboring pathways.
-OBJECTIVES:\n${JSON.stringify(objectives(cfg))}
+Use a concise patient or functional scenario with a decisive observation. Apply the assigned objective's taught relationship to predict or explain something new. Second-order needs clue interpretation plus application; third-order needs two connected relationships. A defining phrase followed by its name, or a stated outcome followed by its synonym, remains recall. Competing options must require the relationship to distinguish them. Hypothetical settings are allowed; diagnostic relationships and necessary negative findings require lecture evidence. Explain the decisive clue and one positive contradiction per alternative. Source silence is not a reason a distractor is wrong. Use the exact source routes; never combine neighboring pathways. Match the final ask to the objective: for functions or lesion-associated signs, prefer predicting a deficit from a stated lesion or pathway change. Use diagnosis-from-findings only when the objective and taught discriminators support that task. Do not infer a diagnosis from nonspecific symptoms or one imaging adjective. Avoid overlapping anatomical choices unless the supplied source and clue uniquely separate them.
+REQUESTED DIFFICULTY: ${cfg.difficulty || "medium"}\nOBJECTIVES:\n${JSON.stringify(objectives(cfg))}
 SOURCE OBJECTIVE SCOPE (not medical evidence):\n${JSON.stringify(scope(cfg))}
 SCHOOL STYLE ONLY (not factual authority):\n${JSON.stringify(examples.map(q => ({ stem: q.stem, choices: q.choices })))}
 LEARNER TARGETING (suggestions, not factual authority):\n${String(cfg.focusNotes || '').slice(-1800)}
 AVOID PRIOR STEMS:\n${JSON.stringify((cfg.avoidStems || []).slice(-8))}
 Choose one assigned primary objective. Quote the source passage supporting the tested relationship. Change the relationship or inference direction when practicing a concept again. Preserve useful school vocabulary. Return every supported complete item; report a specific source shortfall if none can be made.
-Return ONLY JSON: {"questions":[{"questionPlan":{"templateId":null,"relationship":"taught rule","perturbation":"observation","inference":"necessary inference","endpoint":"focused ask","nearestDistractor":"plausible rival","discriminator":"decisive clue","sourceQuotes":["exact source quote"]},"stem":"complete case and lead-in","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"A","explanation":"clue to relationship to answer","whyWrong":{"A":"key rationale","B":"positive contradiction","C":"positive contradiction","D":"positive contradiction","E":"positive contradiction"},"objectiveIds":["assigned id"],"objectiveFacet":"clause tested","topic":"concept","taskType":"clinical-application","orderLevel":"second-order","reasoningSteps":["interpret clue","apply relationship"],"difficulty":"${cfg.difficulty || 'medium'}"}]}`;
+${(cfg.blindSourceReview ? LOCAL_FAST_WRITER_WIRE : LOCAL_WRITER_WIRE).replace('"requested difficulty"', JSON.stringify(cfg.difficulty || "medium"))}`;
 }
 
 export function buildLocalAuditPrompt(questions, cfg) {
@@ -34,6 +35,6 @@ Independently choose the strongest source objective, then compare it with the as
 OBJECTIVES:\n${JSON.stringify(objectives(cfg))}
 NEIGHBORING SOURCE OBJECTIVES:\n${JSON.stringify(scope(cfg))}
 QUESTIONS:\n${JSON.stringify(questions)}
-Return ONLY JSON: {"reviews":[{"index":0,"approved":true,"objectiveAligned":true,"objectiveAlignment":{"objectiveId":"assigned id","objectiveClause":"exact assigned clause","testedRelationship":"actual task","bestSourceObjectiveCode":"exact strongest source code","whyAssignedOverNeighbor":"specific ownership distinction"},"discrimination":{"closestAlternative":"non-key letter","stemClue":"exact final-stem quote","whyAlternativeFails":"positive source-supported contradiction","keyUniquelySupported":true,"alternativeAlsoCorrect":false},"issues":[],"rationale":"brief judgment","reasoning":{"orderLevel":"second-order","steps":["interpret clue","apply necessary relationship"],"evidenceIds":["E1"],"allStepsRequired":true,"connectedChain":true,"singleEndpoint":true,"choiceShortcut":false}}]}
+${LOCAL_AUDIT_WIRE}
 Reject with specific issues such as incorrect_key, ambiguous_key, unsupported_fact, objective_mismatch, answer_choice_shortcut, order_level_mismatch, weak_explanation, non_discriminating_clues. Never return replacement questions.`;
 }

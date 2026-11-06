@@ -17,6 +17,7 @@ export const QUESTION_PREPARATION_POLICY = Object.freeze({
   starterBatchSize: 5,
   parallelIndependentReview: true,
   releaseVerifiedFirst: true,
+  blindSourceReview: true,
   prepareSpareCandidates: 0,
   continueAfterEmptyRounds: true,
   maxEmptyRounds: 3,
@@ -32,8 +33,10 @@ export const LOCAL_QUESTION_PREPARATION_POLICY = Object.freeze({
 });
 
 const LIMIT_KEY = "rxt_codex_lecture_limit_until";
+const LIMIT_AT_KEY = "rxt_codex_lecture_limit_at";
 const RECHECK_MS = 15 * 60_000;
 let limitedUntil = 0;
+let limitedAt = 0;
 const cloudLimitErrors = new Map();
 const preparationRequestGate=createRequestGate(()=>Date.now()<limitDeadline()?1:3);
 const localRequestGate=createRequestGate(1);
@@ -51,14 +54,15 @@ function recordLimit(error) {
   const match = String(error?.message || error).match(/(?:retry|try again|reset)\s+(?:after|in)\s+(\d+)\s*(seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h)\b/i);
   const unit = match?.[2]?.toLowerCase();
   const delay = match ? Number(match[1]) * (unit.startsWith("h") ? 3_600_000 : unit.startsWith("m") ? 60_000 : 1000) : RECHECK_MS;
-  limitedUntil = Date.now() + Math.max(1000, delay);
-  try { localStorage.setItem(LIMIT_KEY, String(limitedUntil)); } catch { /* memory fallback */ }
+  limitedAt = Date.now();
+  limitedUntil = limitedAt + Math.max(1000, delay);
+  try { localStorage.setItem(LIMIT_KEY, String(limitedUntil)); localStorage.setItem(LIMIT_AT_KEY,String(limitedAt)); } catch { /* memory fallback */ }
 }
 
 export function resetQuestionProviderLimit() {
-  limitedUntil = 0;
+  limitedUntil = 0;limitedAt = 0;
   cloudLimitErrors.clear();
-  try { localStorage.removeItem(LIMIT_KEY); } catch { /* optional storage */ }
+  try { localStorage.removeItem(LIMIT_KEY);localStorage.removeItem(LIMIT_AT_KEY); } catch { /* optional storage */ }
 }
 
 // Codex writes and independently reviews by default. A genuine usage-limit
@@ -66,6 +70,10 @@ export function resetQuestionProviderLimit() {
 // both subscription and cloud capacity are exhausted; all reviews still run.
 export async function questionPreparationDeps(callAIJSON) {
   const capability = await questionPreparationCapabilities();
+  let recordedAt=limitedAt;
+  try {recordedAt=Math.max(recordedAt,Number(localStorage.getItem(LIMIT_AT_KEY)) || 0);}catch{/* optional local storage */}
+  const readyAt=Number(capability?.codexReadyAt) || 0;
+  if(limitDeadline()>Date.now() && readyAt>recordedAt && (recordedAt || readyAt>Date.now()-60000))resetQuestionProviderLimit();
   const cloudAvailable = capability?.writer === "ollama-cloud" || capability?.fallbackWriter === "ollama-cloud";
   const cloudTiers = [...new Set((capability?.cloudTiers || [{ tier: "routine" }])
     .map(entry => entry.tier).filter(tier => ["routine", "escalation", "quality"].includes(tier)))];
@@ -89,7 +97,8 @@ export async function questionPreparationDeps(callAIJSON) {
       args[1] = selectedPrompt;
       if (backend === 'ollama') args[0] = LOCAL_QUESTION_SYSTEM;
       options.onPromptSelected?.(selectedPrompt);
-      const { localPrompt: _localPrompt, onPromptSelected: _onPromptSelected, ...transportOptions } = options;
+      if (backend === 'ollama' && Number(options.localMaxTokens)>0) args[3]=Math.min(Number(args[3]) || 8000,Number(options.localMaxTokens));
+      const { localPrompt: _localPrompt, onPromptSelected: _onPromptSelected, localMaxTokens: _localMaxTokens, ...transportOptions } = options;
       args[6] = {
         ...transportOptions,
         ...(remaining === null ? {} : { timeoutMs: remaining }),

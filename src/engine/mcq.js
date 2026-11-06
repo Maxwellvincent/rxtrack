@@ -1,3 +1,5 @@
+import {buildBlindSourceReviewPrompt,decodeBlindSourceReviews} from './blindSourceReview.js';
+import { decodeLocalQuestionWire } from './localQuestionWire.js';
 import { lectureEvidenceForConfig } from './lectureQuestionContext.js';
 import {capacityKind} from '../providerCapacity.js';
 import {compactAnswerRoute,ANSWER_ROUTE_POLICY,answerRouteIssue} from './questionAnswerRoute.js';
@@ -444,7 +446,7 @@ async function protectGenerationContext(cfg) {
 export async function generateMcqs(cfg = {}, deps = {}) {
   try { if((cfg.examples || []).some(question=>question._trackSourceUse || question.evaluationReserved)) cfg = await protectGenerationContext(cfg); } catch(error) { return {questions:[],failureKind:"source_tracking",error:`Source exposure tracking failed: ${error.message}`}; }
   cfg = schoolCalibratedConfig(cfg);
-  cfg = { ...cfg, promptProfile: deps.isLocalPreparation?.() ? "local" : cfg.promptProfile || "compact" };
+  cfg = { ...cfg, blindSourceReview:deps.blindSourceReview === true && cfg.requireBlindKeyCheck === true, promptProfile: deps.isLocalPreparation?.() ? "local" : cfg.promptProfile || "compact" };
   const { maxTokens = 8000 } = deps;
   const callAIJSON = withQuestionAIRouting(deps.callAIJSON);
   const text = String(cfg.lectureText || "");
@@ -455,11 +457,12 @@ export async function generateMcqs(cfg = {}, deps = {}) {
     // Quiz generation must not mistake the AI client's empty fallback for a valid
     // (but empty) generation result. Preserve provider/bridge failures so the
     // preparation UI can stop promptly and tell the learner what actually failed.
-    const result = await callAIJSON(MCQ_V2_SYSTEM, prompt, { questions: [] }, maxTokens, undefined, undefined, {
+    const result = decodeLocalQuestionWire(await callAIJSON(MCQ_V2_SYSTEM, prompt, { questions: [] }, maxTokens, undefined, undefined, {
       ...(deps.aiOptions || {}),
       throwOnError: true,
       localPrompt: buildMcqPrompt({ ...cfg, promptProfile: 'local' }),
-    });
+      localMaxTokens:cfg.blindSourceReview ? Math.max(1800,1000*(cfg.count || 1)) : maxTokens,
+    }));
     if (result?.error) return { error: preparationErrorMessage(result.error), questions: [] };
     const candidates = questionCandidates(result);
     const generated = withSchoolContext(ensureClinicalCorrelateAttribution(stampQuestionOrders(ensureObjectiveAttribution(normalizeQuestions(result), cfg.objectives || []), cfg.objectives || []), cfg.clinicalCorrelateLibrary), cfg).map((question) => ({ ...question, generationVersion: "v2" }));
@@ -1171,8 +1174,37 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
   const reviewer = typeof transport === "function" ? async (...args) => {
     let evidencePrompt = args[1];
     args[6] = { ...(args[6] || {}), onPromptSelected: prompt => { evidencePrompt = prompt; } };
-    return resolveAuditEvidence(await transport(...args), evidencePrompt);
+    return resolveAuditEvidence(decodeLocalQuestionWire(await transport(...args)), evidencePrompt);
   } : transport;
+  if (deps.blindSourceReview === true && cfg.requireBlindKeyCheck === true && typeof transport === 'function') {
+    const prompt = buildBlindSourceReviewPrompt(questions,cfg);
+    let raw;
+    try {
+      raw=resolveAuditEvidence(decodeBlindSourceReviews(await transport('Independently solve from the supplied source without seeing the writer key. Return JSON only.',prompt,{reviews:[]},2400*questions.length,undefined,undefined,{localPrompt:prompt,localMaxTokens:1400*questions.length}),cfg),prompt);
+    } catch(error) { return {questions:[],failureKind:'review_unavailable',error:preparationErrorMessage(error),rejections:[]}; }
+    if(raw?.error)return {questions:[],failureKind:'review_unavailable',error:preparationErrorMessage(raw.error),rejections:[]};
+    const eligible=[],reviews=[],rejected=[],proofs=new Map(),originalIndexes=[];
+    const proofKey=q=>JSON.stringify([q.stem,q.choices,q.correct,q.objectiveIds]);
+    for(const [index,q] of questions.entries()) {
+      const review=raw?.reviews?.find(v=>Number(v.index)===index);
+      const issue=blindSolveIssue(review,q,cfg);
+      const completeRationale=typeof review?.explanation==='string' && review.explanation.trim().length>=20
+        && Object.keys(q.choices || {}).filter(letter=>letter!==q.correct).every(letter=>typeof review.whyWrong?.[letter]==='string' && review.whyWrong[letter].trim().length>=12);
+      if(issue || !completeRationale) {rejected.push({index,objectiveIds:q.objectiveIds || [],issues:[issue || 'incomplete_reviewed_rationale'],rationale:review?.rationale || 'Independent key/source review did not establish a complete answer.'});continue;}
+      const localIndex=eligible.length;originalIndexes.push(index);
+      eligible.push({...q,explanation:review.explanation,whyWrong:{...review.whyWrong,[q.correct]:review.explanation}});
+      reviews.push({...review,index:localIndex});proofs.set(proofKey(q),review);
+    }
+    if(!eligible.length)return {questions:[],rejections:rejected,error:'No question passed the independent key-hidden source review.'};
+    // Reuse the actual independent verdict through the existing admission gates.
+    // This replay performs no second model call and does not invent verdicts.
+    const replay=async(...params)=>{params[6]?.onPromptSelected?.(prompt);return {reviews};};
+    const checked=await auditGeneratedQuestions(eligible,{...cfg,requireBlindKeyCheck:false},{...deps,blindSourceReview:false,reviewAIJSON:replay,skipRepair:true});
+    return {...checked,rejections:[...rejected,...(checked.rejections || []).map(row=>({...row,index:originalIndexes[row.index]}))],questions:(checked.questions || []).map(q=>{
+      const proof=proofs.get(proofKey(q));
+      return {...q,qualityAudit:{...q.qualityAudit,reviewMode:'independent-blind-source',blindSolve:{status:'matched',answer:proof.answer,sourceQuotes:proof.reasoning.sourceQuotes.slice(0,3),answerRoute:compactAnswerRoute(proof.answerRoute),answerRoutePolicy:ANSWER_ROUTE_POLICY}}};
+    })};
+  }
   const locallyValid = diversifyQuestionEndings(locallyValidClinicalQuestions(questions))
     .filter((question) => questionMatchesObjectiveDomain(question, cfg) && locallyUsableQuestions([question]).length > 0);
   // An explicit independent approval is stronger than the conservative clinical-shape screen.
@@ -1382,6 +1414,16 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
       return [{
         ...question,
         ...(reasoningAudit ? { orderLevel: reasoningAudit.orderLevel, reasoningAudit } : {}),
+        ...(!question.questionPlan?.relationship && reasoningAudit && verifiedDiscrimination(review.discrimination, question) ? { questionPlan: {
+          relationship: review.objectiveAlignment?.testedRelationship || '',
+          perturbation: review.discrimination.stemClue,
+          inference: reasoningAudit.steps.join(' → '),
+          endpoint: question.stem.match(/[^.!?]*\?\s*$/)?.[0]?.trim() || '',
+          nearestDistractor: review.discrimination.closestAlternative,
+          discriminator: review.discrimination.stemClue,
+          sourceQuotes: reasoningAudit.sourceQuotes,
+          provenance: 'independent-review',
+        } } : {}),
         difficultyCalibration: cfg.reasoningPolicy === "school" ? "school" : "challenge",
         qualityAudit: {
           version: 1,
@@ -1482,8 +1524,8 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
           reviewedOrder: byIndex.get(index)?.reasoning?.orderLevel || "",
         })).filter(item => !retainedStems.has(item.question.stem));
         try {
-          const repairedRaw = await repairer(REPAIR_SYSTEM, buildRepairPrompt(rejectedItems, cfg), { questions: [] }, deps.repairMaxTokens || 6000, undefined, undefined,
-            {localPrompt:buildRepairPrompt(rejectedItems,{...cfg,promptProfile:'local'})});
+          const repairedRaw = decodeLocalQuestionWire(await repairer(REPAIR_SYSTEM, buildRepairPrompt(rejectedItems, cfg), { questions: [] }, deps.repairMaxTokens || 6000, undefined, undefined,
+            {localPrompt:buildRepairPrompt(rejectedItems,{...cfg,promptProfile:'local'})}));
           const repaired = stampQuestionOrders(ensureObjectiveAttribution(normalizeQuestions(repairedRaw), cfg.objectives || []), cfg.objectives || []).map((question) => ({ ...question, generationVersion: "v2" }));
           if (repaired.length) {
             const repairedAudit = await auditGeneratedQuestions(repaired, cfg, { ...deps, skipRepair: true });
@@ -1650,6 +1692,7 @@ Issue codes: incorrect_key, ambiguous_key, unsupported_fact, objective_mismatch,
 
 export function buildMcqPrompt(cfg = {}) {
   cfg = schoolCalibratedConfig(cfg);
+  if (cfg.blindSourceReview) return buildLocalMcqPrompt(cfg, selectStyleExemplars(cfg.examples || [], 3, cfg.difficulty, cfg));
   if (cfg.promptProfile === "local") return buildLocalMcqPrompt(cfg, selectStyleExemplars(cfg.examples || [], 1, cfg.difficulty, cfg));
   return (cfg.reasoningPolicy === "challenge" ? "EXPLICIT CHALLENGE POLICY: requested depth applies.\n" : cfg.promptProfile === "compact" ? "" : SCHOOL_DIFFICULTY_CONTRACT + "\n") + (cfg.promptProfile === "compact" ? buildCompactMcqPrompt(cfg) : buildFullMcqPrompt(cfg));
 }

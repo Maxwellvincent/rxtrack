@@ -14,8 +14,9 @@ const server = await createServer({
   server: { middlewareMode: true, hmr: false }, appType: "custom",
   optimizeDeps: { noDiscovery: true, include: [] },
 });
-let generateMcqs, auditGeneratedQuestions, parseBridgeJSON, prepareObjectiveQuiz, preparationPolicy, localPreparationPolicy, questionPreparationBudget, createRequestGate, localQuestionSystem;
+let generateMcqs, auditGeneratedQuestions, parseBridgeJSON, prepareObjectiveQuiz, preparationPolicy, localPreparationPolicy, questionPreparationBudget, createRequestGate, localQuestionSystem, decodeLocalQuestionWire;
 try {
+  ({ decodeLocalQuestionWire } = await server.ssrLoadModule("/src/engine/localQuestionWire.js"));
   ({ LOCAL_QUESTION_SYSTEM: localQuestionSystem } = await server.ssrLoadModule("/src/engine/lectureQuestionContext.js"));
   ({ generateMcqs, auditGeneratedQuestions } = await server.ssrLoadModule("/src/engine/mcq.js"));
   ({ parseBridgeJSON } = await server.ssrLoadModule("/src/llmBridge.js"));
@@ -44,7 +45,7 @@ const started = performance.now();
 const defaultBudget = process.argv.includes("--production-policy") ? questionPreparationBudget(Number(option("--count", cfg.count)), option("--backend", "codex") === "ollama") - 5000 : 240000;
 const budget = Number(option("--budget-ms", String(defaultBudget)));
 const providerRequest = async (system, prompt, fallback, maxTokens, _provider, _temperature, options = {}) => {
-  if (option("--backend", "codex") === "ollama") system = localQuestionSystem;
+  if (option("--backend", "codex") === "ollama") {system = localQuestionSystem;if(Number(options.localMaxTokens)>0)maxTokens=Math.min(maxTokens,options.localMaxTokens);}
   const stage = /Independently (?:audit|solve)/.test(prompt) ? "review" : /Repair (?:every|only)/.test(prompt) ? "repair" : "draft";
   const timing = { stage, promptChars: prompt.length, maxTokens };
   calls.push(timing);
@@ -93,7 +94,7 @@ const requestGate = createRequestGate(3);
 const callAIJSON = (...params) => requestGate(() => providerRequest(...params), params[6]?.signal);
 const reviewFile = option("--review-only", "");
 const draft = reviewFile ? JSON.parse(await readFile(reviewFile, "utf8")) : null;
-const questions = draft?.calls?.find(call => call.stage === "draft")?.result?.questions;
+const questions = decodeLocalQuestionWire(draft?.calls?.find(call => call.stage === "draft")?.result)?.questions;
 const cachedReviewFile = option("--repair-from", "");
 const cachedReviews = cachedReviewFile ? JSON.parse(await readFile(cachedReviewFile, "utf8")).calls.filter(call => call.stage === "review") : [];
 let cachedIndex = 0;

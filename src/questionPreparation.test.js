@@ -186,3 +186,27 @@ it('uses batched starts and switches the next scheduling wave to the local polic
  await deps.callAIJSON('system','prompt');
  expect(deps.preparationPolicy()).toMatchObject({prepareConcurrency:1,prepareBatchSize:3,starterBatchSize:3,reviewBatchSize:3,prepareSpareCandidates:0});
 });
+it('returns to Codex automatically when the bridge confirms a successful request started after the recorded limit',async()=>{
+ vi.useFakeTimers();vi.setSystemTime(1000);
+ questionPreparationCapabilities.mockResolvedValue({writer:'codex',reviewer:'codex',fallbackWriter:'ollama-cloud',localWriter:'ollama'});
+ const call=vi.fn().mockRejectedValueOnce(new Error('Codex usage limit reached; try again in 2 hours')).mockRejectedValueOnce(new Error('Ollama Cloud HTTP 429')).mockResolvedValue({});
+ const first=await questionPreparationDeps(call);await first.callAIJSON('system','draft');
+ vi.setSystemTime(2000);
+ questionPreparationCapabilities.mockResolvedValue({writer:'codex',reviewer:'codex',fallbackWriter:'ollama-cloud',localWriter:'ollama',codexReadyAt:1500});
+ const recovered=await questionPreparationDeps(call);await recovered.callAIJSON('system','new draft');
+ expect(call.mock.calls.at(-1)[6].bridgeBackend).toBe('codex');
+});
+it('does not treat a pre-limit successful request as recovery',async()=>{
+ vi.useFakeTimers();vi.setSystemTime(1000);
+ questionPreparationCapabilities.mockResolvedValue({writer:'codex',reviewer:'codex',fallbackWriter:'ollama-cloud',localWriter:'ollama',codexReadyAt:900});
+ const call=vi.fn().mockRejectedValueOnce(new Error('Codex usage limit reached')).mockRejectedValueOnce(new Error('Ollama Cloud HTTP 429')).mockResolvedValue({});
+ const first=await questionPreparationDeps(call);await first.callAIJSON('system','draft');
+ const next=await questionPreparationDeps(call);await next.callAIJSON('system','new draft');
+ expect(call.mock.calls.at(-1)[6].bridgeBackend).toBe('ollama');
+});
+it('bounds local output headroom without changing cloud budgets or forwarding internal prompt hints',async()=>{
+ questionPreparationCapabilities.mockResolvedValue({writer:'ollama',reviewer:'ollama',localWriter:'ollama'});
+ const call=vi.fn().mockResolvedValue({});const deps=await questionPreparationDeps(call);
+ await deps.callAIJSON('system','draft',{},8000,undefined,undefined,{localMaxTokens:3000});
+ expect(call.mock.calls[0][3]).toBe(3000);expect(call.mock.calls[0][6]).not.toHaveProperty('localMaxTokens');
+});
