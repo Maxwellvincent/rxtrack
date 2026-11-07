@@ -1,5 +1,5 @@
 import { excludedEvidenceKeys } from "../engine/questionScoringPolicy.js";
-import { readCloud, subscribeToCloudStore, writeCloud, writeCloudAwait, isHydrated as cloudIsHydrated, readError as cloudReadError } from "./cloudBase.js";
+import { readCloud, subscribeToCloudStore, writeCloud, writeCloudAwait, updateCloudAwait, isHydrated as cloudIsHydrated, readError as cloudReadError } from "./cloudBase.js";
 import { readJson, writeJson } from "./base.js";
 
 import * as questionRatings from "./questionRatings.js";
@@ -244,7 +244,8 @@ export async function recordEvidenceBatchAwait(userId, events, { removeEventIds 
     const error = cloudReadError(userId, key);
     if (error) throw error;
   }
-  const stored = userId ? readCloud(userId, key, fallback) || fallback : readJson(userId, key, fallback) || fallback;
+  const rebuild = storedValue => {
+  const stored=storedValue||fallback;
   const baseline = stored.evidenceBaseline || stored;
   const journal = mergeEvidenceJournal((stored.evidenceJournal || []).filter(event => !removeEventIds.includes(event.eventId)), events);
   journal.sort((a, b) => (a.at || 0) - (b.at || 0));
@@ -254,9 +255,10 @@ export async function recordEvidenceBatchAwait(userId, events, { removeEventIds 
   const next = { ...stored, ...projected,
     testTaking: { ...projected.testTaking, reasons: stored.testTaking?.reasons || {}, missTypes: stored.testTaking?.missTypes || {}, diagnosticKeys: stored.testTaking?.diagnosticKeys || [] },
     evidenceBaseline: baseline, evidenceJournal: journal };
-  if (userId) await writeCloudAwait(userId, key, next);
-  else writeJson(userId, key, next);
   return next;
+  };
+  if(userId)return updateCloudAwait(userId,key,rebuild);
+  const next=rebuild(readJson(userId,key,fallback));writeJson(userId,key,next);return next;
 }
 
 export function recordEvidenceAwait(userId, event) {

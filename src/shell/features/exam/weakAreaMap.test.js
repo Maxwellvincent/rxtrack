@@ -49,3 +49,7 @@ it("uses recent retests for priority without erasing lifetime accuracy or report
  expect(rows[1].reportTopics).toEqual(["Reported pathway weakness"]);
  expect(rows[1].totalQuestions).toBe(0);
 });
+it('replaces a stale eight-answer weakness with the complete latest quiz log',()=>{
+ const [r]=buildWeakAreaMap({lectures:[{id:'retina'}],questionStats:{retina:{answered:39,correct:27,recentAnswers:Array.from({length:20},(_,i)=>({correct:i<17,at:1000+i}))}},learnerEvidence:{lectures:{retina:{lastSeen:1019,recent:[true,false,false,false,false,false,true,false]}}}});
+ expect(r).toMatchObject({recentCount:20,recentAccuracy:.85,priorityAccuracy:.85,totalQuestions:39});
+});

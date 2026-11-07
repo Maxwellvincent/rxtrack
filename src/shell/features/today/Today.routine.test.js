@@ -18,7 +18,7 @@ describe("optimized daily routine", () => {
     expect(suggestedDayMode(3, "05:00")).toBe("exam");
     expect(suggestedDayMode(1, "05:00")).toBe("exam");
     expect(suggestedDayMode(0, "05:00")).toBe("exam");
-    expect(suggestedDayMode(4, "05:00")).toBe("lecture");
+    expect(suggestedDayMode(4, "05:00", {todayKey:"2026-11-06"})).toBe("lecture");
   });
 
   it("balances struggling repair with unseen objective coverage in exam prep", () => {

@@ -10,6 +10,7 @@ vi.mock("../stores/learnerEvidence.js", () => ({
   questionEvidenceKey: (value) => String(value || ""),
   read: () => ({ objectives: {} }),
   recordEvidence: vi.fn(),
+  recordEvidenceAwait: vi.fn().mockResolvedValue(undefined),
   recordReflection: vi.fn(),
 }));
 vi.mock("../engine/calibrationStore.js", () => ({ appendCalibration: vi.fn() }));

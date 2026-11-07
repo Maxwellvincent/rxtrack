@@ -20,7 +20,9 @@ export function buildWeakAreaMap({ lectures = [], objectives = [], questionStats
     const totalQuestions = Math.max(0, Number(questionStats?.[lecture.id]?.answered) || 0);
     const correct = Math.min(totalQuestions, Math.max(0, Number(questionStats?.[lecture.id]?.correct) || 0));
     const accuracy = totalQuestions ? correct / totalQuestions : null;
-    const recent = learnerEvidence?.lectures?.[lecture.id]?.recent || [];
+    const detailed=questionStats?.[lecture.id]?.recentAnswers||[];
+    const useDetailed=detailed.length>=3&&detailed.at(-1).at>=(learnerEvidence?.lectures?.[lecture.id]?.lastSeen||0)-1000;
+    const recent = useDetailed?detailed.map(a=>a.correct):learnerEvidence?.lectures?.[lecture.id]?.recent || [];
     const recentAccuracy = recent.length ? recent.filter(Boolean).length / recent.length : null;
     const priorityAccuracy = recent.length >= 3 ? recentAccuracy : accuracy;
     const reportTopics = [...new Set((reportWeaknesses || []).filter(entry =>

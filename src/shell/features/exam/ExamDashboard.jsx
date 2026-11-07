@@ -280,7 +280,7 @@ export function ExamDashboard({ blockId, userId, lectures = [], questionStats = 
   const missTypeTotal = missTypeRows.reduce((sum, row) => sum + row.count, 0);
   const depthRows = REASONING_DEPTHS.map(id => ({ id, ...(process.reasoningDepths?.[id] || {}) })).filter(row => row.attempts);
   const positionStats = process.positionStats || {};
-  const recoveredQuestionStats = useMemo(() => reconcileLectureStats(questionStats,sessions,lectures,blockId), [questionStats,sessions,lectures,blockId]);
+  const recoveredQuestionStats = useMemo(() => reconcileLectureStats(questionStats,sessions,lectures,blockId,studyAnswers), [questionStats,sessions,lectures,blockId,studyAnswers]);
   const weakAreas = buildWeakAreaMap({
     lectures,
     objectives,

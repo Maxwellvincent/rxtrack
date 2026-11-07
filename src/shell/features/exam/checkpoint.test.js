@@ -53,19 +53,19 @@ it("ignores unsaved or abandoned progress and retains quality exclusions", async
 
 it("preserves hydrated cloud history and retries a failed publish without duplication", async () => {
  const { __setCloudBackendForTests, resetCloudStores } = await import("../../../stores/cloudBase.js");
- let listener;
+ let listener;let serverData;
  const put = vi.fn().mockRejectedValueOnce(new Error("connection lost")).mockResolvedValue(undefined);
- __setCloudBackendForTests({ doc: (_db,...parts)=>parts.join("/"), onSnapshot: (_path,next)=>{listener=next;return ()=>{};}, setDoc: put, serverTimestamp:()=>"server" });
+ __setCloudBackendForTests({ doc: (_db,...parts)=>parts.join("/"), onSnapshot: (_path,next)=>{listener=next;return ()=>{};}, setDoc: put, runTransaction:async(_db,fn)=>{let write;const value=await fn({get:async()=>({exists:()=>true,data:()=>({data:serverData})}),set:(ref,data)=>{write=[ref,data];}});await put(...write);serverData=write[1].data;return value;},serverTimestamp:()=>"server" });
  try {
    const first=checkpointExamSession("checkpoint-user","s1");
    await Promise.resolve(); await Promise.resolve();
    expect(put).not.toHaveBeenCalled();
-   listener({ exists:()=>true, data:()=>({data:evidence.applyEvidence(null,{questionKey:"old",objectiveIds:["old-objective"],correct:true})}) });
+   serverData=evidence.applyEvidence(null,{questionKey:"old",objectiveIds:["old-objective"],correct:true});listener({ exists:()=>true, data:()=>({data:serverData}) });
    await expect(first).rejects.toThrow("connection lost");
    expect(state.session.status).toBe("in_progress");
    await checkpointExamSession("checkpoint-user","s1");
    expect(put).toHaveBeenCalledTimes(2);
-   const saved=put.mock.calls[1][1].data;
+   const rawSaved=put.mock.calls[1][1].data;const saved=(rawSaved.evidenceJournal||[]).reduce((m,e)=>evidence.applyEvidence(m,e),rawSaved.evidenceBaseline||rawSaved);
    expect(saved.total).toBe(2);
    expect(saved.objectives["old-objective"].attempts).toBe(1);
    expect(saved.objectives.o.attempts).toBe(1);

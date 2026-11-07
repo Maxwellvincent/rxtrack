@@ -1,3 +1,4 @@
+import {evidenceStorageValue} from './evidenceStorage.js';
 import { releaseConfirmedCloudCopy } from "../browserStorage.js";
 import { applyLocalCap, SKIP_ON_PULL } from "./capped.js";
 /**
@@ -238,7 +239,7 @@ export function writeCloud(userId, logicalKey, value, { merge = false } = {}) {
 
   const { setDoc: put, serverTimestamp: stamp } = api();
   Promise.resolve(
-    put(docRef(userId, logicalKey), { data: stripUndefined(value), updatedAt: stamp() }, { merge })
+    put(docRef(userId, logicalKey), { data: stripUndefined(evidenceStorageValue(logicalKey,value)), updatedAt: stamp() }, { merge })
   ).catch((e) => console.warn(`store ${logicalKey}: write failed`, e?.message || e));
 
   return value;
@@ -262,7 +263,7 @@ export function writeCloudAwait(userId, logicalKey, value) {
 
   const { setDoc: put, serverTimestamp: stamp } = api();
   return Promise.resolve(
-    put(docRef(userId, logicalKey), { data: stripUndefined(value), updatedAt: stamp() }, { merge: false })
+    put(docRef(userId, logicalKey), { data: stripUndefined(evidenceStorageValue(logicalKey,value)), updatedAt: stamp() }, { merge: false })
   ).then(() => value); // deliberately no .catch — rejection must propagate to the caller
 }
 
@@ -274,7 +275,7 @@ export async function updateCloudAwait(userId, logicalKey, update) {
   const value = await transact(db, async transaction => {
     const snapshot = await transaction.get(ref);
     const next = stripUndefined(update(snapshot.exists() ? snapshot.data()?.data : undefined));
-    transaction.set(ref, {data: next, updatedAt: stamp()});
+    transaction.set(ref, {data: evidenceStorageValue(logicalKey,next), updatedAt: stamp()});
     return next;
   });
   const entry = entryFor(userId, logicalKey);

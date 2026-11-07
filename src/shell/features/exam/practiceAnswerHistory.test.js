@@ -30,3 +30,7 @@ it('subtracts traceable pre-baseline answers from the legacy aggregate rather th
  const history=practiceAnswerHistory([{ts:20,lectureId:'l',concept:'Early',correct:true}],{evidenceBaseline:{updatedAt:30,lectures:{l:{attempts:3,correct:2}}}},'b',['l']);
  expect(questionProgress(history.studyAnswers,[],{},[],history.historicalStudy)).toMatchObject({answered:3,correct:2});
 });
+it('deduplicates the legacy quiz mirror with a different key but the same uniquely timed answer',()=>{
+ const result=practiceAnswerHistory([{blockId:'b',lectureId:'l',sessionKey:'s',questionKey:'old-calibration-id',ts:1000,correct:true}],{evidenceJournal:[{source:'quiz',blockId:'b',lectureId:'l',sessionKey:'s',questionKey:'pool-id',at:1001,correct:true}]},'b',['l']);
+ expect(result.studyAnswers).toHaveLength(1);
+});

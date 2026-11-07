@@ -10,10 +10,12 @@ export function practiceAnswerHistory(calibration=[],evidence={},blockId,lecture
   if(seen.has(key))continue;seen.add(key);
   answers.push({...event,ts:event.at,concept:event.concept||event.atomKey||event.questionKey||'Lecture question'});
  }
+ const matched=new Set();
  for(const entry of calibration){
   if(questionIsExcluded(entry,ratings))continue;
   const key=evidenceIdentity(entry.questionKey||entry.stem);
-  const mirrored=key&&answers.some(a=>a.sessionKey===entry.sessionKey&&evidenceIdentity(a.questionKey)===key&&Math.abs(a.ts-entry.ts)<=1000);
+  const candidates=answers.map((a,i)=>({a,i})).filter(({a,i})=>!matched.has(i)&&a.sessionKey===entry.sessionKey&&Math.abs(a.ts-entry.ts)<=1000&&((entry.eventId&&a.eventId===entry.eventId)||(key&&evidenceIdentity(a.questionKey)===key)||(a.lectureId===entry.lectureId&&a.correct===entry.correct&&Math.abs(a.ts-entry.ts)<=10)));
+  const match=candidates.length===1?candidates[0]:null;const mirrored=!!match;if(match)matched.add(match.i);
   if(!mirrored)answers.push(entry);
  }
  const historicalStudy={answered:0,correct:0};

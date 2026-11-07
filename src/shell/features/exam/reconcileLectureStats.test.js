@@ -16,3 +16,8 @@ it('recovers a source-number-linked homework answer using the same projection fo
  expect(reconcileLectureStats({},[old],lectures,'b').l).toMatchObject({answered:1,correct:0});
  expect(reconcileLectureStats({},[{...old,blockId:'other'}],lectures,'b')).toEqual({});
 });
+it('uses all 20 latest quiz answers for priority without adding them again to lifetime totals',()=>{
+ const study=Array.from({length:20},(_,i)=>({lectureId:'l',blockId:'b',correct:i<17,ts:10000+i,sessionKey:'new'}));
+ const result=reconcileLectureStats({l:{answered:39,correct:27}},[],lectures,'b',study);
+ expect(result.l).toMatchObject({answered:39,correct:27});expect(result.l.recentAnswers).toHaveLength(20);expect(result.l.recentAnswers.filter(a=>a.correct)).toHaveLength(17);
+});

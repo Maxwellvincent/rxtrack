@@ -22,7 +22,7 @@ export function examSprintPriorities({blockId,lectures=[],objectives=[],question
   const sample=row.recentCount>=3?row.recentCount:row.totalQuestions;
   const confidence=sample/(sample+8);
   const untested=row.objectivesUntested/row.objectiveTotal;
-  const weakness=accuracy==null?0:(1-accuracy)*confidence;
+  const weakness=accuracy==null?0:Math.max(0,0.8-accuracy)*confidence;
   const minutes=Math.min(45,Math.max(20,15+Math.min(30,row.strugglingObjectives*3+row.objectivesUntested)));
   return {...row,minutes,score:weight*(weakness+untested*.12)/minutes,subjectLabels:known.map(s=>SUBJECT_LABELS[s]),sample,usesRecent:row.recentCount>=3};
  }).filter(row=>row.score>0).sort((a,b)=>b.score-a.score||b.sample-a.sample||String(a.lectureId).localeCompare(String(b.lectureId)));

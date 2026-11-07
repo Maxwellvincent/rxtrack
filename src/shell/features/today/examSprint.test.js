@@ -28,3 +28,7 @@ it('targets a new miss and does not select a recovered objective by its stale st
  const rows=examSprintPriorities({blockId:'NB',lectures:[{id:'a',blockId:'NB'}],objectives:[{id:'recovered',linkedLecId:'a',status:'struggling'},{id:'miss',linkedLecId:'a',status:'mastered'}],questionStats:{a:{answered:10,correct:5}},learnerEvidence:{objectives:{recovered:{attempts:5,correct:5,recent:[true,true,true,true,true]},miss:{attempts:1,correct:0,recent:[false]}}}});
  expect(rows[0].action).toBe('repair');expect(rows[0].focusObjectiveIds).toEqual(['miss']);
 });
+it('does not prescribe broad repair for a recovered 85% lecture while weaker lectures remain',()=>{
+ const rows=examSprintPriorities({...data,exam:null,learnerEvidence:{...data.learnerEvidence,lectures:{a:{recent:[true,false,false,false,false,false,true,false],lastSeen:1000}}},questionStats:{...data.questionStats,a:{answered:39,correct:27,recentAnswers:Array.from({length:20},(_,i)=>({correct:i<17,at:1000+i}))}}});
+ expect(rows.some(r=>r.lectureId==='a')).toBe(false);
+});

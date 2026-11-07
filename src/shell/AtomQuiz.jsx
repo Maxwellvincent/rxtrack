@@ -11,7 +11,7 @@ import { classify, atomsToReview } from "../engine/calibration.js";
 import { appendCalibration } from "../engine/calibrationStore.js";
 import { recordAnswer } from "../stores/lectureQuestionStats.js";
 import { recordAtomAnswer } from "../stores/atomProgress.js";
-import { questionEvidenceKey, read as readLearnerEvidence, recordEvidence, recordReflection } from "../stores/learnerEvidence.js";
+import { questionEvidenceKey, read as readLearnerEvidence, recordEvidenceAwait, recordReflection } from "../stores/learnerEvidence.js";
 import { classifyLeadIn, ERROR_REASONS } from "./features/exam/questionReading.js";
 import * as objectivesStore from "../stores/blockObjectives.js";
 import { recordObjectiveAttempt, selectBlockObjectives, storageKeyFor, toEntry } from "./logic/objectives.js";
@@ -45,6 +45,7 @@ const GAP = {
 // gap. Confidence logs to the block's calibration record; session ends with the
 // accuracy-by-confidence curve + landmine list.
 export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "", lectureTitle = "", lectureNumber = null, lectureId = null, userId, onDone, onExit, onReviewAtom, onAnswer, onCheckpoint, initialState = null, expectedCount = null, preparing = false, onPrepareMore = null, preparationError = null, objectiveReport = null, sessionKey = null }) {
+  const [evidenceSaveError,setEvidenceSaveError]=useState('');
   const [i, setI] = useState(() => Math.max(0, Number(initialState?.i) || 0));
   const [picked, setPicked] = useState(() => initialState?.picked ?? null);
   const [confidence, setConfidence] = useState(() => initialState?.confidence ?? null);
@@ -115,9 +116,12 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
     const isCorrect = picked === q.correct;
     const responseMs = nowMs() - questionStartedAtRef.current;
     setConfidence(level);
+    const answerAt=nowMs();
+    const answerKey=q.poolId||q.id||q.questionId||q.questionKey||`stem:${q.stem||""}`;
+    const answerEventId=`quiz:${evidenceSessionKeyRef.current}:${currentIndex}:${questionEvidenceKey(answerKey)}`;
     const rec = {
-      lectureId, blockId, sessionKey: evidenceSessionKeyRef.current,
-      questionKey: q.questionKey || q.poolId || q.id || q.questionId || `stem:${q.stem || ""}`,
+      eventId:answerEventId,ts:answerAt,lectureId, blockId, sessionKey: evidenceSessionKeyRef.current,
+      questionKey: answerKey,
       learningContext: questionLearningContext(q, picked),
       objectiveFacetId:q.objectiveFacetId || null,sourceRelationshipIds:q.sourceRelationshipIds || [],relationshipSourceVersion:q.relationshipSourceVersion || null,
       concept: q.topic || q.stem.slice(0, 60),
@@ -134,13 +138,13 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
       difficulty: q.difficulty || null,
     };
     appendCalibration(userId, blockId, rec);
-    const evidenceQuestionKey = questionEvidenceKey(q.poolId || q.id || q.questionId || `stem:${q.stem || ""}`);
+    const evidenceQuestionKey = questionEvidenceKey(answerKey);
     const priorObjectiveEvidence = readLearnerEvidence(userId)?.objectives || {};
     const newEvidenceObjectiveIds = (q.objectiveIds || []).filter((objectiveId) =>
       !(priorObjectiveEvidence[objectiveId]?.questionKeys || []).includes(evidenceQuestionKey)
     );
-    recordEvidence(userId, {
-      source: "quiz",
+    recordEvidenceAwait(userId, {
+      eventId:answerEventId,at:answerAt,source: "quiz",
       sessionKey: evidenceSessionKeyRef.current,
       blockId,
       lectureId,
@@ -158,7 +162,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
       taskType: classifyLeadIn(q.stem),
       orderLevel: q.orderLevel || classifyQuestionOrder(q),
       reasoningVerified: hasCurrentReasoningAudit(q),
-    });
+    }).catch(error=>setEvidenceSaveError(error.message));
     // Source-grounded fallbacks preserve access when AI generation is unavailable,
     // but foundational recognition is not equivalent to an independently reviewed
     // ExamSoft-style objective test and must not graduate objective mastery.
@@ -240,6 +244,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
           style={{ width: `${((currentIndex + 1) / displayedTotal) * 100}%` }}
         />
       </div>
+      {evidenceSaveError&&<p role="alert" className="text-sm text-bad">Progress could not sync: {evidenceSaveError}. Return to Today when connected to check and recover saved answer history.</p>}
       <div className="quiz-question-card rounded-lg border border-border bg-bg-elevated p-3">
         {q.sourceType === "question-bank" && <p className="mb-2 text-xs text-text-3">Original school question · {q.sourceFile}</p>}
         {q.generationMode === "grounded-fallback" && (
