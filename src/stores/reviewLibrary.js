@@ -58,3 +58,17 @@ export async function loadReviewContext(uid,block,input){
  }))).flat()})));loaded.set(cacheKey,{revision:manifest.revision,packs});}
  return {...selectReviewContext(packs,input),origin:'account-cloud',revision:manifest.revision};
 }
+
+/** Append or update one source without replacing other sources or learner data. */
+export async function addReviewPack(uid,block,pack){
+ if(!uid||!block)throw new Error('Sign in before uploading review sources.');
+ const prepared=prepareReviewLibrary(block,{version:1,module:'NB2',packs:[pack]});
+ for(const doc of prepared.docs)await updateCloudAwait(uid,doc.key,old=>old?.revision===doc.data.revision?old:doc.data);
+ const manifest=await updateCloudAwait(uid,reviewManifestKey(block),old=>{
+  const prior=old?.ready?old.packs:[];
+  const sourceName=pack.name.trim().toLowerCase();
+  const packs=[...prior.filter(p=>p.id!==pack.id&&p.name.trim().toLowerCase()!==sourceName),prepared.manifest.packs[0]];
+  if(packs.length>30)throw new Error('This block supports up to 30 review sources.');
+  return {...prepared.manifest,packs,totalUnits:packs.reduce((n,p)=>n+p.count,0),revision:stableRecordId(JSON.stringify(packs),'library')};
+ });loaded.delete(`${uid}:${block}`);return manifest;
+}

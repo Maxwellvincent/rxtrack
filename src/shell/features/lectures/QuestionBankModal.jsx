@@ -1,3 +1,4 @@
+import {ReviewSourceStatus} from './ReviewSourceStatus.jsx';
 import * as sourceUseStore from "../../../stores/sourceUse.js";
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "../../../ui/Button.jsx";
@@ -102,6 +103,7 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], obje
           <button type="button" onClick={() => setShowAllBanks(true)} className={`border-b-2 px-3 py-2 text-sm font-bold ${showAllBanks ? "border-accent text-accent-text" : "border-transparent text-text-3"}`}>All banks · {allNames.length}</button>
         </div>
 
+        <ReviewSourceStatus userId={userId} blockId={blockId} />
         <details className="mb-3 text-sm"><summary className="cursor-pointer">Evaluation source settings</summary>
           <label className="mt-2 flex items-start gap-2"><input type="checkbox" checked={reserveForEvaluation} onChange={event=>setReserveForEvaluation(event.target.checked)} />Reserve these files for evaluation</label>
           <p className="mt-1 text-xs text-text-3">Reserved questions stay available as originals but are excluded from generation examples and style calibration. Previous exposure stays unknown; reserving does not make a question unseen.</p>

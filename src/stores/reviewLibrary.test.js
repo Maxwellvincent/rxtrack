@@ -23,3 +23,19 @@ it('never advertises a partially uploaded library as ready, and retries without 
  failAt=0;await saveLibrary('retry-user','b',raw);expect(read('retry-user','b').ready).toBe(true);const before=transactions;await saveLibrary('retry-user','b',raw);expect(transactions).toBe(before);
 });
 it('rejects a different module before any cloud writes',()=>{expect(()=>prepareReviewLibrary('b',{...payload(),module:'NB1'})).toThrow();expect(documents.size).toBe(0);});
+it('appends sources without discarding the migrated library and deduplicates reuploads',async()=>{
+ const {addReviewPack}=await import('./reviewLibrary.js');
+ await saveLibrary('append-user','nb2',payload('original'));
+ await addReviewPack('append-user','nb2',{...payload('new').packs[0],name:'second.pdf'});
+ expect(read('append-user','nb2').packs.map(p=>p.id)).toEqual(['poriginal','pnew']);
+ await addReviewPack('append-user','nb2',{...payload('new').packs[0],name:'second.pdf'});
+ expect(read('append-user','nb2').packs).toHaveLength(2);
+ expect(read('append-user','nb2').totalUnits).toBe(2);
+});
+
+it('updates a changed review file with the same name without compounding sources',async()=>{
+ const {addReviewPack}=await import('./reviewLibrary.js');
+ await saveLibrary('version-user','nb2',payload('v1'));
+ await addReviewPack('version-user','nb2',payload('v2').packs[0]);
+ expect(read('version-user','nb2').packs.map(p=>p.id)).toEqual(['pv2']);
+});

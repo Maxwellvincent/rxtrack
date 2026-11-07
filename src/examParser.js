@@ -1637,7 +1637,7 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
   }
   const deterministicKeyedCount = deterministic.filter((question) => question.correct && question.choices?.[question.correct]).length;
   if (opts?.requireSourceKeys && format === "standard" && !expectedFromKey && deterministicKeyedCount < 3) {
-    throw new Error("No source answer key was detected. This bank was not imported because generated or medically inferred answers would not be source-verified.");
+    throw new Error("No source answer key was detected. For review summaries or teaching slides, use Upload review sources instead (NB2 import window or lecture Sources & tools). Scored question banks require a printed source answer key; no answers were guessed.");
   }
   if (format === "madcow") {
     questions = parseMadcowPages(pages, examTitle);

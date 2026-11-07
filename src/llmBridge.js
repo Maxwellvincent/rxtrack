@@ -335,3 +335,12 @@ export async function bridgeReviewLibrary(){
  if(response.status===404)return null;if(!response.ok)throw new Error('Review library migration is unavailable.');
  return response.json();
 }
+
+/** Local OCR only, used during source upload; generation reads the cloud copy. */
+export async function bridgeReviewPdf(bytes){
+ if(!(await bridgeAvailable()))throw new Error('This PDF needs OCR. Open the Mac bridge for local OCR, or upload an OCR text export. Stored review sources work without the bridge.');
+ const array=new Uint8Array(bytes);let binary='';for(let i=0;i<array.length;i+=0x8000)binary+=String.fromCharCode(...array.subarray(i,i+0x8000));
+ return withDeadline(async signal=>{const response=await fetch(`${BRIDGE_URL}/review-pdf`,{method:'POST',signal,headers:{'content-type':'application/json'},body:JSON.stringify({data:btoa(binary)})});
+ if(!response.ok)throw new Error('Local review OCR could not finish. Update the bridge or upload an OCR text export.');const result=await response.json();if(!Array.isArray(result.pages))throw new Error('Invalid review OCR response.');return result.pages;
+ },300000,undefined,'Local review OCR');
+}
