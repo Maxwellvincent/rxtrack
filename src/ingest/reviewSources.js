@@ -6,7 +6,7 @@ export function readableReviewText(text){
  return s.trim().length>=70 && !Array.from(s).some(c=>c.charCodeAt(0)<9||(c.charCodeAt(0)>13&&c.charCodeAt(0)<32)) && (s.match(/\b(the|and|of|to|is|in|with|for|from|nerve|lesion|motor|sensory|blood)\b/gi)||[]).length>=2;
 }
 export async function extractReviewFile(file,onProgress=()=>{},existing=[]){
- if(!file||file.size>20_000_000)throw new Error('Choose a review file smaller than 20 MB.');
+ if(!file||file.size>100_000_000)throw new Error('Choose a review file smaller than 100 MB.');
  const bytes=await file.arrayBuffer();
  const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),b=>b.toString(16).padStart(2,'0')).join('');
  const saved=existing.find(p=>p.sourceVersion===hash);if(saved)return {alreadySaved:true,name:saved.name};
@@ -17,7 +17,7 @@ export async function extractReviewFile(file,onProgress=()=>{},existing=[]){
   const indexed=await bridgeReviewLibrary().catch(()=>null);
   const known=indexed?.packs?.find(p=>p.sourceVersion===hash);
   if(known)return {...known,name:file.name};
-  await loadPDFJS();const pdf=await window.pdfjsLib.getDocument({data:new Uint8Array(bytes),verbosity:0}).promise;
+  await loadPDFJS();const pdf=await window.pdfjsLib.getDocument({data:new Uint8Array(bytes.slice(0)),verbosity:0}).promise;
   try{
    if(pdf.numPages>1000)throw new Error('Choose a PDF with at most 1,000 pages.');
    for(let i=1;i<=pdf.numPages;i++){

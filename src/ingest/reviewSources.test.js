@@ -17,3 +17,5 @@ it('uses local OCR for garbled PDF text and releases the document',async()=>{
  bridge.bridgeReviewPdf.mockResolvedValue([{page:1,text,method:'vision-local',confidence:0.9}]);
  const p=await extractReviewFile(file('review.pdf','%PDF-test'));expect(bridge.bridgeReviewPdf).toHaveBeenCalledOnce();expect(p.units[0].method).toBe('vision-local');expect(destroy).toHaveBeenCalledOnce();
 });
+
+it('rejects oversized uploads before reading file bytes',async()=>{const f={name:'big.pdf',size:100_000_001,arrayBuffer:vi.fn()};await expect(extractReviewFile(f)).rejects.toThrow('100 MB');expect(f.arrayBuffer).not.toHaveBeenCalled();});
