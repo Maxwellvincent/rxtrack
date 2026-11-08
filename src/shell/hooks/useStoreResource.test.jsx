@@ -110,3 +110,9 @@ it('keeps derived store data stable across unrelated component renders',async()=
  await act(async()=>root.render(<Probe tick={1}/>));const first=seen.at(-1);
  await act(async()=>root.render(<Probe tick={2}/>));expect(seen.at(-1)).toBe(first);await act(async()=>root.unmount());
 });
+it('shares large unchanged snapshots without traversing their content on each render',async()=>{
+ installDomStorage();let traversals=0;const data={get nested(){traversals++;return {answers:Array.from({length:100},(_,i)=>i)};}};const store=makeStore(data);let subscriptions=0;const original=store.subscribe;store.subscribe=cb=>{subscriptions++;return original(cb);};
+ const host=document.createElement('div'),root=createRoot(host);function Probe({tick}){useStoreResource(store,'speed');return <span>{tick}</span>;}
+ await act(async()=>root.render(<><Probe tick={1}/><Probe tick={1}/></>));const initial=traversals;
+ await act(async()=>root.render(<><Probe tick={2}/><Probe tick={2}/></>));expect(traversals).toBe(initial);expect(subscriptions).toBe(1);await act(async()=>root.unmount());
+});

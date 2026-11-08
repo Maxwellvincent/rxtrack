@@ -1,6 +1,7 @@
 const STORE_EVENT = "rxt-store-changed";
 let storageBridgeInstalled = false;
 const cloudSavedCache = new Map();
+const parsedCache = new Map();
 
 export function physicalKey(userId, logicalKey) {
   return userId ? `rxt:${userId}:${logicalKey}` : logicalKey;
@@ -18,9 +19,10 @@ function storage() {
   return typeof localStorage !== "undefined" ? localStorage : null;
 }
 
-function parseJson(raw, fallback) {
-  if (raw == null) return fallback;
-  try { return JSON.parse(raw); }
+function parseJson(raw, fallback, key) {
+  if (raw == null) {parsedCache.delete(key);return fallback;}
+  const prior=parsedCache.get(key);if(prior?.raw===raw)return prior.value;
+  try { const value=JSON.parse(raw);if(parsedCache.size>=64)parsedCache.delete(parsedCache.keys().next().value);parsedCache.set(key,{raw,value});return value; }
   catch { return fallback; }
 }
 
@@ -47,8 +49,8 @@ export function readJson(userId, logicalKey, fallback) {
   const target = resolveWriteKey(userId, logicalKey);
   if (cloudSavedCache.has(target)) return cloudSavedCache.get(target);
   const namespaced = userId ? ls.getItem(physicalKey(userId, logicalKey)) : null;
-  if (namespaced != null) return parseJson(namespaced, fallback);
-  return parseJson(ls.getItem(logicalKey), fallback);
+  if (namespaced != null) return parseJson(namespaced, fallback, physicalKey(userId,logicalKey));
+  return parseJson(ls.getItem(logicalKey), fallback, logicalKey);
 }
 
 /**
@@ -84,6 +86,7 @@ export function writeJson(userId, logicalKey, value, { fallback, merge, silent, 
   try {
     ls.setItem(target, JSON.stringify(next));
     cloudSavedCache.delete(target);
+    parsedCache.delete(target);
   } catch (error) {
     // Opt-in only after the authoritative cloud write succeeded. Ordinary
     // local-only study writes must still surface failures instead of losing data.

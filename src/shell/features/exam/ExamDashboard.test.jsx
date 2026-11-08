@@ -1,3 +1,4 @@
+import {invalidateSessionReads} from '../../hooks/sessionReadCache.js';
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { act } from "react";
@@ -38,6 +39,7 @@ vi.mock("../../../stores/learnerEvidence.js", async importOriginal => ({
   subscribe: () => () => {},
 }));
 vi.mock("../../../stores/calibrationByBlock.js", () => ({
+  isHydrated:()=>true,readError:()=>null,read:()=>({"b1":[{ts:1,concept:"Study question",correct:true}]}),
   readBlock: () => [{ts:1,concept:'Study question',correct:true}],
   subscribe: () => () => {},
 }));
@@ -158,6 +160,7 @@ function a(questionId, value) {
 }
 
 beforeEach(() => {
+  invalidateSessionReads();
   installDomStorage();
   listExamSessionsMock.mockReset();
   readWeakConceptsMock.mockReset();

@@ -1,8 +1,9 @@
-import {evidenceIdentity,questionIsExcluded} from '../../../engine/questionScoringPolicy.js';
+import {evidenceIdentity,excludedEvidenceKeys,questionIdentityValues} from '../../../engine/questionScoringPolicy.js';
 /** Reconcile mirrored per-answer writes, without collapsing later retakes even
  * when a legacy quiz reused the same session key. No synthetic answer records. */
 export function practiceAnswerHistory(calibration=[],evidence={},blockId,lectureIds=[],ratings={}){
- const events=(evidence.evidenceJournal||[]).filter(e=>e.source==='quiz'&&e.blockId===blockId&&typeof e.correct==='boolean'&&Number.isFinite(e.at)&&!questionIsExcluded(e,ratings));
+ const excluded=excludedEvidenceKeys(ratings);const isExcluded=q=>questionIdentityValues(q).some(v=>excluded.has(evidenceIdentity(v)));
+ const events=(evidence.evidenceJournal||[]).filter(e=>e.source==='quiz'&&e.blockId===blockId&&typeof e.correct==='boolean'&&Number.isFinite(e.at)&&!isExcluded(e));
  const answers=[];
  const seen=new Set();
  for(const event of events){
@@ -10,13 +11,15 @@ export function practiceAnswerHistory(calibration=[],evidence={},blockId,lecture
   if(seen.has(key))continue;seen.add(key);
   answers.push({...event,ts:event.at,concept:event.concept||event.atomKey||event.questionKey||'Lecture question'});
  }
- const matched=new Set();
+ const matched=new Set(),bySession=new Map();
+ const indexAnswer=(a,i)=>{const list=bySession.get(a.sessionKey)||[];list.push({a,i,key:evidenceIdentity(a.questionKey)});bySession.set(a.sessionKey,list);};
+ answers.forEach(indexAnswer);
  for(const entry of calibration){
-  if(questionIsExcluded(entry,ratings))continue;
+  if(isExcluded(entry))continue;
   const key=evidenceIdentity(entry.questionKey||entry.stem);
-  const candidates=answers.map((a,i)=>({a,i})).filter(({a,i})=>!matched.has(i)&&a.sessionKey===entry.sessionKey&&Math.abs(a.ts-entry.ts)<=1000&&((entry.eventId&&a.eventId===entry.eventId)||(key&&evidenceIdentity(a.questionKey)===key)||(a.lectureId===entry.lectureId&&a.correct===entry.correct&&Math.abs(a.ts-entry.ts)<=10)));
+  const candidates=(bySession.get(entry.sessionKey)||[]).filter(({a,i,key:answerKey})=>!matched.has(i)&&a.sessionKey===entry.sessionKey&&Math.abs(a.ts-entry.ts)<=1000&&((entry.eventId&&a.eventId===entry.eventId)||(key&&answerKey===key)||(a.lectureId===entry.lectureId&&a.correct===entry.correct&&Math.abs(a.ts-entry.ts)<=10)));
   const match=candidates.length===1?candidates[0]:null;const mirrored=!!match;if(match)matched.add(match.i);
-  if(!mirrored)answers.push(entry);
+  if(!mirrored){answers.push(entry);indexAnswer(entry,answers.length-1);}
  }
  const historicalStudy={answered:0,correct:0};
  for(const id of new Set(lectureIds)){

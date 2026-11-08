@@ -1,3 +1,4 @@
+import {invalidateSessionReads} from '../../hooks/sessionReadCache.js';
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { act } from "react";
@@ -32,6 +33,7 @@ async function flush() {
 
 describe("DailyQuestionScore", () => {
   beforeEach(() => {
+    invalidateSessionReads();
     installDomStorage();
     readBlockMock.mockReset();
     readBlockMock.mockReturnValue([]);

@@ -222,11 +222,14 @@ function ensureSubscribed(userId) {
  * Before the first snapshot lands it falls back to whatever localStorage holds,
  * so a reload shows the last known objectives rather than an empty block.
  */
+const snapshots=new WeakMap();
 export function read(userId) {
   if (!userId) return readJson(userId, key, {});
   ensureSubscribed(userId);
   if (!state.hydrated) return readJson(userId, key, {});
-  return Object.fromEntries(state.blocks);
+  const cached=snapshots.get(state.blocks);
+  if(cached&&cached.entries.length===state.blocks.size&&cached.entries.every(([key,value])=>state.blocks.get(key)===value))return cached.value;
+  const entries=[...state.blocks],value=Object.fromEntries(entries);snapshots.set(state.blocks,{entries,value});return value;
 }
 
 /** Authoritative per-block write: only the blocks that actually changed. */

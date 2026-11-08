@@ -4,7 +4,6 @@ import * as library from '../../../stores/reviewLibrary.js';
 import {reviewModuleForBlock} from '../../../engine/reviewSourceContext.js';
 import * as terms from '../../../stores/terms.js';
 import {startBackgroundJob} from '../../backgroundJobs.js';
-import {extractReviewFile} from '../../../ingest/reviewSources.js';
 
 export function ReviewSourceStatus({userId,blockId}){
  const store=useMemo(()=>({read:uid=>library.read(uid,blockId),subscribe:cb=>library.subscribe(blockId,cb)}),[blockId]);
@@ -17,6 +16,7 @@ export function ReviewSourceStatus({userId,blockId}){
    try{
     // Preserve migrated sources before appending user-selected files.
     await library.ensureReviewLibrary(userId,blockId);
+    const {extractReviewFile}=await import('../../../ingest/reviewSources.js');
     const results=[];let saved=0;
     for(const file of files){try{update(`Reading ${file.name}…`);const pack=await extractReviewFile(file,update,library.read(userId,blockId).packs);if(pack.alreadySaved){saved++;results.push(`${file.name}: already saved to your account`);continue;}update(`Saving ${file.name} to your account…`);await library.addReviewPack(userId,blockId,pack);saved++;results.push(`${file.name}: saved · ${pack.units.length} pages/entries · ${pack.units.filter(u=>u.held||u.requiresFigure).length} excluded from text templates`);}catch(error){results.push(`${file.name}: not saved · ${error.message}`);}}
     if(!saved)throw new Error(results.join('\n'));return results.join('\n');

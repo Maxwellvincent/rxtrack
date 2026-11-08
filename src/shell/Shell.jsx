@@ -3,7 +3,7 @@ import { CBSE_BLOCK_ID, ensureCbseTerms } from "./features/cbse/cbsePrep.js";
 import { useTerms } from "./hooks/useTerms.js";
 import * as termsStore from "../stores/terms.js";
 import { canViewQuestionDiagnostics } from "../diagnosticsAccess.js";
-import { QuestionDiagnosticsAdmin } from "./QuestionDiagnosticsAdmin.jsx";
+const QuestionDiagnosticsAdmin=lazy(()=>import("./QuestionDiagnosticsAdmin.jsx").then(m=>({default:m.QuestionDiagnosticsAdmin})));
 import "../theme/tokens.css";
 import "../theme/tailwind.css";
 import "../theme/readability.css";
@@ -23,27 +23,27 @@ import { Header } from "./Header.jsx";
 import { TabBar } from "./TabBar.jsx";
 import { BlockHome } from "./BlockHome.jsx";
 import { CommandPalette } from "../ui/CommandPalette.jsx";
-import { EngineSession } from "../engine/EngineSession.jsx";
-import { CalibrationSession } from "../engine/CalibrationSession.jsx";
+const EngineSession=lazy(()=>import("../engine/EngineSession.jsx").then(m=>({default:m.EngineSession})));
+const CalibrationSession=lazy(()=>import("../engine/CalibrationSession.jsx").then(m=>({default:m.CalibrationSession})));
 import { Button } from "../ui/Button.jsx";
 import { signInWithGoogle, signOut, onAuthChange, completeRedirectSignIn, pullAllDataFromSupabase } from "../supabase.js";
-import AnkiSyncModal from "../AnkiSyncModal.jsx";
-import { ScheduleImportModal } from "./ScheduleImportModal.jsx";
-import { ObjectivesContainer } from "./features/objectives/ObjectivesContainer.jsx";
-import { ImportObjectivesPdfModal } from "./features/objectives/ImportObjectivesPdfModal.jsx";
-import { ReExtractAllModal } from "./features/objectives/ReExtractAllModal.jsx";
-import { AddLectureModal } from "./features/lectures/AddLectureModal.jsx";
-import { BulkImportModal } from "./features/lectures/BulkImportModal.jsx";
-import { Today } from "./features/today/Today.jsx";
-import { DailyPlanSettingsModal } from "./features/today/DailyPlanSettingsModal.jsx";
-import { FocusHudLinkModal } from "./FocusHudLinkModal.jsx";
-import { UserApiKeyModal } from "./UserApiKeyModal.jsx";
+const AnkiSyncModal=lazy(()=>import("../AnkiSyncModal.jsx"));
+const ScheduleImportModal=lazy(()=>import("./ScheduleImportModal.jsx").then(m=>({default:m.ScheduleImportModal})));
+const ObjectivesContainer=lazy(()=>import("./features/objectives/ObjectivesContainer.jsx").then(m=>({default:m.ObjectivesContainer})));
+const ImportObjectivesPdfModal=lazy(()=>import("./features/objectives/ImportObjectivesPdfModal.jsx").then(m=>({default:m.ImportObjectivesPdfModal})));
+const ReExtractAllModal=lazy(()=>import("./features/objectives/ReExtractAllModal.jsx").then(m=>({default:m.ReExtractAllModal})));
+const AddLectureModal=lazy(()=>import("./features/lectures/AddLectureModal.jsx").then(m=>({default:m.AddLectureModal})));
+const BulkImportModal=lazy(()=>import("./features/lectures/BulkImportModal.jsx").then(m=>({default:m.BulkImportModal})));
+const Today=lazy(()=>import("./features/today/Today.jsx").then(m=>({default:m.Today})));
+const DailyPlanSettingsModal=lazy(()=>import("./features/today/DailyPlanSettingsModal.jsx").then(m=>({default:m.DailyPlanSettingsModal})));
+const FocusHudLinkModal=lazy(()=>import("./FocusHudLinkModal.jsx").then(m=>({default:m.FocusHudLinkModal})));
+const UserApiKeyModal=lazy(()=>import("./UserApiKeyModal.jsx").then(m=>({default:m.UserApiKeyModal})));
 import StudyRoutineModal, { MissNoteToast } from "../StudyRoutineModal.jsx";
 import { LectureList } from "./features/tracker/LectureList.jsx";
 import { WeakConcepts } from "./features/tracker/WeakConcepts.jsx";
 import { StruggleTasks } from "./features/tracker/StruggleTasks.jsx";
 import { StruggleTaskDrawer } from "./features/tracker/StruggleTaskDrawer.jsx";
-import { ExamDateModal } from "./ExamDateModal.jsx";
+const ExamDateModal=lazy(()=>import("./ExamDateModal.jsx").then(m=>({default:m.ExamDateModal})));
 import { setStoreHookUserId } from "./hooks/currentUser.js";
 import { useToday } from "./features/today/useToday.js";
 import { themes } from "../theme.js";
@@ -425,6 +425,7 @@ function ShellMain({ theme, toggle, userId }) {
               setMoreView(null);
             }}
           >
+          <Suspense fallback={<div className="p-6 text-sm text-text-2" role="status">Loading study page…</div>}>
           {blocks.length === 0 ? (
             <div className="p-8 text-sm text-text-3">
               No terms yet. Import a term schedule via ⋯ → Import schedule.
@@ -568,9 +569,11 @@ function ShellMain({ theme, toggle, userId }) {
               />
             </div>
           )}
+          </Suspense>
           </StudyViewErrorBoundary>
         </main>
       </div>
+      <Suspense fallback={<div role="status" className="fixed bottom-4 right-4 rounded-lg border border-border bg-panel p-3 text-sm text-text-1">Loading tools…</div>}>
       <CommandPalette
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}
@@ -657,6 +660,7 @@ function ShellMain({ theme, toggle, userId }) {
         />
       )}
       <MissNoteToast />
+      </Suspense>
       <StruggleTaskDrawer userId={userId} />
     </div>
   );

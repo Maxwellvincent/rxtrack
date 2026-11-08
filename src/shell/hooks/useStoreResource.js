@@ -17,21 +17,32 @@ function stableStringify(value) {
   return JSON.stringify(value) ?? "null";
 }
 
-function stableSnapshot(store, userId) {
-  try { return stableStringify(store.read(userId)); }
-  catch { return ""; }
+// Share one comparison and one upstream subscription per store/account.
+// Large immutable snapshots are compared only after a store notification.
+const snapshots = new WeakMap();
+const subscriptions = new WeakMap();
+function accountMap(cache,store){if(!cache.has(store))cache.set(store,new Map());return cache.get(store);}
+function resourceSnapshot(store,userId){
+ const map=accountMap(snapshots,store),previous=map.get(userId);
+ let value,readError;
+ try{value=store.read(userId);}catch(error){readError=error;}
+ const status=statusOf(store,userId),error=status.error||readError||null;
+ if(previous&&!previous.dirty&&previous.value===value&&previous.result.loading===status.loading&&previous.errorMessage===(error?.message||''))return previous.result;
+ const signature=stableStringify(value);
+ if(previous&&previous.signature===signature&&previous.result.loading===status.loading&&previous.errorMessage===(error?.message||'')){
+  previous.value=value;previous.dirty=false;return previous.result;
+ }
+ const result={data:value,loading:status.loading,error};
+ map.set(userId,{value,signature,errorMessage:error?.message||'',result,dirty:false});return result;
 }
-
-/**
- * The data value can legitimately be identical before and after hydration —
- * for example, a missing Firestore document and an empty fallback both read as
- * `{}`. Hydration is still a meaningful UI change, so include that status in
- * the external-store snapshot used by React.
- */
-function resourceSnapshot(store, userId) {
-  const data = stableSnapshot(store, userId);
-  const { loading, error } = statusOf(store, userId);
-  return JSON.stringify([data, loading, error?.message || ""]);
+function subscribeResource(store,userId,cb){
+ const map=accountMap(subscriptions,store);let entry=map.get(userId);
+ if(!entry){entry={listeners:new Set(),off:null};map.set(userId,entry);entry.off=store.subscribe(()=>{
+  const snapshot=accountMap(snapshots,store).get(userId);if(snapshot)snapshot.dirty=true;
+  for(const listener of entry.listeners)listener();
+ });}
+ entry.listeners.add(cb);
+ return()=>{entry.listeners.delete(cb);if(!entry.listeners.size){entry.off?.();map.delete(userId);}};
 }
 
 /**
@@ -52,10 +63,10 @@ const identity = value => value;
 export function useStoreResource(store, userIdArg, select = identity, prepareWrite = identity) {
   const userId = userIdArg ?? getStoreHookUserId();
   const subscribe = useCallback((cb) => {
-    const unsubStore = store.subscribe(cb);
+    const unsubStore = subscribeResource(store,userId,cb);
     const unsubUser = userIdArg == null ? subscribeStoreHookUser(cb) : () => {};
     return () => { unsubStore(); unsubUser(); };
-  }, [store, userIdArg]);
+  }, [store, userId, userIdArg]);
 
   const snapshot = useSyncExternalStore(
     subscribe,
@@ -64,17 +75,9 @@ export function useStoreResource(store, userIdArg, select = identity, prepareWri
   );
 
   const state = useMemo(() => {
-    const { loading, error } = statusOf(store, userId);
-    try {
-      // Read the store, never the snapshot: the snapshot is key-sorted for
-      // comparison, and parsing it back would hand consumers a reordered object.
-      // That reordering is not cosmetic — an objectives entry whose `extracted`
-      // key sorts before `imported` changes the order objectives are listed in.
-      // `snapshot` stays in the dependency list purely as the change signal.
-      return { data: select(store.read(userId)), loading, error };
-    } catch (readError_) {
-      return { data: select(undefined), loading, error: error || readError_ };
-    }
+    const {data,loading,error}=snapshot;
+    try{return {data:select(data),loading,error};}
+    catch(readError_){return {data:select(undefined),loading,error:error||readError_};}
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [snapshot, store, userId, select]);
 

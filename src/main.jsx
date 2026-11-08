@@ -1,3 +1,4 @@
+import {AppErrorBoundary} from './shell/AppErrorBoundary.jsx'
 import { StrictMode, lazy, Suspense } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
@@ -15,8 +16,10 @@ const Shell = lazy(() => import('./shell/Shell.jsx'))
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <Suspense fallback={null}>
+    <AppErrorBoundary>
+    <Suspense fallback={<div role="status" style={{padding:"2rem",color:"#e7ecef",fontFamily:"system-ui"}}>Loading RXTrack…</div>}>
       <Shell />
     </Suspense>
+    </AppErrorBoundary>
   </StrictMode>
 )

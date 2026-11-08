@@ -82,3 +82,9 @@ describe("store base", () => {
     unsub();
   });
 });
+
+it('reuses parsed local snapshots but detects writes made outside the store',()=>{
+ installDomStorage();localStorage.setItem('perf-cache',JSON.stringify({answers:[1,2,3]}));
+ const first=readJson(null,'perf-cache',{});expect(readJson(null,'perf-cache',{})).toBe(first);
+ localStorage.setItem('perf-cache',JSON.stringify({answers:[4]}));expect(readJson(null,'perf-cache',{})).toEqual({answers:[4]});expect(readJson(null,'perf-cache',{})).not.toBe(first);
+});

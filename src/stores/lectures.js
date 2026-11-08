@@ -4,9 +4,12 @@ import { mergeByIdArray } from "./merge.js";
 
 export const key = "rxt-lec-meta";
 const fallback = [];
+const projectionCache=new WeakMap();
 
 export function read(userId) {
-  return (readJson(userId, key, fallback) || []).filter(lecture => !lecture?.mergedInto);
+  const stored=readJson(userId,key,fallback)||fallback;
+  if(!projectionCache.has(stored))projectionCache.set(stored,stored.filter(lecture=>!lecture?.mergedInto));
+  return projectionCache.get(stored);
 }
 
 // Authoritative replace — what a local UI write means (a delete must stay deleted).
