@@ -29,3 +29,10 @@ it('does not revive an old miss when a completed attempt later receives a metada
  const fixed=session('A',null,{submittedAt:2,updatedAt:2});
  expect(select([old,fixed])).toEqual([]);
 });
+it('does not clear an earlier independent miss after assisted success',()=>{
+ const q={questionId:'q',stem:'Which pathway?',choices:{A:'One',B:'Two'},correct:'A'};
+ const bank={filename:'NB.pdf',questions:[q]};
+ const make=(at,value,assistance)=>({sessionId:`s${at}`,status:'submitted',blockId:'b',sourceFile:'NB.pdf',questions:[{...q,assistance}],answers:[{questionId:'q',value,answeredAt:at}]});
+ expect(missedBankQuestions({bank,blockId:'b',sessions:[make(1,'B'),make(2,'A',{used:true})]})).toHaveLength(1);
+ expect(missedBankQuestions({bank,blockId:'b',sessions:[make(1,'B'),make(2,'A')]})).toHaveLength(0);
+});

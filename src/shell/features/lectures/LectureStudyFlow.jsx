@@ -1,3 +1,4 @@
+import {isIndependentAttempt} from '../../../engine/practiceAssistance.js';
 import {ReviewSourceStatus} from './ReviewSourceStatus.jsx';
 import {attachReviewSources,reviewSourcePrompt} from '../../../engine/reviewSourceContext.js';
 import {LectureProgressOverview} from './LectureProgressOverview.jsx';
@@ -935,8 +936,9 @@ export function LectureStudyFlow({
     if (!current) return;
     const session = { ...current, progress };
     quizMetaRef.current = session;
-    lectureQuizSessionsStore.save(userId, session);
+    const saved=lectureQuizSessionsStore.save(userId, session);
     setSavedLectureQuizzes(lectureQuizSessionsStore.read(userId, lecture?.id, blockId));
+    return saved;
   }, [blockId, lecture?.id, userId]);
 
   const startQuizSession = useCallback((nextQuestions, options = {}) => {
@@ -1898,7 +1900,7 @@ export function LectureStudyFlow({
             // A correctly-answered question earns its atom's matching study-guide topic a
             // check, same as ticking it by hand — a wrong answer never checks anything.
             if (studyGuide?.topics?.length) {
-              const toCheck = topicsToAutoCheck(records, atoms, studyGuide.topics);
+              const toCheck = topicsToAutoCheck(records.filter(isIndependentAttempt), atoms, studyGuide.topics);
               if (toCheck.length) {
                 let guide = studyGuide;
                 for (const topicId of toCheck) {
@@ -1918,12 +1920,14 @@ export function LectureStudyFlow({
 
             // Write session outcome to performance store after every completed round
             try {
-              performanceStore.appendSession(userId, {
+              const independent=records.filter(isIndependentAttempt);
+              const hadHelp=independent.length!==records.length;
+              if(!hadHelp || independent.length)performanceStore.appendSession(userId, {
                 lectureId: lecture?.id,
                 blockId,
-                score,
-                avgConfidence,
-                hasLandmines,
+                score:hadHelp?Math.round(100*independent.filter(r=>r.correct).length/independent.length):score,
+                avgConfidence:hadHelp?independent.reduce((sum,r)=>sum+(r.confidence||0),0)/(5*independent.length):avgConfidence,
+                hasLandmines:hadHelp?independent.some(r=>!r.correct&&r.confidence>=4):hasLandmines,
               });
             } catch { /* non-critical */ }
 

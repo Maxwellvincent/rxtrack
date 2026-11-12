@@ -1,3 +1,4 @@
+import {isIndependentAttempt} from './practiceAssistance.js';
 import {relationshipPractice} from './relationshipPractice.js';
 import {stableRecordId} from './sourceUse.js';
 import {hasReusableQuestionReview} from './questionReuse.js';
@@ -45,13 +46,13 @@ export function validSourceRelationships(catalog,{blockId,lectureId,objectives=[
  });
 }
 export function relationshipCoverage(catalog,evidence={},scope={},now=Date.now()) {
- const journal=evidence.learningJournal || evidence.evidenceJournal || [];
+ const journal=[...(evidence.learningJournal || evidence.evidenceJournal || []),...(evidence.assistedJournal||[])];
  return validSourceRelationships(catalog,scope).map(row=>{
   const latest=new Map(),events=[];
   for(const event of [...journal].sort((a,b)=>(a.at||0)-(b.at||0))){
    if(event.blockId!==row.blockId || event.lectureId!==row.lectureId || !event.objectiveIds?.includes(row.objectiveId)
     || event.relationshipSourceVersion!==row.sourceVersion || !event.sourceRelationshipIds?.includes(row.id) || typeof event.correct!=='boolean' || !event.questionKey)continue;
-   events.push(event);latest.set(event.questionKey,event);
+   events.push(event);if(isIndependentAttempt(event))latest.set(event.questionKey,event);
   }
   const answers=[...latest.values()].sort((a,b)=>(a.at||0)-(b.at||0));
   return {...row,...relationshipPractice(events,now),attempts:answers.length,correct:answers.filter(answer=>answer.correct).length,lastCorrect:answers.at(-1)?.correct ?? null,lastAt:answers.at(-1)?.at || null};

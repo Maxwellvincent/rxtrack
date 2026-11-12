@@ -1,3 +1,5 @@
+import {markReasoningAssistance,saveReasoningCoach} from './reasoningCoachSession.js';
+import {HelpMeReason} from '../../../ui/HelpMeReason.jsx';
 import {ReservedAssessmentReport,ReservedAssessmentFigure} from './ReservedAssessmentReport.jsx';
 import { SourceBankRepair } from './SourceBankRepair.jsx';
 import { updateExamSessionTransaction } from '../../../supabase.js';
@@ -536,6 +538,10 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
           await questionFigures.save(userId,q,{visualLastLabel:lastLetter});
           await controller.refetch?.();
         }} />
+        {!revealed && session.purpose!=='reserved-assessment' && <HelpMeReason key={`${session.sessionId}:${q.questionId}`} question={q} userId={userId} initialState={q.reasoningCoach}
+          onAssist={async()=>{const saved=await markReasoningAssistance(userId,session.sessionId,q.questionId);controller.syncCoaching?.(saved.questions.find(item=>item.questionId===q.questionId));}}
+          onState={async coach=>{const saved=await saveReasoningCoach(userId,session.sessionId,q.questionId,coach);controller.syncCoaching?.(saved.questions.find(item=>item.questionId===q.questionId));}} />}
+        {q.assistance?.used && <p className="mb-2 text-xs text-accent-text">Assisted answer · does not establish independent readiness.</p>}
         <ChoiceList
           questionId={q.questionId}
           choices={q.choices}

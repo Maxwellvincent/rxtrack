@@ -24,12 +24,15 @@ export function buildWeakAreaMap({ lectures = [], objectives = [], questionStats
     const useDetailed=detailed.length>=3&&detailed.at(-1).at>=(learnerEvidence?.lectures?.[lecture.id]?.lastSeen||0)-1000;
     const recent = useDetailed?detailed.map(a=>a.correct):learnerEvidence?.lectures?.[lecture.id]?.recent || [];
     const recentAccuracy = recent.length ? recent.filter(Boolean).length / recent.length : null;
-    const priorityAccuracy = recent.length >= 3 ? recentAccuracy : accuracy;
+    const hasAssistedAnswers=questionStats?.[lecture.id]?.hasAssistedAnswers===true;
+    const independent=learnerEvidence?.lectures?.[lecture.id];
+    const independentAccuracy=independent?.attempts?independent.correct/independent.attempts:null;
+    const priorityAccuracy = recent.length >= 3 ? recentAccuracy : hasAssistedAnswers?independentAccuracy:accuracy;
     const reportTopics = [...new Set((reportWeaknesses || []).filter(entry =>
       entry?.tags?.includes("exam-report") && entry.masteryLevel === "struggling" && entry.linkedLecIds?.includes(lecture.id)
     ).map(entry => entry.concept).filter(Boolean))];
     return {
-      recentCount: recent.length, recentAccuracy, priorityAccuracy, reportTopics,
+      hasAssistedAnswers, recentCount: recent.length, recentAccuracy, priorityAccuracy, reportTopics,
       objectiveLinksMissing: totalQuestions > 0 && objective.total > 0 && objective.tested === 0,
       lectureId: lecture.id,
       lecture,

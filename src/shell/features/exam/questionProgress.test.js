@@ -55,3 +55,7 @@ it('counts valid saved picks without a usable key as volume only',()=>{
  s.questions[0].correct='Z';
  expect(questionProgress([],[s])).toMatchObject({answered:1,gradedAnswered:0,accuracy:null});
 });
+it('retains assisted completion volume but separates its accuracy from the independent target',()=>{
+ const result=questionProgress([{concept:'Helped',correct:true,assisted:true,ts:1,questionKey:'help'},{concept:'Solo',correct:false,ts:2,questionKey:'solo'}]);
+ expect(result).toMatchObject({answered:2,correct:1,assistedAnswered:1,assistedCorrect:1,independentAccuracy:0});
+});

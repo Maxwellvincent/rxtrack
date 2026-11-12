@@ -605,3 +605,11 @@ it('restores bookmarks by question ID when background generation changes indexes
  const recent={writerId:'tab',seq:5,viewedAt:10,questionId:'q2'};
  expect(newestResumePosition(recent,{writerId:'tab',seq:4,viewedAt:10,questionId:'q1'})).toBe(recent);
 });
+it('adopts acknowledged coaching without a reload, revealing answers or replacing local selections',async()=>{
+ const session=makeSession({format:'practice',answers:[{questionId:'q1',value:'B',revealed:false}]});getExamSessionMock.mockResolvedValue(session);
+ const probe=mountController(SESSION_ID,USER);await probe.render();
+ act(()=>probe.get().syncCoaching({...makeQuestion('q1','B'),assistance:{used:true},reasoningCoach:{turns:[{role:'coach',text:'Which finding matters?'}]}}));
+ expect(probe.get().loading).toBe(false);expect(getExamSessionMock).toHaveBeenCalledTimes(1);
+ expect(probe.get().session.questions[0]).toMatchObject({correct:'A',assistance:{used:true},reasoningCoach:{turns:[{role:'coach',text:'Which finding matters?'}]}});
+ expect(probe.get().session.answers).toEqual(session.answers);probe.unmount();
+});

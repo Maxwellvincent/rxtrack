@@ -1,3 +1,4 @@
+import {isIndependentAttempt} from '../../../engine/practiceAssistance.js';
 import {protectSessionScoring,evidenceIdentity} from '../../../engine/questionScoringPolicy.js';
 /** First recorded exposure, not proof the learner has never seen an item elsewhere. */
 export function freshTimedEvidence(sessions=[],blockId,ratings={},studyAnswers=[]){
@@ -17,7 +18,7 @@ export function freshTimedEvidence(sessions=[],blockId,ratings={},studyAnswers=[
    if(!identity)continue;
    const prior=seen.has(identity);
    if(answers.has(q.questionId)||timed)seen.add(identity);
-   if(!timed||prior||!q.correct||excluded.has(q.questionId))continue;
+   if(!isIndependentAttempt(q)||!timed||prior||!q.correct||excluded.has(q.questionId))continue;
    if(q.sourceType!=='question-bank'&&(q.generationVersion!=='v2'||q.qualityAudit?.status!=='approved'))continue;
    if(['needs-review','unsupported-by-lecture'].includes(q.sourceKeyReviewStatus))continue;
    total++;used=true;

@@ -118,3 +118,16 @@ it('retains fresh structured outcomes without letting repeat successes manufactu
  expect(fresh.objectives.o.recentFreshAnswers).toHaveLength(2);
  expect(first.objectives.o.attempts).toBe(1);
 });
+
+it('keeps assisted work without increasing independent objective, atom, timing or mastery evidence',()=>{
+ const before=applyEvidence(null,{questionKey:'independent',objectiveIds:['o'],lectureId:'l',correct:false,at:1});
+ const assisted=applyEvidence(before,{questionKey:'helped',objectiveIds:['o'],lectureId:'l',atomKey:'a',correct:true,assistance:{used:true},responseMs:1000,at:2});
+ expect(assisted.total).toBe(1);expect(assisted.correct).toBe(0);expect(assisted.objectives.o).toMatchObject(before.objectives.o);expect(assisted.objectives.o.assistedQuestionKeys).toHaveLength(1);
+ expect(assisted.assisted).toEqual({attempts:1,correct:1});expect(assisted.atoms.a).toBeUndefined();expect(assisted.testTaking).toEqual(before.testTaking);
+});
+it('does not call the coached original a fresh independent retest on a later attempt',()=>{
+ const first=applyEvidence(null,{questionKey:'same',objectiveIds:['o'],correct:true,assisted:true,at:1});
+ const same=applyEvidence(first,{questionKey:'same',objectiveIds:['o'],correct:true,at:2});
+ expect(same.objectives.o.attempts).toBe(0);expect(same.objectives.o.reinforcements).toBe(1);
+ const fresh=applyEvidence(same,{questionKey:'new-case',objectiveIds:['o'],correct:true,at:3});expect(fresh.objectives.o.attempts).toBe(1);
+});

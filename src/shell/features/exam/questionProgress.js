@@ -1,7 +1,9 @@
+import {isIndependentAttempt} from '../../../engine/practiceAssistance.js';
 /** Use the study-answer log plus saved sessions, never the mixed lecture
  * counters that already include integrated exams (and older deleted attempts).
  */
 export function questionProgress(studyAnswers = [], sessions = [], range = {}, manualEntries = [], historicalStudy = {}) {
+  let assistedAnswered=0,assistedGraded=0,assistedCorrect=0;
   const inRange = ts => (range.startAt == null || ts >= range.startAt) && (range.endAt == null || ts <= range.endAt) && (!range.start || ts >= new Date(`${range.start}T00:00:00`).getTime()) && (!range.end || ts <= new Date(`${range.end}T23:59:59.999`).getTime());
   let lectureAnswered = 0;
   let correct = 0;
@@ -13,6 +15,7 @@ export function questionProgress(studyAnswers = [], sessions = [], range = {}, m
     const key = identity ? JSON.stringify([identity, answer.sessionKey || answer.sessionId || null, answer.ts]) : JSON.stringify([answer.ts, answer.concept]);
     if (studySeen.has(key)) continue;
     studySeen.add(key);
+    if(!isIndependentAttempt(answer)){assistedAnswered++;assistedGraded++;if(answer.correct)assistedCorrect++;}
     lectureAnswered++;
     if (answer.correct) correct++;
   }
@@ -39,6 +42,7 @@ export function questionProgress(studyAnswers = [], sessions = [], range = {}, m
       if ((range.startAt != null || range.endAt != null || range.start || range.end) && (!Number.isFinite(at) || !inRange(at))) continue;
       const question = questions.get(questionId);
       if (!question || value == null || !Object.hasOwn(question.choices || {}, value)) continue;
+      if(!isIndependentAttempt(question)){assistedAnswered++;if(Object.hasOwn(question.choices || {},question.correct)){assistedGraded++;if(value===question.correct)assistedCorrect++;}}
       const school = session.sourceType === 'question-bank' || question.sourceType === 'question-bank';
       if (school) schoolAnswered++; else examAnswered++;
       if (Object.hasOwn(question.choices || {}, question.correct)) {
@@ -61,5 +65,5 @@ export function questionProgress(studyAnswers = [], sessions = [], range = {}, m
   }
   const gradedAnswered = lectureAnswered + sessionGraded + manualGraded;
   const answered = lectureAnswered + schoolAnswered + examAnswered + manualAnswered;
-  return {answered, correct, lectureAnswered, schoolAnswered, examAnswered, manualAnswered, gradedAnswered, accuracy: gradedAnswered ? correct / gradedAnswered : null};
+  return {...(assistedAnswered?{assistedAnswered,assistedGraded,assistedCorrect,independentAccuracy:gradedAnswered>assistedGraded?(correct-assistedCorrect)/(gradedAnswered-assistedGraded):null}:{}),answered, correct, lectureAnswered, schoolAnswered, examAnswered, manualAnswered, gradedAnswered, accuracy: gradedAnswered ? correct / gradedAnswered : null};
 }

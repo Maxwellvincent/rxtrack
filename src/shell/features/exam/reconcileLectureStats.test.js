@@ -21,3 +21,7 @@ it('uses all 20 latest quiz answers for priority without adding them again to li
  const result=reconcileLectureStats({l:{answered:39,correct:27}},[],lectures,'b',study);
  expect(result.l).toMatchObject({answered:39,correct:27});expect(result.l.recentAnswers).toHaveLength(20);expect(result.l.recentAnswers.filter(a=>a.correct)).toHaveLength(17);
 });
+it('retains completed assisted volume but does not use it as independent recent accuracy',()=>{
+ const rows=reconcileLectureStats({},[],[{id:'l',blockId:'b'}],'b',[{blockId:'b',lectureId:'l',correct:true,ts:1,assisted:true}]);
+ expect(rows.l.hasAssistedAnswers).toBe(true);expect(rows.l.recentAnswers).toBeUndefined();
+});

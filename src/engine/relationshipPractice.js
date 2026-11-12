@@ -1,16 +1,19 @@
+import {isIndependentAttempt} from './practiceAssistance.js';
 /** Conservative scheduling heuristics, not mastery or exam-score predictions. */
 export const RELATIONSHIP_RETEST_DAY=24*60*60*1000;
 export const RELATIONSHIP_RETEST_POLICY='2026-11-02-delayed-fresh';
 const isApplication=event=>event.reasoningVerified===true && ['second-order','third-order'].includes(event.orderLevel);
 export function relationshipPractice(events=[],now=Date.now()){
- const answers=events.filter(event=>typeof event.correct==='boolean' && event.questionKey && Number.isFinite(event.at) && event.at>0 && event.at<=now)
+ const ordered=events.filter(event=>typeof event.correct==='boolean' && event.questionKey && Number.isFinite(event.at) && event.at>0 && event.at<=now)
   .sort((a,b)=>a.at-b.at);
- if(!answers.length)return {retestPolicy:RELATIONSHIP_RETEST_POLICY,practiceState:'unseen',dueAt:null,delayedFreshCorrect:0,delayedApplicationCorrect:0,repeatAnswers:0,transferStatus:'not-assessed',previousQuestionKeys:[]};
+ const answers=ordered.filter(isIndependentAttempt);
+ if(!answers.length)return {retestPolicy:RELATIONSHIP_RETEST_POLICY,practiceState:'unseen',dueAt:null,delayedFreshCorrect:0,delayedApplicationCorrect:0,repeatAnswers:0,transferStatus:'not-assessed',previousQuestionKeys:[...new Set(ordered.map(e=>e.questionKey))].slice(-8)};
  const firstByKey=new Map(),delayed=[];
- let anchor=null,latestFailure=null,freshCorrect=null,spacedApplicationSuccesses=0;
- for(const event of answers){
+ let anchor=null,latestFailure=null,freshCorrect=null,spacedApplicationSuccesses=0,repeatAnswers=0;
+ for(const event of ordered){
+  if(!isIndependentAttempt(event)){if(!firstByKey.has(event.questionKey))firstByKey.set(event.questionKey,event);continue;}
   const fresh=!firstByKey.has(event.questionKey);
-  if(fresh)firstByKey.set(event.questionKey,event);
+  if(fresh)firstByKey.set(event.questionKey,event);else repeatAnswers++;
   if(!event.correct){latestFailure=event;anchor=event;spacedApplicationSuccesses=0;continue;}
   if(!fresh)continue;
   const repaired=latestFailure && (!freshCorrect || latestFailure.at>=freshCorrect.at);
@@ -21,6 +24,7 @@ export function relationshipPractice(events=[],now=Date.now()){
    anchor=event;
   }else if(!anchor || repaired){anchor=event;}
  }
+ if(!anchor)return {...relationshipPractice([],now),repeatAnswers,previousQuestionKeys:[...firstByKey.keys()].slice(-8)};
  const repair=latestFailure && (!freshCorrect || latestFailure.at>=freshCorrect.at);
  // Repeated successes neither postpone fresh retests nor clear fresh-repair requirements.
  // Multiple fresh answers in one sitting cannot manufacture several spaced successes.
@@ -28,5 +32,5 @@ export function relationshipPractice(events=[],now=Date.now()){
  const dueAt=repair?latestFailure.at:anchor.at+interval*RELATIONSHIP_RETEST_DAY;
  return {retestPolicy:RELATIONSHIP_RETEST_POLICY,practiceState:repair?'repair':now>=dueAt?'due':'waiting',dueAt,
   delayedFreshCorrect:delayed.length,delayedApplicationCorrect:delayed.filter(isApplication).length,
-  repeatAnswers:answers.length-firstByKey.size,transferStatus:'not-assessed',previousQuestionKeys:[...firstByKey.keys()].slice(-8)};
+  repeatAnswers,transferStatus:'not-assessed',previousQuestionKeys:[...firstByKey.keys()].slice(-8)};
 }

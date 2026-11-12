@@ -60,3 +60,8 @@ describe('lecture repair handoff',()=>{
   expect(buildLectureRepairContext([],'lec',[objective],{},[{concept:'Resolved report',masteryLevel:'mastered',tags:['exam-report'],linkedLecIds:['lec']}]).reportTopics).toEqual([]);
  });
 });
+it('does not erase a lecture repair target with an assisted saved-session or journal success',()=>{
+ const original=session('old',false,1),helped=session('help',true,3);helped.questions[0].assistance={used:true};
+ const result=buildLectureRepairContext([original,helped],'lec',[],{evidenceJournal:[{lectureId:'lec',questionKey:questionEvidenceKey(`stem:${question().stem}`),correct:true,assisted:true,at:4}]});
+ expect(result.missedQuestions).toHaveLength(1);
+});

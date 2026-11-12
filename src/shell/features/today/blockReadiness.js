@@ -1,3 +1,4 @@
+import {isIndependentAttempt} from '../../../engine/practiceAssistance.js';
 import {examSprintPriorities} from "./examSprint.js";
 import {objectivePracticePlan} from "../../../engine/objectivePractice.js";
 import {buildWeakAreaMap} from "../exam/weakAreaMap.js";
@@ -29,7 +30,7 @@ function uniqueObjectives(objectives = []) {
 }
 
 export function readinessTrend(records = []) {
-  const valid = records.filter((row) => typeof row?.correct === "boolean");
+  const valid = records.filter((row) => isIndependentAttempt(row) && typeof row?.correct === "boolean");
   const recent = valid.slice(-20);
   const prior = valid.slice(-40, -20);
   if (recent.length < 5 || prior.length < 5) return { direction: "baseline", delta: null, label: "Building baseline" };
@@ -76,7 +77,8 @@ export function blockReadinessSummary({
     const linked = objectives.filter((objective) => objective?.linkedLecId === lecture.id);
     const counts = { mastered: 0, inprogress: 0, struggling: 0, untested: 0 };
     linked.forEach((objective) => { counts[objectiveStatus(objective)] += 1; });
-    const accuracy = weakAreas.get(lecture.id)?.priorityAccuracy ?? accuracyOf(questionStats[lecture.id]);
+    const area=weakAreas.get(lecture.id);
+    const accuracy = area?.hasAssistedAnswers?area.priorityAccuracy:area?.priorityAccuracy ?? accuracyOf(questionStats[lecture.id]);
     const modelOverdue = overdueModels.some((model) => model.lectureId === lecture.id);
     const weakFlag = weakLectureIds.has(lecture.id);
     const score = counts.struggling * 6 + counts.inprogress * 2 + Math.min(4, counts.untested * 0.25)
@@ -98,9 +100,10 @@ export function blockReadinessSummary({
   const coverage = totalObjectives ? coveredObjectives / totalObjectives : null;
   const modelFreshness = blockModels.length ? (blockModels.length - overdueModels.length) / blockModels.length : null;
   const trend = readinessTrend(confidenceRecords);
+  const readinessAccuracy=practice.assistedAnswered?practice.independentAccuracy:practice.accuracy;
   let state = "Building coverage";
-  if (statuses.struggling > 0 || (practice.accuracy != null && practice.accuracy < 0.6)) state = "Repair first";
-  else if (coverage != null && coverage >= 0.7 && practice.accuracy != null && practice.accuracy >= SCHOOL_EXAM_TARGET_RATE) state = "Practice at target; readiness unverified";
+  if (statuses.struggling > 0 || (readinessAccuracy != null && readinessAccuracy < 0.6)) state = "Repair first";
+  else if (coverage != null && coverage >= 0.7 && readinessAccuracy != null && readinessAccuracy >= SCHOOL_EXAM_TARGET_RATE) state = "Practice at target; readiness unverified";
 
   return {
     state,

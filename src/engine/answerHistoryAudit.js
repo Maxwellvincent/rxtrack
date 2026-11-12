@@ -3,7 +3,7 @@ import { questionEvidenceKey } from '../stores/learnerEvidence.js';
 import { canonicalObjectiveIds } from './objectiveLinks.js';
 import { sessionEvidenceEvent } from '../shell/features/exam/sessionEvidence.js';
 
-const compactEvent=event=>Object.fromEntries(['eventId','source','sessionKey','blockId','lectureId','objectiveIds','questionKey','atomKey','correct','confidence','difficulty','misconception','responseMs','answerChanges','taskType','orderLevel','reasoningVerified','questionNumber','at','learningContext','objectiveFacetId','sourceRelationshipIds','relationshipSourceVersion'].filter(key=>event[key]!==undefined).map(key=>[key,event[key]]));
+const compactEvent=event=>Object.fromEntries(['assisted','assistance','eventId','source','sessionKey','blockId','lectureId','objectiveIds','questionKey','atomKey','correct','confidence','difficulty','misconception','responseMs','answerChanges','taskType','orderLevel','reasoningVerified','questionNumber','at','learningContext','objectiveFacetId','sourceRelationshipIds','relationshipSourceVersion'].filter(key=>event[key]!==undefined).map(key=>[key,event[key]]));
 
 /** Recover only explicit, current-catalog links. No topic guessing or lecture-wide credit. */
 export function auditAnswerHistory({blockId, objectives=[], evidence={}, calibration=[], sessions=[], sourceQuestions=[], excluded=()=>false}) {

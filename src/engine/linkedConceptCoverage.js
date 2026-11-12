@@ -1,3 +1,4 @@
+import {isIndependentAttempt} from './practiceAssistance.js';
 import {normAtomKey} from './atomNorm.js';
 const norm=value=>String(value||'').normalize('NFKC').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
 /** Source-linked concepts are a bounded inventory, not every possible objective facet. */
@@ -15,6 +16,7 @@ export function linkedConceptCoverage(atoms=[],objectives=[],evidence={}) {
  for(const row of unique.values()){
   const seen=new Set();
   for(const event of events){
+   if(!isIndependentAttempt(event))continue;
    if(!event.objectiveIds?.some(id=>row.objectiveIds.includes(String(id))) || typeof event.correct!=='boolean')continue;
    const keys=[...(event.sourceConceptKeys||[]),event.atomKey].filter(Boolean).map(normAtomKey);
    if(!keys.includes(row.coverageKey))continue;

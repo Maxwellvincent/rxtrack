@@ -83,3 +83,16 @@ it('keeps a resumed quiz under one evidence session while counting fresh answere
  expect(read(null).objectives['resume-objective']).toMatchObject({attempts:2,sessions:['saved-quiz-identity']});
  host.remove();
 });
+it('persists help before opening and keeps a resumed assisted correct answer out of independent mastery',async()=>{
+ const storage=new Map();Object.defineProperty(globalThis,'localStorage',{value:{getItem:k=>storage.get(k)??null,setItem:(k,v)=>storage.set(k,String(v)),removeItem:k=>storage.delete(k)},configurable:true});
+ const {read}=await import('../stores/learnerEvidence.js');const host=document.createElement('div');const root=createRoot(host);let checkpoint;
+ const question={id:'assisted',stem:'Which source relationship applies here?',choices:{A:'Source answer',B:'Alternative'},correct:'A',objectiveIds:['help-o'],atomKey:'help-atom',explanation:'Source explanation.'};
+ act(()=>root.render(<AtomQuiz questions={[question]} lectureId="help-l" blockId="help-b" onCheckpoint={p=>{checkpoint=p;return true;}}/>));
+ await act(async()=>[...host.querySelectorAll('button')].find(b=>b.textContent==='Help Me Reason').click());
+ expect(checkpoint.assistance[0].used).toBe(true);expect(host.textContent).toContain('Assisted practice');
+ act(()=>host.querySelector('.quiz-choice').click());act(()=>[...host.querySelectorAll('button')].find(b=>b.textContent.includes('Confident')).click());
+ expect(read(null).assisted).toMatchObject({attempts:1,correct:1});expect(read(null).objectives['help-o']?.attempts||0).toBe(0);expect(checkpoint.records[0].assisted).toBe(true);
+ act(()=>root.unmount());const resumed=createRoot(host);
+ act(()=>resumed.render(<AtomQuiz questions={[question]} lectureId="help-l" blockId="help-b" initialState={checkpoint}/>));
+ expect(host.textContent).toContain('Assisted answer');act(()=>resumed.unmount());
+});

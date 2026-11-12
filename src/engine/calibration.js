@@ -1,3 +1,4 @@
+import {isIndependentAttempt} from './practiceAssistance.js';
 // calibration.js — pure calibration logic for the confidence turn loop.
 // A record = { concept, confidence (1-5), correct (bool) }.
 // "Confident" = confidence >= 4. A confident-wrong answer is a "landmine".
@@ -36,6 +37,7 @@ const QUADRANTS = ["confident-right", "confident-wrong", "unsure-right", "unsure
 //   landmines — confident-wrong records (concepts to review first), in encounter order
 //   quadrants — tally per classify() bucket
 export function summarize(records = []) {
+  records=records.filter(isIndependentAttempt);
   const curve = [1, 2, 3, 4, 5].map((level) => {
     const at = records.filter((r) => r.confidence === level);
     const correctCount = at.filter((r) => r.correct).length;

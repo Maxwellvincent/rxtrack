@@ -1,7 +1,8 @@
+import {isIndependentAttempt} from '../../../engine/practiceAssistance.js';
 const LABELS=['Guess','Unsure','Leaning','Confident','Certain'];
 const EXPECTED=[0.2,0.4,0.6,0.8,0.95];
 export function confidenceAnalytics(records=[]) {
- const valid=records.filter(r=>Number.isInteger(r.confidence)&&r.confidence>=1&&r.confidence<=5&&typeof r.correct==='boolean');
+ const valid=records.filter(r=>isIndependentAttempt(r)&&Number.isInteger(r.confidence)&&r.confidence>=1&&r.confidence<=5&&typeof r.correct==='boolean');
  const curve=LABELS.map((label,index)=>{const level=index+1,rows=valid.filter(r=>r.confidence===level),correct=rows.filter(r=>r.correct).length;return {level,label,count:rows.length,accuracy:rows.length?correct/rows.length:null,expected:EXPECTED[index]};});
  const high=valid.filter(r=>r.confidence>=4),highCorrect=high.filter(r=>r.correct).length;
  const landmines=high.length-highCorrect;

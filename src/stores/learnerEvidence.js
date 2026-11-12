@@ -1,3 +1,4 @@
+import {isIndependentAttempt} from '../engine/practiceAssistance.js';
 import { excludedEvidenceKeys } from "../engine/questionScoringPolicy.js";
 import { readCloud, subscribeToCloudStore, writeCloud, writeCloudAwait, updateCloudAwait, isHydrated as cloudIsHydrated, readError as cloudReadError } from "./cloudBase.js";
 import { readJson, writeJson } from "./base.js";
@@ -30,7 +31,7 @@ export function read(userId) {
       if (!objectives[id]) objectives[id] = { attempts: 0, correct: 0, recent: [], sessions: [], taskTypes: {}, orderLevels: {} };
     }
   }
-  const result = { ...stored, ...projected, objectives, learningJournal: (stored.evidenceJournal || []).filter(event => !contested.has(questionEvidenceKey(event.questionKey)) && !objectiveContested.has(questionEvidenceKey(event.questionKey))), learningNotes: (stored.learningNotes || []).filter(note => !contested.has(questionEvidenceKey(note.questionKey)) && !objectiveContested.has(questionEvidenceKey(note.questionKey))), evidenceBaseline: stored.evidenceBaseline, evidenceJournal: stored.evidenceJournal,
+  const result = { ...stored, ...projected, objectives, assistedJournal:(stored.evidenceJournal || []).filter(event=>!isIndependentAttempt(event)), learningJournal: (stored.evidenceJournal || []).filter(event => isIndependentAttempt(event) && !contested.has(questionEvidenceKey(event.questionKey)) && !objectiveContested.has(questionEvidenceKey(event.questionKey))), learningNotes: (stored.learningNotes || []).filter(note => !contested.has(questionEvidenceKey(note.questionKey)) && !objectiveContested.has(questionEvidenceKey(note.questionKey))), evidenceBaseline: stored.evidenceBaseline, evidenceJournal: stored.evidenceJournal,
     testTaking: { ...projected.testTaking, reasons: projectReflections(stored, userId), missTypes: projectMissTypes(stored, userId), diagnosticKeys: stored.testTaking?.diagnosticKeys || [] } };
   projectionCache.set(stored,{ratings,value:result});
   return result;
@@ -71,7 +72,7 @@ function bumpObjective(bucket, id, event) {
   const previous = bucket[id] || {};
   const questionKey = questionEvidenceKey(event.questionKey);
   const questionKeys = previous.questionKeys || [];
-  const repeatedQuestion = !!questionKey && questionKeys.includes(questionKey);
+  const repeatedQuestion = !!questionKey && (questionKeys.includes(questionKey)||(previous.assistedQuestionKeys||[]).includes(questionKey));
   if (repeatedQuestion) {
     const recent = event.correct
       ? previous.recent || []
@@ -115,6 +116,11 @@ function bumpObjective(bucket, id, event) {
 export function applyEvidence(model, rawEvent) {
   const current = model || fallback;
   const event = { ...rawEvent, at: Number.isFinite(rawEvent?.at) ? rawEvent.at : Date.now() };
+  if(!isIndependentAttempt(event)){
+    const objectives={...(current.objectives||{})},key=questionEvidenceKey(event.questionKey);
+    for(const id of event.objectiveIds||[]){const previous=objectives[id]||{attempts:0,correct:0,recent:[]};objectives[id]={...previous,assistedQuestionKeys:[...new Set([...(previous.assistedQuestionKeys||[]),key].filter(Boolean))].slice(-200)};}
+    return {...current,objectives,updatedAt:event.at,assisted:{attempts:(current.assisted?.attempts||0)+1,correct:(current.assisted?.correct||0)+(event.correct?1:0)}};
+  }
   let objectives = current.objectives || {};
   for (const id of [...new Set(event.objectiveIds || [])]) objectives = bumpObjective(objectives, id, event);
   const process = current.testTaking || fallback.testTaking;

@@ -1,3 +1,4 @@
+import {isIndependentAttempt} from '../../../engine/practiceAssistance.js';
 import { protectSessionScoring } from "../../../engine/questionScoringPolicy.js";
 /**
  * Integrated Exam finalization: pure logic, no I/O.
@@ -143,5 +144,9 @@ export function computeWeakConceptEntry({
 
 /** Apply the same score exclusions to every session before rebuilding a report. */
 export function protectedWeakConceptHistory(sessions, ratings = {}, applyFigure = question => question) {
- return (sessions || []).map(session => protectSessionScoring({...session,questions:(session.questions || []).map(applyFigure)},ratings));
+ return (sessions || []).map(session => {
+  const protectedSession=protectSessionScoring({...session,questions:(session.questions || []).map(applyFigure)},ratings);
+  const assisted=new Set(protectedSession.questions.filter(q=>!isIndependentAttempt(q)).map(q=>q.questionId));
+  return {...protectedSession,answers:(protectedSession.answers||[]).filter(a=>!assisted.has(a.questionId))};
+ });
 }

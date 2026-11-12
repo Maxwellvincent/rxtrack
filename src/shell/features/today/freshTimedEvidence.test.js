@@ -20,3 +20,8 @@ it('excludes a prior lecture-quiz exposure without letting a later answer rewrit
  expect(freshTimedEvidence([timed],'nb2',{},prior).total).toBe(0);
  expect(freshTimedEvidence([timed],'nb2',{},[{...prior[0],ts:3}]).total).toBe(1);
 });
+it('does not treat a marked assisted item as independent timed evidence',()=>{
+ const q={questionId:'q',sourceType:'question-bank',stem:'Which site?',choices:{A:'One',B:'Two'},correct:'A',assistance:{used:true}};
+ const result=freshTimedEvidence([{blockId:'b',sessionId:'s',status:'submitted',format:'exam',deadline:100,startedAt:1,questions:[q],answers:[{questionId:'q',value:'A'}]}],'b');
+ expect(result.total).toBe(0);
+});

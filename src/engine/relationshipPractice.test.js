@@ -40,3 +40,11 @@ it('resets spacing after a new miss and requires fresh correction',()=>{
  const events=[e('q1',100),e('q2',day+100),e('q3',2*day+100,{correct:false}),e('q4',2*day+200)];
  expect(relationshipPractice(events,2*day+300)).toMatchObject({practiceState:'waiting',dueAt:3*day+200});
 });
+it('requires independent evidence for delayed retests even after guided success',()=>{
+ expect(relationshipPractice([e('q',1,{assisted:true})],day)).toMatchObject({practiceState:'unseen',delayedFreshCorrect:0});
+});
+it('preserves coached exposure so an original retry cannot clear a fresh repair requirement',()=>{
+ const result=relationshipPractice([e('miss',1,{correct:false}),e('coached',2,{assisted:true}),e('coached',day+3)],day+4);
+ expect(result).toMatchObject({practiceState:'repair',delayedFreshCorrect:0,repeatAnswers:1});
+ expect(relationshipPractice([e('coached',1,{assisted:true}),e('coached',day+2)],day+3)).toMatchObject({practiceState:'unseen',delayedFreshCorrect:0});
+});

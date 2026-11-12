@@ -28,13 +28,13 @@ The supplied original Week 14 PDF was extracted and its relevant page rendered f
 | --- | --- |
 | Shared generation, key-hidden solving, source and objective review | Implemented; live false approvals found and narrowed in this pass; broader yield/accuracy remains unverified |
 | Reasoning order | First/second/third-order supported; fourth-order proposal is not implemented merely by adding a label |
-| Tutor and miss repair | Existing tutor sessions, question explanation panel and learner-input miss diagnosis exist; a unified adaptive pre-answer “Help Me Reason” flow is partial, not newly completed here |
+| Tutor and miss repair | Existing tutor sessions, question explanation panel and learner-input miss diagnosis exist; the subsequent [Help Me Reason increment](help-me-reason.md) now adds pre-answer coaching; broader speed/transfer validation remains open |
 | Quiz/exam separation | Existing practice/exam controller and scoring boundaries retained; new coaching must remain unavailable in strict exams |
 | Assisted versus independent evidence | Preserve existing evidence boundaries; end-to-end hint/transfer/speed progression from the proposal still requires an explicit implementation and validation pass |
 | Source originals and media | Parser, saved crop and confirmed-label corrections implemented; authenticated cross-device read-back remains separate verification |
 | Readiness and speed | No new mastery, independent performance or exam-score prediction claim from these small tests |
 
-Priority remains: repair source integrity and preserve saved exhibits; then implement the question-specific reasoning coach using the existing tutor; then validate unassisted transfer and timing with representative cases. Lead-in wording alone never establishes reasoning depth. School structure-identification stems may be recall; lesion-to-deficit, vascular localization and additional-finding tasks qualify only when the clues require the supplied relationships. Source text is reference data, never executable instructions, and textbook resources not actually supplied are not claimed as consulted.
+Priority remains: repair source integrity and preserve saved exhibits; then use the implemented question-specific coach (see follow-up above); then validate unassisted transfer and timing with representative cases. Lead-in wording alone never establishes reasoning depth. School structure-identification stems may be recall; lesion-to-deficit, vascular localization and additional-finding tasks qualify only when the clues require the supplied relationships. Source text is reference data, never executable instructions, and textbook resources not actually supplied are not claimed as consulted.
 
 ## Validation
 

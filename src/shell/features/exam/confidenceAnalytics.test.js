@@ -5,3 +5,6 @@ describe('longitudinal confidence calibration',()=>{
  it('withholds trust claims when the sample is small and ignores invalid records',()=>{const out=confidenceAnalytics([{confidence:5,correct:true},{confidence:null,correct:true},{confidence:3}]);expect(out.total).toBe(1);expect(confidenceTrustMessage(out)).toContain('10+');});
  it('compares recent and prior windows',()=>{const records=[...Array(50)].map(()=>({confidence:5,correct:false})).concat([...Array(50)].map(()=>({confidence:5,correct:true})));const out=confidenceAnalytics(records);expect(out.priorHighAccuracy).toBe(0);expect(out.recentHighAccuracy).toBe(1);});
 });
+it('does not turn coached confidence into independent confidence calibration',()=>{
+ expect(confidenceAnalytics([{confidence:5,correct:true,assisted:true},{confidence:5,correct:false}])).toMatchObject({total:1,highAccuracy:0});
+});

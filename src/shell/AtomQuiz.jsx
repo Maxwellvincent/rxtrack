@@ -1,3 +1,5 @@
+import {HelpMeReason} from '../ui/HelpMeReason.jsx';
+import {assistanceFields,compactCoachState} from '../engine/practiceAssistance.js';
 import { hasReusableQuestionReview } from "../engine/questionReuse.js";
 import { questionLearningContext } from "../engine/learningLoop.js";
 import { LearningGapNote } from "../ui/LearningGapNote.jsx";
@@ -45,6 +47,9 @@ const GAP = {
 // gap. Confidence logs to the block's calibration record; session ends with the
 // accuracy-by-confidence curve + landmine list.
 export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "", lectureTitle = "", lectureNumber = null, lectureId = null, userId, onDone, onExit, onReviewAtom, onAnswer, onCheckpoint, initialState = null, expectedCount = null, preparing = false, onPrepareMore = null, preparationError = null, objectiveReport = null, sessionKey = null }) {
+  const [assistance,setAssistance]=useState(()=>initialState?.assistance || {});
+  const assistanceRef=useRef(assistance);
+  const [coachBusy,setCoachBusy]=useState({});
   const [evidenceSaveError,setEvidenceSaveError]=useState('');
   const [i, setI] = useState(() => Math.max(0, Number(initialState?.i) || 0));
   const [picked, setPicked] = useState(() => initialState?.picked ?? null);
@@ -68,7 +73,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
   // this quiz session only. New quizzes should not silently reopen old marks;
   // newly made marks are still saved for later reference.
   const [highlights, setHighlights] = useState(() => initialState?.highlights || {});
-  const checkpoint = useMemo(() => ({ i, picked, confidence, records, crossed: [...crossed], errorReason, highlights }), [i, picked, confidence, records, crossed, errorReason, highlights]);
+  const checkpoint = useMemo(() => ({ i, picked, confidence, records, crossed: [...crossed], errorReason, highlights, assistance }), [i, picked, confidence, records, crossed, errorReason, highlights, assistance]);
   const checkpointRef = useRef(checkpoint);
   useEffect(() => { checkpointRef.current = checkpoint; onCheckpoint?.(checkpoint); }, [checkpoint, onCheckpoint]);
   useEffect(() => () => onCheckpoint?.(checkpointRef.current), [onCheckpoint]);
@@ -112,7 +117,10 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
   const quadrant = revealed ? classify({ confidence, correct }) : null;
 
   const rate = (level) => {
-    if (picked == null || revealed) return;
+    if (picked == null || revealed || coachBusy[currentIndex]) return;
+    const help=assistanceRef.current[currentIndex] || {};
+    const assisted=help.used===true;
+    const helpFields=assistanceFields({assistance:help});
     const isCorrect = picked === q.correct;
     const responseMs = nowMs() - questionStartedAtRef.current;
     setConfidence(level);
@@ -120,6 +128,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
     const answerKey=q.poolId||q.id||q.questionId||q.questionKey||`stem:${q.stem||""}`;
     const answerEventId=`quiz:${evidenceSessionKeyRef.current}:${currentIndex}:${questionEvidenceKey(answerKey)}`;
     const rec = {
+      ...helpFields,
       eventId:answerEventId,ts:answerAt,lectureId, blockId, sessionKey: evidenceSessionKeyRef.current,
       questionKey: answerKey,
       learningContext: questionLearningContext(q, picked),
@@ -141,9 +150,10 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
     const evidenceQuestionKey = questionEvidenceKey(answerKey);
     const priorObjectiveEvidence = readLearnerEvidence(userId)?.objectives || {};
     const newEvidenceObjectiveIds = (q.objectiveIds || []).filter((objectiveId) =>
-      !(priorObjectiveEvidence[objectiveId]?.questionKeys || []).includes(evidenceQuestionKey)
+      ![...(priorObjectiveEvidence[objectiveId]?.questionKeys || []),...(priorObjectiveEvidence[objectiveId]?.assistedQuestionKeys||[])].includes(evidenceQuestionKey)
     );
     recordEvidenceAwait(userId, {
+      ...helpFields,
       eventId:answerEventId,at:answerAt,source: "quiz",
       sessionKey: evidenceSessionKeyRef.current,
       blockId,
@@ -166,7 +176,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
     // Source-grounded fallbacks preserve access when AI generation is unavailable,
     // but foundational recognition is not equivalent to an independently reviewed
     // ExamSoft-style objective test and must not graduate objective mastery.
-    if (blockId && newEvidenceObjectiveIds.length && q.generationMode !== "grounded-fallback" && q.qualityAudit?.status !== "local-validated") {
+    if (!assisted && blockId && newEvidenceObjectiveIds.length && q.generationMode !== "grounded-fallback" && q.qualityAudit?.status !== "local-validated") {
       const objectiveMap = objectivesStore.read(userId) || {};
       let blockObjectives = selectBlockObjectives(objectiveMap, blockId);
       for (const objectiveId of [...new Set(newEvidenceObjectiveIds)]) {
@@ -179,8 +189,8 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
     // the lecture's total has to reflect it.
     if (lectureId) {
       recordAnswer(userId, lectureId, isCorrect);
-      generatedQuestionsStore.recordUse(userId, lectureId, q.stem, isCorrect);
-      recordMentalModelAttempt(userId, lectureId, {
+      if (!assisted) generatedQuestionsStore.recordUse(userId, lectureId, q.stem, isCorrect);
+      if (!assisted) recordMentalModelAttempt(userId, lectureId, {
         correct: isCorrect,
         responseMs,
         difficulty: q.difficulty || null,
@@ -191,7 +201,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
       });
       // Only questions generated one-per-atom carry an exact atomKey (Quiz mode's free-form
       // generator doesn't, yet) — no atomKey means no mastery claim gets made on its behalf.
-      if (q.atomKey) recordAtomAnswer(userId, lectureId, q.atomKey, isCorrect, { ...q, picked, confidence: level });
+      if (!assisted && q.atomKey) recordAtomAnswer(userId, lectureId, q.atomKey, isCorrect, { ...q, picked, confidence: level });
     }
     onAnswer?.({ correct: isCorrect, question: q, confidence: level, responseMs });
     setRecords((prev) => [...prev, rec]);
@@ -272,6 +282,19 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
         />
         {!!highlights[q.stem]?.length && <button className="quiz-clear-highlights mb-2 min-h-9 text-xs text-text-2 underline" onClick={() => removeHighlight(q.stem, null)}>Clear highlights</button>}
         </div>
+        {!revealed && <HelpMeReason key={`${currentIndex}:${q.id || q.stem}`} question={{...q,lectureId:q.lectureId||lectureId,blockId}} userId={userId} initialState={assistance[currentIndex]?.coach} onBusy={value=>setCoachBusy(previous=>({...previous,[currentIndex]:value}))}
+          onAssist={async()=>{
+            const prior=assistanceRef.current[currentIndex] || {};
+            const next={...assistanceRef.current,[currentIndex]:{...prior,used:true,kind:'help-me-reason',turns:(prior.turns||0)+1}};
+            assistanceRef.current=next;setAssistance(next);
+            checkpointRef.current={...checkpointRef.current,assistance:next};
+            const saved=await onCheckpoint?.(checkpointRef.current);
+            if(saved===false)throw Error("Could not save assisted-practice status. Retry when connected.");
+          }} onState={coach=>{
+            const next={...assistanceRef.current,[currentIndex]:{...assistanceRef.current[currentIndex],coach:compactCoachState(coach)}};
+            assistanceRef.current=next;setAssistance(next);checkpointRef.current={...checkpointRef.current,assistance:next};return onCheckpoint?.(checkpointRef.current);
+          }} />}
+        {revealed && assistance[currentIndex]?.used && <p className="mb-2 text-xs text-accent-text">Assisted answer · does not establish independent readiness.</p>}
         <div className="quiz-choice-list flex flex-col gap-1.5">
           {orderedChoiceEntries(q.choices).map(([letter, txt]) => {
             const isPicked = picked === letter;
@@ -348,7 +371,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
         {revealed && (
           <div className="quiz-feedback mt-3 space-y-2">
             <div className={"quiz-result text-xs " + (GAP[quadrant]?.cls || "")}>
-              {correct ? "✓ " : "✕ "}{GAP[quadrant]?.text}
+              {correct ? "✓ " : "✕ "}{assistance[currentIndex]?.used ? (correct?"Correct after guidance — check a fresh case later.":"This connection still needs repair.") : GAP[quadrant]?.text}
             </div>
             {/* The atom/concept this question was testing — named here, not just buried in
                 the end-of-quiz landmine list, so a miss tells you what to go re-study while
@@ -441,6 +464,7 @@ export function Summary({ records, onExit, onReviewAtom, objectiveReport }) {
       <div className="rounded-lg border border-border bg-bg-elevated p-4">
         <div className="text-3xl font-bold text-text-1">{pct(records.length ? records.filter((r) => r.correct).length / records.length : null)}</div>
         <div className="text-sm text-text-2">{records.filter((r) => r.correct).length} / {records.length} correct · Quiz complete</div>
+        {records.some(r=>r.assisted)&&<p className="mt-1 text-xs text-text-3">{records.filter(r=>r.assisted).length} assisted answers · excluded from independent readiness.</p>}
         {(objectivesTested > 0 || supportingAtomsTested > 0) && (
           <div className="mt-1 text-xs text-text-3">
             {objectivesTested} objective{objectivesTested === 1 ? "" : "s"} tested

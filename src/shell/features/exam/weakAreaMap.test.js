@@ -53,3 +53,7 @@ it('replaces a stale eight-answer weakness with the complete latest quiz log',()
  const [r]=buildWeakAreaMap({lectures:[{id:'retina'}],questionStats:{retina:{answered:39,correct:27,recentAnswers:Array.from({length:20},(_,i)=>({correct:i<17,at:1000+i}))}},learnerEvidence:{lectures:{retina:{lastSeen:1019,recent:[true,false,false,false,false,false,true,false]}}}});
  expect(r).toMatchObject({recentCount:20,recentAccuracy:.85,priorityAccuracy:.85,totalQuestions:39});
 });
+it('does not substitute assisted raw totals for missing independent priority evidence',()=>{
+ const [row]=buildWeakAreaMap({lectures:[{id:'l'}],questionStats:{l:{answered:10,correct:10,hasAssistedAnswers:true}},learnerEvidence:{lectures:{}}});
+ expect(row.accuracy).toBe(1);expect(row.priorityAccuracy).toBeNull();
+});

@@ -1,3 +1,4 @@
+import {isIndependentAttempt} from '../../../engine/practiceAssistance.js';
 import {protectSessionScoring} from '../../../engine/questionScoringPolicy.js';
 import {schoolQuestionIdentity} from './schoolSourceIdentity.js';
 /** Derived from saved answers: no second miss list to fall out of sync. */
@@ -11,7 +12,7 @@ export function missedBankQuestions({bank,sessions=[],blockId,ratings={}}){
   const questions=new Map((session.questions||[]).map(q=>[q.questionId,q]));
   for(const answer of session.answers||[]){
    const q=questions.get(answer.questionId);
-   if(!q||!Object.hasOwn(q.choices||{},q.correct)||!Object.hasOwn(q.choices||{},answer.value))continue;
+   if(!q||!isIndependentAttempt(q)||!isIndependentAttempt(answer)||!Object.hasOwn(q.choices||{},q.correct)||!Object.hasOwn(q.choices||{},answer.value))continue;
    const key=schoolQuestionIdentity(q);
    const at=Number(answer.answeredAt)||Number(saved.submittedAt)||saved.updatedAt?.toMillis?.()||Number(saved.updatedAt)||Number(saved.startedAt)||0;
    const old=latest.get(key);

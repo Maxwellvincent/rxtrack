@@ -1,3 +1,4 @@
+import {assistanceFields} from '../../../engine/practiceAssistance.js';
 import {schoolQuestionIdentity} from './schoolSourceIdentity.js';
 import { questionLearningContext } from "../../../engine/learningLoop.js";
 import { hasCurrentReasoningAudit } from "../../../engine/questionOrder.js";
@@ -7,6 +8,7 @@ import { classifyLeadIn } from "./questionReading.js";
 export function sessionEvidenceEvent(session, question, answer) {
   const correct = answer.value === question.correct;
   return {
+    ...assistanceFields(question),
     eventId: `exam:${session.sessionId}:${question.questionId}`,
     pendingLectureStats: session.status === "in_progress",
     source: question.sourceType === "question-bank" ? "school-practice" : "integrated-exam",

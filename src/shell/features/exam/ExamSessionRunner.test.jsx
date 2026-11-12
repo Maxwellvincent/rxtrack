@@ -823,3 +823,12 @@ it('shows only the frozen exhibit during a reserved assessment, with no PDF brow
  expect(host.querySelector('img').getAttribute('src')).toBe('https://example.com/crop.png');
  expect(host.textContent).not.toContain('Source page controls');expect(host.textContent).not.toContain('Adjust figure crop');unmount();
 });
+it('offers pre-answer coaching only in untimed practice, never strict exams or reserved assessments',()=>{
+ const controller=baseController();controllerMock.mockReturnValue(controller);
+ const {host,rerender,unmount}=render(<ExamSessionRunner sessionId="s1" userId="u1"/>);
+ expect(host.querySelector('[aria-label="Help Me Reason"]')).toBeNull();
+ controller.session={...controller.session,format:'practice'};rerender(<ExamSessionRunner sessionId="s1" userId="u1"/>);
+ expect(host.querySelector('[aria-label="Help Me Reason"]')).not.toBeNull();
+ controller.session={...controller.session,purpose:'reserved-assessment'};rerender(<ExamSessionRunner sessionId="s1" userId="u1"/>);
+ expect(host.querySelector('[aria-label="Help Me Reason"]')).toBeNull();unmount();
+});

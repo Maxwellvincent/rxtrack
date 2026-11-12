@@ -1,3 +1,4 @@
+import {isIndependentAttempt} from '../../../engine/practiceAssistance.js';
 import { objectivePracticePlan, OBJECTIVE_MIN_ACCURACY } from '../../../engine/objectivePractice.js';
 import { protectSessionScoring } from '../../../engine/questionScoringPolicy.js';
 import { questionEvidenceKey } from '../../../stores/learnerEvidence.js';
@@ -17,7 +18,7 @@ export function buildLectureRepairContext(sessions = [], lectureId, objectives =
     const answers = new Map((session.answers || []).map(answer => [answer.questionId, answer]));
     for (const question of session.questions || []) {
       const answer = answers.get(question.questionId);
-      if (excluded.has(question.questionId) || question.lectureId !== lectureId || !answer || !Object.hasOwn(question.choices || {}, question.correct)
+      if (!isIndependentAttempt(question) || !isIndependentAttempt(answer) || excluded.has(question.questionId) || question.lectureId !== lectureId || !answer || !Object.hasOwn(question.choices || {}, question.correct)
         || !Object.hasOwn(question.choices || {}, answer.value)) continue;
       const at = timestamp(answer.answeredAt) || timestamp(saved.status === 'submitted' ? saved.submittedAt : saved.progressSavedAt) || timestamp(saved.startedAt);
       const sessionKey = saved.sessionId || saved.id || `legacy:${timestamp(saved.submittedAt)}`;
@@ -53,7 +54,7 @@ export function buildLectureRepairContext(sessions = [], lectureId, objectives =
     return row.worked && (row.state === 'struggling' || !row.latestCorrect || current.correct / current.attempts < OBJECTIVE_MIN_ACCURACY);
   }).sort((a, b) => Number(b.latestMiss) - Number(a.latestMiss)
     || performance(a).correct / performance(a).attempts - performance(b).correct / performance(b).attempts);
-  const journal = (learnerEvidence.evidenceJournal || []).filter(event => event.lectureId === lectureId && typeof event.correct === 'boolean');
+  const journal = (learnerEvidence.evidenceJournal || []).filter(event => isIndependentAttempt(event) && event.lectureId === lectureId && typeof event.correct === 'boolean');
   const unresolved = [...latest.values()].filter(event => {
     if (event.correct) return false;
     const aliases = new Set([schoolQuestionIdentity(event.question), ...[event.question.questionKey, event.question.poolId, event.question.id, `stem:${event.question.stem}`].filter(Boolean).map(questionEvidenceKey)]);
