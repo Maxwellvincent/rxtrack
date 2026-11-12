@@ -57,3 +57,7 @@ it('does not substitute assisted raw totals for missing independent priority evi
  const [row]=buildWeakAreaMap({lectures:[{id:'l'}],questionStats:{l:{answered:10,correct:10,hasAssistedAnswers:true}},learnerEvidence:{lectures:{}}});
  expect(row.accuracy).toBe(1);expect(row.priorityAccuracy).toBeNull();
 });
+it('recognizes assisted lecture evidence even before stats reconciliation has added a marker',()=>{
+ const [row]=buildWeakAreaMap({lectures:[{id:'l'}],questionStats:{l:{answered:20,correct:20}},learnerEvidence:{assistedJournal:[{lectureId:'l',assisted:true,correct:true}],lectures:{}}});
+ expect(row.hasAssistedAnswers).toBe(true);expect(row.priorityAccuracy).toBeNull();
+});

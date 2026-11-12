@@ -1,8 +1,10 @@
+import {isIndependentAttempt} from '../../../engine/practiceAssistance.js';
 import { objectivePracticePlan } from "../../../engine/objectivePractice.js";
 
 /** Combine lecture-level practice totals with linked-objective exposure. */
 export function buildWeakAreaMap({ lectures = [], objectives = [], questionStats = {}, learnerEvidence = {}, reportWeaknesses = [] } = {}) {
   const byLecture = new Map();
+  const assistedLectures=new Set((learnerEvidence.assistedJournal || learnerEvidence.evidenceJournal || []).filter(event=>!isIndependentAttempt(event)).map(event=>event.lectureId));
   const practice = new Map(objectivePracticePlan(objectives, learnerEvidence).rows.map(row=>[row.id,row]));
   for (const objective of objectives || []) {
     const lectureId = objective?.linkedLecId || objective?.lectureId;
@@ -24,7 +26,7 @@ export function buildWeakAreaMap({ lectures = [], objectives = [], questionStats
     const useDetailed=detailed.length>=3&&detailed.at(-1).at>=(learnerEvidence?.lectures?.[lecture.id]?.lastSeen||0)-1000;
     const recent = useDetailed?detailed.map(a=>a.correct):learnerEvidence?.lectures?.[lecture.id]?.recent || [];
     const recentAccuracy = recent.length ? recent.filter(Boolean).length / recent.length : null;
-    const hasAssistedAnswers=questionStats?.[lecture.id]?.hasAssistedAnswers===true;
+    const hasAssistedAnswers=questionStats?.[lecture.id]?.hasAssistedAnswers===true || assistedLectures.has(lecture.id);
     const independent=learnerEvidence?.lectures?.[lecture.id];
     const independentAccuracy=independent?.attempts?independent.correct/independent.attempts:null;
     const priorityAccuracy = recent.length >= 3 ? recentAccuracy : hasAssistedAnswers?independentAccuracy:accuracy;

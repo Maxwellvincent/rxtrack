@@ -64,7 +64,7 @@ export function BlockReadinessDashboard({ blockId, userId, onStudyLecture, compa
     blockId,
     lectures: lectures.data || [],
     objectives: objectives.data || [],
-    questionStats: reconcileLectureStats(questionStats.data || {}, questionHistory.sessions || [], lectures.data || [], blockId),
+    questionStats: reconcileLectureStats(questionStats.data || {}, questionHistory.sessions || [], lectures.data || [], blockId, questionHistory.studyAnswers || []),
     sessions,
     confidenceRecords,
     models: Object.values(retrieval.data?.models || {}),
