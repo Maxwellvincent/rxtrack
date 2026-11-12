@@ -33,3 +33,17 @@ export function normalizeSessionSchoolChoices(session) {
  if (!session?.questions) return session;
  return {...session,questions:session.questions.map(q => q.sourceType === 'question-bank' || session.sourceType === 'question-bank' ? cleanSchoolQuestion(q) : q)};
 }
+
+/** Clean only prompt examples; do not rewrite saved originals or infer a key. */
+export function cleanSchoolExemplar(question){
+ const source=cleanSchoolQuestion(question);if(!source?.choices)return source;
+ let changed=false;const choices=Object.fromEntries(Object.entries(source.choices).map(([k,v])=>{
+  if(typeof v!=='string')return [k,v];
+  const text=v.replace(/\s+SOM\.[A-Z0-9]+(?:\.[A-Z0-9]+){3,}[\s\S]*$/i,'').trim();changed ||=text!==v;return [k,text];
+ }));
+ let stem=String(source.stem||'');const repeat=stem.match(/^([\s\S]+?\?)\s+\d{1,4}\.\s+([\s\S]+)$/);
+ const normalize=s=>s.toLowerCase().replace(/\s+/g,' ').trim();
+ if(repeat&&normalize(repeat[1])===normalize(repeat[2]))stem=repeat[1].trim();
+ if(!changed&&stem===source.stem)return source;
+ return {...source,stem,choices,...(stem!==source.stem?{sourceStemText:source.sourceStemText||source.stem}:{}),...(changed?{sourceChoiceText:source.sourceChoiceText||source.choices}:{})};
+}

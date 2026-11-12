@@ -11,12 +11,15 @@ export function alignSchoolQuestions(examples = [], objectives = [], atoms = [])
     .map(t=>({...t,words:tokens(t.text),codes:codes(`${t.code || ''} ${t.id || ''} ${t.text}`)}));
   return examples.filter(usableSchoolExemplar).filter(q => q?.stem && q?.choices && q.answerKeyVerified !== false).map(q => {
     const sourceCodes = new Set(codes([q.schoolObjectiveCode, ...(q.schoolObjectiveCodes || []), q.schoolObjective].join(' ')));
-    const sourceTokens = tokens(`${q.schoolObjective || ''} ${q.sourceSectionTitle || ''} ${q.stem} ${Object.values(q.choices).join(' ')}`);
+    // A topic appearing only in a distractor cannot establish a concept match.
+    const sourceTokens = tokens(`${q.schoolObjective || ''} ${q.sourceSectionTitle || ''} ${q.stem} ${q.choices?.[q.correct] || ''}`);
     const links = targets.flatMap(t => {
       const matchedCodes = t.codes.filter(c => sourceCodes.has(c));
       const storedLink=t.kind==='objective' && (q.objectiveIds || []).some(id=>String(id)===String(t.id) || (t.code && String(id)===String(t.code)));
       const shared = [...t.words].filter(w => sourceTokens.has(w));
-      if (!matchedCodes.length && !storedLink && (shared.length < 3 || shared.length / Math.max(1,t.words.size) < 0.55)) return [];
+      const generic=new Set('sign signs symptom symptoms lesion lesions site sites normal general major detail details anatomical clinical function functions characteristic characteristics associated relationship relationships'.split(' '));
+      const substantive=shared.some(word=>!generic.has(word));
+      if (!matchedCodes.length && !storedLink && (!substantive || shared.length < 3 || shared.length / Math.max(1,t.words.size) < 0.55)) return [];
       return [{ targetId: t.id || t.text, kind: t.kind, targetText: t.text,
         basis: matchedCodes.length ? 'school-code' : storedLink ? 'candidate-stored-link' : 'candidate-overlap',
         evidence: matchedCodes.length ? matchedCodes : storedLink ? [String(t.id)] : shared.slice(0, 8),

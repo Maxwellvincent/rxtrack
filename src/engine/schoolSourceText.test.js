@@ -14,3 +14,7 @@ it("preserves clinical ranges, figure labels, and numbered answer content", () =
   expect(cleanSchoolQuestion({ choices: { A: text } }).choices.A).toBe(text);
  }
 });
+it('cleans duplicate stems and objective-code footers only in the prompt copy',async()=>{
+ const {cleanSchoolExemplar}=await import('./schoolSourceText.js');const stem='Which region supplies this pathway?';const q={stem:`${stem} 4. ${stem}`,choices:{A:'Metencephalon',B:'Diencephalon SOM.MK.I.BPM2.1.NB.1.NSCI.0546 Describe morphogenesis'},correct:null};
+ const cleaned=cleanSchoolExemplar(q);expect(cleaned.stem).toBe(stem);expect(cleaned.choices.B).toBe('Diencephalon');expect(cleaned.correct).toBeNull();expect(cleaned.sourceChoiceText).toEqual(q.choices);expect(q.stem).not.toBe(stem);
+});

@@ -136,3 +136,17 @@ it('prioritizes exact school annotations over stored retrieval candidates while 
   expect(completeLectureEvidence(text,100)).toBeNull();
   expect(completeLectureEvidence(route)).toBeNull();
  });
+it('does not turn generic phrasing into a cerebellar concept-matched template',()=>{
+ const objective={id:'c',objective:'Describe the signs and symptoms associated with cerebellar lesions sites.'};
+ const unrelated={id:'serotonin',sourceKind:'examsoft',stem:'A patient receives a drug that inhibits serotonin uptake. Which nucleus is most likely associated with synthesis?',choices:{A:'Raphe nuclei',B:'Locus ceruleus'},correct:'A'};
+ expect(buildSchoolTemplatePlan({objectives:[objective],examples:[unrelated]})[0].templateId).toBeNull();
+});
+it('does not link an objective just because its words appear in a distractor',()=>{
+ const o={id:'c',objective:'Explain cerebellar lesions motor coordination deficits'};
+ const q={stem:'Which process causes a lumbosacral neural tube defect?',choices:{A:'Posterior neuropore failure',B:'Cerebellar lesions motor coordination deficits'},correct:'A'};
+ expect(alignSchoolQuestions([q],[o])[0].links).toEqual([]);
+});
+it('retains a substantive phrase match rather than banning all common modifiers',()=>{
+ const objective={id:'c',objective:'Describe the signs and symptoms associated with cerebellar lesions sites.'};const example={id:'real',sourceKind:'homework',stem:'Cerebellar lesions produce which coordination finding?',choices:{A:'Dysmetria',B:'Loss of primary sensation'},correct:'A'};
+ expect(buildSchoolTemplatePlan({objectives:[objective],examples:[example]})[0].example.sourceQuestionId).toBe('real');
+});

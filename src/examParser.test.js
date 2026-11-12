@@ -526,3 +526,14 @@ describe("attachImagesToExamQuestions", () => {
     expect(attachImagesToExamQuestions(qs, [])).toEqual(qs);
   });
 });
+
+it('isolates titled homework sections with repeated numbering and page-spanning stems',()=>{
+ const bank=(title,key)=>`${title} (Questions)\n1. A patient is checked every\f Page 2 of 9\n2 hours. Which schedule explains this?\nA. One\nB. Two\n${title} (Answers)\n1. A patient is checked every 2 hours. Which schedule explains this?\nA. One\nB. Two\nAnswer Key: ${key}\nSource explanation.`;
+ const source=bank('Learning Theory','B')+'\n'+bank('Lifespan Development','A');
+ const q=parseNumberedQuestionBankText(source,'Week 14');
+ expect(q).toHaveLength(2);expect(q.map(x=>x.correct)).toEqual(['B','A']);
+ expect(q[0].stem).toBe('A patient is checked every 2 hours. Which schedule explains this?');
+ expect(q.map(x=>x.sourceSection)).toEqual(['Learning Theory','Lifespan Development']);
+ expect(q.every(x=>!x.sourceLectureNumbers)).toBe(true);
+ expect(expectedQuestionCountFromAnswerKey(source)).toBe(2);
+});

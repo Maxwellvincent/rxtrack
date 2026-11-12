@@ -19,3 +19,14 @@ it("does not overwrite another question crop in the same source",async()=>{
  expect(figures.apply(a,saved).sourceImageUrl).toContain('/a.jpg');
  expect(figures.apply(b,saved).sourceImageUrl).toContain('/b.jpg');
 });
+it('persists explicit diagram label confirmation without losing the saved crop',async()=>{
+ const q={sourceFile:'NB.pdf',stem:'Which marked site?',choices:{A:'Visual option A',B:'Visual option B'},sourceVisualChoicesUnverified:true};
+ await figures.save(null,q,{url:'https://example.com/selected.jpg',page:4});
+ await figures.save(null,q,{visualLastLabel:'H'});
+ const applied=figures.apply(q,figures.read(null,q.sourceFile));
+ expect(applied.sourceImageUrl).toContain('selected.jpg');expect(applied.sourceVisualLabelsConfirmed).toBe(true);
+ expect(Object.keys(applied.choices)).toHaveLength(8);
+ expect(figures.apply({...q,choices:{A:'Actual text',B:'Other text'}},figures.read(null,q.sourceFile)).choices.A).toBe('Actual text');
+ const expanded=figures.apply({...q,choices:{A:'Visual option A',Z:'Visual option Z'}},figures.read(null,q.sourceFile));
+ expect(expanded.choices.Z).toBe('Visual option Z');expect(expanded.sourceVisualLabelsConfirmed).not.toBe(true);
+});

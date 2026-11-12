@@ -6,6 +6,7 @@ import { restoreVisualChoices } from "../../../engine/visualChoiceLabels.js";
 import { ObjectiveLearningReport } from "../../../ui/ObjectiveLearningReport.jsx";
 import { questionLearningContext } from "../../../engine/learningLoop.js";
 import * as learnerEvidenceStore from "../../../stores/learnerEvidence.js";
+import * as questionFigures from "../../../stores/questionFigures.js";
 import { useStoreResource } from "../../hooks/useStoreResource.js";
 import { LearningGapNote } from "../../../ui/LearningGapNote.jsx";
 import { protectSessionScoring } from "../../../engine/questionScoringPolicy.js";
@@ -532,6 +533,7 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
             if(current?.status !== 'in_progress') return null;
             return {...current,questions:current.questions.map(item=>item.questionId===q.questionId ? {...item,choices:Object.fromEntries('ABCDEFGHIJKLMNOPQRSTUVWXYZ'.slice(0,'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.indexOf(lastLetter)+1).split('').map(letter=>[letter,`Visual option ${letter}`])),sourceVisualLabelsConfirmed:true} : item)};
           });
+          await questionFigures.save(userId,q,{visualLastLabel:lastLetter});
           await controller.refetch?.();
         }} />
         <ChoiceList

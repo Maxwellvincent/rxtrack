@@ -126,7 +126,7 @@ if (prepare) {
   }, progress => console.log(JSON.stringify({ event: "progress", ...progress })));
 } else {
   result = reviewFile
-    ? await auditGeneratedQuestions(questions || [], { ...cfg, promptProfile: "compact" }, { callAIJSON, reviewAIJSON, skipRepair: !cachedReviewFile })
+    ? await auditGeneratedQuestions(questions || [], { ...cfg, promptProfile: "compact" }, { callAIJSON, reviewAIJSON, skipRepair: !process.argv.includes("--allow-repair") })
     : await generateMcqs(cfg, { ...(process.argv.includes("--production-policy") ? preparationPolicy : {}), callAIJSON, reviewAIJSON:callAIJSON });
 }
 if (prepare && initialQuestions.length) {

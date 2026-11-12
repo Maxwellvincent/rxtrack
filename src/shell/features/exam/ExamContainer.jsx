@@ -936,7 +936,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
               const partialScore = resumableBankSession ? scoreAnsweredQuestions(resumableBankSession) : null;
               const focusSummary = analysis?.focusCounts ? Object.entries(analysis.focusCounts).slice(0, 3).map(([label, count]) => `${label} ${count}`).join(" · ") : null;
               return (
-                <div key={bank.filename} className="flex flex-col gap-2 rounded-lg border border-border bg-panel px-3 py-2 sm:flex-row sm:items-center">
+                <div key={bank.filename} className="grid min-w-0 gap-3 rounded-lg border border-border bg-panel px-3 py-2">
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[13px] font-medium text-text-1">{bank.displayName || cleanLectureTitle(bank.filename)}</div>
                     <div className="font-mono text-[11px] text-text-3">{distinctQuestionSet.questions.length} distinct questions{distinctQuestionSet.removedDuplicateCount ? ` · ${distinctQuestionSet.removedDuplicateCount} repeats skipped` : ""} · {minutes} min timed · {sourceLabel(bank.sourceKind, bank.filename)}{bank.assignedDate ? ` · assigned ${bank.assignedDate}` : ""} · {stats.attempts} practice attempt{stats.attempts === 1 ? "" : "s"}{stats.latest ? ` · latest ${stats.latest.score}%` : ""}{stats.improvement != null ? ` · ${stats.improvement >= 0 ? "+" : ""}${stats.improvement}% change` : ""}</div>
@@ -970,7 +970,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
                       {analysis.items.length > 8 && <div className="mt-1 text-text-3">Showing the first 8; practice all {analysis.items.length} questions to see their source-keyed rationales.</div>}
                     </details>}
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex min-w-0 flex-wrap gap-2">
                     {resumableBankSession && <Button variant="outline" disabled={!!bankLaunching} onClick={() => setActiveSessionId(resumableBankSession.sessionId || resumableBankSession.id)}>Resume · {partialScore?.answered || 0}/{resumableBankSession.questions?.length || 0}</Button>}
                     <Button variant="ghost" disabled={!!bankLaunching || bankEditBusy} onClick={() => renameBank(bank)}>{bankEditBusy ? "Saving…" : "Rename"}</Button>
                     <Button variant="ghost" disabled={!!bankLaunching || bankEditBusy} onClick={() => scheduleBank(bank)}>{bankEditBusy ? "Saving…" : bank.assignedDate ? "Change date" : "Assign date"}</Button>

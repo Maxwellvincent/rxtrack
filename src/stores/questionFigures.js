@@ -25,14 +25,19 @@ export async function load(userId, filename) {
 }
 export async function save(userId, question, entry) {
   const previous=await load(userId,question.sourceFile);
-  const next={...previous,[figureIdentity(question)]:{...entry,at:Date.now()}};
+  const identity=figureIdentity(question);
+  const next={...previous,[identity]:{...previous[identity],...entry,at:Date.now()}};
   if(userId)await writeCloudAwait(userId,sourceKey(question.sourceFile),next);
   else writeJson(userId,sourceKey(question.sourceFile),next);
   return entry;
 }
 export function apply(question, records = {}) {
   const saved=records[figureIdentity(question)];
-  if(!saved?.url)return question;
-  return {...question,originalSourceImageUrl:question.originalSourceImageUrl || question.sourceImageUrl || question.sourceImageDataUrl || null,
-    sourceImageUrl:saved.url,sourceVisualPage:saved.page,sourceFigureCropped:true,hasImage:true,imageDependent:true};
+  if(!saved)return question;
+  const last=String(saved.visualLastLabel||'');
+  const labels=/^[B-Z]$/.test(last)&&Object.entries(question.choices||{}).every(([letter,value])=>value===`Visual option ${letter}`&&letter<=last);
+  if(!saved.url&&!labels)return question;
+  return {...question,...(saved.url?{originalSourceImageUrl:question.originalSourceImageUrl || question.sourceImageUrl || question.sourceImageDataUrl || null,
+    sourceImageUrl:saved.url,sourceVisualPage:saved.page,sourceFigureCropped:true,hasImage:true,imageDependent:true}:{}),
+    ...(labels?{choices:Object.fromEntries('ABCDEFGHIJKLMNOPQRSTUVWXYZ'.slice(0,last.charCodeAt(0)-64).split('').map(letter=>[letter,`Visual option ${letter}`])),sourceVisualLabelsConfirmed:true}:{})};
 }

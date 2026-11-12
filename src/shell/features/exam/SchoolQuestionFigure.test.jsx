@@ -96,3 +96,12 @@ it("offers figure recovery for Site X/Y and see-attached dependencies",()=>{
  }
  expect(questionReferencesVisual('CT imaging reveals a mass. Which hormone is increased?')).toBe(false);
 });
+it('opens the saved figure automatically and hides source page navigation on repeats',()=>{
+ render(<SchoolQuestionFigure question={{stem:'Which site?',sourceFile:'NB.pdf',sourceImageUrl:'https://example.com/crop.jpg',sourceFigureCropped:true,sourceStoragePath:'original.pdf',hasImage:true}} />);
+ expect(host.querySelector('details').open).toBe(true);
+ expect(host.querySelector('img').src).toBe('https://example.com/crop.jpg');
+ expect(host.textContent).not.toContain('Source page controls');
+ expect(host.textContent).not.toContain('Only this saved page');
+ act(()=>[...host.querySelectorAll('button')].find(b=>b.textContent==='Adjust figure crop').click());
+ expect(host.textContent).toContain('Source page controls');
+});

@@ -345,8 +345,35 @@ export function parseLectureCompilationText(fullText, examTitle = "") {
   return result;
 }
 
+/** Titled behavioral-science chapters repeat local numbers in keyed copies.
+ * Reuse the strict compilation reconciler, never a document-wide positional key. */
+export function parseTitledQuestionSections(fullText, examTitle = "") {
+  const source=String(fullText || '').replace(/\r/g,'').replace(/\[PAGE_BREAK:(\d+)\]/g,'\f');
+  const headings=[...source.matchAll(/(?:^|[\n\f])[ \t]*([^\n\f]+?)[ \t]+\((Questions|Answers)\)[ \t]*(?=[\n\f]|$)/gi)];
+  const sections=headings.map((h,i)=>({title:h[1].trim(),kind:h[2].toLowerCase(),offset:h.index+h[0].length,
+    body:source.slice(h.index+h[0].length,headings[i+1]?.index??source.length)}));
+  const originals=sections.filter(s=>s.kind==='questions');
+  if(originals.length<2)return null;
+  const clean=body=>body.replace(/\bPage[ \t]+\d+[ \t]+of[ \t]+\d+\b/gi,'')
+    .replace(/((?:^|[\n\f])[ \t]*\d+[.)][ \t]+)([\s\S]*?)(?=(?:[\n\f])[ \t]*A[.)][ \t]+)/g,
+      (_,heading,stem)=>heading+stem.replace(/\s+/g,' ').trim()+'\n');
+  const keyed=originals.map(s=>sections.filter(a=>a.kind==='answers'&&a.title===s.title));
+  if(keyed.some(matches=>matches.length!==1))throw new Error('Missing or ambiguous titled source answer section.');
+  const synthetic=originals.map((s,i)=>`NB ${i+1} – ${s.title}\n${clean(s.body)}`).join('\n')+
+    '\nQuestions with Answers\n'+originals.map((s,i)=>`NB ${i+1} – ${s.title}\n${clean(keyed[i][0].body)}`).join('\n');
+  return parseLectureCompilationText(synthetic,examTitle).map(q=>{
+    const section=originals[q.sourceLectureNumbers[0]-1];
+    const mark=[...section.body.matchAll(/(?:^|[\n\f])[ \t]*(\d+)[.)][ \t]+/g)].find(m=>Number(m[1])===q.sourceQuestionNumber);
+    const page=source.slice(0,section.offset+(mark?.index||0)).split('\f').length;
+    const {sourceLectureNumbers: _syntheticNumbers,...question}=q;
+    return {...question,id:`section-${originals.indexOf(section)+1}-q${q.sourceQuestionNumber}`,sourceSection:section.title,sourceSectionTitle:section.title,sourcePage:page,sourceEndPage:page};
+  });
+}
+
 export function parseNumberedQuestionBankText(fullText, examTitle = "", options = {}) {
   if (!options.skipLectureSections) {
+    const titled = parseTitledQuestionSections(fullText, examTitle);
+    if (titled) return titled;
     const compilation = parseLectureCompilationText(fullText, examTitle);
     if (compilation) return compilation;
   }

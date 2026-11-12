@@ -1,3 +1,5 @@
+import {questionReferencesVisual} from './questionVisual.js';
+import {cleanSchoolExemplar} from './schoolSourceText.js';
 import {attachReviewSources,reviewSourcePrompt} from './reviewSourceContext.js';
 import {selectGuideRows,studyGuidePrompt} from './studyGuides.js';
 import {buildBlindSourceReviewPrompt,decodeBlindSourceReviews} from './blindSourceReview.js';
@@ -352,16 +354,17 @@ function clinicalTemplates(cfg, requireObjectiveMatch = false) {
   });
 }
 export function buildSchoolTemplatePlan(cfg = {}) {
+  cfg={...cfg,examples:(cfg.examples||[]).map(cleanSchoolExemplar)};
   const ranked = selectStyleExemplars(cfg.examples || [], 6, cfg.difficulty, { objectives: cfg.objectives, atoms: cfg.atoms });
   const eligible = (cfg.examples || []).filter(q => usableSchoolExemplar(q) && !requiresSchoolFigure(q));
   const phraseMatch = (question, objective) => {
     const normalize = text => String(text || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
     const words = normalize(objective.objective || objective.text).split(" ");
-    const generic = new Set("describe explain contrast identify list compare define discuss origin route termination organization outputs signs symptoms clinical anatomy anatomical function functions of the and versus within through from into".split(" "));
+    const generic = new Set("describe explain contrast identify list compare define discuss origin route termination organization outputs signs symptoms clinical anatomy anatomical function functions of the and versus within through from into associated association with including between related normal general major characteristics significance relevance lesions lesion sites site manifestations findings details knowledge ability connections relationships".split(" "));
     const text = ` ${normalize(`${question.stem} ${question.choices?.[question.correct] || ""}`)} `;
     for (const size of [4, 3, 2]) for (let i = 0; i <= words.length - size; i++) {
       const terms = words.slice(i, i + size);
-      if (terms.some(word => generic.has(word) || word.length < 4)) continue;
+      if (terms.some(word => word.length < 4) || terms.every(word=>generic.has(word))) continue;
       // Two-word matches need a distinctive long term; generic pairs such as
       // "motor cortex" must not impose a false objective assignment.
       if (size === 2 && !terms.some(word => word.length >= 9)) continue;
@@ -762,6 +765,7 @@ function renderChoices(choices) {
  * sent with the text prompt and would teach the model to reference a figure it cannot provide.
  */
 export function selectStyleExemplars(examples = [], limit = 5, _difficulty = "medium", targets = {}) {
+  examples=examples.map(cleanSchoolExemplar);
   if (limit <= 0) return [];
   const aligned = alignSchoolQuestions(examples, targets.objectives, targets.atoms);
   const relevance = new Map(aligned.map(x => [x.question,x.score]));
@@ -1090,7 +1094,7 @@ export function locallyUsableQuestions(questions = [], minimumStemLength = 100) 
     if (!stem.endsWith("?") || stem.length < minimumStemLength || !correctText || entries.length < 4 || explanation.length < 40) return false;
     // Generated items must not refer to a figure/table that the question object
     // cannot actually supply. Otherwise the learner sees an unanswerable item.
-    const visualCue = /\b(?:figure|image|graph|chart|table|photomicrograph|radiograph|x[- ]ray|ultrasound)\b.{0,90}\b(?:shown|below|above|provided|attached|following|numbered|labeled)\b|\b(?:shown|below|above|provided|attached|following)\b.{0,70}\b(?:figure|image|graph|chart|table|photomicrograph|radiograph|x[- ]ray|ultrasound)\b/i.test(stem);
+    const visualCue = questionReferencesVisual(stem);
     const hasSourceVisual = !!(question.sourceImageUrl || question.sourceImageDataUrl || question.image?.url || typeof question.image === "string");
     if (visualCue && !hasSourceVisual) return false;
     if (question.hasImage && !hasSourceVisual) return false;

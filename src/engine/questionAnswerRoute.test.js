@@ -18,3 +18,7 @@ it('does not count one numerical rule as third-order or ban honestly labeled rec
  expect(answerRouteIssue(answerRoute(q.stem),{...q,orderLevel:'third-order'})).toBeNull();
  expect(answerRouteIssue(undefined,{...q,orderLevel:'first-order'},{requireReasoningAudit:true})).toBeNull();
 });
+it('rejects paired neuron classifications as third order even when the reviewer lists multiple steps',()=>{
+ const q={orderLevel:'third-order',stem:'Two motor neurons are tested experimentally. Which option correctly classifies these neurons?',choices:{A:'Neuron X is upper; neuron Y is lower',B:'Both are lower'}};
+ expect(answerRouteIssue({kind:'connected-integration',outcomeRestatement:false,choiceShortcut:false,stemClue:'motor neurons are tested',requiredRelationship:'Upper neurons control lower neurons',whyNotRestatement:'Infer each identity from independent experimental observations'},q,{requireReasoningAudit:true})).toBe('insufficient_reasoning_depth');
+});
