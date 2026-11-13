@@ -44,3 +44,15 @@ it('offers the connected handoff after assisted success and preserves the reques
  expect(host.textContent).not.toContain('Fresh 4-question targeted retest');
  act(()=>root.unmount());
 });
+it('separates a correct current result from historical repairs and unsampled objectives',()=>{
+ const host=document.createElement('div'),root=createRoot(host),now=Date.now();
+ const objectives=[{id:'current',objective:'Current objective'},{id:'old',objective:'Historical objective'},{id:'untested',objective:'Untested objective'}];
+ const records=[{eventId:'exam:new:q',at:now,questionKey:'new',sessionKey:'new',objectiveIds:['current'],correct:true}];
+ const evidence={learningJournal:[{eventId:'exam:old:q',at:now-1000,questionKey:'old',sessionKey:'old',objectiveIds:['old'],correct:false,learningContext:{topic:'Old pathway'}}]};
+ act(()=>root.render(<ObjectiveLearningReport objectives={objectives} evidence={evidence} records={records}/>));
+ expect(host.textContent).toContain('No missed objectives in this session');
+ expect(host.textContent).toContain('Historical repair queue');
+ expect(host.textContent).toContain('Old pathway');
+ expect(host.textContent).toContain('2 objectives were not sampled');
+ act(()=>root.unmount());
+});

@@ -15,6 +15,7 @@ import { questionMatchesObjectiveDomain } from "../../../engine/mcq.js";
 import { fetchLectureContent } from "../../../supabase.js";
 import { getLecText } from "../../../lectureText.js";
 import { loadExamLectureEvidence } from "./lectureEvidence.js";
+import { objectiveOrderProfile } from "../../../engine/questionOrder.js";
 
 const MAX_ATTEMPTS = 3;
 // Local Ollama completions for large, school-style prompts routinely take a little over
@@ -85,7 +86,7 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
     const { lectureId, subject } = readSlot(allocationId);
     await waitForConnection();
     const requested = allocation[allocationId];
-    const objectives = (objectivesByLecture?.[lectureId] || []).filter(o => (!targetObjectiveIds?.length||targetObjectiveIds.includes(o.id))&&(!subject || (bpmObjective(o) && objectiveSubject(o) === subject))).map(o=>targetObjectiveOrders[o.id]?{...o,_transferOrder:targetObjectiveOrders[o.id]}:o);
+    let objectives = (objectivesByLecture?.[lectureId] || []).filter(o => (!targetObjectiveIds?.length||targetObjectiveIds.includes(o.id))&&(!subject || (bpmObjective(o) && objectiveSubject(o) === subject))).map(o=>targetObjectiveOrders[o.id]?{...o,_transferOrder:targetObjectiveOrders[o.id],_targetOrder:targetObjectiveOrders[o.id]}:o);
     let atoms = atomsByLecture?.[lectureId] || [];
     let lecture = lecturesById?.[lectureId];
     const lectureTitle = lecture?.lectureTitle || lecture?.fileName || lectureId;
@@ -115,6 +116,15 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
     const difficulty = ["medium", "hard", "expert"].includes(difficultyOverride)
       ? difficultyOverride
       : resolveDefaultDifficulty(weakConceptAccuracyByLecture?.[lectureId]);
+    if (difficulty === "hard" || difficulty === "expert") {
+      objectives = objectives.map(objective => {
+        if (objective._targetOrder || objective._transferOrder) return objective;
+        const allowed = objectiveOrderProfile(objective).allowed;
+        const targetOrder = difficulty === "expert" && allowed.includes("third-order") ? "third-order"
+          : allowed.includes("second-order") ? "second-order" : "first-order";
+        return { ...objective, _targetOrder: targetOrder };
+      });
+    }
     const studyMode = objectives.some((objective) => objective.repairPriority > 0) ? "repair" : "balanced";
     const adaptiveFocusNotes = [focusNotes, repeatedSuccessfulAnswerGuidance(history), objectiveFacetHistoryGuidance(history, objectives)].filter(Boolean).join("\n\n");
     const { config: adaptiveConfig } = buildQuizConfig({ objectives, lectureTitle, lectureIdHint: lectureId,
@@ -218,7 +228,11 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
       }
     }
   }
-  const results = await Promise.allSettled(Array.from({ length: Math.min(2, lectureIds.length) }, worker));
+  // Local Ollama is intentionally single-flight. Multiple lecture workers burn
+  // their outer deadlines while queued behind the same local model, turning
+  // healthy completions into partial exams.
+  const workerCount = deps.localFallbackAvailable ? 1 : Math.max(1, Math.min(2, Number(deps.prepareConcurrency) || 2));
+  const results = await Promise.allSettled(Array.from({ length: Math.min(workerCount, lectureIds.length) }, worker));
   const failed = results.find(r => r.status === "rejected");
   if (failed) throw failed.reason;
   const blockObjectives = [...new Map(lectureIds.flatMap(id => { const {lectureId,subject}=readSlot(id); return (objectivesByLecture?.[lectureId] || []).filter(o=>!subject || (bpmObjective(o)&&objectiveSubject(o)===subject)); }).map(o=>[o.id,o])).values()];

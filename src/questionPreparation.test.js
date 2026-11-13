@@ -44,13 +44,17 @@ describe("question preparation routing", () => {
     expect(call.mock.calls.map(args => args[6].bridgeBackend)).toEqual(["codex", "ollama-cloud", "ollama-cloud"]);
     expect(call.mock.calls.slice(1).every(args => args[6].bridgeModelTier === "routine")).toBe(true);
   });
-  it("does not disguise timeouts, outages or malformed JSON as a usage limit", async () => {
-    for (const message of ["network failure", "timeout", "invalid JSON", "source review failed"]) {
-      const call = vi.fn().mockRejectedValue(new Error(message));
+  it("falls through on transient provider failures without disguising them as a usage limit", async () => {
+    for (const message of ["network failure", "timeout", "invalid JSON"]) {
+      const call = vi.fn().mockRejectedValueOnce(new Error(message)).mockResolvedValue({questions:[]});
       const deps = await questionPreparationDeps(call);
-      await expect(deps.callAIJSON("system", "draft")).rejects.toThrow(message);
-      expect(call).toHaveBeenCalledTimes(1);
+      await deps.callAIJSON("system", "draft");
+      expect(call.mock.calls.map(args=>args[6].bridgeBackend)).toEqual(["codex","ollama-cloud"]);
     }
+    const contentFailure = vi.fn().mockRejectedValue(new Error("source review failed"));
+    const deps = await questionPreparationDeps(contentFailure);
+    await expect(deps.callAIJSON("system", "draft")).rejects.toThrow("source review failed");
+    expect(contentFailure).toHaveBeenCalledTimes(1);
   });
   it("preserves the original deadline when switching providers and rechecks Codex later", async () => {
     vi.useFakeTimers(); vi.setSystemTime(1000);

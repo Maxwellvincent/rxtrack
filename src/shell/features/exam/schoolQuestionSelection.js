@@ -3,13 +3,14 @@ import { mapSourceQuestion } from "./blueprintSourceCoverage.js";
 import { schoolQuestionIdentity } from "./schoolSourceIdentity.js";
 export { schoolQuestionIdentity } from "./schoolSourceIdentity.js";
 import { prepareQuestionBankQuestions, validBankQuestion } from "./launchQuestionBank.js";
+import { classifyQuestionOrder, normalizeQuestionOrder } from "../../../engine/questionOrder.js";
 
 
 const normalize = value => String(value || "").toLowerCase().replace(/\s+/g, " ").trim();
 
 // Preserve the original key and verified curriculum links. An uncertain match
 // must never fill another lecture's allocated slot or claim objective credit.
-export function selectSchoolQuestions({ banks = [], lectures = [], blockId, allocation = {}, objectivesByLecture = {}, history = [], includeSeen = false }) {
+export function selectSchoolQuestions({ banks = [], lectures = [], blockId, allocation = {}, objectivesByLecture = {}, history = [], includeSeen = false, minimumOrder = null }) {
   const seen = new Set(history.map(schoolQuestionIdentity));
   const stems = history.map(q => normalize(q.stem)).filter(Boolean);
   const selected = [], identities = new Set(), remaining = { ...allocation };
@@ -20,6 +21,11 @@ export function selectSchoolQuestions({ banks = [], lectures = [], blockId, allo
       if(original.evaluationReserved)continue;
       const [question] = prepareQuestionBankQuestions([original], { filename: bank.filename, blockId: bank.blockId || blockId, lectures, analysis: bank.analysis });
       if (!validBankQuestion(question)) continue;
+      const requiredOrder = normalizeQuestionOrder(minimumOrder);
+      if (requiredOrder) {
+        const levels = ["first-order", "second-order", "third-order"];
+        if (levels.indexOf(classifyQuestionOrder(question)) < levels.indexOf(requiredOrder)) continue;
+      }
       const mapping = weighted ? mapSourceQuestion(original,{objectivesByLecture,lectures,blockId:bank.blockId||blockId}) : null;
       const allocationId = Object.keys(remaining).find(key => {
         const {lectureId,subject}=readSlot(key);

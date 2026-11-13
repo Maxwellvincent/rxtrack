@@ -236,6 +236,7 @@ export function ExamDashboard({ blockId, userId, lectures = [], questionStats = 
   }, [userId, blockId, qualityRevision]);
 
   const integratedSessions = useMemo(() => sessions.filter((session) => session?.sourceType !== "question-bank"), [sessions]);
+  const completeIntegratedSessions = useMemo(() => integratedSessions.filter(session => (Number(session.targetQuestionCount) || session.questions?.length || 0) <= (session.questions?.length || 0)), [integratedSessions]);
   const performanceSessions = useMemo(() => sessions.map(session => ({ ...session, questions: (session.questions || []).map(q => q.sourceType === "question-bank" ? linkSourceLecture(q, lectures, blockId) : q) })), [sessions, lectures, blockId]);
   const lectureStats = useMemo(() => computeLectureStats(performanceSessions), [performanceSessions]);
 
@@ -262,10 +263,10 @@ export function ExamDashboard({ blockId, userId, lectures = [], questionStats = 
     [objectives, lectures]
   );
   const readiness = useMemo(
-    () => computeObjectiveReadiness(integratedSessions, actionableObjectives, { restrictToKnown: true }),
-    [integratedSessions, actionableObjectives]
+    () => computeObjectiveReadiness(completeIntegratedSessions, actionableObjectives, { restrictToKnown: true }),
+    [completeIntegratedSessions, actionableObjectives]
   );
-  const pacing = useMemo(() => computePacingMetrics(integratedSessions), [integratedSessions]);
+  const pacing = useMemo(() => computePacingMetrics(completeIntegratedSessions), [completeIntegratedSessions]);
   const process = learnerProfile?.testTaking || {};
   const reasonRows = useMemo(() =>
     ERROR_REASONS
@@ -484,7 +485,9 @@ export function ExamDashboard({ blockId, userId, lectures = [], questionStats = 
         const sessionName = session.title || formatLabel;
         const duration = Number.isFinite(session.startedAt) && Number.isFinite(session.submittedAt)
           ? `${Math.max(1, Math.round((session.submittedAt - session.startedAt) / 60_000))} min` : null;
-        return <div key={session.sessionId || session.id} className="flex flex-wrap items-center justify-between gap-2 rounded bg-panel p-3"><div className="min-w-0"><div className="text-sm font-bold text-text-1">{sessionName}</div><div className="mt-0.5 text-xs text-text-2">{session.isCheckpoint ? "Saved progress · " : ""}{formatLabel} · {session.questions?.length || 0} questions · {score}% ({correct}/{answered} correct)</div><div className="font-mono text-[11px] text-text-3">{new Date(session.submittedAt || Date.now()).toLocaleString()}{duration ? ` · ${duration}` : ""}{session.contentScope ? ` · ${scopeLabel(session.contentScope)}` : ""}</div>{lectureLabels.length > 0 && <div className="mt-1 text-xs text-text-2">{lectureLabels.join(" · ")}</div>}</div><div className="flex gap-2"><button type="button" className="rounded border-2 border-border px-3 py-1.5 text-xs font-bold" onClick={() => onReviewSession?.(session.sessionId || session.id)}>{session.isCheckpoint ? "Resume" : "Review"}</button><button type="button" disabled={deletingId === (session.sessionId || session.id)} className="rounded border-2 border-bad/60 px-3 py-1.5 text-xs font-bold" onClick={async () => { const id = session.sessionId || session.id; if (!window.confirm("Delete this exam attempt from your integrated-exam statistics? Its questions will return to the reserve.")) return; setDeletingId(id); try { await releaseSessionQuestions(userId, session); await deleteExamSession(userId, id); setSessions(current => current.filter(item => (item.sessionId || item.id) !== id)); } finally { setDeletingId(null); } }}>{deletingId === (session.sessionId || session.id) ? "Deleting…" : "Delete"}</button></div></div>;
+        const requested = Number(session.targetQuestionCount) || session.questions?.length || 0;
+        const incomplete = session.sourceType !== 'question-bank' && requested > (session.questions?.length || 0);
+        return <div key={session.sessionId || session.id} className="flex flex-wrap items-center justify-between gap-2 rounded bg-panel p-3"><div className="min-w-0"><div className="text-sm font-bold text-text-1">{sessionName}</div><div className="mt-0.5 text-xs text-text-2">{session.isCheckpoint ? "Saved progress · " : ""}{formatLabel} · {session.questions?.length || 0}/{requested} questions · {score}% ({correct}/{answered} correct){incomplete?' · incomplete practice, excluded from readiness':''}</div><div className="font-mono text-[11px] text-text-3">{new Date(session.submittedAt || Date.now()).toLocaleString()}{duration ? ` · ${duration}` : ""}{session.contentScope ? ` · ${scopeLabel(session.contentScope)}` : ""}</div>{lectureLabels.length > 0 && <div className="mt-1 text-xs text-text-2">{lectureLabels.join(" · ")}</div>}</div><div className="flex gap-2"><button type="button" className="rounded border-2 border-border px-3 py-1.5 text-xs font-bold" onClick={() => onReviewSession?.(session.sessionId || session.id)}>{session.isCheckpoint ? "Resume" : "Review"}</button><button type="button" disabled={deletingId === (session.sessionId || session.id)} className="rounded border-2 border-bad/60 px-3 py-1.5 text-xs font-bold" onClick={async () => { const id = session.sessionId || session.id; if (!window.confirm("Delete this exam attempt from your integrated-exam statistics? Its questions will return to the reserve.")) return; setDeletingId(id); try { await releaseSessionQuestions(userId, session); await deleteExamSession(userId, id); setSessions(current => current.filter(item => (item.sessionId || item.id) !== id)); } finally { setDeletingId(null); } }}>{deletingId === (session.sessionId || session.id) ? "Deleting…" : "Delete"}</button></div></div>;
       })}</div></details>}
     </div>
   );

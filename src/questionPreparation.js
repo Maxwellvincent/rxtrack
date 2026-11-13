@@ -45,6 +45,10 @@ export function isCodexUsageLimit(error) {
   return /(?:hit|reached|exceeded|exhausted).{0,40}(?:usage|rate|quota|limit)|(?:usage|rate)[ -]?limit|quota.{0,30}(?:exceeded|exhausted)|resource_exhausted/i.test(String(error?.message || error));
 }
 
+export function isRetryableQuestionProviderFailure(error) {
+  return Boolean(capacityKind(error)) || /(?:timeout|timed out|deadline|network|connection|disconnected|unavailable|empty reply|returned no text|not valid or repairable json|invalid json|bridge 5\d\d|local bridge did not complete)/i.test(String(error?.message || error));
+}
+
 function limitDeadline() {
   try { return Math.max(limitedUntil, Number(localStorage.getItem(LIMIT_KEY)) || 0); }
   catch { return limitedUntil; }
@@ -171,11 +175,12 @@ export async function questionPreparationDeps(callAIJSON) {
     try { return await call("codex"); }
     catch (error) {
       options.signal?.throwIfAborted();
-      if (!isCodexUsageLimit(error)) throw error;
-      recordLimit(error);
+      const usageLimited = isCodexUsageLimit(error);
+      if (!usageLimited && !isRetryableQuestionProviderFailure(error)) throw error;
+      if (usageLimited) recordLimit(error);
       try { return await fallbackCall(); }
       catch(cloudError){
-        if (!/^Codex usage limit reached\./i.test(cloudError.message)) cloudError.message=`Codex usage limit reached. ${cloudError.message}`;
+        if (usageLimited && !/^Codex usage limit reached\./i.test(cloudError.message)) cloudError.message=`Codex usage limit reached. ${cloudError.message}`;
         throw cloudError;
       }
     }

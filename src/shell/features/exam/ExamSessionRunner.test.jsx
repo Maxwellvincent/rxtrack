@@ -792,6 +792,17 @@ it("never recommends a perfect-score lecture as a missed-lecture repair", () => 
  unmount();
 });
 
+it('labels a partial generated exam as incomplete practice instead of a diagnostic score',()=>{
+ const controller=baseController({session:{...baseController().session,status:'submitted',fillStatus:'partial',targetQuestionCount:5,questions:[makeQuestion('q1','A')],answers:[{questionId:'q1',value:'A'}]}});
+ controllerMock.mockReturnValue(controller);
+ const {host,unmount}=render(<ExamSessionRunner sessionId="s1" userId="u1"/>);
+ expect(host.textContent).toContain('Incomplete diagnostic · 1/5 questions prepared');
+ expect(host.textContent).toContain('Prepared accuracy');
+ expect(host.textContent).toContain('Missing4');
+ expect(host.textContent).not.toContain('SCORE100%');
+ unmount();
+});
+
 it('keeps reserved assessment answers and reading hints hidden until submission',()=>{
  const controller=baseController();controller.session.purpose='reserved-assessment';controller.session.sourceType='question-bank';
  controller.session.sourceFile='Reserved.pdf';controller.session.questions[0].explanation='SECRET KEY';

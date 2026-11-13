@@ -141,6 +141,17 @@ describe("generateExamQuestions", () => {
     expect(JSON.stringify(callAIJSON.mock.calls[0])).toContain("medium");
   });
 
+  it("requires at least second-order reasoning for a one-slot Hard exam lecture", async () => {
+    const callAIJSON = vi.fn().mockResolvedValue({ questions: [mcq("Hard application question")] });
+    await generateExamQuestions({
+      allocation: { lec1: 1 }, lecturesById, objectivesByLecture, atomsByLecture: {},
+      blockId: "b1", lectures, weakConceptAccuracyByLecture: {}, userId: null, difficultyOverride: "hard",
+    }, { callAIJSON, skipQuestionAudit: true });
+    const prompt = callAIJSON.mock.calls[0][1];
+    expect(prompt).toContain('required second-order');
+    expect(prompt).toContain('"nextOrder":"second-order"');
+  });
+
   it("preserves table-shaped choice questions for the table renderer", async () => {
     const callAIJSON = vi.fn().mockResolvedValueOnce({
       questions: [mcq("Good question"), tableMcq("Bad table question")],

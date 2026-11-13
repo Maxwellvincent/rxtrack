@@ -30,3 +30,8 @@ it('keeps a mixed-subject lecture unresolved when a school question has no disci
  expect(result.questions).toHaveLength(0);
  expect(result.allocation).toEqual({'l5::bpm::neuroscience':1});
 });
+it('does not let a shallow saved question fill a higher-order exam slot',()=>{
+ const result=selectSchoolQuestions({...args,minimumOrder:'second-order'});
+ expect(result.questions).toHaveLength(0);
+ expect(result.allocation).toEqual({l5:2});
+});

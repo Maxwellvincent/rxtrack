@@ -8,9 +8,16 @@ export function ObjectiveLearningReport({objectives=[],evidence={},records=[],on
  const [page,setPage]=useState(0);
  const [showSuccessful,setShowSuccessful]=useState(false);
  const transferRows=useMemo(()=>repairTransferPlan(objectives,evidence,records,planningTime),[objectives,evidence,records,planningTime]);
+ const currentEventIds=useMemo(()=>new Set(records.map(record=>record.eventId).filter(Boolean)),[records]);
+ const currentTransferRows=transferRows.filter(row=>row.anchor?.eventId&&currentEventIds.has(row.anchor.eventId));
+ const historicalTransferRows=transferRows.filter(row=>!currentTransferRows.includes(row));
  const transferRequest=repairTransferRequest(transferRows);
  const allRows=useMemo(()=>objectiveLearningReport(objectives,evidence,records),[objectives,evidence,records]);
  const missedRows=allRows.filter(row=>row.sessionMisses>0);
+ const touchedObjectiveIds=new Set(records.flatMap(record=>record.objectiveIds||[]));
+ const notSampledCount=Math.max(0,objectives.length-touchedObjectiveIds.size);
+ const lifetimeRows=useMemo(()=>objectiveLearningReport(objectives,evidence,[]),[objectives,evidence]);
+ const neverPracticedCount=lifetimeRows.filter(row=>!row.worked).length;
  const rows=showSuccessful?allRows:missedRows;
  const currentPage=Math.min(page,Math.max(0,Math.ceil(rows.length/6)-1));
  const visible=rows.slice(currentPage*6,currentPage*6+6);
@@ -21,9 +28,14 @@ export function ObjectiveLearningReport({objectives=[],evidence={},records=[],on
  const retest=shortRetestPlan(showSuccessful?objectives:objectives.filter(objective=>missedRows.some(row=>row.id===objective.id)),evidence,records);
  if((!records.length || !allRows.length)&&!transferRows.length)return null;
  return <section aria-label="Objective learning results" className="rounded-lg border border-border bg-bg-elevated p-4">
+ <div className="mb-4 rounded border border-border p-3" aria-label="Current session evidence">
+ <h3 className="font-bold">Current session</h3>
+ <p className="mt-1 text-sm">{missedRows.length?`${missedRows.length} objective${missedRows.length===1?'':'s'} with a missed answer.`:'No missed objectives in this session.'}</p>
+ {notSampledCount>0&&<p className="mt-1 text-xs text-text-2">{notSampledCount} objective{notSampledCount===1?' was':'s were'} not sampled in this session; no mastery or weakness is inferred from them.{neverPracticedCount>0?` ${neverPracticedCount} still have no saved answer evidence.`:''}</p>}
+ </div>
  {transferRows.length>0&&<div className="mb-4" aria-label="Repair and transfer">
- <h3 className="font-bold">Continue your repair</h3>
- <ul className="mt-2 space-y-1 text-sm">{transferRows.slice(0,6).map(row=><li key={row.id}>{row.concept} · {row.state==='transfer'?'Fresh application next':row.state==='due'?'Independent retest due':`Retest ${new Date(row.dueAt).toLocaleDateString()}`}</li>)}</ul>
+ {currentTransferRows.length>0&&<><h3 className="font-bold">Current-session repair</h3><ul className="mt-2 space-y-1 text-sm">{currentTransferRows.slice(0,6).map(row=><li key={row.id}>{row.concept} · {row.state==='transfer'?'Fresh application next':row.state==='due'?'Independent retest due':`Retest ${new Date(row.dueAt).toLocaleDateString()}`}</li>)}</ul></>}
+ {historicalTransferRows.length>0&&<><h3 className={`${currentTransferRows.length?'mt-4 ':''}font-bold`}>Historical repair queue</h3><p className="mt-1 text-xs text-text-2">Unresolved connections from earlier questions, separate from this session's result.</p><ul className="mt-2 space-y-1 text-sm">{historicalTransferRows.slice(0,6).map(row=><li key={row.id}>{row.concept} · {row.state==='transfer'?'Fresh application next':row.state==='due'?'Independent retest due':`Retest ${new Date(row.dueAt).toLocaleDateString()}`}</li>)}</ul></>}
  {transferRequest.count>0&&onRetest&&<button type="button" disabled={busy} className="mt-3 rounded bg-accent px-3 py-2 text-sm text-white disabled:opacity-40" onClick={()=>onRetest(transferRequest)}>Continue with {transferRequest.count} fresh cases →</button>}
  <p className="mt-2 text-xs text-text-2">Use Help Me Reason if a connection is missing. Guided answers stay assisted; fresh independent application is checked separately, then retested after at least a day.</p>
  </div>}

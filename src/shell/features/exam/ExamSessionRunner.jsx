@@ -385,6 +385,7 @@ function ExamFormat({ controller, submitOpts, objectivesById, lectureLabelsByLec
   const questions = session.questions || [];
   const q = restoreVisualChoices(questions[currentIndex]);
   const answeredCount = (session.answers || []).filter(answer => answer.value != null).length;
+  const incompleteDiagnostic = session.sourceType !== "question-bank" && (Number(session.targetQuestionCount) || questions.length) > questions.length;
 
   return (
     <div className="space-y-3" onKeyDown={(event) => advanceOnEnter(event, () => setCurrentIndex((i) => Math.min(questions.length - 1, i + 1)), !!q && pickedFor(session, q.questionId) != null && currentIndex < questions.length - 1 && !submitting)}>
@@ -446,8 +447,8 @@ function ExamFormat({ controller, submitOpts, objectivesById, lectureLabelsByLec
         {session.purpose==='reserved-assessment' && saveExitAction}
         <div><div className="text-xs font-bold text-text-1">{session.purpose==='reserved-assessment'?'Finish assessment':'Finished reviewing?'}</div><div className="font-mono text-[11px] text-text-3">{answeredCount} answered · {questions.length - answeredCount} {session.purpose==='reserved-assessment' ? "unanswered · counted in the assessment score" : session.sourceType === "question-bank" ? "unanswered · remain available in this set" : "return to reserve"}</div></div>
         <Button variant="outline" disabled={submitting || session.fillStatus === "generating"} onClick={() => {
-          if (window.confirm(session.purpose==='reserved-assessment' ? `Submit this assessment? ${questions.length - answeredCount} unanswered questions will count in the assessment score.` : `Submit ${answeredCount} answered questions for grading? ${questions.length - answeredCount} unanswered questions will not count against you.`)) submit(submitOpts);
-        }}>{submitting ? "Grading answered questions…" : `Submit ${sessionLabel(session).toLowerCase()} · finish & grade`}</Button>
+          if (window.confirm(session.purpose==='reserved-assessment' ? `Submit this assessment? ${questions.length - answeredCount} unanswered questions will count in the assessment score.` : incompleteDiagnostic ? `Finish this incomplete practice set? ${questions.length}/${session.targetQuestionCount} requested questions were prepared; it will not count as a full diagnostic.` : `Submit ${answeredCount} answered questions for grading? ${questions.length - answeredCount} unanswered questions will not count against you.`)) submit(submitOpts);
+        }}>{submitting ? "Grading answered questions…" : incompleteDiagnostic ? "Finish incomplete practice" : `Submit ${sessionLabel(session).toLowerCase()} · finish & grade`}</Button>
       </div>
     </div>
   );
@@ -636,6 +637,9 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, object
   const unlinkedMisses = scoreableAnswered.filter(q => !q.lectureId && pickedFor(session, q.questionId) !== q.correct).length;
   const scoreDenominator=session.purpose==='reserved-assessment' ? questions.filter(q=>!questionRatingsStore.isExcluded(userId,q) && !(session.scoringExcludedQuestionIds || []).includes(q.questionId)).length : scoreableAnswered.length;
   const percent = scoreDenominator ? Math.round(correctCount / scoreDenominator * 100) : 0;
+  const targetQuestionCount = Math.max(questions.length, Number(session.targetQuestionCount) || questions.length);
+  const incompleteDiagnostic = session.sourceType !== "question-bank" && targetQuestionCount > questions.length;
+  const missingQuestionCount = Math.max(0, targetQuestionCount - questions.length);
   const visible = questions.filter((q) => {
     const picked = pickedFor(session, q.questionId);
     if (filter === "correct") return !questionRatingsStore.isExcluded(userId, q) && picked === q.correct;
@@ -667,9 +671,10 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, object
       <div className="flex items-center justify-between">
         <div className="font-mono text-[12px] uppercase tracking-wider text-accent-text">Review</div>
         <div data-testid="exam-score" className="font-mono text-sm font-bold text-text-1">
-          {correctCount}/{scoreableAnswered.length} correct · {percent}%{answered.length > scoreableAnswered.length ? ` · ${answered.length - scoreableAnswered.length} excluded` : ""}
+          {correctCount}/{scoreableAnswered.length} correct · {percent}%{incompleteDiagnostic?' prepared-item accuracy':''}{answered.length > scoreableAnswered.length ? ` · ${answered.length - scoreableAnswered.length} excluded` : ""}
         </div>
       </div>
+      {incompleteDiagnostic&&<div role="alert" className="rounded-lg border border-warn/50 bg-bg-elevated p-3 text-sm text-text-1"><strong>Incomplete diagnostic · {questions.length}/{targetQuestionCount} questions prepared.</strong><p className="mt-1 text-text-2">This attempt is reviewable practice, not a full diagnostic score, and is excluded from Exam accuracy and readiness.</p></div>}
       {lectureReviewSummary(protectSessionScoring(session, questionRatingsStore.read(userId).ratings), lectureLabelsByLectureId).length > 0 && <section className="rounded-lg border border-border p-3">
         <h3 className="font-semibold">Lectures to revisit after missed questions</h3>
         <p className="text-xs text-text-3">Only lectures with missed answers in this session appear here.</p>
@@ -691,7 +696,7 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, object
       </div>}
       <ReservedAssessmentReport session={session} excludedIds={questions.filter(q=>questionRatingsStore.isExcluded(userId,q)).map(q=>q.questionId)} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} />
       {session.purpose!=='reserved-assessment' && <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {[["Score", `${percent}%`], ["Correct", correctCount], ["Incorrect", incorrectCount], ["Unused", questions.length - answered.length]].map(([label, value]) => <div key={label} className="rounded-lg border border-border bg-panel p-3"><div className="font-mono text-[10px] uppercase text-text-3">{label}</div><div className="text-lg font-bold text-text-1">{value}</div></div>)}
+        {[[incompleteDiagnostic?"Prepared accuracy":"Score", `${percent}%`], ["Correct", correctCount], ["Incorrect", incorrectCount], [incompleteDiagnostic?"Missing":"Unused", incompleteDiagnostic?missingQuestionCount:questions.length - answered.length]].map(([label, value]) => <div key={label} className="rounded-lg border border-border bg-panel p-3"><div className="font-mono text-[10px] uppercase text-text-3">{label}</div><div className="text-lg font-bold text-text-1">{value}</div></div>)}
       </div>}
       <div className="flex flex-wrap gap-2">
         {[["incorrect", `Incorrect (${incorrectCount})`], ["correct", `Correct (${correctCount})`], ["unused", `Unused (${questions.length - answered.length})`], ["all", `All (${questions.length})`]].map(([value, label]) => <button key={value} type="button" onClick={() => setFilter(value)} aria-pressed={filter === value} className={`rounded-lg border-2 px-3 py-2 text-xs font-bold ${filter === value ? "border-accent bg-accent/15 ring-2 ring-accent/30" : "border-border"}`}>{filter === value ? "✓ " : ""}{label}</button>)}
@@ -825,10 +830,11 @@ export function ExamSessionRunner({
   }
 
   if (session.status === "submitted") {
+    const incompleteDiagnostic = session.sourceType !== "question-bank" && (Number(session.targetQuestionCount) || session.questions?.length || 0) > (session.questions?.length || 0);
     return (
       <div className="space-y-3">
         <SessionTitle session={session} />
-        <div className="sticky top-2 z-10 flex items-center justify-between rounded-lg border border-border bg-bg-elevated p-2 shadow-sm"><div className="text-sm font-bold text-text-1">Submitted. {sessionLabel(session)} saved and graded.</div>{onExit && <Button onClick={onExit}>Done</Button>}</div>
+        <div className="sticky top-2 z-10 flex items-center justify-between rounded-lg border border-border bg-bg-elevated p-2 shadow-sm"><div className="text-sm font-bold text-text-1">{incompleteDiagnostic?'Incomplete practice saved.':`Submitted. ${sessionLabel(session)} saved and graded.`}</div>{onExit && <Button onClick={onExit}>Done</Button>}</div>
         {(session.questions || []).length > 0 && (
           <SubmittedExamReview onTargetedRetest={onTargetedRetest} retestBusy={retestBusy} session={session} tutorModeEnabled={tutorModeEnabled} callAI={callAI} userId={userId} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} onNavigateToLecture={onNavigateToLecture} />
         )}
@@ -876,7 +882,7 @@ export function ExamSessionRunner({
     <div className="mb-5 space-y-3">
       {session.format === 'exam' && <SessionTitle session={session} />}
       {session.fillStatus === "generating" && <ExamPreparationStatus session={session} />}
-      {session.fillStatus === "partial" && <p role="status" className="text-sm text-text-3">{session.questions?.length || 0} questions available. You can continue with these questions.</p>}
+      {session.fillStatus === "partial" && <div role="alert" className="rounded-lg border border-warn/50 bg-bg-elevated p-3 text-sm text-text-2"><strong>{session.questions?.length || 0}/{session.targetQuestionCount || session.questions?.length || 0} questions prepared.</strong> You may review these as practice, but the result will be marked incomplete and will not count as a full diagnostic.</div>}
       {session.format === "exam" ? (
         <ExamFormat saveExitAction={saveExitAction} userId={userId} controller={{ ...controller, session }} submitOpts={submitOpts} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} />
       ) : (

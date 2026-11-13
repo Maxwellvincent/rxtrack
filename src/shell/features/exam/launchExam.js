@@ -110,7 +110,8 @@ async function runLaunch(
   if (startWhilePreparing && !prepareOnly && !savedOnly) {
     const useSchoolBanks = !preparedGenerationId && studyMode !== "repair" && schoolBanks.length > 0;
     const school = selectSchoolQuestions({ banks: useSchoolBanks ? schoolBanks : [], lectures, blockId, allocation,
-      objectivesByLecture, history: useSchoolBanks && pool.history ? await pool.history() : [], includeSeen });
+      objectivesByLecture, history: useSchoolBanks && pool.history ? await pool.history() : [], includeSeen,
+      minimumOrder: difficultyOverride === "expert" ? "third-order" : difficultyOverride === "hard" ? "second-order" : null });
     const savedResult = Object.keys(school.allocation).length ? await generateExamQuestions(
       { allocation: school.allocation, lecturesById, objectivesByLecture, atomsByLecture, blockId, lectures,
         weakConceptAccuracyByLecture, userId, generationId: sessionId, studyMode, difficultyOverride, focusNotes: adaptiveFocusNotes, preparedGenerationId, preparedQuestionIds },
