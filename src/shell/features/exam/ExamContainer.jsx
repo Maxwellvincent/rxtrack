@@ -613,7 +613,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
       }
       let scopedLectures = filterLecturesByScope(eligibleLectures, launchConfig.contentScope || (launchConfig.weekNumber != null ? `week-number:${launchConfig.weekNumber}` : "block-so-far"));
       let scopedObjectives = objectivesByLecture;
-      if (launchConfig.studyMode === "repair" && !launchConfig.blueprintExam) {
+      if (launchConfig.studyMode === "repair" && !launchConfig.blueprintExam && !launchConfig.targetObjectiveIds?.length) {
         const focus = buildFocusedRepairScope({ eligibleLectures: scopedLectures, objectivesByLecture, weakConcepts, learnerEvidence: readLearnerEvidence(userId), blockId });
         scopedLectures = focus.eligibleLectures;
         scopedObjectives = focus.objectivesByLecture;
