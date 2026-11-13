@@ -127,6 +127,27 @@ it("shows when local Ollama is processing questions", () => {
     .toBe("Local Ollama · Writing 1 batch");
 });
 
+it("prefers the advertised DeepSeek quality tier before routine and escalation cloud fallbacks", async () => {
+  questionPreparationCapabilities.mockResolvedValue({
+    writer: "codex", reviewer: "codex", fallbackWriter: "ollama-cloud", localWriter: "ollama",
+    cloudTiers: [
+      { tier: "routine", model: "gemma4:31b" },
+      { tier: "escalation", model: "kimi-k3" },
+      { tier: "quality", model: "deepseek-v4-pro" },
+    ],
+  });
+  const call = vi.fn()
+    .mockRejectedValueOnce(new Error("Codex usage limit reached"))
+    .mockRejectedValueOnce(new Error("DeepSeek HTTP 429"))
+    .mockRejectedValueOnce(new Error("Gemma HTTP 429"))
+    .mockResolvedValue({ questions: [] });
+  const deps = await questionPreparationDeps(call);
+  await deps.callAIJSON("system", "draft");
+  expect(call.mock.calls.map(args => args[6].bridgeModelTier)).toEqual([
+    undefined, "quality", "routine", "escalation",
+  ]);
+});
+
 it("tries Kimi before local when the routine cloud tier is limited", async () => {
   questionPreparationCapabilities.mockResolvedValue({ writer: 'codex', reviewer: 'codex', fallbackWriter: 'ollama-cloud', localWriter: 'ollama', cloudTiers: [{tier:'routine',model:'gemma4:31b'},{tier:'escalation',model:'kimi-k3'}] });
   const call = vi.fn().mockRejectedValueOnce(new Error('Codex usage limit reached'))

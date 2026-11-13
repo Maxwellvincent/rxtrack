@@ -79,8 +79,11 @@ export async function questionPreparationDeps(callAIJSON) {
   const readyAt=Number(capability?.codexReadyAt) || 0;
   if(limitDeadline()>Date.now() && readyAt>recordedAt && (recordedAt || readyAt>Date.now()-60000))resetQuestionProviderLimit();
   const cloudAvailable = capability?.writer === "ollama-cloud" || capability?.fallbackWriter === "ollama-cloud";
-  const cloudTiers = [...new Set((capability?.cloudTiers || [{ tier: "routine" }])
+  const advertisedCloudTiers = [...new Set((capability?.cloudTiers || [{ tier: "routine" }])
     .map(entry => entry.tier).filter(tier => ["routine", "escalation", "quality"].includes(tier)))];
+  // Difficult lecture-question work benefits from the dedicated reasoning model.
+  // Keep the cheaper routine model and the escalation model as capacity fallbacks.
+  const cloudTiers = ["quality", "routine", "escalation"].filter(tier => advertisedCloudTiers.includes(tier));
   const remoteFallbacks = [...new Set(capability?.fallbackWriters || [])]
     .filter(provider => ["openrouter", "openai"].includes(provider));
   const localAvailable = capability?.localWriter === "ollama" || capability?.writer === "ollama";
