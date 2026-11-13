@@ -342,10 +342,11 @@ function QuestionMissDiagnosis({ question, selectedChoice, initialResult = null,
 }
 
 function QuestionNavigator({ questions, session, currentIndex, onSelect, indices = questions.map((_, i) => i) }) {
+  const selectedLabel = indices.length ? `question ${currentIndex + 1} selected` : "no question selected";
   return (
     <details className="mb-3 rounded-lg border border-border bg-bg-elevated p-2">
       <summary className="cursor-pointer px-1 py-1 text-sm font-medium text-text-2">
-        Question navigator · {indices.filter(i => pickedFor(session, questions[i].questionId) != null).length}/{indices.length} answered · question {currentIndex + 1} selected
+        Question navigator · {indices.filter(i => pickedFor(session, questions[i].questionId) != null).length}/{indices.length} answered · {selectedLabel}
       </summary>
       <nav aria-label="Question navigation" className="mt-2 flex flex-wrap gap-1.5">
         {indices.map(index => {
@@ -385,13 +386,14 @@ function ExamFormat({ controller, submitOpts, objectivesById, lectureLabelsByLec
   const questions = session.questions || [];
   const q = restoreVisualChoices(questions[currentIndex]);
   const answeredCount = (session.answers || []).filter(answer => answer.value != null).length;
-  const incompleteDiagnostic = session.sourceType !== "question-bank" && (Number(session.targetQuestionCount) || questions.length) > questions.length;
+  const targetQuestionCount = Math.max(questions.length, Number(session.targetQuestionCount) || questions.length);
+  const incompleteDiagnostic = session.sourceType !== "question-bank" && targetQuestionCount > questions.length;
 
   return (
     <div className="space-y-3" onKeyDown={(event) => advanceOnEnter(event, () => setCurrentIndex((i) => Math.min(questions.length - 1, i + 1)), !!q && pickedFor(session, q.questionId) != null && currentIndex < questions.length - 1 && !submitting)}>
       <div className="flex items-center justify-between rounded-lg border border-border bg-bg-elevated px-3 py-2">
         <div className="font-mono text-[12px] uppercase tracking-wider text-accent-text">
-          {sessionLabel(session)} · {answeredCount}/{questions.length} answered
+          {sessionLabel(session)} · {session.fillStatus === "generating" ? `${questions.length}/${targetQuestionCount} ready · ` : ""}{answeredCount}/{questions.length} answered
         </div>
         <div
           data-testid="exam-timer"
@@ -405,8 +407,6 @@ function ExamFormat({ controller, submitOpts, objectivesById, lectureLabelsByLec
 
       {session.purpose==='reserved-assessment' && <p className="text-xs text-text-2">Reserved timed assessment · answers hidden until submission · unanswered questions count in the score. Saving and resuming retains the original deadline.</p>}
       <QuestionNavigator questions={questions} session={session} currentIndex={currentIndex} onSelect={setCurrentIndex} />
-
-      {!q && session.fillStatus === "generating" && <div role="status" className="rounded-lg border border-accent/40 bg-bg-elevated p-4 text-sm text-text-2">Preparing the first questions for this scope…</div>}
 
       {q && (
         <div className="rounded-lg border border-border bg-bg-elevated p-3">
