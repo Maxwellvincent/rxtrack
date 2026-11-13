@@ -33,3 +33,14 @@ it("shows only missed objectives initially and keeps complete question detail be
  expect(detail.textContent).toContain('B. Lower motor neuron');
  act(()=>root.unmount());
 });
+it('offers the connected handoff after assisted success and preserves the requested reasoning depth',()=>{
+ const host=document.createElement('div'),root=createRoot(host),onRetest=vi.fn();
+ const objective={id:'o',blockId:'nb2',lectureId:'l',objective:'Explain pathway crossing'};
+ act(()=>root.render(<ObjectiveLearningReport objectives={[objective]} onRetest={onRetest} records={[{at:Date.now()-1000,questionKey:'q',sessionKey:'s',objectiveIds:['o'],lectureId:'l',blockId:'nb2',correct:true,assisted:true,learningContext:{topic:'Pathway crossing'}}]}/>));
+ expect(host.textContent).toContain('Fresh application next');
+ const button=[...host.querySelectorAll('button')].find(b=>b.textContent.includes('Continue with'));
+ act(()=>button.click());expect(onRetest.mock.calls[0][0].objectives[0]._transferOrder).toBe('second-order');
+ expect(onRetest.mock.calls[0][0].focusNotes).toContain('Pathway crossing');
+ expect(host.textContent).not.toContain('Fresh 4-question targeted retest');
+ act(()=>root.unmount());
+});

@@ -101,3 +101,8 @@ it('boosts a fresh verified confident application without granting mastery',()=>
  expect(plan({...entry,lastFreshAnswer:{...entry.lastFreshAnswer,confidence:4}}).targetOrder).toBe('second-order');
  expect(objectivePracticePlan([{id:'boost',bloom_level:2}],{objectives:{boost:entry}}).rows[0].targetOrder).toBe('second-order');
 });
+it('preserves an explicit transfer depth across evidence projection without changing readiness',()=>{
+ const objective={id:'o',objective:'Localize a lesion',_transferOrder:'third-order'};
+ const projected=objectivesWithPracticeEvidence([objective],{});
+ expect(projected[0]._targetOrder).toBe('third-order');expect(projected[0].status).toBe('untested');
+});

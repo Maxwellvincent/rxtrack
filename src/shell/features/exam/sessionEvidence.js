@@ -19,7 +19,7 @@ export function sessionEvidenceEvent(session, question, answer) {
     legacyQuestionKey: question.questionKey || question.poolId || question.id || question.questionId,
     objectiveFacetId:question.objectiveFacetId || null,sourceRelationshipIds:question.sourceRelationshipIds || [],relationshipSourceVersion:question.relationshipSourceVersion || null,
     atomKey: question.atomKey || null, sourceConceptKeys: question.sourceConceptKeys || [], objectiveFacet: question.objectiveFacet || null, correct, difficulty: question.difficulty || null,
-    ...(!correct ? {learningContext: questionLearningContext(question, answer.value)} : {}),
+    learningContext: !correct||question.assistance?.used?questionLearningContext(question,answer.value):{topic:questionLearningContext(question,answer.value).topic},
     misconception: correct ? null : "exam-error", responseMs: answer.responseMs ?? null,
     answerChanges: answer.answerChanges || 0, taskType: question.taskType || classifyLeadIn(question.stem),
     reasoningDepth: question.reasoningDepth || null, orderLevel: question.orderLevel || null,

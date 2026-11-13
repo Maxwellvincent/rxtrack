@@ -44,8 +44,8 @@ export function shortRetestPlan(objectives=[],evidence={},records=[]) {
  return {objectives:ids.map(id=>objectives.find(o=>o.id===id)).filter(Boolean),count:ids.length?Math.min(6,Math.max(4,ids.length)):0};
 }
 
-export function latestLearningRecords(evidence={},lectureId,blockId) {
- const events=(evidence.learningJournal || evidence.evidenceJournal || []).filter(event=>isIndependentAttempt(event)&&event.lectureId===lectureId && (!event.blockId || event.blockId===blockId) && event.sessionKey);
+export function latestLearningRecords(evidence={},lectureId,blockId,includeAssisted=false) {
+ const events=[...(evidence.learningJournal || evidence.evidenceJournal || []),...(includeAssisted?(evidence.assistedJournal||[]):[])].filter(event=>(includeAssisted||isIndependentAttempt(event))&&event.lectureId===lectureId && (!event.blockId || event.blockId===blockId) && event.sessionKey);
  if(!events.length)return [];
  const newest=[...events].sort((a,b)=>(Number(b.at)||0)-(Number(a.at)||0))[0].sessionKey;
  const unique=new Map(events.filter(event=>event.sessionKey===newest).map(event=>[event.questionKey || event.eventId,event]));

@@ -1,9 +1,12 @@
+import {repairTransferPlan,repairTransferRequest} from "../engine/repairTransfer.js";
 import { useId, useState } from "react";
 import { objectiveLearningReport, shortRetestPlan } from "../engine/learningLoop.js";
 export function ObjectiveLearningReport({objectives=[],evidence={},records=[],onRetest,onReviewNotes,busy=false}) {
  const detailGroup=useId();
  const [page,setPage]=useState(0);
  const [showSuccessful,setShowSuccessful]=useState(false);
+ const transferRows=repairTransferPlan(objectives,evidence,records);
+ const transferRequest=repairTransferRequest(transferRows);
  const allRows=objectiveLearningReport(objectives,evidence,records);
  const missedRows=allRows.filter(row=>row.sessionMisses>0);
  const rows=showSuccessful?allRows:missedRows;
@@ -14,8 +17,14 @@ export function ObjectiveLearningReport({objectives=[],evidence={},records=[],on
   return (topics.length?topics:[row.text || row.code || "Review this objective"]).map(text=>[text.toLowerCase().replace(/[^a-z0-9]+/g," ").trim(),text]);
  })).values()];
  const retest=shortRetestPlan(showSuccessful?objectives:objectives.filter(objective=>missedRows.some(row=>row.id===objective.id)),evidence,records);
- if(!records.length || !allRows.length)return null;
+ if((!records.length || !allRows.length)&&!transferRows.length)return null;
  return <section aria-label="Objective learning results" className="rounded-lg border border-border bg-bg-elevated p-4">
+ {transferRows.length>0&&<div className="mb-4" aria-label="Repair and transfer">
+ <h3 className="font-bold">Continue your repair</h3>
+ <ul className="mt-2 space-y-1 text-sm">{transferRows.slice(0,6).map(row=><li key={row.id}>{row.concept} · {row.state==='transfer'?'Fresh application next':row.state==='due'?'Independent retest due':`Retest ${new Date(row.dueAt).toLocaleDateString()}`}</li>)}</ul>
+ {transferRequest.count>0&&onRetest&&<button type="button" disabled={busy} className="mt-3 rounded bg-accent px-3 py-2 text-sm text-white disabled:opacity-40" onClick={()=>onRetest(transferRequest)}>Continue with {transferRequest.count} fresh cases →</button>}
+ <p className="mt-2 text-xs text-text-2">Use Help Me Reason if a connection is missing. Guided answers stay assisted; fresh independent application is checked separately, then retested after at least a day.</p>
+ </div>}
  <h3 className="font-bold">Concepts to review</h3>
  <p className="mt-1 text-sm text-text-2">From unresolved misses in this session.</p>
  {concepts.length ? <ul aria-label="Review concepts" className="mt-3 grid gap-x-6 gap-y-2 sm:grid-cols-2">{concepts.map(concept=><li key={concept} className="flex gap-2 text-sm"><span aria-hidden="true">↻</span><span>{concept}</span></li>)}</ul> : <p className="mt-2 text-sm">No unresolved misses in this session.</p>}
@@ -41,8 +50,8 @@ export function ObjectiveLearningReport({objectives=[],evidence={},records=[],on
  </details>
  <div className="mt-3 flex flex-wrap gap-2">
  {onReviewNotes && <button type="button" onClick={onReviewNotes} className="rounded border border-border px-3 py-2 text-sm">Review or consolidate notes →</button>}
- {retest.count>0 && onRetest && <button type="button" disabled={busy} onClick={()=>onRetest(retest)} className="rounded bg-accent px-3 py-2 text-sm font-semibold text-white disabled:opacity-40">Fresh {retest.count}-question targeted retest →</button>}
+ {!transferRows.length && retest.count>0 && onRetest && <button type="button" disabled={busy} onClick={()=>onRetest(retest)} className="rounded bg-accent px-3 py-2 text-sm font-semibold text-white disabled:opacity-40">Fresh {retest.count}-question targeted retest →</button>}
  </div>
- {retest.count>0 && <p className="mt-2 text-xs text-text-2">Review the gaps first, then return for a short retest. It uses fresh questions on up to six unresolved objectives; it does not repeat the whole quiz or guarantee mastery.</p>}
+ {!transferRows.length && retest.count>0 && <p className="mt-2 text-xs text-text-2">Review the gaps first, then return for a short retest. It uses fresh questions on up to six unresolved objectives; it does not repeat the whole quiz or guarantee mastery.</p>}
  </section>;
 }

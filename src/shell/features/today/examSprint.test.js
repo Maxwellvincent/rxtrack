@@ -32,3 +32,10 @@ it('does not prescribe broad repair for a recovered 85% lecture while weaker lec
  const rows=examSprintPriorities({...data,exam:null,learnerEvidence:{...data.learnerEvidence,lectures:{a:{recent:[true,false,false,false,false,false,true,false],lastSeen:1000}}},questionStats:{...data.questionStats,a:{answered:39,correct:27,recentAnswers:Array.from({length:20},(_,i)=>({correct:i<17,at:1000+i}))}}});
  expect(rows.some(r=>r.lectureId==='a')).toBe(false);
 });
+it('recomputes an assisted repair handoff from saved NB2 evidence and releases its priority after independent application',()=>{
+ const now=Date.now(),anchor={at:now-10000,questionKey:'old',sessionKey:'s',objectiveIds:['ob'],lectureId:'b',blockId:'NB',correct:true,assisted:true,learningContext:{topic:'Crossing'}};
+ const input={...data,lectures:data.lectures.filter(l=>l.id==='b'),exam:null,learnerEvidence:{...data.learnerEvidence,assistedJournal:[anchor]}};
+ const pending=examSprintPriorities(input).find(r=>r.lectureId==='b');expect(pending?.repairConnections).toBe(1);expect(pending.focusObjectiveIds).toContain('ob');
+ const success={...anchor,at:now-1000,questionKey:'fresh',correct:true,assisted:false,reasoningVerified:true,orderLevel:'second-order'};
+ expect(examSprintPriorities({...input,learnerEvidence:{...input.learnerEvidence,learningJournal:[success]}}).find(r=>r.lectureId==='b')?.repairConnections||0).toBe(0);
+});

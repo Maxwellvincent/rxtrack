@@ -1,3 +1,4 @@
+import {repairTransferPlan,repairTransferPrompt,repairTransferRequest} from "../../../engine/repairTransfer.js";
 import {isIndependentAttempt} from '../../../engine/practiceAssistance.js';
 import {ReviewSourceStatus} from './ReviewSourceStatus.jsx';
 import {attachReviewSources,reviewSourcePrompt} from '../../../engine/reviewSourceContext.js';
@@ -412,7 +413,7 @@ export function LectureStudyFlow({
   const mismatchedLectureObjectives = useMemo(() => linkedObjectives
     .filter((objective) => objectiveLectureNumberConflict(objective, lecture)), [linkedObjectives, lecture]);
   const learnerEvidence = useStoreResource(learnerEvidenceStore, userId);
-  const recentLearningRecords = useMemo(()=>latestLearningRecords(learnerEvidence.data || {}, lecture?.id, blockId),[learnerEvidence.data,lecture?.id,blockId]);
+  const recentLearningRecords = useMemo(()=>latestLearningRecords(learnerEvidence.data || {}, lecture?.id, blockId, true),[learnerEvidence.data,lecture?.id,blockId]);
   const lectureObjectives = useMemo(() => selectLectureObjectives(
     selectBlockObjectives(objectiveResource.data, blockId), lecture, learnerEvidence.data
   ), [objectiveResource.data, blockId, lecture, learnerEvidence.data]);
@@ -1395,8 +1396,11 @@ export function LectureStudyFlow({
     return () => { detach(); preparationRunRef.current += 1; };
   }, [lecture?.id, userId]);
 
-  const runQuiz = useCallback(async (count, difficulty, startingQuestions = [], continueSession = false, retestObjectives = null) => {
-    const quizObjectives = retestObjectives?.length ? objectivesWithPracticeEvidence(retestObjectives, learnerEvidence.data) : orderedObjectives;
+  const runQuiz = useCallback(async (count, difficulty, startingQuestions = [], continueSession = false, retestObjectives = null, transferFocus = "") => {
+    const connectionRows=repairTransferPlan(retestObjectives?.length?retestObjectives:orderedObjectives,learnerEvidence.data||{}).filter(row=>row.state!=="waiting");
+    const connectionOrders=new Map(repairTransferRequest(connectionRows).objectives.map(objective=>[objective.id,objective._transferOrder]));
+    transferFocus=transferFocus||repairTransferPrompt(connectionRows.slice(0,3));
+    const quizObjectives = (retestObjectives?.length ? objectivesWithPracticeEvidence(retestObjectives, learnerEvidence.data) : orderedObjectives).map(objective=>connectionOrders.has(objective.id)?{...objective,_transferOrder:connectionOrders.get(objective.id),_targetOrder:connectionOrders.get(objective.id)}:objective);
     if (!quizObjectives.length && mismatchedLectureObjectives.length) {
       setError("This lecture needs its objective links reviewed before questions can be prepared. Open More → Admin diagnostics → Objective source and lecture links.");
       return;
@@ -1554,7 +1558,7 @@ export function LectureStudyFlow({
         feedback: questionRatingsStore.feedbackFor(userId, lecture?.id, generationVersion),
         avoidStems: generatedHistory.map((q) => q.stem).filter(Boolean),
         avoidQuestions: generatedHistory,
-        focusNotes: reasoningGuidance(learnerEvidence.data?.testTaking?.missTypes, missing),
+        focusNotes: [reasoningGuidance(learnerEvidence.data?.testTaking?.missTypes, missing),transferFocus].filter(Boolean).join("\n\n"),
       },
       {
         ...preparationDeps,
@@ -1855,7 +1859,7 @@ export function LectureStudyFlow({
           userId={userId}
           objectiveReport={<ObjectiveLearningReport objectives={lectureObjectives} evidence={learnerEvidence.data || {}} records={completedQuizRecords} busy={!!busy}
             onReviewNotes={() => { setQuestions(null); setQuizResumeState(null); }}
-            onRetest={({count,objectives})=>runQuiz(count, "medium", [], false, objectives)} />}
+            onRetest={({count,objectives,focusNotes})=>runQuiz(count, "medium", [], false, objectives,focusNotes)} />}
           expectedCount={activeRequestedCount || questions.length}
           preparationError={stoppedShort ? error || pendingQuiz?.reason || quizMetaRef.current?.preparationShortfall : null}
           onPrepareMore={stoppedShort && !busy ? () => runQuiz(activeRequestedCount, questions[0]?.difficulty || "medium", questions, true) : null}
@@ -1871,8 +1875,8 @@ export function LectureStudyFlow({
             logActivity?.({ lectureId: lecture?.id, activityType: "deep_learn", confidenceRating: null });
           }}
           onReviewAtom={(atomKey) => { preparationRunRef.current += 1; setBusy(""); setQuizPreparation(null); setActiveRequestedCount(null); setQuestions(null); setQuizResumeState(null); setReviewAtomKey(atomKey); }}
-          onDone={({ correct = 0, total = 0, avgConfidence = 0, hasLandmines = false, records = [] } = {}) => {
-            setCompletedQuizRecords(records.filter(record => !questionRatingsStore.isExcluded(userId, record, "objective")));
+          onDone={({ correct = 0, total = 0, avgConfidence = 0, hasLandmines = false, records = [], allRecords = records } = {}) => {
+            setCompletedQuizRecords(allRecords.filter(record => !questionRatingsStore.isExcluded(userId, record, "objective")));
             setCompletedQuizSessionId(quizSessionId);
             lectureQuizSessionsStore.remove(userId, quizMetaRef.current?.id);
             quizMetaRef.current = null;
@@ -2310,7 +2314,7 @@ export function LectureStudyFlow({
 
       </section>
       <section hidden={workspace!=="progress"} aria-label="Recent lecture practice">
-      {recentLearningRecords.length>0 && <div className="my-3"><ObjectiveLearningReport objectives={lectureObjectives} evidence={learnerEvidence.data || {}} records={recentLearningRecords} busy={!!busy} onRetest={({count,objectives})=>runQuiz(count,"medium",[],false,objectives)} /></div>}
+      {recentLearningRecords.length>0 && <div className="my-3"><ObjectiveLearningReport objectives={lectureObjectives} evidence={learnerEvidence.data || {}} records={recentLearningRecords} busy={!!busy} onRetest={({count,objectives,focusNotes})=>runQuiz(count,"medium",[],false,objectives,focusNotes)} /></div>}
 
       </section>
       <section hidden={workspace!=="practice"} aria-label="Practice this lecture">

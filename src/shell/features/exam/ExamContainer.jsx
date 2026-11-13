@@ -621,7 +621,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
       }
       if (launchConfig.targetObjectiveIds?.length) {
         const selectedIds=new Set(launchConfig.targetObjectiveIds);
-        scopedObjectives=Object.fromEntries(Object.entries(objectivesByLecture).map(([id,list])=>[id,list.filter(objective=>selectedIds.has(objective.id))]).filter(([,list])=>list.length));
+        scopedObjectives=Object.fromEntries(Object.entries(objectivesByLecture).map(([id,list])=>[id,list.filter(objective=>selectedIds.has(objective.id)).map(objective=>({...objective,...(launchConfig.targetObjectiveOrders?.[objective.id]?{_transferOrder:launchConfig.targetObjectiveOrders[objective.id]}:{})}))]).filter(([,list])=>list.length));
         scopedLectures=eligibleLectures.filter(lecture=>scopedObjectives[lecture.lectureId]?.length).map(lecture=>({...lecture,objectiveCount:scopedObjectives[lecture.lectureId].length}));
         if(!scopedLectures.length)throw new Error("These objectives need valid lecture links before a targeted retest can start.");
       }
@@ -712,7 +712,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
         </div>}
         <ExamSessionRunner
           retestBusy={launching}
-          onTargetedRetest={({objectives: targets,count})=>handleLaunch({format:"practice",questionCount:count,durationMinutes:examDurationMinutes(count),examName:`Targeted retest · ${count} questions`,studyMode:"balanced",targetObjectiveIds:targets.map(o=>o.id),includeSeen:false,startWhilePreparing:true})}
+          onTargetedRetest={({objectives: targets,count,focusNotes})=>handleLaunch({format:"practice",questionCount:count,durationMinutes:examDurationMinutes(count),examName:`Targeted retest · ${count} questions`,focusNotes,studyMode:"repair",targetObjectiveIds:targets.map(o=>o.id),targetObjectiveOrders:Object.fromEntries(targets.filter(o=>o._transferOrder).map(o=>[o.id,o._transferOrder])),includeSeen:false,startWhilePreparing:true})}
           onRecoverPreparation={session => recoverExamPreparation({ session, userId, pool: createQuestionPool(userId, blockId), generate: generateExamQuestions, context: { lecturesById, objectivesByLecture, atomsByLecture, lectures, ...(session.blueprintExam ? blueprintContext : {}), callAIJSON } }).catch(() => {})}
           sessionId={activeSessionId}
           userId={userId}

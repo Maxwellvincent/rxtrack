@@ -166,7 +166,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
       sourceConceptKeys: q.sourceConceptKeys || [],
       objectiveFacetId:q.objectiveFacetId || null,sourceRelationshipIds:q.sourceRelationshipIds || [],relationshipSourceVersion:q.relationshipSourceVersion || null,
       difficulty: q.difficulty || null,
-      ...(!isCorrect ? {learningContext: questionLearningContext(q, picked)} : {}),
+      learningContext: !isCorrect||assisted?questionLearningContext(q,picked):{topic:questionLearningContext(q,picked).topic},
       misconception: !isCorrect ? (level >= 4 ? "landmine" : "knowledge-gap") : null,
       responseMs,
       taskType: classifyLeadIn(q.stem),

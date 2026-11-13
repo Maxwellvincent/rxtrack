@@ -1,0 +1,11 @@
+# Connected repair and transfer
+
+The lecture and submitted-bank learning reports now derive one continuation from saved learner evidence: a missed or assisted connection -> fresh clinical application -> delayed independent third-order check. The normal Help Me Reason control remains available on untimed practice questions. Using it keeps that attempt assisted.
+
+The continuation targets the current lecture objectives, preserving explicit second/third-order requirements through adaptive allocation, independent question review, reserve reuse, and bank preparation recovery. Generation uses the existing school examples, lecture sources and review sources across the configured provider routes. It does not send old assessment stems as targeting instructions. No extra provider calls occur until the learner continues.
+
+State is derived rather than stored in a competing queue. Relationship IDs and source versions must match; older records without those links require an exact recorded concept match. An unrelated correct answer under a broad objective cannot release the connection. Multiple distinct missed concepts remain separate. A fresh, independently verified application success moves the connection to a 24-hour wait. A different third-order question in another session, at least 24 hours later, releases this repair task; this is a scheduling heuristic, not a mastery or predicted-score claim. A later miss reopens repair.
+
+Lecture completion uses all answer records for the handoff while independent readiness continues excluding assisted answers. Successful answer events retain a compact concept label for matching. Excluded questions are filtered from both assisted and independent projections. Today recomputes a bounded repair priority from the same evidence, without letting one assisted answer dominate established weaknesses.
+
+Validation: focused engine and UI tests cover assisted success, repeated questions, reasoning verification, source-version mismatch, distinct concepts, delayed depth precedence, NB2 scope and Today recovery. Full test/build results and production status are recorded in the delivery message. A real 24-hour learner outcome cannot be demonstrated in one development sitting.

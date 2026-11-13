@@ -118,7 +118,7 @@ export function objectivesWithPracticeEvidence(objectives = [], evidenceModel = 
     if (!row) return objective;
     return { ...objective, status: row.ready ? "mastered" : row.state,
       attempts: row.attempts, correctCount: row.correct,
-      _practiceRemaining: row.remaining, _targetOrder: row.targetOrder,
+      _practiceRemaining: row.remaining, _targetOrder: ["second-order","third-order"].includes(objective._transferOrder)?objective._transferOrder:row.targetOrder,
       _demonstratedOrders: row.demonstrated,
       _neededTaskTypes: row.taskTypeCount < 2 ? Object.keys(row.taskTypes) : [],
       _practiceRequirements: row.missingRequirements };

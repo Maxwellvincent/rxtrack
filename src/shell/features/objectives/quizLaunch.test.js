@@ -1123,3 +1123,7 @@ it('requests a one-item starter while other batches continue at the normal size'
  expect(pending[1].prompt).toContain('exactly 3 NEW');expect(pending[2].prompt).toContain('exactly 3 NEW');
  pending.forEach(row=>row.resolve({error:'provider unavailable'}));await work;
 });
+it('keeps a selected delayed-transfer objective even when another objective is unready',()=>{
+ const plan=buildAdaptiveObjectivePlan([{id:'retained',status:'mastered',_transferOrder:'third-order',_targetOrder:'third-order'},{id:'new',status:'untested'}],2);
+ expect(plan.find(o=>o.id==='retained')._targetOrder).toBe('third-order');
+});

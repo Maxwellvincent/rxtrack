@@ -91,7 +91,7 @@ function objectiveStatus(objective) {
 export function buildAdaptiveObjectivePlan(objectives, questionCount) {
   const pool = objectives || [];
   const hasUnready = pool.some(objective => objectiveStatus(objective) !== "mastered");
-  const ordered = sortWeakestFirst(hasUnready ? pool.filter(objective => objectiveStatus(objective) !== "mastered") : pool);
+  const ordered = sortWeakestFirst(hasUnready ? pool.filter(objective => objectiveStatus(objective) !== "mastered" || objective._transferOrder) : pool);
   const count = Math.max(1, Number(questionCount) || 1);
   const targets = new Map();
   const addRoundRobin = (items, slots, cap) => {

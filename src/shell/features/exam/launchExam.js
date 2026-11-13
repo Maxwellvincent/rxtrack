@@ -73,6 +73,8 @@ async function runLaunch(
     studyMode = "balanced",
     difficultyOverride = null,
     focusNotes = "",
+    targetObjectiveIds = null,
+    targetObjectiveOrders = {},
     examName = "Integrated exam",
     contentScope = "block-so-far",
     weekNumber = null,
@@ -140,7 +142,7 @@ async function runLaunch(
     session.fillStartedAt = Date.now();
     session.fillLeaseUntil = Date.now() + 600000;
     if (blueprintExam) session.blueprintExam = blueprintExam;
-    session.fillPlan = { allocation, blueprintExam, studyMode, difficultyOverride, focusNotes: adaptiveFocusNotes };
+    session.fillPlan = { allocation, blueprintExam, studyMode, difficultyOverride, focusNotes: adaptiveFocusNotes, ...(targetObjectiveIds?.length?{targetObjectiveIds,targetObjectiveOrders}:{}) };
     deps.onProgress?.({ message: `Opening with ${savedQuestions.length}/${questionCount} saved questions · generating the rest`, completed: savedQuestions.length, total: questionCount });
     const committed = await pool.commit(session);
     if (!committed.ok) return { ok: false, error: committed.error };

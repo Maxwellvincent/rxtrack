@@ -62,7 +62,7 @@ export function buildObjectiveCoverage(questions = [], objectives = []) {
 /** Two bounded workers, incremental cloud persistence, then atomic assignment
  * at launch. A prepared pool is not an answer history or a mastery claim. */
 export async function generateExamQuestions({ allocation, lecturesById, objectivesByLecture, atomsByLecture,
-  blockId, lectures, weakConceptAccuracyByLecture, userId, generationId, focusNotes = "", difficultyOverride = null, preparedGenerationId = null, preparedQuestionIds = [] }, deps = {}) {
+  blockId, lectures, weakConceptAccuracyByLecture, userId, generationId, targetObjectiveIds = null, targetObjectiveOrders = {}, focusNotes = "", difficultyOverride = null, preparedGenerationId = null, preparedQuestionIds = [] }, deps = {}) {
   const questions = [], errors = [], accepted = [];
   const evidenceModel = deps.evidenceModel || readLearnerEvidence(userId);
   const baseExemplars = readExemplarsForBlock(userId, blockId);
@@ -85,7 +85,7 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
     const { lectureId, subject } = readSlot(allocationId);
     await waitForConnection();
     const requested = allocation[allocationId];
-    const objectives = (objectivesByLecture?.[lectureId] || []).filter(o => !subject || (bpmObjective(o) && objectiveSubject(o) === subject));
+    const objectives = (objectivesByLecture?.[lectureId] || []).filter(o => (!targetObjectiveIds?.length||targetObjectiveIds.includes(o.id))&&(!subject || (bpmObjective(o) && objectiveSubject(o) === subject))).map(o=>targetObjectiveOrders[o.id]?{...o,_transferOrder:targetObjectiveOrders[o.id]}:o);
     let atoms = atomsByLecture?.[lectureId] || [];
     let lecture = lecturesById?.[lectureId];
     const lectureTitle = lecture?.lectureTitle || lecture?.fileName || lectureId;

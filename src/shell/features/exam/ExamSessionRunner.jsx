@@ -1,3 +1,4 @@
+import {sessionEvidenceEvent} from "./sessionEvidence.js";
 import {markReasoningAssistance,saveReasoningCoach} from './reasoningCoachSession.js';
 import {HelpMeReason} from '../../../ui/HelpMeReason.jsx';
 import {ReservedAssessmentReport,ReservedAssessmentFigure} from './ReservedAssessmentReport.jsx';
@@ -677,7 +678,7 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, object
         <ul className="mt-2 space-y-2">{lectureReviewSummary(protectSessionScoring(session, questionRatingsStore.read(userId).ratings), lectureLabelsByLectureId).filter(row => row.misses > 0).map(row => <li key={row.lectureId} className="text-sm"><strong>{row.label}</strong> · {row.correct}/{row.answered} correct · {row.misses ? `${row.misses} missed — review this lecture, then try fresh questions` : "No misses in this session"}{onNavigateToLecture && row.misses > 0 && <button type="button" className="ml-2 text-accent underline" onClick={() => onNavigateToLecture(row.lectureId)}>Review lecture</button>}</li>)}</ul>
       </section>}
       <ObjectiveLearningReport objectives={Object.values(objectivesById || {})} evidence={learningEvidence.data || {}}
-        records={scoreableAnswered.filter(q=>!questionRatingsStore.isExcluded(userId,q,"objective")).map(q=>({objectiveIds:q.objectiveIds || [],correct:pickedFor(session,q.questionId)===q.correct,learningContext:questionLearningContext(q,pickedFor(session,q.questionId))}))}
+        records={scoreableAnswered.filter(q=>!questionRatingsStore.isExcluded(userId,q,"objective")).map(q=>sessionEvidenceEvent(session,q,session.answers.find(a=>a.questionId===q.questionId)))}
         busy={retestBusy} onRetest={onTargetedRetest} />
       {unlinkedMisses > 0 && <p role="status" className="rounded-lg border border-warn/40 p-3 text-sm text-text-2">{unlinkedMisses} missed question{unlinkedMisses === 1 ? " is" : "s are"} saved but awaiting lecture links. These misses cannot yet identify a lecture to revisit.</p>}
       {incorrectCount > 0 && <div className="rounded-lg border border-accent/40 bg-bg-elevated p-3">
