@@ -700,19 +700,18 @@ export async function pullAllDataFromSupabase(userId) {
   // Read all 5 state docs up front so we can decide "empty" only when ALL
   // canonical stores are absent — objectives/lectures/kv must still pull
   // even if e.g. state/terms is missing (independent-pull requirement).
-  const [terms, perf, comp, weak, tracker] = await Promise.all([
-    readDoc(stateRef(userId, "terms")),
-    readDoc(stateRef(userId, "performance")),
-    readDoc(stateRef(userId, "completion")),
-    readDoc(stateRef(userId, "weak_concepts")),
-    readDoc(stateRef(userId, "tracker")),
+  // These reads are independent: avoid three extra network round trips before
+  // the shell can use the merged metadata. No writes begin until all succeed.
+  const [[terms,perf,comp,weak,tracker],objsSnap,lecsSnap,kvSnap]=await Promise.all([
+    Promise.all([
+      readDoc(stateRef(userId,"terms")),readDoc(stateRef(userId,"performance")),
+      readDoc(stateRef(userId,"completion")),readDoc(stateRef(userId,"weak_concepts")),
+      readDoc(stateRef(userId,"tracker")),
+    ]),
+    getDocs(collection(db,"users",userId,"objectives")),
+    getDocs(collection(db,"users",userId,"lectures")),
+    getDocs(query(collection(db,"users",userId,"kv"),limit(1))),
   ]);
-
-  const objsSnap = await getDocs(collection(db, "users", userId, "objectives"));
-  const lecsSnap = await getDocs(collection(db, "users", userId, "lectures"));
-  // kv is a canonical store too (e.g. rxt-question-notes, rxt-calibration-log) —
-  // a kv-only account must not hit the empty-return below. Cheap presence check.
-  const kvSnap = await getDocs(query(collection(db, "users", userId, "kv"), limit(1)));
 
   if (
     terms == null && perf == null && comp == null && weak == null && tracker == null &&

@@ -12,6 +12,8 @@ Lecture panels mount their tools on first visit, then remain mounted to preserve
 
 `scripts/profile-study-flow.mjs` uses 12,000 synthetic answers, 320 objectives and 80 lectures, without account I/O or model calls. The repair projection changed from approximately 56.17 ms to 4.36 ms median; lecture reconciliation changed from 3.92 ms to 1.65 ms. Output SHA-256 digests were identical before/after for both projections. Later warm repeats vary; this measures those calculations, not whole-page load speed, heap use or elimination of intermittent browser/GPU screens.
 
+Independent startup reads for state, objectives, lectures and KV presence now run concurrently, rather than adding three sequential collection-read round trips. Merge/write behavior and the empty-account guard are retained.
+
 Objective answer events are indexed once instead of rescanned once per objective. Lecture membership checks use a set. Expensive priority/history projections are memoized on their immutable inputs. A shared minute clock updates due-time planning and refreshes on new evidence/focus without refetching cloud data or creating one interval per card; tests verify cleanup and retained drafts.
 
 ## Persistence checks and fixes
