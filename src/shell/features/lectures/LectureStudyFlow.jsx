@@ -1,3 +1,4 @@
+import {UnfinishedLectureQuizzes} from "./UnfinishedLectureQuizzes.jsx";
 import {repairTransferPlan,repairTransferPrompt,repairTransferRequest} from "../../../engine/repairTransfer.js";
 import {isIndependentAttempt} from '../../../engine/practiceAssistance.js';
 import {ReviewSourceStatus} from './ReviewSourceStatus.jsx';
@@ -7,7 +8,8 @@ import {StudyGuidePanel} from './StudyGuidePanel.jsx';
 import {useLectureStats} from '../../hooks/useLectureQuestionStats.js';
 import * as relationshipsStore from '../../../stores/sourceRelationships.js';
 import {relationshipPages,relationshipCoverage} from '../../../engine/sourceRelationships.js';
-import {LectureWorkspaceNav} from './LectureWorkspaceNav.jsx';
+import {useLectureWorkspace} from "./useLectureWorkspace.js";
+import {LectureWorkspaceNav,LecturePanel} from './LectureWorkspaceNav.jsx';
 import * as sourceUseStore from "../../../stores/sourceUse.js";
 import { hasReusableQuestionReview, isReusableForObjective } from "../../../engine/questionReuse.js";
 import { exceedsAnswerConcentration } from "../../../engine/questionSimilarity.js";
@@ -384,7 +386,7 @@ export function LectureStudyFlow({
   focusObjectiveIds = null,
   examRepairContext = null,
 }) {
-  const [workspace,setWorkspace]=useState("practice");
+  const [workspace,setWorkspace,visitedWorkspaces]=useLectureWorkspace();
   const [atoms, setAtoms] = useState([]);
   const [lectureChunks, setLectureChunks] = useState(() => Array.isArray(lecture?.chunks) ? lecture.chunks : []);
   const [text, setText] = useState("");
@@ -1028,7 +1030,7 @@ export function LectureStudyFlow({
     el?.scrollIntoView({ behavior: "smooth", block: "center" });
     const t = setTimeout(() => setReviewAtomKey(null), 3000);
     return () => clearTimeout(t);
-  }, [reviewAtomKey, questions,workspace]);
+  }, [reviewAtomKey, questions,workspace,setWorkspace]);
 
   const generateGuide = useCallback(async (currentAtoms, currentObjectives) => {
     setGeneratingGuide(true);
@@ -2014,13 +2016,27 @@ export function LectureStudyFlow({
       <LectureWorkspaceNav value={workspace} onChange={setWorkspace} />
       {workspace==="learn" && <StudyGuidePanel mode="learn" userId={userId} blockId={blockId} lecture={lecture} objectives={lectureObjectives} />}
       {error && <div className="mb-3 rounded-lg border border-bad bg-bg-elevated p-3 text-xs text-bad">{error}</div>}
-      <section hidden={workspace!=="progress"} aria-label="Lecture review progress">
+      <LecturePanel name="progress" workspace={workspace} visited={visitedWorkspaces} aria-label="Lecture review progress">
       <LectureProgressOverview historyLoading={learnerEvidence.loading} model={learnerEvidence.data || {}} ratings={questionRatingsStore.read(userId).ratings || {}} blockId={blockId} lectureId={lecture?.id} stats={qStats} objectivePractice={objectivePractice} relationshipRows={relationshipRows} />
       <LectureRetrievalEnrollment key={`${userId}:${blockId}:${lecture?.id}`} userId={userId} blockId={blockId} lectureId={lecture?.id} title={renamedTitle || title} reference={mentalModel?.bigPicture || ""} rows={objectivePractice.rows} evidenceModel={learnerEvidence.data} />
 
 
-      </section>
-      <section hidden={workspace!=="sources"} aria-label="Lecture sources">
+      </LecturePanel>
+      <LecturePanel name="sources" workspace={workspace} visited={visitedWorkspaces} aria-label="Lecture sources">
+      <details className="my-3 text-sm"><summary className="cursor-pointer">Older study-round tools</summary><p className="mt-2 text-xs text-text-3">Restart the legacy round bookmark without changing answers, objective evidence, or review history.</p>
+              {done > 0 && (
+                <button
+                  onClick={() => { clearRoundProgress(userId, lecture?.id); setDone(0); setRound(0); }}
+                  /* Resets only the in-session round bookmark (where the next Study pass picks
+                     up) — atom mastery and question counts are the lecture's real history and
+                     deliberately survive "start over", same as they always have. */
+                  disabled={!!busy}
+                  className="font-mono text-[12px] text-text-3 underline decoration-dotted hover:text-text-1"
+                >
+                  Restart study-round bookmark
+                </button>
+              )}
+      </details>
       <ReviewSourceStatus userId={userId} blockId={blockId} />
       <StudyGuidePanel userId={userId} blockId={blockId} lecture={lecture} objectives={lectureObjectives} />
       {lecture?.sourceFiles?.length > 0 && (
@@ -2044,8 +2060,8 @@ export function LectureStudyFlow({
           </ul>
         </details>
       )}
-      </section>
-      <section hidden={workspace!=="practice"} aria-label="Lecture practice follow-up">
+      </LecturePanel>
+      <LecturePanel name="practice" workspace={workspace} visited={visitedWorkspaces} aria-label="Lecture practice follow-up">
       {examRepairContext && (examRepairContext.weakObjectives?.length || examRepairContext.missedQuestions?.length || examRepairContext.reportTopics?.length) > 0 && (
         <section id="lecture-repair" aria-label="Exam repair context" className="mt-4 rounded-lg border border-bad/30 bg-bad/5 p-3">
           <h3 className="font-semibold text-text-1">Review, then retest your weak areas</h3>
@@ -2066,23 +2082,10 @@ export function LectureStudyFlow({
           </details>}
         </section>
       )}
-      {savedLectureQuizzes.length > 0 && !questions && (
-        <section aria-label="Unfinished lecture quizzes" className="mt-4 rounded-lg border border-accent/40 bg-accent/5 p-3">
-          <h3 className="font-semibold text-text-1">Continue an unfinished lecture quiz</h3>
-          <p className="mt-1 text-xs text-text-3">Your question set, current question, selected answer, confidence, and completed responses are saved to your account.</p>
-          <ul className="mt-2 space-y-2">{[...savedLectureQuizzes].sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0)).map((session) => (
-            <li key={session.id} className="flex flex-wrap items-center justify-between gap-2 rounded border border-border bg-panel p-2">
-              <span className="text-sm text-text-2">{session.questions?.length || 0} questions · {session.progress?.records?.length || 0} completed · {new Date(session.updatedAt || session.createdAt || Date.now()).toLocaleString()}</span>
-              <span className="flex gap-2">
-                <Button onClick={() => resumeLectureQuiz(session)}>Resume quiz</Button>
-                <button type="button" className="px-2 text-xs text-text-3 underline" onClick={() => { lectureQuizSessionsStore.remove(userId, session.id); setSavedLectureQuizzes(lectureQuizSessionsStore.read(userId, lecture?.id, blockId).filter((item) => item.id !== session.id)); }}>Discard</button>
-              </span>
-            </li>
-          ))}</ul>
-        </section>
-      )}
-      </section>
-      <section hidden={workspace!=="learn"} aria-label="Learn this lecture">
+      {!questions && <UnfinishedLectureQuizzes sessions={savedLectureQuizzes} busy={!!busy} onResume={resumeLectureQuiz} onDiscard={session=>{lectureQuizSessionsStore.remove(userId,session.id);setSavedLectureQuizzes(lectureQuizSessionsStore.read(userId,lecture?.id,blockId).filter(item=>item.id!==session.id));}} />}
+
+      </LecturePanel>
+      <LecturePanel name="learn" workspace={workspace} visited={visitedWorkspaces} aria-label="Learn this lecture">
       <details id="lecture-learn" open={tutorSession?.status === "active"} className="mt-4 rounded-xl border border-border bg-bg-elevated">
         <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-text-1">Guided tutor <span className="ml-2 font-normal text-text-3">{tutorSession?.status === "active" ? "In progress" : "Open to learn this lecture"}</span></summary>
       <div className="desk-tutor-launcher rounded-b-xl border-t border-accent/30 bg-accent/5 px-3 py-3 sm:flex sm:items-center sm:justify-between sm:gap-4">
@@ -2312,12 +2315,12 @@ export function LectureStudyFlow({
       )}
       </details>
 
-      </section>
-      <section hidden={workspace!=="progress"} aria-label="Recent lecture practice">
-      {recentLearningRecords.length>0 && <div className="my-3"><ObjectiveLearningReport objectives={lectureObjectives} evidence={learnerEvidence.data || {}} records={recentLearningRecords} busy={!!busy} onRetest={({count,objectives,focusNotes})=>runQuiz(count,"medium",[],false,objectives,focusNotes)} /></div>}
+      </LecturePanel>
+      <LecturePanel name="practice" workspace={workspace} visited={visitedWorkspaces} aria-label="Continue lecture practice">
+      {!savedLectureQuizzes.length && recentLearningRecords.length>0 && <div className="my-3"><ObjectiveLearningReport objectives={lectureObjectives} evidence={learnerEvidence.data || {}} records={recentLearningRecords} busy={!!busy} onRetest={({count,objectives,focusNotes})=>runQuiz(count,"medium",[],false,objectives,focusNotes)} /></div>}
 
-      </section>
-      <section hidden={workspace!=="practice"} aria-label="Practice this lecture">
+      </LecturePanel>
+      <LecturePanel name="practice" workspace={workspace} visited={visitedWorkspaces} aria-label="Practice this lecture">
       <div className="my-3 flex flex-wrap justify-between gap-2"><h2 className="text-lg font-semibold">Test this lecture</h2><p className="text-sm text-text-3">{qStats.loading ? "Loading practice history…" : qStats.answered ? `${qStats.answered} answered · ${accuracyPct}% correct` : "No questions answered yet"}</p></div>
       {pendingQuiz && <div role="status" className="my-3 rounded-lg border border-border bg-panel p-3 text-sm">
         <strong>{pendingQuiz.questions.length}/{pendingQuiz.count} questions ready</strong>
@@ -2371,7 +2374,7 @@ export function LectureStudyFlow({
               reads as one instead of a generic "make some questions" action. */}
           {!quizPicker ? (
             <div className="flex flex-wrap items-center gap-3">
-              <Button
+              <Button variant={savedLectureQuizzes.length || recentLearningRecords.length ? "outline" : "primary"}
                 onClick={() => { setQuizPreparation(null); setQuizPicker({ count: 15, difficulty: resolveDefaultDifficulty(qStats.accuracy) }); }}
                 disabled={!!busy}
               >
@@ -2381,18 +2384,7 @@ export function LectureStudyFlow({
                 {lecture?.id ? `${generatedQuestionsStore.questionsForLecture(userId, lecture.id).filter(question => generatedQuestionsStore.isQuestionUnseen(question) && hasReusableQuestionReview(question)).length} unseen questions ready` : "Questions are saved for reuse"}
 
               </span>
-              {done > 0 && (
-                <button
-                  onClick={() => { clearRoundProgress(userId, lecture?.id); setDone(0); setRound(0); }}
-                  /* Resets only the in-session round bookmark (where the next Study pass picks
-                     up) — atom mastery and question counts are the lecture's real history and
-                     deliberately survive "start over", same as they always have. */
-                  disabled={!!busy}
-                  className="font-mono text-[12px] text-text-3 underline decoration-dotted hover:text-text-1"
-                >
-                  reset progress
-                </button>
-              )}
+
             </div>
           ) : (
             /* Inline count + difficulty picker */
@@ -2518,10 +2510,10 @@ export function LectureStudyFlow({
         </section>
       )}
 
-      </section>
-      <section hidden={workspace!=="sources"} aria-label="Lecture figure tools">{figuresPrompt}</section>
+      </LecturePanel>
+      <LecturePanel name="sources" workspace={workspace} visited={visitedWorkspaces} aria-label="Lecture figure tools">{figuresPrompt}</LecturePanel>
 
-      <section hidden={workspace!=="learn"} id="lecture-reference" ref={referenceDetailsRef} className="mt-5 rounded-xl border border-border bg-bg-elevated p-3">
+      <LecturePanel name="learn" workspace={workspace} visited={visitedWorkspaces} id="lecture-reference" sectionRef={referenceDetailsRef} className="mt-5 rounded-xl border border-border bg-bg-elevated p-3">
         <h2 className="px-1 py-1 text-sm font-semibold text-text-2">Lecture reference <span className="ml-2 font-normal text-text-3">Models, guide &amp; lecture facts</span></h2>
         <div className="mt-3">
 
@@ -2722,7 +2714,7 @@ export function LectureStudyFlow({
         </details>
       )}
         </div>
-      </section>
+      </LecturePanel>
     </main>
   );
 }

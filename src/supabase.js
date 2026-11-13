@@ -17,6 +17,7 @@ import {
 } from "firebase/firestore";
 import { ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import { encodeDocId, decodeDocId } from "./idCodec";
+import {writeJson} from "./stores/base.js";
 import { storeForKey } from "./stores/index.js";
 import { applyLocalCap, SKIP_ON_PULL } from "./stores/capped.js";
 import { createSessionShape, sessionBytes, MAX_EXAM_SESSION_BYTES } from "./examSessions.js";
@@ -30,10 +31,10 @@ import { stripUndefined } from "./stores/cloudBase.js";
 // a store merge(). userId stays null: the app writes non-namespaced keys today
 // and namespacing lands with the hooks in T0.4 (docs/sp1/T0.3-spec.md §4).
 function persistLocal(key, value) {
-  const store = storeForKey(key);
   try {
-    if (store) store.write(null, value);
-    else localStorage.setItem(key, JSON.stringify(value));
+    // Account stores intentionally ignore write(null). This is a confirmed
+    // cloud read/merge, so update the legacy mirror explicitly, not the cloud.
+    writeJson(null,key,value,{cloudSaved:true});
   } catch (error) {
     // Firestore is authoritative for these cloud-backed stores. A full browser
     // cache must not abort the rest of an account pull (especially objective

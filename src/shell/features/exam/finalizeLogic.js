@@ -85,7 +85,10 @@ export function computeWeakConceptEntry({
   existingEntry,
   now,
 }) {
-  const sortedSessions = [...(sessions || [])].sort(
+  const sortedSessions = (sessions || []).map(session=>({...session,questions:(session.questions||[]).filter(question=>{
+    const sourceBlock=question.sourceBlockId||question.blockId||session.blockId;
+    return !sourceBlock||!blockId||sourceBlock===blockId;
+  })})).filter(session=>session.questions.length).sort(
     (a, b) => (b?.submittedAt ?? 0) - (a?.submittedAt ?? 0)
   );
 

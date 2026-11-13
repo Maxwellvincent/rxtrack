@@ -22,3 +22,8 @@ it('rejects paired neuron classifications as third order even when the reviewer 
  const q={orderLevel:'third-order',stem:'Two motor neurons are tested experimentally. Which option correctly classifies these neurons?',choices:{A:'Neuron X is upper; neuron Y is lower',B:'Both are lower'}};
  expect(answerRouteIssue({kind:'connected-integration',outcomeRestatement:false,choiceShortcut:false,stemClue:'motor neurons are tested',requiredRelationship:'Upper neurons control lower neurons',whyNotRestatement:'Infer each identity from independent experimental observations'},q,{requireReasoningAudit:true})).toBe('insufficient_reasoning_depth');
 });
+it('does not credit parallel somatotopy coordinates as third-order integration',()=>{
+ const item={orderLevel:'third-order',stem:'A focal lesion affects the anterior horn. Which region accounts for the deficit?',choices:{A:'Caudal, medial, dorsal region',B:'Rostral, lateral, dorsal region',C:'Rostral, lateral, ventral region'}};
+ expect(answerRouteIssue(answerRoute(item.stem),item)).toBe('insufficient_reasoning_depth');
+ expect(answerRouteIssue(answerRoute(item.stem),{...item,orderLevel:'second-order'})).toBeNull();
+});

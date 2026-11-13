@@ -31,7 +31,7 @@ import { canonicalObjectiveIds } from "./objectiveLinks.js";
 import { alignSchoolQuestions, schoolEvidencePrompt, retrieveLectureEvidence } from "./schoolAlignment.js";
 import { uniqueQuestions } from "./questionSimilarity.js";
 import { buildClinicalCorrelateLibrary, buildClinicalCorrelatePlan, renderClinicalCorrelateLibrary } from "./clinicalCorrelates.js";
-import { buildOrderBlueprint, normalizeQuestionOrder, stampQuestionOrders, questionOrderDescription, verifyReasoningReview, hasCurrentReasoningAudit } from "./questionOrder.js";
+import { buildOrderBlueprint, normalizeQuestionOrder, stampQuestionOrders, questionOrderDescription, reasoningStructureIssue, verifyReasoningReview, hasCurrentReasoningAudit } from "./questionOrder.js";
 import { objectiveFacetCoveragePrompt } from "./objectiveFacets.js";
 import { buildReasoningDepthPlan } from "./questionReasoning.js";
 
@@ -1369,7 +1369,7 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
       const alignmentIssue = objectiveAlignmentIssue(review, question, cfg);
       if (alignmentIssue) return [{ objectiveIds: question.objectiveIds || [], issues: [...new Set([alignmentIssue,...(Array.isArray(review?.issues)?review.issues:[])])], rationale: "The review did not establish that this question tests its assigned objective clause; do not award coverage for a neighboring topic." }];
       if (cfg.requireReasoningAudit && review?.approved === true && !verifyReasoningReview(review, question, cfg)) {
-        return [{ objectiveIds: question.objectiveIds || [], issues: ["unverifiable_reasoning"], rationale: "The reviewer could not verify the source quotes or reasoning. Use exact contiguous lecture excerpts; do not paraphrase or join separated table columns. Construct a new source-supported causal task." }];
+        return [{ objectiveIds: question.objectiveIds || [], issues: [reasoningStructureIssue(review.reasoning)||"unverifiable_reasoning"], rationale: reasoningStructureIssue(review.reasoning)==="insufficient_reasoning_depth"?"The reviewed steps are shallow, parallel or disconnected. Add the missing dependent inference using supplied lecture relationships; do not relabel the same lookup or invent clues.":"The reviewer could not verify the source quotes or reasoning. Use exact contiguous lecture excerpts; do not paraphrase or join separated table columns. Construct a new source-supported causal task." }];
       }
       const distinctionIssue = discriminationIssue(review, question, cfg);
       if (review?.approved === true && distinctionIssue) return [{ objectiveIds: question.objectiveIds || [], issues: [distinctionIssue], rationale: "Establish a unique key against the closest alternative using an exact clue from the final stem and lecture-supported reasoning. Repair missing distinctions without inventing findings." }];
@@ -1511,7 +1511,7 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
       : reviewerReplacements;
     const distinctApproved = diversifyQuestionEndings(uniqueQuestions([...approved, ...verifiedReplacements, ...verifiedProseRepairs]));
     const unverifiableApprovals = cfg.requireReasoningAudit
-      ? questions.filter((question, index) => byIndex.get(index)?.approved === true && !verifyReasoningReview(byIndex.get(index), question, cfg)).length
+      ? questions.filter((question, index) => byIndex.get(index)?.approved === true && reasoningStructureIssue(byIndex.get(index)?.reasoning)!=="insufficient_reasoning_depth" && !verifyReasoningReview(byIndex.get(index), question, cfg)).length
       : 0;
     if (!distinctApproved.length && unverifiableApprovals) {
       return { ...keepLocallyValidated(`Independent reviewer unavailable: ${unverifiableApprovals}/${questions.length} claimed approvals had unverifiable source quotes or reasoning. A stronger reviewer is needed; repeating repairs cannot validate these claims.`), rejections };
@@ -1645,7 +1645,7 @@ function buildCompactMcqPrompt(cfg) {
 ${CONNECTED_REASONING_CONTRACT}
 ${QUESTION_PLAN_CONTRACT}
 Aim to write exactly ${count} NEW ${cfg.difficulty || "medium"} SGU/ExamSoft-style Step 1 questions for ${cfg.subject || "this lecture"}. If the supplied objective and lecture evidence support fewer than ${count}, return every complete supported question you can draft rather than returning an empty list; never invent details to hit the requested count. If the evidence supports none, return {"questions":[],"shortfall":["briefly state the missing source relationship"]}.
-JSON NESTING: whyWrong is a nested object within each question. After closing whyWrong, use a comma and objectiveIds INSIDE that same question; do not close the question until after difficulty. Validate balanced braces before responding.
+JSON NESTING: keep whyWrong and objectiveIds inside each question; balance braces.
 OUTPUT ECONOMY: return compact JSON on one line, without indentation, markdown or introductory text. Keep each questionPlan field to one short clause (aim for 6-8 words), excluding sourceQuotes. Quote only the minimum contiguous source sentences that establish the required relationships; never repeat an entire slide. Keep reasoningSteps to short causal links. Explain the key in two concise sentences and each choice in one concise sentence (aim for 12-18 words) stating the discriminating reason. Preserve every required field, every choice rationale, necessary clinical clues, qualifiers and source-supported relationships; brevity must not change the question or replace the rationale with a label.
 
 Objectives define the target; lecture facts/excerpts alone establish factual truth. Use one primary objective per item. Honor each targetCount; an assigned targetOrder is mandatory in every policy, including school calibration. When no targetOrder is assigned, use the supplied order blueprint without falsely labeling recall as application. Reuse assigned example scaffolding and familiar phrases; adapt the tested relationship with lecture-supported facts. Prioritize second/third-order application where the objective supports it, never invent extra causal steps to label recall advanced.

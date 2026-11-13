@@ -119,19 +119,25 @@ export function stampQuestionOrders(questions = [], objectives = []) {
   });
 }
 
+/** Distinguish a shallow/disconnected item from an unavailable or ungrounded reviewer. */
+export function reasoningStructureIssue(reasoning){
+ const order=normalizeQuestionOrder(reasoning?.orderLevel),required={"first-order":1,"second-order":2,"third-order":3}[order];
+ if(!required)return 'unverifiable_reasoning';
+ const steps=(Array.isArray(reasoning?.steps)?reasoning.steps:[]).map(step=>String(step).toLowerCase().replace(/\s+/g,' ').trim()).filter(Boolean);
+ if(reasoning.connectedChain!==true||reasoning.singleEndpoint!==true||reasoning.choiceShortcut!==false||reasoning.allStepsRequired!==true||new Set(steps).size<required)return 'insufficient_reasoning_depth';
+ return null;
+}
 /** Validate a separate review's reasoning claim against the actual supplied source. */
 export function verifyReasoningReview(review, question, cfg = {}) {
   const reasoning = review?.reasoning;
   const orderLevel = normalizeQuestionOrder(reasoning?.orderLevel);
   if (orderLevel !== "first-order" && isDemonstratedRecall(question)) return null;
-  const required = { "first-order": 1, "second-order": 2, "third-order": 3 }[orderLevel];
   const steps = Array.isArray(reasoning?.steps) ? reasoning.steps.map(String).map(step => step.trim()).filter(Boolean) : [];
   const quotes = Array.isArray(reasoning?.sourceQuotes) ? reasoning.sourceQuotes.map(String).map(quote => quote.trim()).filter(Boolean) : [];
   const normalize = value => String(value || "").toLowerCase().replace(/\s+/g, " ").trim();
   const source = normalize([cfg.lectureText || "", ...(cfg.atoms || []).map(atom => `${atom.term || ""} ${atom.content || ""}`)].join(" "));
   const objective = (cfg.objectives || []).find(item => (question.objectiveIds || []).includes(String(item.id || item.code)));
-  if (reasoning?.connectedChain !== true || reasoning?.singleEndpoint !== true || reasoning?.choiceShortcut !== false) return null;
-  if (!required || reasoning.allStepsRequired !== true || steps.length < required || new Set(steps.map(normalize)).size < required) return null;
+  if(reasoningStructureIssue(reasoning))return null;
   if (!(cfg.reasoningPolicy === "school" && orderLevel === "first-order") && !objectiveOrderProfile(objective || {}).allowed.includes(orderLevel)) return null;
   const quoteFloor = orderLevel === "third-order" ? 2 : 1;
   const supportedQuotes = [...new Set(quotes.map(normalize))].filter(quote => quote.length >= 16 && source.includes(quote));

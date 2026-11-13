@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 // (push/pull round-trip through localStorage, which the default 'node' test
 // environment doesn't provide; jsdom is scoped to just this file.)
+import {installDomStorage} from "./stores/testEnv.js";
 import { describe, it, expect, beforeAll } from "vitest";
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from "firebase/auth";
 import { doc } from "firebase/firestore";
@@ -10,6 +11,7 @@ import { __test } from "./supabase"; // export the primitives under __test
 describe.skipIf(!globalThis.process?.env?.FIRESTORE_EMULATOR_HOST || !globalThis.process?.env?.FIREBASE_AUTH_EMULATOR_HOST)("firestore doc primitives", () => {
   let uid;
   beforeAll(async () => {
+    installDomStorage();
     try { await createUserWithEmailAndPassword(auth, "d@d.com", "pw1234"); } catch {}
     const cred = await signInWithEmailAndPassword(auth, "d@d.com", "pw1234");
     uid = cred.user.uid;

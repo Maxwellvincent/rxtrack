@@ -260,3 +260,10 @@ describe('quality-protected historical reports',()=>{
   expect(protectedWeakConceptHistory([session],{},q=>({...q,sourceImageUrl:'saved-figure'}))[0].answers).toHaveLength(1);
  });
 });
+it('does not mix another block into a lecture repair report',()=>{
+ const questions=[0,1,2].map(i=>({questionId:`q${i}`,lectureId:'same',correct:'A'}));
+ const answers=questions.map(q=>({questionId:q.questionId,value:'B'}));
+ const sessions=[{blockId:'nb1',questions,answers},{blockId:'nb2',questions,answers}];
+ const entry=computeWeakConceptEntry({sessions,blockId:'nb2',lectureId:'same',now:'2026-11-13T12:00:00Z'});
+ expect(entry.totalAttempts).toBe(3);expect(entry.missCount).toBe(3);
+});

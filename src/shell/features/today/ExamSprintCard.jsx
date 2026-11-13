@@ -1,18 +1,21 @@
+import {usePlanningClock} from "../../hooks/usePlanningClock.js";
 import {useQuestionPractice} from "../../hooks/useQuestionPractice.js";
 import {reconcileLectureStats} from "../exam/reconcileLectureStats.js";
-import {useState} from 'react';
+import {useState,useMemo} from 'react';
 import {useLectureQuestionStats} from '../../hooks/useLectureQuestionStats.js';
 import {examSprintPriorities} from './examSprint.js';
 import {BPM_BLUEPRINTS} from '../exam/bpmBlueprint.js';
 import {formatLectureLabel} from '../../../lectureTitle.js';
 export function ExamSprintCard({context,userId,daysLeft,onStudy,onQuiz,busy}){
+ const planningTime=usePlanningClock(context.learnerEvidence?.updatedAt);
  const [exam,setExam]=useState(()=>/^NB\s*1$/i.test(context.blockMeta?.name||'')?'3':'none');
  const [availableMinutes,setAvailableMinutes]=useState(60);
  const stats=useLectureQuestionStats(userId);
  const history=useQuestionPractice(userId,context.blockId);
  const nb2=/^NB\s*2$/i.test(context.blockMeta?.name||'');
+ const questionStats=useMemo(()=>reconcileLectureStats(stats.data||{},history.sessions||[],context.lectures||[],context.blockId,history.studyAnswers||[]),[stats.data,history.sessions,history.studyAnswers,context.lectures,context.blockId]);
+ const rows=useMemo(()=>examSprintPriorities({...context,now:planningTime,questionStats,exam:exam==='none'?null:exam,availableMinutes}),[context,questionStats,exam,availableMinutes,planningTime]);
  if(daysLeft<0 || (!nb2 && (daysLeft==null || daysLeft>1)))return null;
- const rows=examSprintPriorities({...context,questionStats:reconcileLectureStats(stats.data||{},history.sessions||[],context.lectures||[],context.blockId,history.studyAnswers||[]),exam:exam==='none'?null:exam,availableMinutes});
  return <section aria-label="Top two before the exam" className="rounded-xl border-2 border-accent bg-bg-elevated p-4">
   <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="text-lg font-bold">{nb2?'NB2 · next two study blocks':'Top two before the exam'}</h3><label className="text-sm">Time available <select aria-label="Study time available" value={availableMinutes} onChange={e=>setAvailableMinutes(Number(e.target.value))} className="rounded border border-border bg-bg p-2">{[30,60,90,120].map(n=><option key={n} value={n}>{n} minutes</option>)}</select></label></div>
   <p className="mt-2 text-sm font-semibold">Target: 80% or higher · current block only</p>

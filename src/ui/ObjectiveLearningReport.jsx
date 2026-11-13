@@ -1,13 +1,15 @@
+import {usePlanningClock} from "../shell/hooks/usePlanningClock.js";
 import {repairTransferPlan,repairTransferRequest} from "../engine/repairTransfer.js";
-import { useId, useState } from "react";
+import { useId, useState, useMemo } from "react";
 import { objectiveLearningReport, shortRetestPlan } from "../engine/learningLoop.js";
 export function ObjectiveLearningReport({objectives=[],evidence={},records=[],onRetest,onReviewNotes,busy=false}) {
+ const planningTime=usePlanningClock(evidence.updatedAt||records.at(-1)?.at||records.at(-1)?.ts);
  const detailGroup=useId();
  const [page,setPage]=useState(0);
  const [showSuccessful,setShowSuccessful]=useState(false);
- const transferRows=repairTransferPlan(objectives,evidence,records);
+ const transferRows=useMemo(()=>repairTransferPlan(objectives,evidence,records,planningTime),[objectives,evidence,records,planningTime]);
  const transferRequest=repairTransferRequest(transferRows);
- const allRows=objectiveLearningReport(objectives,evidence,records);
+ const allRows=useMemo(()=>objectiveLearningReport(objectives,evidence,records),[objectives,evidence,records]);
  const missedRows=allRows.filter(row=>row.sessionMisses>0);
  const rows=showSuccessful?allRows:missedRows;
  const currentPage=Math.min(page,Math.max(0,Math.ceil(rows.length/6)-1));
@@ -25,9 +27,11 @@ export function ObjectiveLearningReport({objectives=[],evidence={},records=[],on
  {transferRequest.count>0&&onRetest&&<button type="button" disabled={busy} className="mt-3 rounded bg-accent px-3 py-2 text-sm text-white disabled:opacity-40" onClick={()=>onRetest(transferRequest)}>Continue with {transferRequest.count} fresh cases →</button>}
  <p className="mt-2 text-xs text-text-2">Use Help Me Reason if a connection is missing. Guided answers stay assisted; fresh independent application is checked separately, then retested after at least a day.</p>
  </div>}
+ {!transferRows.length&&<>
  <h3 className="font-bold">Concepts to review</h3>
  <p className="mt-1 text-sm text-text-2">From unresolved misses in this session.</p>
  {concepts.length ? <ul aria-label="Review concepts" className="mt-3 grid gap-x-6 gap-y-2 sm:grid-cols-2">{concepts.map(concept=><li key={concept} className="flex gap-2 text-sm"><span aria-hidden="true">↻</span><span>{concept}</span></li>)}</ul> : <p className="mt-2 text-sm">No unresolved misses in this session.</p>}
+ </>}
  <details className="mt-4 text-sm"><summary className="cursor-pointer">Previous missed questions and objective details</summary>
  <button type="button" className="mt-2 text-sm underline" onClick={()=>{setShowSuccessful(!showSuccessful);setPage(0);}}>{showSuccessful?"Show misses only":"Show all practiced objectives"}</button>
  {rows.length>6 && <div className="mt-2 flex flex-wrap items-center gap-2 text-xs"><span>Objectives {currentPage*6+1}–{currentPage*6+visible.length} of {rows.length}</span><button type="button" disabled={currentPage===0} onClick={()=>setPage(currentPage-1)} className="rounded border border-border p-2 disabled:opacity-40">Previous six objectives</button><button type="button" disabled={(currentPage+1)*6>=rows.length} onClick={()=>setPage(currentPage+1)} className="rounded border border-border p-2 disabled:opacity-40">Next six objectives</button></div>}

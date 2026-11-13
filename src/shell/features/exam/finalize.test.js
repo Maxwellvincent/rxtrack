@@ -88,7 +88,7 @@ describe.skipIf(!globalThis.process?.env?.FIRESTORE_EMULATOR_HOST || !globalThis
     // q1 was already recorded before this call; only q2 should have been
     // passed to recordAnswerAwait during this run.
     expect(spy).toHaveBeenCalledTimes(1);
-    expect(spy).toHaveBeenCalledWith(uid, "lec-1", true);
+    expect(spy).toHaveBeenCalledWith(uid, "lec-1", true, "exam:sess-resume:q2");
 
     const finalDoc = await getExamSession(uid, sessionId);
     expect(finalDoc.status).toBe("submitted");
@@ -142,7 +142,7 @@ describe.skipIf(!globalThis.process?.env?.FIRESTORE_EMULATOR_HOST || !globalThis
     const secondResult = await finalizeExamSession(uid, sessionId, { blockName: "Block Crash" });
     expect(secondResult).toEqual({ ok: true });
     expect(resumeSpy).toHaveBeenCalledTimes(1);
-    expect(resumeSpy).toHaveBeenCalledWith(uid, "lec-2", true);
+    expect(resumeSpy).toHaveBeenCalledWith(uid, "lec-2", true, "exam:sess-crash-resume:q2");
     resumeSpy.mockRestore();
 
     const finalDoc = await getExamSession(uid, sessionId);
@@ -178,6 +178,7 @@ describe.skipIf(!globalThis.process?.env?.FIRESTORE_EMULATOR_HOST || !globalThis
       { questionId: "q4", value: "A", answeredAt: Date.now(), seq: 1, writerId: "w1" }, // correct
       { questionId: "q5", value: "A", answeredAt: Date.now(), seq: 1, writerId: "w1" }, // correct
     ];
+    session.questions=session.questions.map(question=>({...question,blockId}));
     await createExamSession(uid, session);
 
     const result = await finalizeExamSession(uid, sessionId, {

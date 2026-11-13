@@ -4,3 +4,9 @@ export function LectureWorkspaceNav({value,onChange}){
   {sections.map(([id,label])=><button type="button" key={id} aria-pressed={value===id} onClick={()=>onChange(id)} className={`min-h-11 rounded-lg border px-4 py-2 text-sm font-semibold ${value===id?'border-accent bg-accent-soft text-accent':'border-border text-text-2 hover:border-accent'}`}>{label}</button>)}
  </nav>;
 }
+
+/** Mount on first visit; keep mounted afterwards so edits and preview state survive. */
+export function LecturePanel({name,workspace,visited,sectionRef,children,...props}){
+ if(!visited.includes(name))return null;
+ return <section {...props} ref={sectionRef} hidden={workspace!==name}>{children}</section>;
+}

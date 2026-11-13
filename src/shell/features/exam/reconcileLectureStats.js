@@ -6,7 +6,8 @@ export function reconcileLectureStats(stats={},sessions=[],lectures=[],blockId,s
  const next=Object.fromEntries(Object.entries(stats).map(([id,row])=>[id,{...row}]));
  const detailed=new Map(),seen=new Set();
  const recent=new Map();
- function addRecent(lectureId,event){if(!isIndependentAttempt(event))return;if(!lectures.some(l=>l.id===lectureId&&(!l.blockId||l.blockId===blockId))||typeof event.correct!=='boolean'||!Number.isFinite(event.at))return;const list=recent.get(lectureId)||[];list.push(event);recent.set(lectureId,list);}
+ const lectureIds=new Set(lectures.filter(l=>!l.blockId||l.blockId===blockId).map(l=>l.id));
+ function addRecent(lectureId,event){if(!isIndependentAttempt(event))return;if(!lectureIds.has(lectureId)||typeof event.correct!=='boolean'||!Number.isFinite(event.at))return;const list=recent.get(lectureId)||[];list.push(event);recent.set(lectureId,list);}
  for(const a of studyAnswers)if(!a.blockId||a.blockId===blockId){if(!isIndependentAttempt(a)&&a.lectureId)next[a.lectureId]={...(next[a.lectureId]||{}),hasAssistedAnswers:true};else addRecent(a.lectureId,{correct:a.correct,at:a.ts??a.at,sessionKey:a.sessionKey});}
  for(const session of sessions){
   if(session.blockId!==blockId||seen.has(session.sessionId))continue;
@@ -16,7 +17,7 @@ export function reconcileLectureStats(stats={},sessions=[],lectures=[],blockId,s
   for(const before of session.questions||[]){
    const q=before.sourceType==='question-bank'?linkSourceLecture(before,lectures,blockId):before;
    const answer=answers.get(q.questionId);
-   if(!q.lectureId||!lectures.some(l=>l.id===q.lectureId&&(!l.blockId||l.blockId===blockId))||!Object.hasOwn(q.choices||{},q.correct)||!Object.hasOwn(q.choices||{},answer?.value))continue;
+   if(!q.lectureId||!lectureIds.has(q.lectureId)||!Object.hasOwn(q.choices||{},q.correct)||!Object.hasOwn(q.choices||{},answer?.value))continue;
    const right=Number(answer.value===q.correct);
    if(!isIndependentAttempt(q))next[q.lectureId]={...(next[q.lectureId]||{}),hasAssistedAnswers:true};
    addRecent(q.lectureId,{assistance:q.assistance,correct:!!right,at:answer.answeredAt??answer.at??session.submittedAt??session.progressSavedAt,sessionKey:session.sessionId});

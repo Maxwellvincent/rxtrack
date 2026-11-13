@@ -18,3 +18,7 @@ it('rejects source silence as a reason an alternative is false',()=>{
  }
  expect(verifiedDiscrimination(claim,q)).not.toBeNull();
 });
+it('rejects an explanation attached to a substituted alternative rather than the actual choice',()=>{
+ expect(verifiedDiscrimination({...claim,alternativeText:'A different connection'},q)).toBeNull();
+ expect(verifiedDiscrimination({...claim,alternativeText:q.choices.B},q).alternativeText).toBe(q.choices.B);
+});

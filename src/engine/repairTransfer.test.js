@@ -1,6 +1,6 @@
 import {it,expect} from 'vitest';
 import {repairTransferPlan,repairTransferRequest} from './repairTransfer.js';
-const DAY=86400000,o={id:'o',blockId:'nb2',lectureId:'l',objective:'Localize pathways'};
+const DAY=86400000,o={id:'o',bloom_level:4,blockId:'nb2',lectureId:'l',objective:'Localize pathways'};
 const event=(overrides={})=>({at:1000,questionKey:'old',sessionKey:'s1',blockId:'nb2',lectureId:'l',objectiveIds:['o'],correct:true,assisted:true,learningContext:{topic:'Crossing',stem:'Original'},...overrides});
 it('routes an assisted success to fresh second order application without granting independent recovery',()=>{
  const rows=repairTransferPlan([o],{},[event()],2000);expect(rows[0].state).toBe('transfer');expect(repairTransferRequest(rows).objectives[0]._targetOrder).toBe('second-order');
@@ -25,4 +25,12 @@ it('keeps distinct concepts under one objective and gives delayed depth preceden
  const request=repairTransferRequest([{...rows[0],state:'due'},{...rows[1],state:'transfer'}]);
  expect(request.objectives).toHaveLength(1);expect(request.objectives[0]._transferOrder).toBe('third-order');
  expect(request.focusNotes).not.toContain('Original');
+});
+it('does not strand lower-level objectives behind an unsupported third-order target',()=>{
+ const objective={...o,bloom_level:2};
+ const first=event(),fresh=event({at:2000,assisted:false,questionKey:'new',reasoningVerified:true,orderLevel:'second-order'});
+ const rows=repairTransferPlan([objective],{},[first,fresh],DAY+3000);
+ expect(repairTransferRequest(rows).objectives[0]._transferOrder).toBe('second-order');
+ const delayed={...fresh,at:DAY+3000,sessionKey:'s2',questionKey:'delayed'};
+ expect(repairTransferPlan([objective],{},[first,fresh,delayed],DAY+4000)).toEqual([]);
 });

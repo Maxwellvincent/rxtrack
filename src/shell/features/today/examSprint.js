@@ -3,11 +3,11 @@ import {objectivePracticePlan} from "../../../engine/objectivePractice.js";
 import {buildWeakAreaMap} from '../exam/weakAreaMap.js';
 import {BPM_BLUEPRINTS,objectiveSubject,SUBJECT_LABELS} from '../exam/bpmBlueprint.js';
 /** A transparent prioritization heuristic, not a calibrated score predictor. */
-export function examSprintPriorities({blockId,lectures=[],objectives=[],questionStats={},learnerEvidence={},exam=null,availableMinutes=60}={}){
+export function examSprintPriorities({blockId,lectures=[],objectives=[],questionStats={},learnerEvidence={},exam=null,availableMinutes=60,now=Date.now()}={}){
  const local=lectures.filter(l=>l.blockId===blockId&&!l.mergedInto&&!/^(SG|TBL|LAB)$/i.test(l.lectureType||''));
  const ids=new Set(local.map(l=>l.id));
  const targets=objectives.filter(o=>ids.has(o.linkedLecId)&&(!o.blockId||o.blockId===blockId));
- const repairRows=repairTransferPlan(targets,learnerEvidence);
+ const repairRows=repairTransferPlan(targets,learnerEvidence,[],now);
  const practice=new Map(objectivePracticePlan(targets,learnerEvidence).rows.map(row=>[row.id,row]));
  const weights=BPM_BLUEPRINTS[exam];
  const subjectTotals={};
