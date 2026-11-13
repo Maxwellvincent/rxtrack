@@ -1,6 +1,7 @@
+import {repairTransferPlan} from "../../../engine/repairTransfer.js";
 import { prepareLectureQuestionContext } from '../../../engine/lectureQuestionContext.js';
 import * as relationshipsStore from "../../../stores/sourceRelationships.js";
-import {relationshipPages,relationshipTargets,relationshipPrompt,bindReviewedRelationships} from "../../../engine/sourceRelationships.js";
+import {relationshipPages,relationshipTargets,relationshipPrompt,bindReviewedRelationships,validSourceRelationships} from "../../../engine/sourceRelationships.js";
 import * as sourceUseStore from "../../../stores/sourceUse.js";
 import { allowedGenerationExamples, isEvaluationReserved } from "../../../engine/sourceUse.js";
 import {normAtomKey} from '../../../engine/atomNorm.js';
@@ -386,7 +387,9 @@ export function buildQuizConfig({
   const sourcePages=relationshipPages(lecture || {},lectureText);
   const relationshipScope={blockId,lectureId:lecture?.id || lectureIdHint,objectives:selected,pages:sourcePages};
   const relationshipCatalog=relationshipScope.lectureId?relationshipsStore.read(userId,relationshipScope.lectureId):{};
-  const relationshipPlan=relationshipTargets(relationshipCatalog,learnerModel,relationshipScope,count);
+  const connectionIds=new Set(repairTransferPlan(selected,learnerModel).filter(row=>row.state!=="waiting").flatMap(row=>row.anchor.sourceRelationshipIds||[]));
+  const requiredRelationships=validSourceRelationships(relationshipCatalog,relationshipScope).filter(row=>row.kind!=="figure"&&connectionIds.has(row.id));
+  const relationshipPlan=[...new Map([...requiredRelationships,...relationshipTargets(relationshipCatalog,learnerModel,relationshipScope,count)].map(row=>[row.id,row])).values()].slice(0,count);
   const currentStyleProfile = styleProfile || buildStyleProfile(allowedGenerationExamples(exemplars));
 
   return {
