@@ -127,6 +127,11 @@ it("shows when local Ollama is processing questions", () => {
     .toBe("Local Ollama · Writing 1 batch");
 });
 
+it("shows when DeepSeek is processing questions", () => {
+  expect(questionPreparationStatus({ diagnostics: { calls: [{ stage: "review", status: "running", provider: "ollama-cloud", model: "deepseek-v4-pro" }] } }))
+    .toBe("DeepSeek · Checking 1 batch");
+});
+
 it("prefers the advertised DeepSeek quality tier before routine and escalation cloud fallbacks", async () => {
   questionPreparationCapabilities.mockResolvedValue({
     writer: "codex", reviewer: "codex", fallbackWriter: "ollama-cloud", localWriter: "ollama",

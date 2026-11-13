@@ -213,6 +213,7 @@ export function questionPreparationStatus(progress) {
   const stages = [drafts ? `Writing ${drafts} batch${drafts === 1 ? "" : "es"}` : "", reviews ? `Checking ${reviews} batch${reviews === 1 ? "" : "es"}` : ""].filter(Boolean);
   const activity = stages.join(" · ") || "Preparing remaining questions";
   if (running.some(call => call.provider === "ollama")) return `Local Ollama · ${activity}`;
+  if (running.some(call => call.provider === "ollama-cloud" && /^deepseek/i.test(call.model || ""))) return `DeepSeek · ${activity}`;
   if (running.some(call => call.provider === "ollama-cloud" && /^kimi/i.test(call.model || ""))) return `Kimi · ${activity}`;
   return activity;
 }
