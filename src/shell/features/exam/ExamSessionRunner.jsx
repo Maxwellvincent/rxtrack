@@ -6,6 +6,7 @@ import { SourceBankRepair } from './SourceBankRepair.jsx';
 import { updateExamSessionTransaction } from '../../../supabase.js';
 import { practiceSection, practiceSections, sectionQuestionIndices, firstSectionQuestion } from './practiceSections.js';
 import { restoreVisualChoices } from "../../../engine/visualChoiceLabels.js";
+import { splitQuestionStemSource } from "../../../engine/questionStemSource.js";
 import { ObjectiveLearningReport } from "../../../ui/ObjectiveLearningReport.jsx";
 import { questionLearningContext } from "../../../engine/learningLoop.js";
 import * as learnerEvidenceStore from "../../../stores/learnerEvidence.js";
@@ -258,26 +259,25 @@ function QuestionChoices({ choices, picked, revealed, correct, onPick, locked = 
       {orderedChoiceEntries(choices).map(([letter, text]) => {
         const isPicked = picked === letter;
         const isCrossed = !revealed && crossed.has(letter);
-        const borderCls = !revealed
+        const stateCls = !revealed
           ? isPicked
-            ? "border-accent bg-accent/15 ring-2 ring-accent/40"
-            : "border-border hover:border-border-strong cursor-pointer"
+            ? "border-accent bg-accent/15 ring-2 ring-accent/30"
+            : "border-border hover:border-border-strong"
           : letter === correct
             ? "border-good bg-good/10 ring-2 ring-good/40"
             : isPicked
               ? "border-bad bg-bad/10"
               : "border-border opacity-60";
         return (
-          <div key={letter} className="flex items-stretch gap-2">
+          <div key={letter} className={`flex min-h-12 items-stretch overflow-hidden rounded-lg border bg-bg ${isCrossed ? "opacity-45 " : ""}${stateCls}`}>
           <button
             type="button"
             disabled={revealed || locked || isCrossed}
             onClick={() => onPick(isPicked ? null : letter)}
             aria-pressed={isPicked}
             className={
-              "flex min-h-11 flex-1 items-center gap-2 rounded-lg border bg-bg px-3 py-2 text-left text-xs text-text-1 " +
-              (isCrossed ? "line-through opacity-40 " : "") +
-              borderCls
+              "flex min-w-0 flex-1 items-center gap-3 px-3 py-2.5 text-left text-sm text-text-1 " +
+              (isCrossed ? "line-through " : "")
             }
           >
             <span className="font-mono text-text-3">{letter}</span>
@@ -293,7 +293,7 @@ function QuestionChoices({ choices, picked, revealed, correct, onPick, locked = 
               if (next.has(letter)) next.delete(letter); else next.add(letter);
               return next;
             });
-          }} className="min-h-11 w-11 rounded-lg border border-border text-text-3 hover:text-text-1">{isCrossed ? "↩" : "×"}</button>}
+          }} className="w-10 shrink-0 border-l border-border text-text-3 hover:bg-bg-2 hover:text-text-1 sm:w-11">{isCrossed ? "↩" : "×"}</button>}
           </div>
         );
       })}
@@ -388,31 +388,32 @@ function ExamFormat({ controller, submitOpts, objectivesById, lectureLabelsByLec
   const answeredCount = (session.answers || []).filter(answer => answer.value != null).length;
   const targetQuestionCount = Math.max(questions.length, Number(session.targetQuestionCount) || questions.length);
   const incompleteDiagnostic = session.sourceType !== "question-bank" && targetQuestionCount > questions.length;
+  const [textToolsTarget, setTextToolsTarget] = useState(null);
+  const display = splitQuestionStemSource(q?.stem);
+  const section = q ? (q.sourceSectionTitle || q.sourceSection || lectureLabelsByLectureId?.[q.lectureId] || q.topic || "Mixed block") : "";
 
   return (
     <div className="space-y-3" onKeyDown={(event) => advanceOnEnter(event, () => setCurrentIndex((i) => Math.min(questions.length - 1, i + 1)), !!q && pickedFor(session, q.questionId) != null && currentIndex < questions.length - 1 && !submitting)}>
-      <div className="flex items-center justify-between rounded-lg border border-border bg-bg-elevated px-3 py-2">
-        <div className="font-mono text-[12px] uppercase tracking-wider text-accent-text">
-          {sessionLabel(session)} · {session.fillStatus === "generating" ? `${questions.length}/${targetQuestionCount} ready · ` : ""}{answeredCount}/{questions.length} answered
-        </div>
-        <div
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-1 pb-3">
+        <div className="min-w-0"><p className="font-mono text-xs uppercase tracking-wider text-accent-text">Question {currentIndex + 1} of {questions.length} · {answeredCount} answered</p><p className="mt-1 truncate text-sm font-semibold text-text-1">{section}</p></div>
+        <div className="flex items-center gap-2"><div
           data-testid="exam-timer"
           className={
             "font-mono text-sm font-bold " + (remainingMs != null && remainingMs < 60_000 ? "text-bad" : "text-text-1")
           }
         >
           {formatClock(remainingMs)}
-        </div>
+        </div><details className="relative" aria-label="Exam tools"><summary className="cursor-pointer rounded border border-border px-3 py-2 text-sm">⋯ Tools</summary><div className="absolute right-0 z-40 mt-2 w-[min(88vw,24rem)] space-y-2 rounded-lg border border-border bg-bg-elevated p-4 shadow-xl"><QuestionMeta question={q} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} /><div ref={setTextToolsTarget} /><p className="text-xs text-text-3">Click a highlighted phrase to remove only that highlight.</p></div></details></div>
       </div>
 
       {session.purpose==='reserved-assessment' && <p className="text-xs text-text-2">Reserved timed assessment · answers hidden until submission · unanswered questions count in the score. Saving and resuming retains the original deadline.</p>}
       <QuestionNavigator questions={questions} session={session} currentIndex={currentIndex} onSelect={setCurrentIndex} />
 
       {q && (
-        <div className="rounded-lg border border-border bg-bg-elevated p-3">
-          {session.purpose!=="reserved-assessment" && <><QuestionMeta question={q} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} /><LeadInCue stem={q.stem} /></>}
-          <QuestionStem text={q.stem} questionId={q.questionId} />
+        <div className="rounded-lg bg-bg-elevated p-4 sm:p-5">
+          <QuestionStem text={display.stem} questionId={q.questionId} toolsTarget={textToolsTarget} toolsInBody={false} />
           {session.purpose==='reserved-assessment' ? <ReservedAssessmentFigure question={q}/> : <SchoolQuestionFigure question={q} userId={userId} />}
+          {display.sourceNote && <p className="mb-3 text-[11px] text-text-3">Figure source: {display.sourceNote.replace(/^Underlying\s+(?:schematic|image|figure)\s+from\s+/i, "")}</p>}
           <ChoiceList
             questionId={q.questionId}
             choices={q.choices}
@@ -454,6 +455,31 @@ function ExamFormat({ controller, submitOpts, objectivesById, lectureLabelsByLec
   );
 }
 
+function ExamStartGate({ session, onStart, onExit, onAbandon }) {
+  const [starting, setStarting] = useState(false);
+  const [error, setError] = useState("");
+  const ready = session.questions?.length || 0;
+  const target = Math.max(ready, Number(session.targetQuestionCount) || ready);
+  const incomplete = ready < target;
+  const start = async () => {
+    setStarting(true); setError("");
+    try { await onStart(); }
+    catch (cause) { setError(cause?.message || "Could not start the exam."); setStarting(false); }
+  };
+  return <div className="space-y-4">
+    <SessionTitle session={session} />
+    <section className="mx-auto max-w-2xl rounded-xl border border-border bg-bg-elevated p-5 sm:p-6">
+      <p className="text-sm font-semibold text-accent-text">Preparation finished</p>
+      <h2 className="mt-1 text-2xl font-bold text-text-1">{ready}/{target} questions ready</h2>
+      <p className="mt-2 text-sm text-text-2">{incomplete ? "This is incomplete practice and will not count as a full diagnostic." : "Your exam is ready."} The countdown has not started.</p>
+      <p className="mt-1 text-sm text-text-2">You will receive {Math.max(1, Number(session.durationMinutes) || ready * 1.5)} minutes beginning only after you press Start.</p>
+      {session.fillError && <details className="mt-3 text-sm text-text-2"><summary className="cursor-pointer font-medium">Why some questions were not ready</summary><p className="mt-2 whitespace-pre-line">{session.fillError}</p></details>}
+      {error && <p role="alert" className="mt-3 text-sm text-bad">{error}</p>}
+      <div className="mt-5 flex flex-wrap gap-2"><Button onClick={start} disabled={starting}>{starting ? "Starting…" : incomplete ? `Start ${ready}-question incomplete practice` : "Start timed exam"}</Button>{onExit}{onAbandon}</div>
+    </section>
+  </div>;
+}
+
 // I1 fix — practice format previously had no submit control at all: the
 // Next button just disabled itself with "Last question" once the final
 // question was answered, so the only way to end a practice session was
@@ -477,6 +503,7 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
   const visibleIndex = focusIndex >= 0 ? currentIndex : firstSectionQuestion(indices, questions, session.answers);
   const position = indices.indexOf(visibleIndex);
   const q = restoreVisualChoices(questions[visibleIndex]);
+  const display = splitQuestionStemSource(q?.stem);
   const focusAnswered = indices.filter(i => pickedFor(session, questions[i].questionId) != null).length;
   function selectSections(keys) {
     setSelectedSections(keys);
@@ -530,7 +557,7 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
       <div className="rounded-lg border border-border bg-bg-elevated p-4">
         {q.sourceVisualChoicesUnverified && !q.sourceVisualLabelsConfirmed && <p role="status" className="mb-3 text-sm text-text-2">Diagram choice count is not confirmed. Confirm the labels using the source figure controls below; this item is excluded from scoring until confirmed.</p>}
         {!q.correct && <p role="status" className="mb-3 rounded border border-warn p-3 text-sm">Source key needs verification. This question is excluded from scoring; you can continue. {q.sourceKeyCritique}</p>}
-        <QuestionStem text={q.stem} questionId={q.questionId} toolsTarget={textToolsTarget} />
+        <QuestionStem text={display.stem} questionId={q.questionId} toolsTarget={textToolsTarget} toolsInBody={false} />
         <SchoolQuestionFigure question={q} userId={userId} onVisualLabels={async lastLetter => {
           if ('ABCDEFGHIJKLMNOPQRSTUVWXYZ'.indexOf(lastLetter) < Math.max(...Object.keys(q.choices).map(letter=>'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.indexOf(letter)))) throw Error('Cannot remove existing source choices.');
           await updateExamSessionTransaction(userId,session.sessionId,current => {
@@ -540,6 +567,7 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
           await questionFigures.save(userId,q,{visualLastLabel:lastLetter});
           await controller.refetch?.();
         }} />
+        {display.sourceNote && <p className="mb-3 text-[11px] text-text-3">Figure source: {display.sourceNote.replace(/^Underlying\s+(?:schematic|image|figure)\s+from\s+/i, "")}</p>}
         {!revealed && session.purpose!=='reserved-assessment' && <HelpMeReason key={`${session.sessionId}:${q.questionId}`} question={q} userId={userId} initialState={q.reasoningCoach}
           onAssist={async()=>{const saved=await markReasoningAssistance(userId,session.sessionId,q.questionId);controller.syncCoaching?.(saved.questions.find(item=>item.questionId===q.questionId));}}
           onState={async coach=>{const saved=await saveReasoningCoach(userId,session.sessionId,q.questionId,coach);controller.syncCoaching?.(saved.questions.find(item=>item.questionId===q.questionId));}} />}
@@ -851,18 +879,6 @@ export function ExamSessionRunner({
     );
   }
 
-  if (session.fillStatus === "partial" && !(session.questions || []).length) {
-    return (
-      <div className="space-y-3">
-        <SessionTitle session={session} />
-        <div role="alert" className="rounded-lg border border-bad/40 bg-bg-elevated p-4 text-sm text-text-2">
-          No questions could be prepared for this scope.{session.fillError ? ` ${session.fillError}` : ""}
-        </div>
-        {onExit && <Button onClick={async () => { await controller.abandon(); onExit(); }}>Back to exam center</Button>}
-      </div>
-    );
-  }
-
   const saveExitAction = onExit && <Button variant="outline" disabled={savingExit} onClick={async () => {
             setSavingExit(true); setExitError(null);
             try {
@@ -878,10 +894,28 @@ export function ExamSessionRunner({
             await abandon();
             onExit?.();
           }}>Abandon session</Button>;
+
+  if (session.format === "exam" && session.fillStatus === "generating") {
+    return <div className="mb-5 space-y-4"><SessionTitle session={session} /><ExamPreparationStatus session={session} /><p className="text-sm text-text-2">Questions stay hidden and the timer remains paused until preparation finishes and you choose Start.</p><div className="flex flex-wrap gap-2">{saveExitAction}{abandonAction}</div>{exitError && <p role="alert" className="text-sm text-bad">{exitError}</p>}</div>;
+  }
+
+  if (session.fillStatus === "partial" && !(session.questions || []).length) {
+    return (
+      <div className="space-y-3">
+        <SessionTitle session={session} />
+        <div role="alert" className="rounded-lg border border-bad/40 bg-bg-elevated p-4 text-sm text-text-2">
+          No questions could be prepared for this scope.{session.fillError ? ` ${session.fillError}` : ""}
+        </div>
+        {onExit && <Button onClick={async () => { await controller.abandon(); onExit(); }}>Back to exam center</Button>}
+      </div>
+    );
+  }
+  if (session.format === "exam" && session.startedAt == null && session.deadline == null) {
+    return <ExamStartGate session={session} onStart={controller.startExam} onExit={saveExitAction} onAbandon={abandonAction} />;
+  }
   return (
     <div className="mb-5 space-y-3">
       {session.format === 'exam' && <SessionTitle session={session} />}
-      {session.fillStatus === "generating" && <ExamPreparationStatus session={session} />}
       {session.fillStatus === "partial" && <div role="alert" className="rounded-lg border border-warn/50 bg-bg-elevated p-3 text-sm text-text-2"><strong>{session.questions?.length || 0}/{session.targetQuestionCount || session.questions?.length || 0} questions prepared.</strong> You may review these as practice, but the result will be marked incomplete and will not count as a full diagnostic.</div>}
       {session.format === "exam" ? (
         <ExamFormat saveExitAction={saveExitAction} userId={userId} controller={{ ...controller, session }} submitOpts={submitOpts} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} />

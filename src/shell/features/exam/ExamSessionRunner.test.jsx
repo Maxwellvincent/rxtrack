@@ -59,6 +59,7 @@ function baseController(overrides = {}) {
     submitting: false,
     submitResult: null,
     answerQuestion: vi.fn(() => true),
+    startExam: vi.fn(async () => ({ status: "in_progress" })),
     submit: vi.fn(async () => ({ ok: true })),
     abandon: vi.fn(async () => ({ status: "abandoned" })),
     refetch: vi.fn(),
@@ -87,6 +88,55 @@ beforeEach(() => {
 });
 
 describe("ExamSessionRunner", () => {
+  it("shows live preparation status without exposing questions or running the timer", () => {
+    const controller = baseController({
+      session: {
+        ...baseController().session,
+        startedAt: null,
+        deadline: null,
+        fillStatus: "generating",
+        targetQuestionCount: 5,
+        questions: [makeQuestion("q1"), makeQuestion("q2")],
+      },
+      remainingMs: null,
+    });
+    controllerMock.mockReturnValue(controller);
+    const { host, unmount } = render(<ExamSessionRunner sessionId="s1" userId="u1" />);
+
+    expect(host.textContent).toContain("2/5");
+    expect(host.textContent).toMatch(/timer remains paused/i);
+    expect(host.textContent).not.toContain("Stem for q1");
+    expect(host.querySelector('[data-testid="exam-timer"]')).toBeFalsy();
+    unmount();
+  });
+
+  it("requires an explicit start before an incomplete prepared set begins", async () => {
+    const controller = baseController({
+      session: {
+        ...baseController().session,
+        startedAt: null,
+        deadline: null,
+        fillStatus: "partial",
+        targetQuestionCount: 5,
+        durationMinutes: 3,
+        questions: [makeQuestion("q1"), makeQuestion("q2")],
+        preparationErrors: [{ lectureTitle: "Vestibular System", message: "No candidates were produced." }],
+      },
+      remainingMs: null,
+    });
+    controllerMock.mockReturnValue(controller);
+    const { host, unmount } = render(<ExamSessionRunner sessionId="s1" userId="u1" />);
+
+    expect(host.textContent).toContain("2/5 questions ready");
+    expect(host.textContent).toMatch(/countdown has not started/i);
+    expect(host.textContent).not.toContain("Stem for q1");
+    const start = [...host.querySelectorAll("button")].find(button => button.textContent.includes("Start 2-question incomplete practice"));
+    expect(start).toBeTruthy();
+    await act(async () => start.click());
+    expect(controller.startExam).toHaveBeenCalledOnce();
+    unmount();
+  });
+
   it("keeps setup and repair controls inside one closed practice menu", () => {
     const controller=baseController();controller.session.format='practice';controller.session.sourceType='question-bank';
     controller.session.questions.forEach(q=>{q.sourceSection='NB31';q.sourceSectionTitle='Motor System';});
@@ -244,7 +294,7 @@ describe("ExamSessionRunner", () => {
     unmount();
   });
 
-  it("shows the linked lecture and objective instead of a generic repair label", () => {
+  it("shows the current section cleanly and keeps source details in exam tools", () => {
     const controller = baseController();
     controller.session.questions[0].objectiveIds = ["obj-1"];
     controller.session.questions[0].lectureLabel = "Old lecture title";
@@ -254,8 +304,9 @@ describe("ExamSessionRunner", () => {
       lectureLabelsByLectureId={{ "lec-1": "Glycolysis and the PPP" }}
       objectivesById={{ "obj-1": { id: "obj-1", code: "BIO.1", objective: "Explain pathway regulation." } }}
     />);
-    expect(host.textContent).toContain("Lecture: Glycolysis and the PPP");
+    expect(host.textContent).toContain("Glycolysis and the PPP");
     expect(host.textContent).not.toContain("Old lecture title");
+    expect(host.querySelector('[aria-label="Exam tools"]')).toBeTruthy();
     expect(host.textContent).toContain("Objective: BIO.1 · Explain pathway regulation.");
     unmount();
   });

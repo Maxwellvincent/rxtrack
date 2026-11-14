@@ -326,7 +326,7 @@ describe("useExamSessionController", () => {
   });
 
   describe("answerQuestion", () => {
-    it("allows answering saved questions while the rest of the timed set is generating and clock is paused", async () => {
+    it("keeps timed questions locked while the set is still generating", async () => {
       const session = makeSession({ deadline: null, startedAt: null, fillStatus: "generating", targetQuestionCount: 5 });
       getExamSessionMock.mockResolvedValue(session);
       updateExamSessionTransactionMock.mockImplementation(async (_userId, _sessionId, updateFn) => updateFn(session));
@@ -334,9 +334,34 @@ describe("useExamSessionController", () => {
       await probe.render();
       let accepted;
       await act(async () => { accepted = probe.get().answerQuestion("q1", "A"); });
-      expect(accepted).toBe(true);
-      expect(probe.get().session.answers).toEqual([expect.objectContaining({ questionId: "q1", value: "A" })]);
+      expect(accepted).toBe(false);
+      expect(probe.get().session.answers).toEqual([]);
+      expect(updateExamSessionTransactionMock).not.toHaveBeenCalled();
       expect(probe.get().remainingMs).toBeNull();
+      await probe.unmount();
+    });
+
+    it("starts the countdown only after the learner explicitly starts the prepared set", async () => {
+      const session = makeSession({
+        deadline: null,
+        startedAt: null,
+        fillStatus: "partial",
+        targetQuestionCount: 5,
+        questions: [makeQuestion("q1"), makeQuestion("q2")],
+        durationMinutes: 3,
+      });
+      getExamSessionMock.mockResolvedValue(session);
+      updateExamSessionTransactionMock.mockImplementation(async (_userId, _sessionId, updateFn) => updateFn(session));
+      const probe = mountController(SESSION_ID, USER);
+      await probe.render();
+
+      let started;
+      await act(async () => { started = await probe.get().startExam(); });
+
+      expect(started.startedAt).toEqual(expect.any(Number));
+      expect(started.deadline - started.startedAt).toBe(3 * 60_000);
+      expect(probe.get().session.startedAt).toEqual(expect.any(Number));
+      expect(probe.get().remainingMs).toBeGreaterThan(0);
       await probe.unmount();
     });
 

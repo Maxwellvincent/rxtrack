@@ -52,7 +52,7 @@ export function SchoolQuestionFigure({ question, userId, onVisualLabels }) {
 
   useEffect(() => {
     const update = () => {
-      const saved = questionFigures.read(userId, question?.sourceFile)?.[questionFigures.figureIdentity(question)];
+      const saved = questionFigures.find(questionFigures.read(userId, question?.sourceFile), question);
       if (saved?.url) { setCropUrl(saved.url); setSelectedPage(saved.page || null); }
     };
     update();

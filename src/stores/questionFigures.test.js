@@ -19,6 +19,18 @@ it("does not overwrite another question crop in the same source",async()=>{
  expect(figures.apply(a,saved).sourceImageUrl).toContain('/a.jpg');
  expect(figures.apply(b,saved).sourceImageUrl).toContain('/b.jpg');
 });
+it("reuses a source-question crop after OCR or attribution wording changes",async()=>{
+ const original={sourceFile:'Homework.pdf',sourceSection:'NB 28',sourceQuestionNumber:17,sourcePage:18,stem:'Which labeled site? Underlying schematic from Textbook.'};
+ await figures.save(null,original,{url:'https://example.com/stable.jpg',page:18});
+ const revised={...original,stem:'Which labeled site carries pain?'};
+ expect(figures.apply(revised,figures.read(null,original.sourceFile)).sourceImageUrl).toBe('https://example.com/stable.jpg');
+});
+it("still finds legacy stem-keyed crops for imported questions that gain stable metadata",()=>{
+ const legacy={sourceFile:'Homework.pdf',stem:'Exact old stem'};
+ const records={[figures.figureIdentity(legacy)]:{url:'https://example.com/legacy.jpg',page:2}};
+ const enriched={...legacy,sourceSection:'NB 1',sourceQuestionNumber:3,sourcePage:2};
+ expect(figures.apply(enriched,records).sourceImageUrl).toBe('https://example.com/legacy.jpg');
+});
 it('persists explicit diagram label confirmation without losing the saved crop',async()=>{
  const q={sourceFile:'NB.pdf',stem:'Which marked site?',choices:{A:'Visual option A',B:'Visual option B'},sourceVisualChoicesUnverified:true};
  await figures.save(null,q,{url:'https://example.com/selected.jpg',page:4});

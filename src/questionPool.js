@@ -223,16 +223,11 @@ export function createQuestionPool(userId, blockId, database = db) {
         tx.update(questionRef, { status: "assigned", bucket: `assigned:${row.bucket}`, sessionId, assignedAt: Date.now() });
         const isFilled = Number.isFinite(requestedCount) && nextQuestions.length >= requestedCount;
         const isDone = generationDone || isFilled;
-        const now = Date.now();
         const next = {
           ...session,
           questions: nextQuestions,
           fillStatus: isDone ? (isFilled ? "complete" : "partial") : "generating",
-          ...(isDone && session.format === "exam" && session.startedAt == null ? {
-            startedAt: now,
-            deadline: now + Math.max(1, Number(durationMinutes) || Number(session.durationMinutes) || 1) * 60_000,
-          } : {}),
-          updatedAt: now,
+          updatedAt: Date.now(),
           rev: (session.rev || 0) + 1,
         };
         tx.set(sessionRef, next);
@@ -275,7 +270,6 @@ export function createQuestionPool(userId, blockId, database = db) {
         if (!snap.exists()) return null;
         const session = snap.data();
         if (session.status !== "in_progress" || session.fillStatus !== "generating") return session;
-        const now = Date.now();
         const filled = (session.questions || []).length >= requestedCount;
         const next = {
           ...session,
@@ -283,11 +277,7 @@ export function createQuestionPool(userId, blockId, database = db) {
           fillLeaseUntil: 0,
           fillBlockedLectureIds: blockedLectureIds,
           fillError: error,
-          ...(session.format === "exam" && session.startedAt == null ? {
-            startedAt: now,
-            deadline: now + Math.max(1, Number(durationMinutes) || Number(session.durationMinutes) || 1) * 60_000,
-          } : {}),
-          updatedAt: now,
+          updatedAt: Date.now(),
           rev: (session.rev || 0) + 1,
         };
         tx.set(sessionRef, next);

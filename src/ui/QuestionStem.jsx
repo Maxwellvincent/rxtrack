@@ -4,7 +4,7 @@ import { LabAnnotatedText, parseText } from "./LabValue.jsx";
 import { sameHighlight } from "./highlightRanges.js";
 
 /** Session-local annotations. Exam stems never expose lab-reference hints. */
-export function QuestionStem({ text, questionId, toolsTarget = null }) {
+export function QuestionStem({ text, questionId, toolsTarget = null, toolsInBody = true }) {
   const [byText, setByText] = useState({});
   const [highlightEnabled, setHighlightEnabled] = useState(true);
   const [copyNotice, setCopyNotice] = useState("");
@@ -24,7 +24,7 @@ export function QuestionStem({ text, questionId, toolsTarget = null }) {
     {!!highlights.length && <button className="min-h-9 text-xs text-text-2 underline" onClick={()=>change([])}>Clear highlights</button>}
   </>;
   return <div className="mb-2">
-    {toolsTarget ? createPortal(tools, toolsTarget) : tools}
+    {toolsTarget ? createPortal(tools, toolsTarget) : toolsInBody ? tools : null}
     <LabAnnotatedText text={text} className="block whitespace-pre-line text-sm text-text-1" annotateLabs={showLabRanges} showInlineLabRanges={showLabRanges}
       highlights={highlights} onHighlight={highlightEnabled ? range => change(highlights.some(h=>sameHighlight(h,range)) ? highlights : [...highlights,range]) : undefined}
       onRemoveHighlight={range => change(highlights.filter(h=>!sameHighlight(h,range)))} />

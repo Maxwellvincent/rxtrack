@@ -156,10 +156,11 @@ export function useExamSessionController(sessionId, userId) {
 
   useEffect(() => {
     const questionId = session?.questions?.[currentIndex]?.questionId;
+    if (session?.format === "exam" && session?.startedAt == null) return;
     if (questionId && !firstSeenAtRef.current.has(questionId)) {
       firstSeenAtRef.current.set(questionId, Date.now());
     }
-  }, [session?.questions, currentIndex]);
+  }, [session?.questions, session?.format, session?.startedAt, currentIndex]);
 
   const makePosition = useCallback((index) => ({
     questionId: sessionRef.current?.questions?.[index]?.questionId || null,
@@ -199,6 +200,23 @@ export function useExamSessionController(sessionId, userId) {
       throw error;
     }
   }, [userId, sessionId, makePosition]);
+
+  const startExam = useCallback(async () => {
+    const result = await updateExamSessionTransaction(userId, sessionId, current => {
+      if (!current || current.status !== "in_progress" || current.format !== "exam") return null;
+      if (current.startedAt != null && current.deadline != null) return current;
+      if (current.fillStatus === "generating" || !(current.questions || []).length) return null;
+      const startedAt = Date.now();
+      const durationMinutes = Math.max(1, Number(current.durationMinutes) || (current.questions || []).length * 1.5);
+      return { ...current, startedAt, deadline: startedAt + durationMinutes * 60_000, updatedAt: startedAt };
+    });
+    if (!result?.deadline) throw new Error("This exam is not ready to start yet.");
+    firstSeenAtRef.current = new Map();
+    const firstQuestionId = result.questions?.[indexRef.current]?.questionId;
+    if (firstQuestionId) firstSeenAtRef.current.set(firstQuestionId, Date.now());
+    if (mountedRef.current) { sessionRef.current = result; setSession(result); }
+    return result;
+  }, [userId, sessionId]);
 
   // Timer: format "exam" only, only while the session is actually running.
   useEffect(() => {
@@ -282,6 +300,7 @@ export function useExamSessionController(sessionId, userId) {
     (questionId, value, options = {}) => {
       if (!session) return false;
       if (session.status !== "in_progress") return false;
+      if (session.format === "exam" && (session.startedAt == null || session.deadline == null)) return false;
       if (session.format === "exam" && remainingMs != null && remainingMs <= 0) return false;
       // Once a prior autosave was vetoed (the server-side session moved past
       // "in_progress" — e.g. a finalize race), further picks can never
@@ -368,6 +387,7 @@ export function useExamSessionController(sessionId, userId) {
     currentIndex,
     setCurrentIndex,
     saveProgress,
+    startExam,
     remainingMs,
     syncStatus,
     submitting,
