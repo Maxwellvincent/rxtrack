@@ -596,11 +596,14 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
             weakConceptAccuracyByLecture, weakConcepts },
             { callAIJSON, onProgress: p => {
               const confirmed = Number(p.completed) || 0;
-              report(`${Math.max(previousPrepared, confirmed)}/${target} ready · ${p.message}`);
+              const ready = Math.min(target, Math.max(previousPrepared, confirmed));
+              report(`${Math.max(0, target - ready)} remaining · ${ready}/${target} ready · ${p.message}`);
             } });
           if (!result.ok) throw new Error(result.error);
           const prepared = Math.max(previousPrepared, Number(result.prepared) || 0);
-          report(`${prepared}/${target} ready${prepared < target ? " · continuing automatically" : ""}`);
+          report(prepared < target
+            ? `${target - prepared} remaining · ${prepared}/${target} ready · continuing automatically`
+            : `${prepared}/${target} ready · complete`);
           stalledPasses = prepared > previousPrepared ? 0 : stalledPasses + 1;
           previousPrepared = prepared;
           if (prepared >= target || stalledPasses >= 2) break;

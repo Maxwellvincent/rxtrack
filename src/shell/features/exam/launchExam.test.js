@@ -14,6 +14,7 @@ const appendPoolQuestionMock = vi.fn();
 const finishPoolFillMock = vi.fn();
 const addPreparedQuestionsMock = vi.fn();
 const reportFillProgressMock = vi.fn();
+const readyForLecturesMock = vi.fn();
 const questionPreparationDepsMock = vi.fn(async callAIJSON => ({
   callAIJSON: (...args) => callAIJSON(...args),
   reviewAIJSON: vi.fn(),
@@ -29,6 +30,7 @@ vi.mock("../../../questionPool.js", () => ({ createQuestionPool: userId => ({
   appendToSession: (...args) => appendPoolQuestionMock(...args),
   finishSessionFill: (...args) => finishPoolFillMock(...args),
   reportSessionFillProgress: (...args) => reportFillProgressMock(...args),
+  readyForLectures: (...args) => readyForLecturesMock(...args),
 }) }));
 
 vi.mock("./allocation.js", () => ({
@@ -84,6 +86,8 @@ beforeEach(() => {
   finishPoolFillMock.mockReset();
   finishPoolFillMock.mockResolvedValue({});
   addPreparedQuestionsMock.mockReset();
+  readyForLecturesMock.mockReset();
+  readyForLecturesMock.mockResolvedValue([]);
   questionPreparationDepsMock.mockClear();
 
   allocateQuestionsMock.mockReturnValue({ "lec-1": 10 });
@@ -222,6 +226,22 @@ describe("launchExamSession", () => {
     expect(result).toMatchObject({ ok: true, prepared: 1 });
     expect(result.sessionId).toBeUndefined();
     expect(createExamSessionMock).not.toHaveBeenCalled();
+  });
+
+  it("fills a short prepared exam from reviewed unused block reserve", async () => {
+    const generated = { ...makeQuestion("generated", "lec-1"), poolId: "pool-generated" };
+    const reserve = [2, 3, 4].map(index => ({ ...makeQuestion(`reserve-${index}`, index % 2 ? "lec-1" : "lec-2"), poolId: `pool-reserve-${index}` }));
+    generateExamQuestionsMock.mockResolvedValue({ questions: [generated], errors: [{ message: "one slot failed" }] });
+    readyForLecturesMock.mockResolvedValue(reserve);
+    const result = await launchExamSession({
+      ...BASE_ARGS,
+      questionCount: 3,
+      prepareOnly: true,
+      eligibleLectures: [{ lectureId: "lec-1" }, { lectureId: "lec-2" }],
+    });
+    expect(result).toMatchObject({ ok: true, prepared: 3 });
+    expect(result.preparedQuestionIds).toHaveLength(3);
+    expect(readyForLecturesMock).toHaveBeenCalledWith(["lec-1", "lec-2"]);
   });
 
   it("fills an existing prepared set without creating or starting an exam", async () => {

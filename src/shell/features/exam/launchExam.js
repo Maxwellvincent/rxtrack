@@ -236,6 +236,38 @@ async function runLaunch(
     { ...preparationDeps, pool, savedOnly }
   );
 
+  // A named entire-block set should use the reviewed reserve before asking
+  // the learner to run another expensive generation wave. Exact per-lecture
+  // allocation is an adaptive target, not a reason to leave a 30-question
+  // exam at 20 while dozens of valid questions remain unused in the same
+  // eligible block. Balance fallback picks toward underrepresented lectures.
+  if (prepareOnly && studyMode !== "repair" && !targetObjectiveIds?.length
+    && questions.length < questionCount && pool.readyForLectures) {
+    const eligibleIds = eligibleLectures.map(lecture => lecture.lectureId || lecture.id).filter(Boolean);
+    const reserve = await pool.readyForLectures(eligibleIds);
+    const usedIds = new Set(questions.map(question => question.poolId).filter(Boolean));
+    const usedStems = new Set(questions.map(question => String(question.stem || "").toLowerCase().replace(/\s+/g, " ").trim()));
+    const lectureCounts = questions.reduce((counts, question) => {
+      if (question.lectureId) counts[question.lectureId] = (counts[question.lectureId] || 0) + 1;
+      return counts;
+    }, {});
+    const candidates = reserve.filter(question => {
+      const stem = String(question.stem || "").toLowerCase().replace(/\s+/g, " ").trim();
+      return !usedIds.has(question.poolId) && !usedStems.has(stem);
+    });
+    while (questions.length < questionCount && candidates.length) {
+      candidates.sort((a, b) => (lectureCounts[a.lectureId] || 0) - (lectureCounts[b.lectureId] || 0));
+      const question = candidates.shift();
+      const normalizedStem = String(question.stem || "").toLowerCase().replace(/\s+/g, " ").trim();
+      if (usedIds.has(question.poolId) || usedStems.has(normalizedStem)) continue;
+      questions.push({ ...question, blockId: question.blockId || blockId });
+      usedIds.add(question.poolId);
+      usedStems.add(normalizedStem);
+      if (question.lectureId) lectureCounts[question.lectureId] = (lectureCounts[question.lectureId] || 0) + 1;
+    }
+    deps.onProgress?.({ message: `Filled from reviewed reserve: ${questions.length}/${questionCount}`, completed: questions.length, total: questionCount });
+  }
+
   if (appendToPreparedSet && preparedGenerationId && questions?.length) {
     await pool.addPreparedQuestions(preparedGenerationId, questions, questionCount);
   }
