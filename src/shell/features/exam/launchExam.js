@@ -166,7 +166,10 @@ async function runLaunch(
       try {
         let result = { questions: [], errors: [] };
         let fillError = "";
-        let progressQueue = Promise.resolve(), lastProgressAt = 0, lastCompleted = -1;
+        // Keep all mutations to the same Firestore session in one lane. A
+        // progress heartbeat used to race question appends and could produce
+        // failed-precondition errors from stale transaction snapshots.
+        let sessionMutationQueue = Promise.resolve(), lastProgressAt = 0, lastCompleted = -1;
         const reportFill = progress => {
           deps.onProgress?.(progress);
           report(`${savedQuestions.length + (progress.completed || 0)}/${questionCount} ready · ${progress.message}`);
@@ -174,7 +177,7 @@ async function runLaunch(
           const now = Date.now();
           if (now - lastProgressAt < 2000 && progress.completed === lastCompleted) return;
           lastProgressAt = now; lastCompleted = progress.completed;
-          progressQueue = progressQueue.then(() => pool.reportSessionFillProgress(sessionId, progress)).catch(() => {});
+          sessionMutationQueue = sessionMutationQueue.then(() => pool.reportSessionFillProgress(sessionId, progress)).catch(() => {});
         };
         try {
           if (Object.keys(missingAllocation).length) {
@@ -184,7 +187,11 @@ async function runLaunch(
                 studyMode, difficultyOverride, focusNotes: adaptiveFocusNotes },
               { ...preparationDeps, pool, savedOnly: false,
                 onProgress: reportFill,
-                onQuestionReady: question => pool.appendToSession(sessionId, question, { requestedCount: questionCount, durationMinutes }) }
+                onQuestionReady: question => {
+                  const append = sessionMutationQueue.then(() => pool.appendToSession(sessionId, question, { requestedCount: questionCount, durationMinutes }));
+                  sessionMutationQueue = append.catch(() => {});
+                  return append;
+                } }
             );
             if (result.errors?.length) fillError = result.errors.map(item => item.message).join(" ");
           }
@@ -193,7 +200,7 @@ async function runLaunch(
         }
         // Questions generated to fill this running attempt belong to its session,
         // not to the already-prepared source set. Keep that named set immutable.
-        await progressQueue;
+        await sessionMutationQueue;
         await pool.finishSessionFill(sessionId, { requestedCount: questionCount, durationMinutes, error: fillError, blockedLectureIds: (result.errors || []).filter(e => blocksPreparationLecture(e.message)).map(e => e.lectureId) });
         await pool.finish(sessionId, { status: fillError ? "partial" : "complete",
           readyCount: savedQuestions.length + (result.questions?.length || 0), errors: result.errors || [],

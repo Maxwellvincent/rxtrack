@@ -43,13 +43,23 @@ export async function recoverExamPreparation({ session, userId, pool, generate, 
       }
       let result;
       try {
+        let sessionMutationQueue = Promise.resolve();
         const preparation = context.preparationPolicy || !context.callAIJSON
           ? context : { ...context, ...await questionPreparationDeps(context.callAIJSON, { allowCodexFallback: false }) };
         result = await generate({ ...context, ...claimed.fillPlan, allocation, userId, blockId: claimed.blockId, generationId: claimed.sessionId }, {
         ...preparation, pool,
-        onProgress: progress => { report(progress.message); reportJob(progress.message); void pool.reportSessionFillProgress(session.sessionId, progress).catch(() => {}); },
-        onQuestionReady: q => pool.appendToSession(session.sessionId, q, { requestedCount: claimed.targetQuestionCount, durationMinutes: claimed.durationMinutes }),
-      }); } catch (error) { result = { errors: [{ message: error?.message || String(error) }] }; }
+        onProgress: progress => {
+          report(progress.message); reportJob(progress.message);
+          sessionMutationQueue = sessionMutationQueue.then(() => pool.reportSessionFillProgress(session.sessionId, progress)).catch(() => {});
+        },
+        onQuestionReady: q => {
+          const append = sessionMutationQueue.then(() => pool.appendToSession(session.sessionId, q, { requestedCount: claimed.targetQuestionCount, durationMinutes: claimed.durationMinutes }));
+          sessionMutationQueue = append.catch(() => {});
+          return append;
+        },
+      });
+        await sessionMutationQueue;
+      } catch (error) { result = { errors: [{ message: error?.message || String(error) }] }; }
       await pool.finishSessionFill(session.sessionId, { requestedCount: claimed.targetQuestionCount, durationMinutes: claimed.durationMinutes,
         error: (result.errors || []).map(e => e.message).join(" "),
         blockedLectureIds: [...new Set([...(claimed.fillBlockedLectureIds || []), ...(result.errors || []).filter(e => blocksPreparationLecture(e.message)).map(e => e.lectureId).filter(Boolean)])] });

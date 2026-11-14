@@ -245,7 +245,7 @@ describe("launchExamSession", () => {
     expect(session.deadline).toBeNull();
     expect(generateExamQuestionsMock.mock.calls[0][1]).toMatchObject({ savedOnly: true });
     expect(generateExamQuestionsMock.mock.calls[1][1]).toMatchObject({ savedOnly: false });
-    expect(appendPoolQuestionMock).toHaveBeenCalledWith(result.sessionId, fresh, expect.objectContaining({ requestedCount: 2 }));
+    await vi.waitFor(() => expect(appendPoolQuestionMock).toHaveBeenCalledWith(result.sessionId, fresh, expect.objectContaining({ requestedCount: 2 })));
     await vi.waitFor(() => expect(finishPoolFillMock).toHaveBeenCalledWith(result.sessionId, expect.objectContaining({ requestedCount: 2 })));
     expect(reportFillProgressMock).toHaveBeenCalledWith(result.sessionId, expect.objectContaining({ message: "Reviewing accuracy: Lecture One", totalLectures: 1 }));
     expect(addPreparedQuestionsMock).not.toHaveBeenCalled();
