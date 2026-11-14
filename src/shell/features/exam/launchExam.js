@@ -18,6 +18,7 @@ import { checkExamAccess } from "../../../supabase.js";
 import { createQuestionPool } from "../../../questionPool.js";
 import { read as readLearnerEvidence } from "../../../stores/learnerEvidence.js";
 import { reasoningGuidance } from "../../../engine/questionReasoning.js";
+import { questionPreparationDeps } from "../../../questionPreparation.js";
 
 // Same fallback pattern as generation.js's makeQuestionId — reused here for
 // consistency rather than inventing a second id-generation approach.
@@ -83,6 +84,14 @@ async function runLaunch(
   },
   deps = {}
 ) {
+  // Exam launches used to pass the raw AI client into generation. That raw
+  // path defaults to Codex, bypassing the DeepSeek-first lecture-question
+  // policy used elsewhere in RXTrack and consuming the user's coding quota.
+  // Resolve the dedicated preparation route once for this launch and reuse it
+  // for every draft, blind solve, review and repair request.
+  const preparationDeps = !savedOnly && deps.callAIJSON && !deps.preparationPolicy
+    ? { ...deps, ...await questionPreparationDeps(deps.callAIJSON) }
+    : deps;
   const registry=sourceUseStore.read(userId);
   schoolBanks = sourceUseStore.isHydrated(userId) && !sourceUseStore.readError(userId)
     ? schoolBanks.map(bank=>({...bank,questions:allowedGenerationExamples((bank.questions || []).map(question=>({...question,sourceFile:question.sourceFile || bank.filename})),registry)})) : [];
@@ -115,7 +124,7 @@ async function runLaunch(
     const savedResult = Object.keys(school.allocation).length ? await generateExamQuestions(
       { allocation: school.allocation, lecturesById, objectivesByLecture, atomsByLecture, blockId, lectures,
         weakConceptAccuracyByLecture, userId, generationId: sessionId, studyMode, difficultyOverride, focusNotes: adaptiveFocusNotes, preparedGenerationId, preparedQuestionIds },
-      { ...deps, pool, savedOnly: true }
+      { ...preparationDeps, pool, savedOnly: true }
     ) : { questions: [], cacheHits: 0 };
     const savedQuestions = [...school.questions, ...(savedResult.questions || [])];
     const savedCounts = savedQuestions.reduce((counts, question) => {
@@ -173,7 +182,7 @@ async function runLaunch(
               { allocation: missingAllocation, lecturesById, objectivesByLecture, atomsByLecture,
                 blockId, lectures, weakConceptAccuracyByLecture, userId, generationId: sessionId,
                 studyMode, difficultyOverride, focusNotes: adaptiveFocusNotes },
-              { ...deps, pool, savedOnly: false,
+              { ...preparationDeps, pool, savedOnly: false,
                 onProgress: reportFill,
                 onQuestionReady: question => pool.appendToSession(sessionId, question, { requestedCount: questionCount, durationMinutes }) }
             );
@@ -211,7 +220,7 @@ async function runLaunch(
       difficultyOverride,
       focusNotes: adaptiveFocusNotes,
     },
-    { ...deps, pool, savedOnly }
+    { ...preparationDeps, pool, savedOnly }
   );
 
   await pool.finish(sessionId, { status: "complete", readyCount: questions?.length || 0,

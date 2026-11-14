@@ -2,13 +2,22 @@ const START = "SOURCE EVIDENCE CATALOG:\n";
 const END = "\nEND SOURCE EVIDENCE CATALOG";
 const normalize = value => String(value || "").toLowerCase().replace(/\s+/g, " ").trim();
 
-const trustedSchoolRows = cfg => (cfg.examples || []).filter(question => question?.factualAuthority === true
-  && question.correct && question.choices?.[question.correct]).map(question => {
+const SCHOOL_EVIDENCE_LIMIT = 8;
+const ATOM_EVIDENCE_LIMIT = 24;
+const bounded = (value, limit) => String(value || "").replace(/\s+/g, " ").trim().slice(0, limit);
+
+const trustedSchoolRows = cfg => {
+  const targetIds = new Set((cfg.objectives || []).flatMap(objective => [objective.id, objective.code]).filter(Boolean).map(String));
+  return (cfg.examples || []).filter(question => question?.factualAuthority === true
+  && question.correct && question.choices?.[question.correct]).map((question, index) => {
   const answer = question.choices[question.correct];
   const renderedAnswer = answer && typeof answer === "object"
     ? Object.entries(answer).map(([key, value]) => `${key}: ${value}`).join("; ") : String(answer);
-  return `${question.stem} Correct answer: ${renderedAnswer}.${question.explanation ? ` ${question.explanation}` : ""}`.trim();
-});
+  const sourceIds = [...(question.objectiveIds || []), ...(question.schoolObjectiveCodes || []), question.schoolObjectiveCode].filter(Boolean).map(String);
+  return { index, relevant: sourceIds.some(id => targetIds.has(id)), text: bounded(`${question.stem} Correct answer: ${renderedAnswer}.${question.explanation ? ` ${question.explanation}` : ""}`, 2400) };
+  }).sort((a, b) => Number(b.relevant) - Number(a.relevant) || a.index - b.index)
+    .slice(0, SCHOOL_EVIDENCE_LIMIT).map(row => row.text);
+};
 
 // Lecture spans must occur in the original text. Extracted facts are labeled
 // separately; retrieval labels and objective-only statements are not evidence.
@@ -17,13 +26,19 @@ export function numberedAuditEvidence(cfg, retrieved) {
   const objectiveTexts = new Set((cfg.objectives || []).map(o => normalize(o.objective || o.text)));
   const spans = String(retrieved || "").split(/\[(?:Lecture excerpt \d+|Source-verified quote context)\]\n/)
     .map(text => text.trim()).filter(text => text.length >= 16 && lecture.includes(normalize(text)) && !objectiveTexts.has(normalize(text)));
-  for (const atom of cfg.atoms || []) {
-    const text = `${atom.term || ""} ${atom.content || ""}`.trim();
+  const targetIds = new Set((cfg.objectives || []).flatMap(objective => [objective.id, objective.code]).filter(Boolean).map(String));
+  const atoms = (cfg.atoms || []).map((atom, index) => ({ atom, index,
+    relevant: (atom.objectiveIds || []).some(id => targetIds.has(String(id))) }))
+    .sort((a, b) => Number(b.relevant) - Number(a.relevant) || a.index - b.index)
+    .slice(0, ATOM_EVIDENCE_LIMIT).map(row => row.atom);
+  for (const atom of atoms) {
+    const text = bounded(`${atom.term || ""} ${atom.content || ""}`, 1200);
     if (text.length >= 16 && !objectiveTexts.has(normalize(text))) spans.push(text);
   }
-  for (const text of trustedSchoolRows(cfg)) if (text.length >= 16) spans.push(text);
+  const schoolRows = trustedSchoolRows(cfg);
+  for (const text of schoolRows) if (text.length >= 16) spans.push(text);
   const unique = [...new Map(spans.map(text => [normalize(text), text])).values()];
-  const school = new Set(trustedSchoolRows(cfg).map(normalize));
+  const school = new Set(schoolRows.map(normalize));
   return START + JSON.stringify(unique.map((text, index) => ({ id: `E${index + 1}`, origin: lecture.includes(normalize(text)) ? "lecture" : school.has(normalize(text)) ? "trusted-school-question" : "extracted-fact", text }))) + END;
 }
 

@@ -27,6 +27,17 @@ vi.mock("../../../aiClient.js", () => ({
   callAI: vi.fn(),
 }));
 
+// Provider discovery has its own routing tests. This fixture stays at the AI
+// transport boundary while preserving the real launch/generation/review path.
+vi.mock("../../../questionPreparation.js", () => ({
+  questionPreparationDeps: async call => ({
+    callAIJSON: (...args) => call(...args),
+    reviewAIJSON: (...args) => call(...args),
+    preparationPolicy: () => ({ prepareConcurrency: 1, prepareBatchSize: 3, reviewBatchSize: 1, starterBatchSize: 3 }),
+    isLocalPreparation: () => false,
+  }),
+}));
+
 const createExamSessionMock = vi.fn();
 vi.mock("../../../supabase.js", () => ({
   createExamSession: (...args) => createExamSessionMock(...args),
@@ -159,6 +170,20 @@ function validClinicalQuestion(label = "insulin") {
 
 function reviewResponse(system, prompt) {
   const questions = JSON.parse(String(prompt).split("\nQUESTIONS:\n")[1].split("\n")[0]);
+  if (String(system).startsWith("Independently solve from the supplied source")) {
+    return { reviews: questions.map((q, index) => {
+      const key = Object.keys(q.choices).find(letter => q.choices[letter] === "Loss of endogenous insulin secretion");
+      const alternative = Object.keys(q.choices).find(letter => q.choices[letter] === "Excess cortisol secretion");
+      return {
+        i: index, k: key, a: true, al: true, x: [], n: "", o: ["o1", "SOM.TEST.001", "Tests insulin secretion rather than cortisol excess"],
+        rule: "Low C-peptide indicates reduced endogenous insulin secretion", link: "The clue identifies the deficient hormone source",
+        d: { closestAlternative: alternative, stemClue: "low serum C-peptide concentration", whyAlternativeFails: "Cortisol excess would not reduce endogenous C-peptide production", keyUniquelySupported: true, alternativeAlsoCorrect: false },
+        r: ["second-order", ["Interpret low C-peptide", "Infer reduced insulin secretion"], ["E1"], true, true, true, false],
+        route: "relationship-application", restated: false,
+        w: Object.fromEntries(Object.keys(q.choices).map(letter => [letter, letter === key ? null : "This option does not explain reduced endogenous C-peptide"])),
+      };
+    }) };
+  }
   return { reviews: questions.map((q, index) => {
     const key = Object.keys(q.choices).find(letter => q.choices[letter] === "Loss of endogenous insulin secretion");
     const reasoning = { orderLevel: "second-order", steps: ["Interpret low C-peptide", "Infer reduced endogenous insulin secretion"], sourceQuotes: ["Low C-peptide demonstrates reduced endogenous insulin secretion."], allStepsRequired: true, connectedChain: true, singleEndpoint: true, choiceShortcut: false };
@@ -167,7 +192,9 @@ function reviewResponse(system, prompt) {
       discrimination: {closestAlternative: Object.keys(q.choices).find(letter => q.choices[letter] === "Excess cortisol secretion"), stemClue: "low serum C-peptide concentration", whyAlternativeFails: "Cortisol excess does not explain the reduced endogenous insulin secretion.", keyUniquelySupported: true, alternativeAlsoCorrect: false}};
   }) };
 }
-const isReview = (system, prompt) => String(system).startsWith("Solve from lecture evidence") || String(prompt).includes("Independently audit every generated question");
+const isReview = (system, prompt) => String(system).startsWith("Solve from lecture evidence")
+  || String(system).startsWith("Independently solve from the supplied source")
+  || String(prompt).includes("Independently audit every generated question");
 
 beforeEach(() => {
   installDomStorage();

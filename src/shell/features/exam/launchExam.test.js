@@ -14,6 +14,14 @@ const appendPoolQuestionMock = vi.fn();
 const finishPoolFillMock = vi.fn();
 const addPreparedQuestionsMock = vi.fn();
 const reportFillProgressMock = vi.fn();
+const questionPreparationDepsMock = vi.fn(async callAIJSON => ({
+  callAIJSON: (...args) => callAIJSON(...args),
+  reviewAIJSON: vi.fn(),
+  preparationPolicy: () => ({ prepareConcurrency: 3 }),
+}));
+vi.mock("../../../questionPreparation.js", () => ({
+  questionPreparationDeps: (...args) => questionPreparationDepsMock(...args),
+}));
 vi.mock("../../../questionPool.js", () => ({ createQuestionPool: userId => ({
   begin: async () => {}, finish: async () => {},
   addPreparedQuestions: (...args) => addPreparedQuestionsMock(...args),
@@ -76,6 +84,7 @@ beforeEach(() => {
   finishPoolFillMock.mockReset();
   finishPoolFillMock.mockResolvedValue({});
   addPreparedQuestionsMock.mockReset();
+  questionPreparationDepsMock.mockClear();
 
   allocateQuestionsMock.mockReturnValue({ "lec-1": 10 });
 });
@@ -107,6 +116,19 @@ describe("launchExamSession", () => {
     expect(session.lectureIds).toEqual(["lec-1"]);
     expect(session.questions).toHaveLength(2);
     expect(session.format).toBe("exam");
+  });
+
+  it("resolves the dedicated DeepSeek-first preparation route before generating exam questions", async () => {
+    const rawAI = vi.fn();
+    generateExamQuestionsMock.mockResolvedValue({ questions: [makeQuestion("q1", "lec-1")], errors: [] });
+    const result = await launchExamSession({ ...BASE_ARGS, questionCount: 1, prepareOnly: true }, { callAIJSON: rawAI });
+    expect(result.ok).toBe(true);
+    expect(questionPreparationDepsMock).toHaveBeenCalledWith(rawAI);
+    expect(generateExamQuestionsMock.mock.calls[0][1]).toMatchObject({
+      callAIJSON: expect.any(Function),
+      reviewAIJSON: expect.any(Function),
+      preparationPolicy: expect.any(Function),
+    });
   });
 
   it("zero questions generated: returns ok:false without calling createExamSession", async () => {

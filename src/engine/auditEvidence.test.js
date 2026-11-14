@@ -41,3 +41,14 @@ it('catalogs an explicitly trusted keyed school question as factual evidence',()
  expect(prompt).toContain('"origin":"trusted-school-question"');
  expect(prompt).toContain('Correct answer: Structure Y');
 });
+
+it('bounds dense lecture facts and school evidence while prioritizing the assigned objective',()=>{
+ const objectives=[{id:'target-objective',code:'SOM.NSCI.0043',text:'Explain the ocular reflex pathway'}];
+ const atoms=Array.from({length:100},(_,index)=>({term:`Fact ${index}`,content:'x'.repeat(5000),objectiveIds:[index===99?'target-objective':'other']}));
+ const examples=Array.from({length:30},(_,index)=>({factualAuthority:true,sourceKind:'homework',stem:`School question ${index} `+'y'.repeat(4000),choices:{A:`Answer ${index}`,B:'Alternative'},correct:'A',explanation:'z'.repeat(4000),objectiveIds:[index===29?'target-objective':'other']}));
+ const prompt=numberedAuditEvidence({lectureText:'A short lecture fact establishes the ocular reflex pathway.',objectives,atoms,examples},'[Lecture excerpt 1]\nA short lecture fact establishes the ocular reflex pathway.');
+ expect(prompt.length).toBeLessThan(70_000);
+ expect(prompt).toContain('Fact 99');
+ expect(prompt).toContain('School question 29');
+ expect(prompt).toContain('"origin":"trusted-school-question"');
+});

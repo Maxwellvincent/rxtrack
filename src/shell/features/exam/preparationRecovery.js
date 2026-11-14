@@ -1,6 +1,7 @@
 import {capacityKind} from '../../../providerCapacity.js';
 import { questionSlot } from "./bpmBlueprint.js";
 import { startBackgroundJob } from "../../backgroundJobs.js";
+import { questionPreparationDeps } from "../../../questionPreparation.js";
 
 const running = new Set();
 export function holdPreparationWorker(userId, sessionId) {
@@ -41,8 +42,11 @@ export async function recoverExamPreparation({ session, userId, pool, generate, 
         return "Ready questions are saved.";
       }
       let result;
-      try { result = await generate({ ...context, ...claimed.fillPlan, allocation, userId, blockId: claimed.blockId, generationId: claimed.sessionId }, {
-        pool, callAIJSON: context.callAIJSON,
+      try {
+        const preparation = context.preparationPolicy || !context.callAIJSON
+          ? context : { ...context, ...await questionPreparationDeps(context.callAIJSON) };
+        result = await generate({ ...context, ...claimed.fillPlan, allocation, userId, blockId: claimed.blockId, generationId: claimed.sessionId }, {
+        ...preparation, pool,
         onProgress: progress => { report(progress.message); reportJob(progress.message); void pool.reportSessionFillProgress(session.sessionId, progress).catch(() => {}); },
         onQuestionReady: q => pool.appendToSession(session.sessionId, q, { requestedCount: claimed.targetQuestionCount, durationMinutes: claimed.durationMinutes }),
       }); } catch (error) { result = { errors: [{ message: error?.message || String(error) }] }; }
