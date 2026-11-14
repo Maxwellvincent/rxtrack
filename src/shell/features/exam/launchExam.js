@@ -81,6 +81,7 @@ async function runLaunch(
     weekNumber = null,
     preparedGenerationId = null,
     preparedQuestionIds = [],
+    preparedAllocation = null,
     appendToPreparedSet = false,
   },
   deps = {}
@@ -105,7 +106,9 @@ async function runLaunch(
   const startedGenerationAt = Date.now();
   try {
 
-  const allocation = (blueprintExam ? allocateBlueprint : allocateQuestions)({
+  const allocation = preparedAllocation && Object.values(preparedAllocation).reduce((sum, count) => sum + Number(count || 0), 0) === questionCount
+    ? preparedAllocation
+    : (blueprintExam ? allocateBlueprint : allocateQuestions)({
     exam: blueprintExam, objectivesByLecture,
     eligibleLectures,
     requestedCount: questionCount,
@@ -206,7 +209,7 @@ async function runLaunch(
         await pool.finish(sessionId, { status: fillError ? "partial" : "complete",
           readyCount: savedQuestions.length + (result.questions?.length || 0), errors: result.errors || [],
           durationMs: Date.now() - startedGenerationAt }).catch(() => {});
-        if (fillError) throw new Error(`${savedQuestions.length + (result.questions?.length || 0)}/${questionCount} ready. ${fillError}`);
+        if (fillError) throw new Error(`${savedQuestions.length + (result.questions?.length || 0)}/${questionCount} ready. ${(result.errors || []).length || 1} preparation slot${(result.errors || []).length === 1 ? "" : "s"} did not finish. Open the saved session for details.`);
         return `${savedQuestions.length + (result.questions?.length || 0)}/${questionCount} questions ready`;
       } finally { releaseWorker(); resolveBackground(); }
     } });
@@ -234,12 +237,15 @@ async function runLaunch(
   );
 
   if (appendToPreparedSet && preparedGenerationId && questions?.length) {
-    await pool.addPreparedQuestions(preparedGenerationId, questions);
+    await pool.addPreparedQuestions(preparedGenerationId, questions, questionCount);
   }
   await pool.finish(sessionId, { status: "complete", readyCount: questions?.length || 0,
     cacheHits, durationMs: Date.now() - startedGenerationAt, errors: generationErrors,
     questionIds: (questions || []).map(q => q.poolId).filter(Boolean),
-    ...(prepareOnly && !appendToPreparedSet ? { preparedQuestionIds: (questions || []).map(q => q.poolId).filter(Boolean) } : {}) });
+    ...(prepareOnly && !appendToPreparedSet ? {
+      preparedQuestionIds: (questions || []).map(q => q.poolId).filter(Boolean).slice(0, questionCount),
+      allocation,
+    } : {}) });
 
   if (!questions || questions.length === 0) {
     return {

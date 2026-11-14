@@ -76,7 +76,7 @@ export function createQuestionPool(userId, blockId, database = db) {
         provider: "existing bridge/cloud routing", model: null, tokenUsage: null, estimatedCost: null }));
     },
     async finish(id, metadata) { await setDoc(runRef(id), clean({ ...metadata, updatedAt: Date.now() }), { merge: true }); },
-    async addPreparedQuestions(generationId, questions = []) {
+    async addPreparedQuestions(generationId, questions = [], maxCount = null) {
       if (!generationId || !questions.length) return;
       const ref = runRef(generationId);
       await runTransaction(db, async tx => {
@@ -84,7 +84,11 @@ export function createQuestionPool(userId, blockId, database = db) {
         if (!snap.exists() || !snap.data().prepareOnly) return;
         const ids = new Set(snap.data().preparedQuestionIds || []);
         for (const question of questions) if (question?.poolId) ids.add(question.poolId);
-        tx.update(ref, { preparedQuestionIds: [...ids], updatedAt: Date.now() });
+        const preparedQuestionIds = [...ids];
+        tx.update(ref, {
+          preparedQuestionIds: Number.isFinite(maxCount) ? preparedQuestionIds.slice(0, Math.max(0, maxCount)) : preparedQuestionIds,
+          updatedAt: Date.now(),
+        });
       });
     },
     async history() {

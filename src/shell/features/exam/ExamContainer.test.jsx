@@ -204,12 +204,13 @@ describe("ExamContainer", () => {
   });
 
   it("keeps a named prepared set discoverable after reload and starts that exact set", async () => {
-    const preparedQuestionIds = Array.from({ length: 30 }, (_, index) => `pool-${index}`);
+    const allPreparedQuestionIds = Array.from({ length: 35 }, (_, index) => `pool-${index}`);
+    const preparedQuestionIds = allPreparedQuestionIds.slice(0, 30);
     poolPreparedSetsMock.mockResolvedValue([{
       id: "generation-1", prepareOnly: true, examName: "Sep date-range quiz", format: "exam",
       requestedCount: 30, durationMinutes: 45, contentScope: "date-range:2026-09-20:2026-09-23",
-      studyMode: "balanced", preparedQuestionIds,
-      questions: preparedQuestionIds.map(poolId => ({ poolId })),
+      studyMode: "balanced", preparedCount: 35, preparedQuestionIds: allPreparedQuestionIds,
+      questions: allPreparedQuestionIds.map(poolId => ({ poolId, lectureId: "lec-1" })),
     }]);
     launchExamSessionMock
       .mockResolvedValueOnce({ ok: true, prepared: 30 })
@@ -222,15 +223,16 @@ describe("ExamContainer", () => {
 
     expect(host.textContent).toMatch(/Prepared quizzes & exams · start later/);
     expect(host.textContent).toMatch(/Sep date-range quiz/);
-    expect(host.textContent).toMatch(/30\/30 saved questions available/);
+    expect(host.textContent).toMatch(/30\/30 exam questions ready/);
+    expect(host.textContent).toMatch(/5 extra kept in reserve/);
     const startPrepared = Array.from(host.querySelectorAll("button")).find(button => button.textContent.includes("Start this 30-question set"));
     expect(startPrepared).toBeTruthy();
     await act(async () => startPrepared.click());
     await flush();
     expect(launchExamSessionMock.mock.calls[1][0]).toMatchObject({
       examName: "Sep date-range quiz", questionCount: 30, durationMinutes: 45,
-      contentScope: "date-range:2026-09-20:2026-09-23", startWhilePreparing: true,
-      preparedGenerationId: "generation-1", preparedQuestionIds,
+      contentScope: "date-range:2026-09-20:2026-09-23", startWhilePreparing: false, savedOnly: true,
+      preparedGenerationId: "generation-1", preparedQuestionIds, preparedAllocation: { "lec-1": 30 },
     });
     expect(host.textContent).toMatch(/prepared-quiz-session/);
     unmount();

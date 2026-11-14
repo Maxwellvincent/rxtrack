@@ -234,7 +234,7 @@ describe("launchExamSession", () => {
     expect(generateExamQuestionsMock.mock.calls[0][0]).toMatchObject({
       preparedGenerationId: "prepared-1", preparedQuestionIds: ["pool-saved"],
     });
-    expect(addPreparedQuestionsMock).toHaveBeenCalledWith("prepared-1", [existing, fresh]);
+    expect(addPreparedQuestionsMock).toHaveBeenCalledWith("prepared-1", [existing, fresh], 2);
     expect(createExamSessionMock).not.toHaveBeenCalled();
   });
 

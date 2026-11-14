@@ -148,7 +148,11 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
         const objectiveIds = resolveQuestionObjectiveIds(q, objectives);
         if (subject && !(q.objectiveIds || []).some(id=>objectives.some(o=>o.id===id || o.code===id))) continue;
         const cached = { ...q, lectureId, blockId, objectiveIds, ...(subject ? { blueprintSlot: allocationId, blueprintSubject: subject, sourceBlockId } : {}) };
-        if (enforceQuality && (exceedsAnswerConcentration(cached, lectureQuestions(), requested) || (objectivePlan.length && !fitsObjectiveAllocation(cached, remainingPlan())) || !hasReusableQuestionReview(cached) || alreadyUsed(q, [...history, ...accepted]) || questionQualityIssues(q, objectives).length || !questionMatchesObjectiveDomain(cached, { objectives, atoms }))) continue;
+        // An explicitly named prepared set is a frozen, already-reviewed exam.
+        // Re-running adaptive allocation and reuse checks at Start made valid
+        // saved questions disappear and triggered a second generation wave.
+        const frozenPreparedQuestion = Boolean(preparedGenerationId && preparedQuestionIds?.includes(q.poolId));
+        if (!frozenPreparedQuestion && enforceQuality && (exceedsAnswerConcentration(cached, lectureQuestions(), requested) || (objectivePlan.length && !fitsObjectiveAllocation(cached, remainingPlan())) || !hasReusableQuestionReview(cached) || alreadyUsed(q, [...history, ...accepted]) || questionQualityIssues(q, objectives).length || !questionMatchesObjectiveDomain(cached, { objectives, atoms }))) continue;
         accepted.push(cached); questions.push(cached); obtained++; cacheHits++;
         await deps.onQuestionReady?.(cached);
       }

@@ -107,6 +107,34 @@ describe("recordAnswerAwait", () => {
   });
 });
 
+describe("recordAnswersBatchAwait", () => {
+  beforeEach(() => installDomStorage());
+
+  it("records a whole submission once and remains idempotent on retry", async () => {
+    const rows = [
+      { lectureId: "lec1", wasCorrect: true, eventId: "exam:s:q1" },
+      { lectureId: "lec1", wasCorrect: false, eventId: "exam:s:q2" },
+      { lectureId: "lec2", wasCorrect: true, eventId: "exam:s:q3" },
+    ];
+    await stats.recordAnswersBatchAwait(null, rows);
+    await stats.recordAnswersBatchAwait(null, rows);
+    expect(stats.statsForLecture(null, "lec1")).toEqual({ answered: 2, correct: 1, accuracy: .5 });
+    expect(stats.statsForLecture(null, "lec2")).toEqual({ answered: 1, correct: 1, accuracy: 1 });
+  });
+
+  it("uses one cloud write for the whole submission", async () => {
+    const backend = makeBackend();
+    __setCloudBackendForTests(backend.api);
+    try {
+      await stats.recordAnswersBatchAwait("batch-user", [
+        { lectureId: "lec1", wasCorrect: true, eventId: "exam:s:q1" },
+        { lectureId: "lec2", wasCorrect: false, eventId: "exam:s:q2" },
+      ]);
+      expect(backend.writes).toHaveLength(1);
+    } finally { resetCloudStores(); __setCloudBackendForTests(null); }
+  });
+});
+
 it('projects exclusions without changing raw counters and restores them after undo', async () => {
  installDomStorage();
  const { recordEvidence } = await import('./learnerEvidence.js');

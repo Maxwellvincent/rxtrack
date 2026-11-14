@@ -71,7 +71,7 @@ export async function classifyObjectiveMapping(question,{lectures,objectives,blo
  return {lectureId:lecture.id,lectureLabel:formatLectureLabel(lecture),lectureLinkBasis:'two-pass-source-verified',objectiveIds:verified.map(l=>l.objectiveId),curriculumLinkStatus:'evidence-verified',curriculumMapping:{...curriculumMappingProvenance(question,lecture,blockId,'two-pass-source-verified'),version:MAPPING_VERSION,decision:'objective',links:verified}};
 }
 
-/** Codex subscription route, retaining a conservative per-run processing ceiling. */
+/** Ollama Cloud reasoning route, isolated from the user's Codex development quota. */
 export function createCurriculumReviewer({budgetUsd=5}={}){
  let spentUsd=0;
  return async (system,prompt,signal)=>{
@@ -79,10 +79,15 @@ export function createCurriculumReviewer({budgetUsd=5}={}){
   const reserve=new TextEncoder().encode(system+'\n'+prompt).length*1.32/1e6+2500*3.96/1e6;
   if(spentUsd+reserve>budgetUsd)throw new Error('Objective mapping paused at its processing budget. Completed links are saved.');
   const {bridgeComplete,parseBridgeJSON}=await import('../llmBridge.js');
-  let cost=reserve;
-  const text=await bridgeComplete({system,prompt,json:true,maxTokens:2500,backend:'codex',backendOnly:true,modelTier:'quality',timeoutMs:90000,signal,onUsage:usage=>{if(Number.isFinite(usage?.costUsd) && usage.costUsd>=0)cost=usage.costUsd;}});
+  let cost=reserve, text=null, lastError=null;
+  for (const modelTier of ['quality', 'escalation', 'routine']) {
+    try {
+      text=await bridgeComplete({system,prompt,json:true,maxTokens:2500,backend:'ollama-cloud',backendOnly:true,modelTier,timeoutMs:90000,signal,onUsage:usage=>{if(Number.isFinite(usage?.costUsd) && usage.costUsd>=0)cost=usage.costUsd;}});
+      if(text!=null)break;
+    } catch(error) { lastError=error; }
+  }
   spentUsd+=cost;
-  if(text==null)throw new Error('Approved quality bridge is unavailable. Completed mappings are preserved.');
+  if(text==null)throw new Error(`Ollama Cloud mapping route is unavailable. Completed mappings are preserved.${lastError?.message ? ` ${lastError.message}` : ''}`);
   return parseBridgeJSON(text);
  };
 }

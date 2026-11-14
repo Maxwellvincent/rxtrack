@@ -23,12 +23,12 @@ export function BackgroundJobCenter() {
               <div className="text-[13px] font-bold text-text-1">
                 {job.status === "running" ? "◌ " : job.status === "done" ? "✓ " : "⚠ "}{job.label}
               </div>
-              <div className={`mt-1 font-mono text-[12px] ${job.status === "error" ? "text-bad" : job.status === "done" ? "text-good" : "text-text-3"}`}>
+              <div className={`mt-1 max-h-24 overflow-auto break-words font-mono text-[12px] ${job.status === "error" ? "text-bad" : job.status === "done" ? "text-good" : "text-text-3"}`}>
                 {job.detail || "Starting…"}
               </div>
             </div>
             {job.status !== "running" && (
-              <button onClick={() => dismissBackgroundJob(job.id)} aria-label="Dismiss notification" className="text-xs text-text-3">✕</button>
+              <button onClick={() => dismissBackgroundJob(job.id)} aria-label="Dismiss notification" className="shrink-0 rounded border border-border px-2 py-1 text-xs font-semibold text-text-2">Dismiss</button>
             )}
           </div>
           {job.status === "running" && <div className="mt-2 h-1 overflow-hidden rounded bg-panel"><div className="h-full w-1/2 animate-pulse rounded bg-accent" /></div>}

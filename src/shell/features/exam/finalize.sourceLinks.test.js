@@ -4,8 +4,8 @@ vi.mock("../../../supabase.js", () => ({
   updateExamSessionTransaction: vi.fn(async (_u, _id, update) => { state.session = update(state.session) || state.session; return state.session; }),
   getExamSession: vi.fn(async () => state.session), listExamSessions: vi.fn(async () => []),
 }));
-vi.mock("../../../stores/lectureQuestionStats.js", () => ({ recordAnswerAwait: (...args) => state.record(...args) }));
-vi.mock("../../../stores/learnerEvidence.js", async (importOriginal) => ({ ...await importOriginal(), recordEvidenceAwait: (...args) => state.evidence(...args) }));
+vi.mock("../../../stores/lectureQuestionStats.js", () => ({ recordAnswersBatchAwait: (...args) => state.record(...args) }));
+vi.mock("../../../stores/learnerEvidence.js", async (importOriginal) => ({ ...await importOriginal(), recordEvidenceBatchAwait: async (_userId, events) => { for (const event of events) state.evidence(_userId, event); } }));
 vi.mock("../../../stores/weakConcepts.js", () => ({ read: vi.fn(async () => ({})), writeAwait: vi.fn(async () => {}) }));
 vi.mock("../../../questionPool.js", () => ({ releaseUnansweredQuestions: vi.fn(async () => {}) }));
 import { finalizeExamSession } from "./finalize.js";
@@ -15,7 +15,7 @@ it("links resumed homework on submission, records lecture answers once, and does
   const options = { lectures: [{ id: "l5", blockId: "nb1", lectureNumber: 5, lectureTitle: "NB 05 Neurons and Glia" }] };
   expect(await finalizeExamSession("u", "s", options)).toEqual({ ok: true });
   expect(state.session.questions[0]).toMatchObject({ lectureId: "l5", curriculumLinkStatus: "source-label-matched" });
-  expect(state.record).toHaveBeenCalledWith("u", "l5", false, "exam:s:q");
+  expect(state.record).toHaveBeenCalledWith("u", [{ lectureId: "l5", wasCorrect: false, eventId: "exam:s:q" }]);
   expect(state.evidence.mock.calls[0][1]).toMatchObject({ lectureId: "l5", objectiveIds: [], correct: false });
   expect(await finalizeExamSession("u", "s", options)).toMatchObject({ alreadySubmitted: true });
   expect(state.record).toHaveBeenCalledTimes(1);
@@ -34,7 +34,8 @@ it("attributes CBSE answers and weak lectures to their original source block", a
   expect(saved.nb1[0]).toMatchObject({ blockId: "nb1", missCount: 3, totalAttempts: 3 });
   expect(saved["cbse-prep"]).toBeUndefined();
   await finalizeExamSession("u", "cbse-s", options);
-  expect(state.record).toHaveBeenCalledTimes(3);
+  expect(state.record).toHaveBeenCalledTimes(1);
+  expect(state.record.mock.calls[0][1]).toHaveLength(3);
 });
 
 it('automatically records an unlabelled larynx question against its lecture once', async () => {
@@ -43,7 +44,7 @@ it('automatically records an unlabelled larynx question against its lecture once
  const options = { lectures: [{ id: 'l16', blockId: 'nb1', lectureTitle: 'NB 16 Pharynx and Larynx' }] };
  expect(await finalizeExamSession('u', 'larynx-session', options)).toEqual({ ok: true });
  expect(state.session.questions[0]).toMatchObject({ lectureId: 'l16', curriculumLinkStatus: 'content-matched' });
- expect(state.record).toHaveBeenCalledWith('u', 'l16', false, 'exam:larynx-session:larynx-q');
+ expect(state.record).toHaveBeenCalledWith('u', [{ lectureId: 'l16', wasCorrect: false, eventId: 'exam:larynx-session:larynx-q' }]);
  expect(state.evidence.mock.calls[0][1]).toMatchObject({ lectureId: 'l16', objectiveIds: [] });
  await finalizeExamSession('u', 'larynx-session', options);
  expect(state.record).toHaveBeenCalledTimes(1);

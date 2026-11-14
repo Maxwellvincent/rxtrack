@@ -119,6 +119,29 @@ export async function recordAnswerAwait(userId, lectureId, wasCorrect, eventId =
   return next;
 }
 
+/** Record a submitted session's lecture outcomes with one durable write. */
+export async function recordAnswersBatchAwait(userId, answers = []) {
+  const current = readStored(userId);
+  const next = { ...current };
+  for (const { lectureId, wasCorrect, eventId } of answers) {
+    if (!lectureId) continue;
+    const prev = next[lectureId] || {};
+    const eventKey = eventId ? evidenceIdentity(eventId) : null;
+    if (eventKey && prev.statsEventKeys?.includes(eventKey)) continue;
+    Object.assign(next, mergeQuestionStats(next, {
+      [lectureId]: {
+        answered: (prev.answered || 0) + 1,
+        correct: (prev.correct || 0) + (wasCorrect ? 1 : 0),
+        at: Date.now(),
+      },
+    }));
+    if (eventKey) next[lectureId].statsEventKeys = [...new Set([...(prev.statsEventKeys || []), eventKey])];
+  }
+  if (!userId) { writeJson(userId, key, next); return next; }
+  await writeCloudAwait(userId, key, next);
+  return next;
+}
+
 /** `{ answered, correct, accuracy }` for one lecture; zeroes for one never quizzed. */
 export function selectLectureStats(data,lectureId) {
   const entry = (lectureId && data?.[lectureId]) || {};

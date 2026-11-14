@@ -21,12 +21,12 @@ import {
   getExamSession,
   listExamSessions,
 } from "../../../supabase.js";
-import { recordAnswerAwait } from "../../../stores/lectureQuestionStats.js";
+import { recordAnswersBatchAwait } from "../../../stores/lectureQuestionStats.js";
 import { read as readWeakConcepts, writeAwait as writeWeakConceptsAwait } from "../../../stores/weakConcepts.js";
 import { mergeExamReportConcepts } from "../../logic/examReportWeakConcepts.js";
 import { withRecordedStats } from "../../../examSessions.js";
 import { pendingStatsQuestionIds, computeWeakConceptEntry, protectedWeakConceptHistory } from "./finalizeLogic.js";
-import { recordEvidenceAwait, recordEvidenceBatchAwait } from "../../../stores/learnerEvidence.js";
+import { recordEvidenceBatchAwait } from "../../../stores/learnerEvidence.js";
 import { releaseUnansweredQuestions } from "../../../questionPool.js";
 
 export async function finalizeExamSession(
@@ -75,45 +75,31 @@ export async function finalizeExamSession(
     catch (error) { return {ok:false,error:error?.message || String(error),resumable:true}; }
   }
 
-  // Step 2: resume-safe stats recording, in sequence.
+  // Step 2: resume-safe session writes. These used to perform three serial
+  // cloud round trips per question, making a 30-question submission feel hung.
   const pending = pendingStatsQuestionIds(session);
-  for (const questionId of pending) {
+  const pendingRows = pending.map(questionId => {
     const question = session.questions.find((q) => q.questionId === questionId);
     const answer = session.answers.find((a) => a.questionId === questionId);
     const wasCorrect = !!answer && answer.value === question?.correct;
-
-    try {
-      // Record imported answers only when the source label matches the
-      // current catalog or the learner confirmed its link. A lecture link
-      // never invents an objective tag or advanced-reasoning evidence.
-      if (question?.lectureId && (question?.sourceType !== "question-bank" || ["user-confirmed", "source-label-matched", "content-matched"].includes(question?.curriculumLinkStatus))) {
-        await recordAnswerAwait(userId, question.lectureId, wasCorrect, `exam:${session.sessionId}:${questionId}`);
-      }
-      if (question?.lectureId || question?.objectiveIds?.length) {
-        await recordEvidenceAwait(userId, sessionEvidenceEvent(session, question, answer));
-      }
-    } catch (e) {
-      return { ok: false, error: e?.message || String(e), resumable: true };
-    }
-
-    try {
-      await updateExamSessionTransaction(userId, sessionId, (current) =>
-        current
-          ? {
-              ...current,
-              sideEffectsCompleted: {
-                ...current.sideEffectsCompleted,
-                statsRecordedQuestionIds: withRecordedStats(
-                  current.sideEffectsCompleted.statsRecordedQuestionIds,
-                  questionId
-                ),
-              },
-            }
-          : null
-      );
-    } catch (e) {
-      return { ok: false, error: e?.message || String(e), resumable: true };
-    }
+    return { questionId, question, answer, wasCorrect };
+  });
+  try {
+    await recordEvidenceBatchAwait(userId, pendingRows
+      .filter(({ question }) => question?.lectureId || question?.objectiveIds?.length)
+      .map(({ question, answer }) => sessionEvidenceEvent(session, question, answer)));
+    await recordAnswersBatchAwait(userId, pendingRows
+      .filter(({ question }) => question?.lectureId && (question?.sourceType !== "question-bank" || ["user-confirmed", "source-label-matched", "content-matched"].includes(question?.curriculumLinkStatus)))
+      .map(({ questionId, question, wasCorrect }) => ({ lectureId: question.lectureId, wasCorrect, eventId: `exam:${session.sessionId}:${questionId}` })));
+    await updateExamSessionTransaction(userId, sessionId, (current) => current ? {
+      ...current,
+      sideEffectsCompleted: {
+        ...current.sideEffectsCompleted,
+        statsRecordedQuestionIds: pending.reduce((ids, questionId) => withRecordedStats(ids, questionId), current.sideEffectsCompleted.statsRecordedQuestionIds),
+      },
+    } : null);
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e), resumable: true };
   }
 
   // Step 3: weak-concept write, once.

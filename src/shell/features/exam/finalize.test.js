@@ -58,7 +58,7 @@ describe.skipIf(!globalThis.process?.env?.FIRESTORE_EMULATOR_HOST || !globalThis
     expect(finalDoc.sideEffectsCompleted.statsRecordedQuestionIds.sort()).toEqual(["q1", "q2"]);
   });
 
-  it("resumes from a session stuck in finalizing with one stats marker already true, without double-calling recordAnswerAwait for it", async () => {
+  it("resumes from a session stuck in finalizing with one stats marker already true, batching only pending work", async () => {
     const sessionId = "sess-resume";
     const session = createSessionShape({
       sessionId,
@@ -80,15 +80,14 @@ describe.skipIf(!globalThis.process?.env?.FIRESTORE_EMULATOR_HOST || !globalThis
     };
     await createExamSession(uid, session);
 
-    const spy = vi.spyOn(lectureQuestionStats, "recordAnswerAwait");
+    const spy = vi.spyOn(lectureQuestionStats, "recordAnswersBatchAwait");
 
     const result = await finalizeExamSession(uid, sessionId, { blockName: "Block Resume" });
     expect(result).toEqual({ ok: true });
 
-    // q1 was already recorded before this call; only q2 should have been
-    // passed to recordAnswerAwait during this run.
+    // q1 was already recorded before this call; only q2 is batched now.
     expect(spy).toHaveBeenCalledTimes(1);
-    expect(spy).toHaveBeenCalledWith(uid, "lec-1", true, "exam:sess-resume:q2");
+    expect(spy).toHaveBeenCalledWith(uid, [{ lectureId: "lec-1", wasCorrect: true, eventId: "exam:sess-resume:q2" }]);
 
     const finalDoc = await getExamSession(uid, sessionId);
     expect(finalDoc.status).toBe("submitted");
@@ -97,7 +96,7 @@ describe.skipIf(!globalThis.process?.env?.FIRESTORE_EMULATOR_HOST || !globalThis
     spy.mockRestore();
   });
 
-  it("calling finalize twice in a row (simulated crash mid-loop, then a real resume) never double-records a question", async () => {
+  it("calling finalize twice after a failed batch remains resumable and never double-records", async () => {
     const sessionId = "sess-crash-resume";
     const session = createSessionShape({
       sessionId,
@@ -113,17 +112,10 @@ describe.skipIf(!globalThis.process?.env?.FIRESTORE_EMULATOR_HOST || !globalThis
     ];
     await createExamSession(uid, session);
 
-    // First call: record q1 successfully, then make q2's call reject —
-    // simulating a crash/network failure partway through the stats loop.
-    const original = lectureQuestionStats.recordAnswerAwait;
-    let callCount = 0;
+    // First call: simulate a rejected submission-level stats write.
     const failingSpy = vi
-      .spyOn(lectureQuestionStats, "recordAnswerAwait")
-      .mockImplementation(async (u, lectureId, wasCorrect) => {
-        callCount++;
-        if (callCount === 2) throw new Error("simulated crash mid-loop");
-        return original(u, lectureId, wasCorrect);
-      });
+      .spyOn(lectureQuestionStats, "recordAnswersBatchAwait")
+      .mockRejectedValueOnce(new Error("simulated batch failure"));
 
     const firstResult = await finalizeExamSession(uid, sessionId, { blockName: "Block Crash" });
     expect(firstResult.ok).toBe(false);
@@ -131,18 +123,19 @@ describe.skipIf(!globalThis.process?.env?.FIRESTORE_EMULATOR_HOST || !globalThis
 
     const afterCrash = await getExamSession(uid, sessionId);
     expect(afterCrash.status).toBe("finalizing");
-    // Exactly one question recorded before the simulated crash.
-    expect(afterCrash.sideEffectsCompleted.statsRecordedQuestionIds).toEqual(["q1"]);
+    expect(afterCrash.sideEffectsCompleted.statsRecordedQuestionIds).toEqual([]);
 
     failingSpy.mockRestore();
 
-    // Second call: real recordAnswerAwait, tracked by a fresh spy — only the
-    // still-pending question (q2) must be passed to it this time.
-    const resumeSpy = vi.spyOn(lectureQuestionStats, "recordAnswerAwait");
+    // Second call batches both still-pending rows. Event IDs make retries safe.
+    const resumeSpy = vi.spyOn(lectureQuestionStats, "recordAnswersBatchAwait");
     const secondResult = await finalizeExamSession(uid, sessionId, { blockName: "Block Crash" });
     expect(secondResult).toEqual({ ok: true });
     expect(resumeSpy).toHaveBeenCalledTimes(1);
-    expect(resumeSpy).toHaveBeenCalledWith(uid, "lec-2", true, "exam:sess-crash-resume:q2");
+    expect(resumeSpy).toHaveBeenCalledWith(uid, [
+      { lectureId: "lec-1", wasCorrect: true, eventId: "exam:sess-crash-resume:q1" },
+      { lectureId: "lec-2", wasCorrect: true, eventId: "exam:sess-crash-resume:q2" },
+    ]);
     resumeSpy.mockRestore();
 
     const finalDoc = await getExamSession(uid, sessionId);

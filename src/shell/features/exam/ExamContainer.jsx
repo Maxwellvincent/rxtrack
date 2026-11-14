@@ -53,6 +53,7 @@ import { filterLecturesByScope } from "../../logic/weekScope.js";
 import { namePreparedReplacementAttempt } from "./preparedSetNaming.js";
 import { updateQuestionBankMetadata } from "../../logic/questionBankMetadataEdits.js";
 import { confirmQuestionBankCurriculumLinks, prepareBankQuestionSet, scoreAnsweredQuestions } from "./questionBankLinks.js";
+import { questionSlot } from "./bpmBlueprint.js";
 
 const DEFAULT_QUESTION_COUNT_FALLBACK = 20;
 
@@ -851,13 +852,21 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
         {preparedSets.length ? <ul className="mt-3 space-y-2">{preparedSets.map((set) => {
           const requested = Number(set.requestedCount) || set.questions.length;
           const available = set.questions.length;
-          const preparedCount = Number.isFinite(set.preparedCount) ? set.preparedCount : available;
+          const preparedCount = Math.min(requested, Number.isFinite(set.preparedCount) ? set.preparedCount : available);
           const actualShortfall = Math.max(0, requested - preparedCount);
+          const launchQuestions = set.questions.slice(0, requested);
+          const launchQuestionIds = launchQuestions.map(question => question.poolId).filter(Boolean);
+          const launchAllocation = launchQuestions.reduce((counts, question) => {
+            const slot = questionSlot(question);
+            if (slot) counts[slot] = (counts[slot] || 0) + 1;
+            return counts;
+          }, {});
+          const reserveExtras = Math.max(0, available - requested);
           const savedWeekNumber = set.weekNumber ?? (/^\d+$/.test(String(set.contentScope || "")) ? Number(set.contentScope) : null);
           return <li key={set.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-panel p-3">
             <div>
               <div className="font-semibold text-text-1">{set.examName || (set.format === "exam" ? "Timed exam" : "Practice quiz")}</div>
-              <div className="text-sm text-text-2">{available}/{requested} saved questions available{set.assignedCount ? ` · ${set.assignedCount} assigned to prior attempts` : ""} · {set.difficultyOverride || "adaptive difficulty"} · {set.contentScope || "block-so-far"} · {set.format === "exam" ? `${set.durationMinutes || 0} min timed` : "untimed practice"}</div>
+              <div className="text-sm text-text-2">{preparedCount}/{requested} exam questions ready{reserveExtras ? ` · ${reserveExtras} extra kept in reserve` : ""}{set.assignedCount ? ` · ${set.assignedCount} assigned to prior attempts` : ""} · {set.difficultyOverride || "adaptive difficulty"} · {set.contentScope || "block-so-far"} · {set.format === "exam" ? `${set.durationMinutes || 0} min timed` : "untimed practice"}</div>
               {editingPreparedSetId === set.id && preparedSetDraft && <div className="mt-3 grid max-w-2xl gap-2 rounded border border-border bg-bg-elevated p-3 sm:grid-cols-2">
                 <label className="text-xs text-text-2 sm:col-span-2">Quiz / exam name
                   <input aria-label="Prepared set name" maxLength={80} value={preparedSetDraft.examName} disabled={savingPreparedSet} onChange={event => setPreparedSetDraft(current => ({ ...current, examName: event.target.value }))} className="mt-1 min-h-10 w-full rounded border border-border bg-panel px-2 text-sm text-text-1" />
@@ -907,6 +916,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
               examName: set.examName || "Integrated exam",
               preparedGenerationId: set.id,
               preparedQuestionIds: set.preparedQuestionIds || set.questions.map((question) => question.poolId),
+              preparedAllocation: set.allocation || null,
               initialPreparedCount: available,
               appendToPreparedSet: true,
             })}>Prepare missing {actualShortfall}</Button> : <Button disabled={launching || !available} onClick={() => handleLaunch({
@@ -922,8 +932,10 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
               examName: set.examName || "Integrated exam",
               preparedSetHasUsedQuestions: set.assignedCount > 0,
               preparedGenerationId: set.id,
-              preparedQuestionIds: set.preparedQuestionIds || set.questions.map((question) => question.poolId),
-              startWhilePreparing: true,
+              preparedQuestionIds: set.assignedCount > 0 ? (set.preparedQuestionIds || launchQuestionIds) : launchQuestionIds,
+              preparedAllocation: set.assignedCount > 0 ? (set.allocation || null) : launchAllocation,
+              savedOnly: set.assignedCount > 0 ? false : true,
+              startWhilePreparing: set.assignedCount > 0,
             })}>Start this {requested}-question set</Button>}
             <button type="button" disabled={deletingSet} onClick={() => { setDeleteSetError(null); setConfirmDeleteSetId(confirmDeleteSetId === set.id ? null : set.id); }} className="rounded-lg border border-bad/40 px-3 py-2 text-sm font-semibold text-bad hover:bg-bad/5 disabled:opacity-50">Delete</button>
             </div>

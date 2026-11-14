@@ -3,9 +3,9 @@ const state=vi.hoisted(()=>({session:null,weak:{},remove:vi.fn(),record:vi.fn()}
 vi.mock('../../../supabase.js',()=>({updateExamSessionTransaction:async(_u,_id,update)=>{state.session=update(state.session)||state.session;return state.session;},getExamSession:async()=>state.session,listExamSessions:async()=>[]}));
 vi.mock('../../../stores/questionFigures.js',()=>({read:()=>({}),apply:q=>q}));
 vi.mock('../../../stores/questionRatings.js',()=>({read:()=>({ratings:{}})}));
-vi.mock('../../../stores/lectureQuestionStats.js',()=>({recordAnswerAwait:vi.fn()}));
+vi.mock('../../../stores/lectureQuestionStats.js',()=>({recordAnswersBatchAwait:vi.fn()}));
 vi.mock('../../../stores/weakConcepts.js',()=>({read:async()=>state.weak,writeAwait:async(_u,next)=>{state.weak=next;}}));
-vi.mock('../../../stores/learnerEvidence.js',()=>({recordEvidenceAwait:(...args)=>state.record(...args),recordEvidenceBatchAwait:(...args)=>state.remove(...args)}));
+vi.mock('../../../stores/learnerEvidence.js',()=>({recordEvidenceBatchAwait:(...args)=>state.remove(...args)}));
 vi.mock('../../../questionPool.js',()=>({releaseUnansweredQuestions:vi.fn()}));
 import {finalizeExamSession} from './finalize.js';
 beforeEach(()=>{
