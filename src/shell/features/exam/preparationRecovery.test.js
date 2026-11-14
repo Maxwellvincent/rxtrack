@@ -16,6 +16,15 @@ it("does not automatically retry quality failures or exhausted recovery attempts
  expect(pool.claimSessionFill).not.toHaveBeenCalled();
 });
 
+it("retries missing slots after an empty structured response and clears stale lecture blocks", async () => {
+ const emptySession = { ...session, fillError: "bridge 502: ollama-cloud: empty reply", fillBlockedLectureIds: ["l"] };
+ const pool = { claimSessionFill: vi.fn(async () => ({ ...emptySession, fillPlan: { allocation: { l: 3 } } })), finishSessionFill: vi.fn(), appendToSession: vi.fn(), reportSessionFillProgress: vi.fn() };
+ const generate = vi.fn(async () => ({ questions: [], errors: [] }));
+ await recoverExamPreparation({ session: emptySession, userId: "u", pool, generate, context: {} });
+ expect(generate.mock.calls[0][0].allocation).toEqual({ l: 2 });
+ expect(pool.finishSessionFill.mock.calls[0][1].blockedLectureIds).toEqual([]);
+});
+
 it("waits offline and wakes on reconnect", async () => {
  const events = new EventTarget();
  vi.stubGlobal("navigator", { onLine: false }); vi.stubGlobal("window", events);

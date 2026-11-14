@@ -9,7 +9,9 @@ export function holdPreparationWorker(userId, sessionId) {
   return () => running.delete(key);
 }
 export const connectionFailure = message => !capacityKind(message) && /timed?\s*out|timeout|network|offline|failed to fetch|unavailable|connection/i.test(String(message || ""));
-export const blocksPreparationLecture=message=>!capacityKind(message) && !connectionFailure(message);
+const emptyStructuredFailure = message => /empty reply|returned no text|empty or invalid json|not valid or repairable json|invalid json|bridge 5\d\d/i.test(String(message || ""));
+export const retryablePreparationFailure = message => connectionFailure(message) || emptyStructuredFailure(message);
+export const blocksPreparationLecture=message=>!capacityKind(message) && !retryablePreparationFailure(message);
 export function waitForConnection() {
   if (typeof navigator === "undefined" || navigator.onLine !== false) return Promise.resolve();
   return new Promise(resolve => window.addEventListener("online", resolve, { once: true }));
@@ -21,7 +23,7 @@ export async function recoverExamPreparation({ session, userId, pool, generate, 
   const key = `${userId}:${session.sessionId}`;
   if (running.has(key) || session.status !== "in_progress" || session.fillLeaseUntil > Date.now()) return;
   if (!["generating", "partial"].includes(session.fillStatus)) return;
-  if (session.fillStatus === "partial" && !connectionFailure(session.fillError)) return;
+  if (session.fillStatus === "partial" && !retryablePreparationFailure(session.fillError)) return;
   if ((session.fillRecoveryAttempts || 0) >= 3) return;
   const ids = session.lectureIds || [];
   if (!ids.length) return;
@@ -35,8 +37,12 @@ export async function recoverExamPreparation({ session, userId, pool, generate, 
     const claimed = await pool.claimSessionFill(session.sessionId, plan);
     if (!claimed) return;
     const run = async reportJob => {
+      // An empty model response is transport-like, not proof that the lecture
+      // cannot support a valid question. Clear blocks left by the failed run
+      // so only its missing slots are tried again after the bridge recovers.
+      const blockedLectureIds = emptyStructuredFailure(claimed.fillError) ? [] : (claimed.fillBlockedLectureIds || []);
       const allocation = Object.fromEntries(Object.entries(claimed.fillPlan.allocation).map(([id, count]) => [id,
-        Math.max(0, count - (claimed.questions || []).filter(q => questionSlot(q) === id).length)]).filter(([id, count]) => count && !(claimed.fillBlockedLectureIds || []).includes(id)));
+        Math.max(0, count - (claimed.questions || []).filter(q => questionSlot(q) === id).length)]).filter(([id, count]) => count && !blockedLectureIds.includes(id)));
       if (!Object.keys(allocation).length) {
         await pool.finishSessionFill(session.sessionId, { requestedCount: claimed.targetQuestionCount });
         return "Ready questions are saved.";
@@ -62,7 +68,7 @@ export async function recoverExamPreparation({ session, userId, pool, generate, 
       } catch (error) { result = { errors: [{ message: error?.message || String(error) }] }; }
       await pool.finishSessionFill(session.sessionId, { requestedCount: claimed.targetQuestionCount, durationMinutes: claimed.durationMinutes,
         error: (result.errors || []).map(e => e.message).join(" "),
-        blockedLectureIds: [...new Set([...(claimed.fillBlockedLectureIds || []), ...(result.errors || []).filter(e => blocksPreparationLecture(e.message)).map(e => e.lectureId).filter(Boolean)])] });
+        blockedLectureIds: [...new Set([...blockedLectureIds, ...(result.errors || []).filter(e => blocksPreparationLecture(e.message)).map(e => e.lectureId).filter(Boolean)])] });
       if (result.errors?.length) throw new Error("Some missing questions still need preparation. Reviewed questions remain saved.");
       return "Question preparation resumed and saved.";
     };
