@@ -21,8 +21,8 @@ export function MissedPracticeActions({questions,lectures,blockId,busy,onLaunch}
  const chosen=groups.find(g=>g.key===selected);
  const subset=chosen?.questions||questions;
  if(!questions.length)return null;
- return <div className="flex flex-col gap-1">
-  <Button variant="outline" disabled={busy} onClick={()=>onLaunch(subset)}>Practice missed · {subset.length}</Button>
-  <details className="text-xs text-text-2"><summary className="cursor-pointer py-2">Choose missed lecture or section</summary><label className="block">Missed-question scope<select aria-label="Missed-question scope" className="mt-1 w-full rounded border border-border bg-bg p-2" value={chosen?selected:'all'} onChange={e=>setSelected(e.target.value)}><option value="all">All missed in this bank · {questions.length}</option>{groups.map(g=><option key={g.key} value={g.key}>{g.label} · {g.questions.length}</option>)}</select></label><p className="mt-1">Source sections stay grouped when a lecture link is not confirmed.</p></details>
+ return <div className="flex min-w-0 self-start flex-col gap-1">
+  <Button className="w-full min-w-0 whitespace-normal text-center leading-tight" variant="outline" disabled={busy} onClick={()=>onLaunch(subset)}>Practice missed · {subset.length}</Button>
+  <details className="min-w-0 text-xs text-text-2"><summary className="cursor-pointer py-2 leading-tight">Choose missed lecture or section</summary><label className="block">Missed-question scope<select aria-label="Missed-question scope" className="mt-1 w-full min-w-0 rounded border border-border bg-bg p-2" value={chosen?selected:'all'} onChange={e=>setSelected(e.target.value)}><option value="all">All missed in this bank · {questions.length}</option>{groups.map(g=><option key={g.key} value={g.key}>{g.label} · {g.questions.length}</option>)}</select></label><p className="mt-1">Source sections stay grouped when a lecture link is not confirmed.</p></details>
  </div>;
 }

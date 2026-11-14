@@ -970,14 +970,16 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
                       {analysis.items.length > 8 && <div className="mt-1 text-text-3">Showing the first 8; practice all {analysis.items.length} questions to see their source-keyed rationales.</div>}
                     </details>}
                   </div>
-                  <div className="flex min-w-0 flex-wrap gap-2">
-                    {resumableBankSession && <Button variant="outline" disabled={!!bankLaunching} onClick={() => setActiveSessionId(resumableBankSession.sessionId || resumableBankSession.id)}>Resume · {partialScore?.answered || 0}/{resumableBankSession.questions?.length || 0}</Button>}
-                    <Button variant="ghost" disabled={!!bankLaunching || bankEditBusy} onClick={() => renameBank(bank)}>{bankEditBusy ? "Saving…" : "Rename"}</Button>
-                    <Button variant="ghost" disabled={!!bankLaunching || bankEditBusy} onClick={() => scheduleBank(bank)}>{bankEditBusy ? "Saving…" : bank.assignedDate ? "Change date" : "Assign date"}</Button>
-                    {stats.latest && <Button variant="ghost" onClick={() => setActiveSessionId(stats.latest.session.sessionId || stats.latest.session.id)}>Review latest</Button>}
-                    {!exampleOnly && !reserved && <Button variant="outline" disabled={!!bankLaunching || sourceUseRes.loading || !!sourceUseRes.error} onClick={() => handleBankLaunch(bank, "practice")}>Practice</Button>}
+                  <div data-testid="bank-study-actions" aria-label="Question bank study actions" className="grid min-w-0 grid-cols-2 items-start gap-2 sm:grid-cols-[repeat(auto-fit,minmax(9rem,1fr))]">
+                    {resumableBankSession && <Button className="w-full min-w-0 self-start whitespace-normal text-center leading-tight" variant="outline" disabled={!!bankLaunching} onClick={() => setActiveSessionId(resumableBankSession.sessionId || resumableBankSession.id)}>Resume · {partialScore?.answered || 0}/{resumableBankSession.questions?.length || 0}</Button>}
+                    {!exampleOnly && !reserved && <Button className="w-full min-w-0 self-start" variant="outline" disabled={!!bankLaunching || sourceUseRes.loading || !!sourceUseRes.error} onClick={() => handleBankLaunch(bank, "practice")}>Practice</Button>}
                     {!exampleOnly && !reserved && <MissedPracticeActions questions={missedOnly} lectures={lectures} blockId={blockId} busy={!!bankLaunching || sourceUseRes.loading || !!sourceUseRes.error} onLaunch={questions=>handleBankLaunch(bank,"practice",questions)} />}
-                    {!exampleOnly && <Button disabled={!!bankLaunching || sourceUseRes.loading || !!sourceUseRes.error} onClick={() => handleBankLaunch(bank, "exam", null, reserved ? "reserved-assessment" : "practice")}>{reserved ? "Reserved timed assessment" : "Timed quiz"}</Button>}
+                    {!exampleOnly && <Button className="w-full min-w-0 self-start whitespace-normal text-center leading-tight" disabled={!!bankLaunching || sourceUseRes.loading || !!sourceUseRes.error} onClick={() => handleBankLaunch(bank, "exam", null, reserved ? "reserved-assessment" : "practice")}>{reserved ? "Reserved timed assessment" : "Timed quiz"}</Button>}
+                  </div>
+                  <div data-testid="bank-management-actions" aria-label="Question bank management actions" className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 border-t border-border pt-2">
+                    <Button className="min-h-9 px-2 py-1 text-xs" variant="ghost" disabled={!!bankLaunching || bankEditBusy} onClick={() => renameBank(bank)}>{bankEditBusy ? "Saving…" : "Rename"}</Button>
+                    <Button className="min-h-9 px-2 py-1 text-xs" variant="ghost" disabled={!!bankLaunching || bankEditBusy} onClick={() => scheduleBank(bank)}>{bankEditBusy ? "Saving…" : bank.assignedDate ? "Change date" : "Assign date"}</Button>
+                    {stats.latest && <Button className="min-h-9 px-2 py-1 text-xs" variant="ghost" onClick={() => setActiveSessionId(stats.latest.session.sessionId || stats.latest.session.id)}>Review latest</Button>}
                   </div>
                 </div>
               );

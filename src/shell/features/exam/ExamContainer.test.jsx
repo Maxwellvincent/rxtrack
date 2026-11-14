@@ -301,6 +301,15 @@ describe("ExamContainer", () => {
     expect(host.textContent).toMatch(/Original question banks/);
     expect(host.textContent).toMatch(/30 distinct questions · 45 min timed/);
     const timed = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Timed quiz");
+    const practice = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Practice");
+    const studyActions = host.querySelector('[data-testid="bank-study-actions"]');
+    const managementActions = host.querySelector('[data-testid="bank-management-actions"]');
+    expect(studyActions.className).toContain("grid-cols-2");
+    expect(studyActions.className).toContain("items-start");
+    expect(studyActions.contains(timed)).toBe(true);
+    expect(studyActions.contains(practice)).toBe(true);
+    expect(managementActions.textContent).toContain("Rename");
+    expect(studyActions.textContent).not.toContain("Rename");
     await act(async () => timed.click());
     await flush();
 
