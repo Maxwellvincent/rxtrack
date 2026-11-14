@@ -255,7 +255,7 @@ describe("ExamContainer", () => {
     await flush();
     expect(launchExamSessionMock).toHaveBeenCalledWith(expect.objectContaining({
       prepareOnly: true, appendToPreparedSet: true, preparedGenerationId: "generation-short",
-      preparedQuestionIds, questionCount: 30,
+      preparedQuestionIds, initialPreparedCount: 10, questionCount: 30,
     }), expect.any(Object));
     expect(host.querySelector('[data-testid="session-runner"]')).toBeNull();
     unmount();

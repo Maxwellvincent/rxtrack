@@ -584,7 +584,14 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           eligibleLectures: scopedLectures, objectivesByLecture: scopedObjectives, atomsByLecture, lecturesById, lectures,
           ...(config.blueprintExam ? {...blueprintContext,schoolBanks:allBlueprintBanks()} : {}),
           weakConceptAccuracyByLecture, weakConcepts },
-          { callAIJSON, onProgress: p => report(`${p.completed || 0}/${p.total || config.questionCount} ready · ${p.message}`) });
+          { callAIJSON, onProgress: p => {
+            const target = Number(p.total) || Number(config.questionCount) || 0;
+            const confirmed = Number(p.completed) || 0;
+            const initialMissing = Math.max(0, target - (Number(config.initialPreparedCount) || 0));
+            report(config.appendToPreparedSet
+              ? `Preparing ${initialMissing} missing · ${confirmed}/${target} total set confirmed · ${p.message}`
+              : `${confirmed}/${target} ready · ${p.message}`);
+          } });
         if (!result.ok) throw new Error(result.error);
         setGenerationCoverage(result.coverage || null);
         await refreshQuestionReserve();
@@ -900,6 +907,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
               examName: set.examName || "Integrated exam",
               preparedGenerationId: set.id,
               preparedQuestionIds: set.preparedQuestionIds || set.questions.map((question) => question.poolId),
+              initialPreparedCount: available,
               appendToPreparedSet: true,
             })}>Prepare missing {actualShortfall}</Button> : <Button disabled={launching || !available} onClick={() => handleLaunch({
               blueprintExam: set.blueprintExam || null,
