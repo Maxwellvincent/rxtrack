@@ -75,7 +75,7 @@ it("retries one empty cloud reply inside the original deadline", async () => {
   await deps.callAIJSON("system", "draft", {}, 1000, undefined, undefined, { timeoutMs: 10000 });
   expect(call.mock.calls.map(args => args[6].bridgeBackend)).toEqual(["codex", "ollama-cloud", "ollama-cloud"]);
   const next = await questionPreparationDeps(call);
-  expect(next.prepareConcurrency).toBe(1);
+  expect(next.prepareConcurrency).toBe(3);
 });
 
 it("shows active writing and independent review without counting them as ready", () => {
@@ -107,9 +107,7 @@ it("uses local Ollama after Codex and cloud capacity failures and keeps reviews 
   expect(call.mock.calls.map(args => args[6].bridgeBackend)).toEqual(["codex", "ollama-cloud", "ollama", "ollama"]);
   expect(call.mock.calls.every(args => args[6].bridgePurpose === "lecture-questions")).toBe(true);
   const retry = await questionPreparationDeps(call);
-  expect(retry.prepareBatchSize).toBe(3);
-  expect(retry.reviewBatchSize).toBe(3);
-  expect(retry.prepareConcurrency).toBe(1);
+  expect(retry.preparationPolicy()).toMatchObject({prepareBatchSize:3,reviewBatchSize:3,prepareConcurrency:1});
 });
 
 it("supports an explicitly advertised local-only question bridge", async () => {
@@ -142,14 +140,14 @@ it("prefers the advertised DeepSeek quality tier before routine and escalation c
     ],
   });
   const call = vi.fn()
-    .mockRejectedValueOnce(new Error("Codex usage limit reached"))
     .mockRejectedValueOnce(new Error("DeepSeek HTTP 429"))
+    .mockRejectedValueOnce(new Error("Codex usage limit reached"))
     .mockRejectedValueOnce(new Error("Gemma HTTP 429"))
     .mockResolvedValue({ questions: [] });
   const deps = await questionPreparationDeps(call);
   await deps.callAIJSON("system", "draft");
   expect(call.mock.calls.map(args => args[6].bridgeModelTier)).toEqual([
-    undefined, "quality", "routine", "escalation",
+    "quality", undefined, "routine", "escalation",
   ]);
 });
 
@@ -167,13 +165,13 @@ it("tries Kimi before local when the routine cloud tier is limited", async () =>
 });
 it("reaches local after all configured cloud tiers exhaust their allowance", async () => {
   questionPreparationCapabilities.mockResolvedValue({ writer: 'codex', reviewer: 'codex', fallbackWriter: 'ollama-cloud', localWriter: 'ollama', cloudTiers: [{tier:'routine'},{tier:'escalation'},{tier:'quality'}] });
-  const call = vi.fn().mockRejectedValueOnce(new Error('Codex usage limit reached'))
-    .mockRejectedValueOnce(new Error('HTTP 429')).mockRejectedValueOnce(new Error('HTTP 402')).mockRejectedValueOnce(new Error('HTTP 402'))
+  const call = vi.fn().mockRejectedValueOnce(new Error('DeepSeek HTTP 429'))
+    .mockRejectedValueOnce(new Error('Codex usage limit reached')).mockRejectedValueOnce(new Error('HTTP 402')).mockRejectedValueOnce(new Error('HTTP 402'))
     .mockResolvedValue({questions:[]});
   const deps = await questionPreparationDeps(call);
   await deps.callAIJSON('system','draft');
   await deps.reviewAIJSON('system','review');
-  expect(call.mock.calls.map(args=>args[6].bridgeBackend)).toEqual(['codex','ollama-cloud','ollama-cloud','ollama-cloud','ollama','ollama']);
+  expect(call.mock.calls.map(args=>args[6].bridgeBackend)).toEqual(['ollama-cloud','codex','ollama-cloud','ollama-cloud','ollama','ollama']);
   expect(deps.isLocalPreparation()).toBe(true);
 });
 

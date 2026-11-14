@@ -135,7 +135,14 @@ export function verifyReasoningReview(review, question, cfg = {}) {
   const steps = Array.isArray(reasoning?.steps) ? reasoning.steps.map(String).map(step => step.trim()).filter(Boolean) : [];
   const quotes = Array.isArray(reasoning?.sourceQuotes) ? reasoning.sourceQuotes.map(String).map(quote => quote.trim()).filter(Boolean) : [];
   const normalize = value => String(value || "").toLowerCase().replace(/\s+/g, " ").trim();
-  const source = normalize([cfg.lectureText || "", ...(cfg.atoms || []).map(atom => `${atom.term || ""} ${atom.content || ""}`)].join(" "));
+  const trustedSchool = (cfg.examples || []).filter(example => example?.factualAuthority === true && example.correct && example.choices?.[example.correct])
+    .map(example => {
+      const answer = example.choices[example.correct];
+      const renderedAnswer = answer && typeof answer === "object"
+        ? Object.entries(answer).map(([key, value]) => `${key}: ${value}`).join("; ") : String(answer);
+      return `${example.stem} Correct answer: ${renderedAnswer}.${example.explanation ? ` ${example.explanation}` : ""}`;
+    });
+  const source = normalize([cfg.lectureText || "", ...(cfg.atoms || []).map(atom => `${atom.term || ""} ${atom.content || ""}`), ...trustedSchool].join(" "));
   const objective = (cfg.objectives || []).find(item => (question.objectiveIds || []).includes(String(item.id || item.code)));
   if(reasoningStructureIssue(reasoning))return null;
   if (!(cfg.reasoningPolicy === "school" && orderLevel === "first-order") && !objectiveOrderProfile(objective || {}).allowed.includes(orderLevel)) return null;
@@ -145,8 +152,11 @@ export function verifyReasoningReview(review, question, cfg = {}) {
   // When the original lecture is available, derived atoms alone cannot certify it.
   // A mistaken atom must not become its own evidence, as in the audited fascia item.
   const lecture = normalize(cfg.lectureText);
-  if (lecture.length >= 150 && supportedQuotes.filter(quote => lecture.includes(quote)).length < quoteFloor) return null;
-  return { status: "verified", version: 2, reviewPolicy: REASONING_REVIEW_POLICY, sourceBasis: supportedQuotes.some(quote => lecture.includes(quote)) ? "lecture" : "facts-only", connectedChain: true, singleEndpoint: true, choiceShortcut: false, orderLevel, steps: steps.slice(0, 6), sourceQuotes: quotes.slice(0, 6) };
+  const school = normalize(trustedSchool.join(" "));
+  if ((lecture.length >= 150 || school.length >= 16) && supportedQuotes.filter(quote => lecture.includes(quote) || school.includes(quote)).length < quoteFloor) return null;
+  const sourceBasis = supportedQuotes.some(quote => lecture.includes(quote)) ? "lecture"
+    : supportedQuotes.some(quote => school.includes(quote)) ? "trusted-school-question" : "facts-only";
+  return { status: "verified", version: 2, reviewPolicy: REASONING_REVIEW_POLICY, sourceBasis, connectedChain: true, singleEndpoint: true, choiceShortcut: false, orderLevel, steps: steps.slice(0, 6), sourceQuotes: quotes.slice(0, 6) };
 }
 
 /** Old saved questions remain stored, but cannot bypass the updated advanced-reasoning gate. */

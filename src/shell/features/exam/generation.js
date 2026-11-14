@@ -228,10 +228,12 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
       }
     }
   }
-  // Local Ollama is intentionally single-flight. Multiple lecture workers burn
-  // their outer deadlines while queued behind the same local model, turning
-  // healthy completions into partial exams.
-  const workerCount = deps.localFallbackAvailable ? 1 : Math.max(1, Math.min(2, Number(deps.prepareConcurrency) || 2));
+  // Only an actively selected local route is single-flight. Merely having
+  // Ollama installed must not serialize DeepSeek/Codex cloud preparation.
+  const activePolicy = deps.preparationPolicy?.() || deps;
+  const workerCount = deps.isLocalPreparation?.() === true
+    ? 1
+    : Math.max(1, Math.min(3, Number(activePolicy.prepareConcurrency) || 3));
   const results = await Promise.allSettled(Array.from({ length: Math.min(workerCount, lectureIds.length) }, worker));
   const failed = results.find(r => r.status === "rejected");
   if (failed) throw failed.reason;

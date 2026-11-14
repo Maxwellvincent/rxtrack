@@ -2,6 +2,14 @@ const START = "SOURCE EVIDENCE CATALOG:\n";
 const END = "\nEND SOURCE EVIDENCE CATALOG";
 const normalize = value => String(value || "").toLowerCase().replace(/\s+/g, " ").trim();
 
+const trustedSchoolRows = cfg => (cfg.examples || []).filter(question => question?.factualAuthority === true
+  && question.correct && question.choices?.[question.correct]).map(question => {
+  const answer = question.choices[question.correct];
+  const renderedAnswer = answer && typeof answer === "object"
+    ? Object.entries(answer).map(([key, value]) => `${key}: ${value}`).join("; ") : String(answer);
+  return `${question.stem} Correct answer: ${renderedAnswer}.${question.explanation ? ` ${question.explanation}` : ""}`.trim();
+});
+
 // Lecture spans must occur in the original text. Extracted facts are labeled
 // separately; retrieval labels and objective-only statements are not evidence.
 export function numberedAuditEvidence(cfg, retrieved) {
@@ -13,8 +21,10 @@ export function numberedAuditEvidence(cfg, retrieved) {
     const text = `${atom.term || ""} ${atom.content || ""}`.trim();
     if (text.length >= 16 && !objectiveTexts.has(normalize(text))) spans.push(text);
   }
+  for (const text of trustedSchoolRows(cfg)) if (text.length >= 16) spans.push(text);
   const unique = [...new Map(spans.map(text => [normalize(text), text])).values()];
-  return START + JSON.stringify(unique.map((text, index) => ({ id: `E${index + 1}`, origin: lecture.includes(normalize(text)) ? "lecture" : "extracted-fact", text }))) + END;
+  const school = new Set(trustedSchoolRows(cfg).map(normalize));
+  return START + JSON.stringify(unique.map((text, index) => ({ id: `E${index + 1}`, origin: lecture.includes(normalize(text)) ? "lecture" : school.has(normalize(text)) ? "trusted-school-question" : "extracted-fact", text }))) + END;
 }
 
 export function resolveAuditEvidence(result, prompt) {

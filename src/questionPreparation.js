@@ -38,7 +38,9 @@ const RECHECK_MS = 15 * 60_000;
 let limitedUntil = 0;
 let limitedAt = 0;
 const cloudLimitErrors = new Map();
-const preparationRequestGate=createRequestGate(()=>Date.now()<limitDeadline()?1:3);
+// Remote reasoning providers can safely prepare separate lecture slots in parallel.
+// Local Ollama retains its own single-flight gate below.
+const preparationRequestGate=createRequestGate(3);
 const localRequestGate=createRequestGate(1);
 
 export function isCodexUsageLimit(error) {
@@ -174,6 +176,19 @@ export async function questionPreparationDeps(callAIJSON) {
       if (localAvailable) return call("ollama").catch(error => { throw exhausted(error); });
       throw exhausted(lastError || [...cloudLimitErrors.values()].at(-1) || new Error("No fallback question model is available."));
     };
+    // DeepSeek quality is the primary lecture-question model when the user's
+    // Ollama Cloud plan advertises it. Codex remains a strong fallback; local
+    // Ollama is last, rather than slowing every request merely by being installed.
+    if (cloudAvailable && cloudTiers.includes("quality") && !(cloudLimitErrors.get("quality")?.retryAt > Date.now())) {
+      try { return await call("ollama-cloud", "quality"); }
+      catch (error) {
+        options.signal?.throwIfAborted();
+        if (capacityKind(error)) cloudLimitErrors.set("quality", Object.assign(error instanceof Error ? error : new Error(String(error)), {
+          retryAt: Math.max(Number(error?.retryAt) || 0, Date.now() + RECHECK_MS),
+        }));
+        else if (!isRetryableQuestionProviderFailure(error)) throw error;
+      }
+    }
     if (!codexAvailable || Date.now() < limitDeadline()) return fallbackCall();
     try { return await call("codex"); }
     catch (error) {
@@ -192,11 +207,16 @@ export async function questionPreparationDeps(callAIJSON) {
     ...QUESTION_PREPARATION_POLICY,
     callAIJSON: routed, reviewAIJSON: routed,
     localFallbackAvailable: localAvailable,
-    preparationPolicy: () => localAvailable && (!codexAvailable || Date.now() < limitDeadline() && cloudTiers.every(tier => cloudLimitErrors.has(tier)) && remoteFallbacks.every(provider => cloudLimitErrors.has(provider))) ? LOCAL_QUESTION_PREPARATION_POLICY : QUESTION_PREPARATION_POLICY,
-    isLocalPreparation: () => localAvailable && (!codexAvailable || Date.now() < limitDeadline()
-      && cloudTiers.every(tier => cloudLimitErrors.has(tier))
-      && remoteFallbacks.every(provider => cloudLimitErrors.has(provider))),
-    ...(Date.now() < limitDeadline() || !codexAvailable ? LOCAL_QUESTION_PREPARATION_POLICY : {}),
+    preparationPolicy: () => localAvailable
+      && (!codexAvailable || Date.now() < limitDeadline())
+      && (!cloudAvailable || cloudTiers.every(tier => cloudLimitErrors.has(tier)))
+      && remoteFallbacks.every(provider => cloudLimitErrors.has(provider))
+      ? LOCAL_QUESTION_PREPARATION_POLICY : QUESTION_PREPARATION_POLICY,
+    isLocalPreparation: () => localAvailable
+      && (!codexAvailable || Date.now() < limitDeadline())
+      && (!cloudAvailable || cloudTiers.every(tier => cloudLimitErrors.has(tier)))
+      && remoteFallbacks.every(provider => cloudLimitErrors.has(provider)),
+    ...(!cloudAvailable && (Date.now() < limitDeadline() || !codexAvailable) ? LOCAL_QUESTION_PREPARATION_POLICY : {}),
     // Allow reviewed replacement waves to finish in the background. Smaller
     // batches reduce per-call output and release verified questions sooner.
     // This is a shared ceiling, not a fresh timeout for each request.

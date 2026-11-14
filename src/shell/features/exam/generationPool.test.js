@@ -11,7 +11,7 @@ const pool = () => ({ history: vi.fn(async () => []), ready: vi.fn(async () => [
 beforeEach(() => { generate.mockReset(); });
 afterEach(() => vi.useRealTimers());
 describe("parallel generation with durable reuse", () => {
-  it("runs exactly two concurrent workers and finishes three delayed lectures in two waves", async () => {
+  it("runs three remote workers concurrently for three lecture slots", async () => {
     vi.useFakeTimers();
     let active = 0, peak = 0, count = 0;
     generate.mockImplementation(async () => {
@@ -22,8 +22,7 @@ describe("parallel generation with durable reuse", () => {
     const result = generateExamQuestions(args);
     await vi.advanceTimersByTimeAsync(100);
     expect(count).toBe(3);
-    expect(peak).toBe(2);
-    await vi.advanceTimersByTimeAsync(100);
+    expect(peak).toBe(3);
     expect((await result).questions).toHaveLength(3);
   });
   it("uses prepared questions without AI and persists newly generated questions", async () => {
@@ -98,7 +97,7 @@ describe("parallel generation with durable reuse", () => {
     const result = generateExamQuestions(args, { requestTimeoutMs: 100 });
     await vi.advanceTimersByTimeAsync(101);
     expect((await result).errors).toHaveLength(3);
-    expect(generate).toHaveBeenCalledTimes(2);
+    expect(generate).toHaveBeenCalledTimes(3);
   });
   it("recognizes older truncated quiz history", () => {
     const stem = "A long clinical vignette containing enough information to identify the original question and its clinical context.";

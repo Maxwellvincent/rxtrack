@@ -12,6 +12,36 @@ export function sourceItemId(question={}) {
  return stableRecordId(JSON.stringify([normalize(question.stem),Object.values(question.choices || {}).map(canonical).sort()]),'source');
 }
 export const emptySourceUse = () => ({version:1,items:{},sources:{}});
+const trustedKinds = new Set(['school','examsoft','esoft','imcq','homework']);
+const unsafeKeyStatuses = new Set(['needs-review','unsupported-by-lecture','stem-mismatch','key-text-conflict','visual-choice-labels-missing']);
+
+/** School-provided keyed banks are factual evidence unless the learner opts out.
+ * Unresolved or visibly conflicting keys never become authority automatically. */
+export function isTrustedFactualSource(question={},registry={}) {
+ const filename=question.sourceFile || question.filename;
+ if(question.factualAuthority===false || registry.sources?.[filename]?.factualAuthority===false)return false;
+ if(unsafeKeyStatuses.has(String(question.sourceKeyReviewStatus || '').toLowerCase()))return false;
+ if(question.answerKeyVerified===false || !question.correct || !question.choices?.[question.correct])return false;
+ const label=normalize(`${question.sourceKind || ''} ${filename || ''}`);
+ return [...trustedKinds].some(kind=>label.includes(kind)) || !question.sourceKind;
+}
+
+export function setSourceFactuality(current,filename,factual=true,at=Date.now()) {
+ if(!String(filename || '').trim())throw new Error('Choose a source file.');
+ const next={...emptySourceUse(),...current,items:{...current?.items},sources:{...current?.sources}};
+ next.sources[filename]={...next.sources[filename],factualAuthority:factual,changedAt:at};
+ return next;
+}
+
+export function trustedSchoolEvidence(examples=[],registry={}) {
+ return examples.filter(question=>isTrustedFactualSource(question,registry)).map(question=>{
+  const answer=question.choices?.[question.correct];
+  const renderedAnswer=answer && typeof answer==='object'
+   ? Object.entries(answer).map(([key,value])=>`${key}: ${value}`).join('; ')
+   : String(answer || '');
+  return `${String(question.stem || '').slice(0,1200)} Correct answer: ${renderedAnswer}.${question.explanation ? ` ${String(question.explanation).slice(0,600)}` : ''}`.trim();
+ });
+}
 export function isEvaluationReserved(question={},registry={}) {
  return question.evaluationReserved===true || registry.items?.[sourceItemId(question)]?.reserved===true
   || registry.sources?.[question.sourceFile || question.filename]?.reserved===true;

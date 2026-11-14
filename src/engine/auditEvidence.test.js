@@ -34,3 +34,10 @@ it('labels an extracted fact separately from an actual lecture span',()=>{
  const prompt=numberedAuditEvidence({lectureText:lecture,atoms:[{term:'Derived label',content:'A derived claim not present in the original lecture.'}]},`[Lecture excerpt 1]\n${lecture}`);
  expect(prompt).toContain('"origin":"lecture"');expect(prompt).toContain('"origin":"extracted-fact"');
 });
+
+it('catalogs an explicitly trusted keyed school question as factual evidence',()=>{
+ const example={factualAuthority:true,sourceKind:'examsoft',stem:'A lesion causes loss of function X.',choices:{A:'Structure Y',B:'Structure Z'},correct:'A',explanation:'Structure Y carries function X.'};
+ const prompt=numberedAuditEvidence({examples:[example]},'');
+ expect(prompt).toContain('"origin":"trusted-school-question"');
+ expect(prompt).toContain('Correct answer: Structure Y');
+});

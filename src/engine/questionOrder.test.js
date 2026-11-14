@@ -82,3 +82,12 @@ it('requires original lecture support when derived atoms disagree with an availa
  expect(verifyReasoningReview({reasoning},question,cfg)).toBeNull();
  expect(verifyReasoningReview({reasoning:{...reasoning,sourceQuotes:[source]}},question,cfg)).toMatchObject({status:'verified'});
 });
+
+it('accepts trusted school-question evidence when a learner has not marked it untrusted',()=>{
+ const source='Damage to structure Y causes loss of function X.';
+ const cfg={examples:[{factualAuthority:true,stem:'Which structure is damaged when function X is lost?',choices:{A:'Structure Y',B:'Structure Z'},correct:'A',explanation:source}],objectives:[{id:'o',bloom_level:2}]};
+ const question={objectiveIds:['o']};
+ const reasoning={orderLevel:'second-order',allStepsRequired:true,connectedChain:true,singleEndpoint:true,choiceShortcut:false,steps:['Interpret the lost function','Localize the responsible structure'],sourceQuotes:[source]};
+ expect(verifyReasoningReview({reasoning},question,cfg)).toMatchObject({status:'verified',sourceBasis:'trusted-school-question'});
+ expect(verifyReasoningReview({reasoning},question,{...cfg,examples:cfg.examples.map(example=>({...example,factualAuthority:false}))})).toBeNull();
+});

@@ -1,5 +1,5 @@
 import {describe,it,expect} from 'vitest';
-import {sourceItemId,reserveSource,recordSourceContext,isEvaluationReserved,sourceExposure,allowedGenerationExamples} from './sourceUse.js';
+import {sourceItemId,reserveSource,recordSourceContext,isEvaluationReserved,sourceExposure,allowedGenerationExamples,isTrustedFactualSource,setSourceFactuality,trustedSchoolEvidence} from './sourceUse.js';
 const q={stem:'Which structure transmits this sensory signal?',choices:{A:'First structure',B:'Second structure'},correct:'A',sourceFile:'Homework.pdf'};
 describe('evaluation source boundaries',()=>{
  it('keeps identity across filenames, option relabeling and source-key corrections',()=>{
@@ -34,5 +34,16 @@ describe('evaluation source boundaries',()=>{
  });
  it('stops rather than silently pruning a full registry',()=>{
   expect(()=>recordSourceContext({items:{large:{reserved:true,note:'x'.repeat(860000)}}},[q],1)).toThrow('registry is full');
+ });
+ it('trusts keyed school sources by default and honors explicit factual opt-out',()=>{
+  const school={...q,sourceKind:'homework'};
+  expect(isTrustedFactualSource(school,{})).toBe(true);
+  const optedOut=setSourceFactuality({},q.sourceFile,false,2);
+  expect(isTrustedFactualSource(school,optedOut)).toBe(false);
+  expect(trustedSchoolEvidence([school],optedOut)).toEqual([]);
+ });
+ it('never promotes an unresolved school key to factual authority',()=>{
+  expect(isTrustedFactualSource({...q,sourceKind:'imcq',sourceKeyReviewStatus:'key-text-conflict'},{})).toBe(false);
+  expect(isTrustedFactualSource({...q,sourceKind:'examsoft',correct:null},{})).toBe(false);
  });
 });

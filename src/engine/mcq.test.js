@@ -231,7 +231,8 @@ describe("buildMcqPrompt", () => {
       examples: [{ sourceKind: "supplemental", sourceFile: "Homework Week 2.pdf", stem: "A patient has a pathway defect. What downstream laboratory finding is expected?", choices: { A: "a", B: "b", C: "c", D: "d" }, correct: "A" }],
     });
     expect(prompt).toContain("HOMEWORK PRACTICE REFERENCE");
-    expect(prompt).toContain("not official exam calibration or answer authority");
+    expect(prompt).toContain("trusted keyed homework is also factual evidence");
+    expect(prompt).toContain("unresolved or unkeyed homework remains style-only");
     expect(prompt).toContain("ORDER-OF-REASONING BLUEPRINT");
   });
   it("asks for strict JSON with the questions shape", () => {

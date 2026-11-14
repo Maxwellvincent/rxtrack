@@ -3,7 +3,7 @@ import { prepareLectureQuestionContext } from '../../../engine/lectureQuestionCo
 import * as relationshipsStore from "../../../stores/sourceRelationships.js";
 import {relationshipPages,relationshipTargets,relationshipPrompt,bindReviewedRelationships,validSourceRelationships} from "../../../engine/sourceRelationships.js";
 import * as sourceUseStore from "../../../stores/sourceUse.js";
-import { allowedGenerationExamples, isEvaluationReserved } from "../../../engine/sourceUse.js";
+import { allowedGenerationExamples, isEvaluationReserved, isTrustedFactualSource } from "../../../engine/sourceUse.js";
 import {normAtomKey} from '../../../engine/atomNorm.js';
 import {linkedConceptPlan, linkedConceptInstruction, attributeLinkedConcept, objectivesWithConceptGaps} from '../../../engine/linkedConceptCoverage.js';
 import { learningFocus } from "../../../engine/learningLoop.js";
@@ -216,7 +216,8 @@ function readExemplarsFromRegistry(banks,meta,userId) {
   const registry=sourceUseStore.read(userId);
   if(!sourceUseStore.isHydrated(userId) || sourceUseStore.readError(userId)) return [];
   return selectExemplarsForBlock(banks,meta).map(question=>({...question,
-    evaluationReserved:isEvaluationReserved(question,registry), _trackSourceUse:true})).filter(question=>!question.evaluationReserved);
+    evaluationReserved:isEvaluationReserved(question,registry),
+    factualAuthority:isTrustedFactualSource(question,registry), _trackSourceUse:true})).filter(question=>!question.evaluationReserved);
 }
 
 /**
@@ -247,7 +248,7 @@ export function selectExemplarsForBlock(banks = {}, _meta = {}, _blockId = null,
         };
       })
   );
-  return sourceUse ? allowedGenerationExamples(rows,sourceUse).map(question=>({...question,_trackSourceUse:true})) : rows;
+  return sourceUse ? allowedGenerationExamples(rows,sourceUse).map(question=>({...question,factualAuthority:isTrustedFactualSource(question,sourceUse),_trackSourceUse:true})) : rows;
 }
 
 /**
