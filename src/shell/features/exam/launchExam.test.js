@@ -123,7 +123,7 @@ describe("launchExamSession", () => {
     generateExamQuestionsMock.mockResolvedValue({ questions: [makeQuestion("q1", "lec-1")], errors: [] });
     const result = await launchExamSession({ ...BASE_ARGS, questionCount: 1, prepareOnly: true }, { callAIJSON: rawAI });
     expect(result.ok).toBe(true);
-    expect(questionPreparationDepsMock).toHaveBeenCalledWith(rawAI);
+    expect(questionPreparationDepsMock).toHaveBeenCalledWith(rawAI, { allowCodexFallback: false });
     expect(generateExamQuestionsMock.mock.calls[0][1]).toMatchObject({
       callAIJSON: expect.any(Function),
       reviewAIJSON: expect.any(Function),

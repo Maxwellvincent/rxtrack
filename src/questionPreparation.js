@@ -74,7 +74,7 @@ export function resetQuestionProviderLimit() {
 // Codex writes and independently reviews by default. A genuine usage-limit
 // response switches both requests together. Local Ollama remains available when
 // both subscription and cloud capacity are exhausted; all reviews still run.
-export async function questionPreparationDeps(callAIJSON) {
+export async function questionPreparationDeps(callAIJSON, { allowCodexFallback = true } = {}) {
   const capability = await questionPreparationCapabilities();
   let recordedAt=limitedAt;
   try {recordedAt=Math.max(recordedAt,Number(localStorage.getItem(LIMIT_AT_KEY)) || 0);}catch{/* optional local storage */}
@@ -189,6 +189,10 @@ export async function questionPreparationDeps(callAIJSON) {
         else if (!isRetryableQuestionProviderFailure(error)) throw error;
       }
     }
+    // Exam preparation can explicitly isolate the user's Codex development
+    // quota. With Ollama Cloud configured, stay on its named tiers and then
+    // local Ollama instead of silently consuming Codex after a cloud failure.
+    if (cloudAvailable && !allowCodexFallback) return fallbackCall();
     if (!codexAvailable || Date.now() < limitDeadline()) return fallbackCall();
     try { return await call("codex"); }
     catch (error) {

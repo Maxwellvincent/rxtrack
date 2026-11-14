@@ -90,7 +90,7 @@ async function runLaunch(
   // Resolve the dedicated preparation route once for this launch and reuse it
   // for every draft, blind solve, review and repair request.
   const preparationDeps = !savedOnly && deps.callAIJSON && !deps.preparationPolicy
-    ? { ...deps, ...await questionPreparationDeps(deps.callAIJSON) }
+    ? { ...deps, ...await questionPreparationDeps(deps.callAIJSON, { allowCodexFallback: false }) }
     : deps;
   const registry=sourceUseStore.read(userId);
   schoolBanks = sourceUseStore.isHydrated(userId) && !sourceUseStore.readError(userId)

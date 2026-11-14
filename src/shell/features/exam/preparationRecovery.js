@@ -44,7 +44,7 @@ export async function recoverExamPreparation({ session, userId, pool, generate, 
       let result;
       try {
         const preparation = context.preparationPolicy || !context.callAIJSON
-          ? context : { ...context, ...await questionPreparationDeps(context.callAIJSON) };
+          ? context : { ...context, ...await questionPreparationDeps(context.callAIJSON, { allowCodexFallback: false }) };
         result = await generate({ ...context, ...claimed.fillPlan, allocation, userId, blockId: claimed.blockId, generationId: claimed.sessionId }, {
         ...preparation, pool,
         onProgress: progress => { report(progress.message); reportJob(progress.message); void pool.reportSessionFillProgress(session.sessionId, progress).catch(() => {}); },
