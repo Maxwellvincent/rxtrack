@@ -1,18 +1,37 @@
 import {isIndependentAttempt} from '../engine/practiceAssistance.js';
 import { excludedEvidenceKeys } from "../engine/questionScoringPolicy.js";
-import { readCloud, subscribeToCloudStore, writeCloud, writeCloudAwait, updateCloudAwait, isHydrated as cloudIsHydrated, readError as cloudReadError } from "./cloudBase.js";
+import { readCloud, subscribeToCloudStore, writeCloud, writeCloudAwait, updateCloudGroupAwait, isHydrated as cloudIsHydrated, readError as cloudReadError } from "./cloudBase.js";
 import { readJson, writeJson } from "./base.js";
 
 import * as questionRatings from "./questionRatings.js";
 
 export const key = "rxt-learner-evidence-v1";
+const SHARD_PREFIX = `${key}-shard-`;
+const MAIN_TARGET_BYTES = 700_000;
+const SHARD_TARGET_BYTES = 600_000;
+const ACTIVE_EVENT_TARGET = 200;
 const fallback = { version: 1, total: 0, correct: 0, objectives: {}, atoms: {}, lectures: {}, sources: {}, taskTypes: {}, orderLevels: {}, testTaking: { reasons: {}, missTypes: {}, diagnosticKeys: [], positionStats: {}, timedAnswers: 0, totalResponseMs: 0, answerChanges: 0 } };
 
 const projectionCache=new WeakMap();
+const combinedStorageCache=new WeakMap();
+const optimisticEvidence=new Map();
 const emptyRatings={};
 
+const shardKeys = stored => (stored?.evidenceShards || []).map(shard => shard.key).filter(Boolean);
+const byteSize = value => new TextEncoder().encode(JSON.stringify(value)).length;
+function readStoredEvidence(userId) {
+  const main = userId ? readCloud(userId, key, fallback) || fallback : readJson(userId, key, fallback) || fallback;
+  if (!userId || !main.evidenceShards?.length) return main;
+  const shards = shardKeys(main).map(shardKey => readCloud(userId, shardKey, {version:1,evidenceJournal:[]}));
+  const cached = combinedStorageCache.get(main);
+  if (cached && cached.shards.length === shards.length && cached.shards.every((value, index) => value === shards[index])) return cached.value;
+  const value = {...main,evidenceJournal:[...shards.flatMap(shard => shard?.evidenceJournal || []),...(main.evidenceJournal || [])]};
+  combinedStorageCache.set(main,{shards,value});
+  return value;
+}
+
 export function read(userId) {
-  const stored = userId ? readCloud(userId, key, fallback) || fallback : readJson(userId, key, fallback) || fallback;
+  const stored = (userId && optimisticEvidence.get(userId)?.value) || readStoredEvidence(userId);
   if (!stored.evidenceJournal && !stored.missTypeJournal && !stored.reflectionJournal && !stored.learningNotes) return stored;
   const ratings = questionRatings.read(userId).ratings || emptyRatings;
   const cached=projectionCache.get(stored);
@@ -218,53 +237,79 @@ export function recordReflection(userId, reason, previousReason = null, question
   const next = { ...applyReflection(stored, reason, previousReason),
     reflectionBaseline: stored.reflectionBaseline || stored.testTaking?.reasons || {},
     reflectionJournal: [...(stored.reflectionJournal || []), { reason, previousReason, questionKey, at: Date.now() }] };
+  const optimistic=optimisticEvidence.get(userId);
+  if(optimistic){const current=optimistic.value;optimistic.value={...applyReflection(current,reason,previousReason),reflectionBaseline:current.reflectionBaseline||current.testTaking?.reasons||{},reflectionJournal:[...(current.reflectionJournal||[]),{reason,previousReason,questionKey,at:Date.now()}]};}
   if (userId) writeCloud(userId, key, next);
   else writeJson(userId, key, next);
   return next;
 }
 
 export function recordEvidence(userId, event) {
-  const stored = userId ? readCloud(userId, key, fallback) || fallback : readJson(userId, key, fallback) || fallback;
+  const stored = userId ? read(userId) : readJson(userId, key, fallback) || fallback;
   const baseline = stored.evidenceBaseline || stored;
   const journal = [...(stored.evidenceJournal || []), { ...event, at: event.at || Date.now() }];
   const next = { ...applyEvidence(stored, event), evidenceBaseline: baseline, evidenceJournal: journal };
-  if (userId) writeCloud(userId, key, next);
+  if (userId) {
+    const pending=(optimisticEvidence.get(userId)?.pending||0)+1;
+    optimisticEvidence.set(userId,{value:next,pending});
+    recordEvidenceBatchAwait(userId,[event]).catch(error=>console.warn(`store ${key}: evidence write failed`,error?.message||error)).finally(()=>{
+      const current=optimisticEvidence.get(userId);if(!current)return;
+      current.pending-=1;if(current.pending<=0)optimisticEvidence.delete(userId);
+    });
+  }
   else writeJson(userId, key, next);
   return next;
 }
 
 export async function recordEvidenceBatchAwait(userId, events, { removeEventIds = [] } = {}) {
   if (userId) {
-    readCloud(userId, key, fallback); // Start hydration before replacing any history.
-    if (!cloudIsHydrated(userId, key)) await new Promise((resolve, reject) => {
+    readStoredEvidence(userId); // Start hydration before replacing any history.
+    if (!isHydrated(userId)) await new Promise((resolve, reject) => {
       let off = () => {};
       const timer = setTimeout(() => { off(); reject(new Error("Practice history is still syncing. Please retry Save & exit.")); }, 15000);
       const check = () => {
-        if (!cloudIsHydrated(userId, key)) return;
+        readStoredEvidence(userId);
+        if (!isHydrated(userId)) return;
         clearTimeout(timer); off();
-        const error = cloudReadError(userId, key);
+        const error = readError(userId);
         if (error) reject(error); else resolve();
       };
       off = subscribeToCloudStore(key, check); check();
     });
-    const error = cloudReadError(userId, key);
+    const error = readError(userId);
     if (error) throw error;
   }
-  const rebuild = storedValue => {
+  const rebuild = (storedValue, children = {}) => {
   const stored=storedValue||fallback;
   const baseline = stored.evidenceBaseline || stored;
-  const journal = mergeEvidenceJournal((stored.evidenceJournal || []).filter(event => !removeEventIds.includes(event.eventId)), events);
+  const archived = shardKeys(stored).flatMap(shardKey => children[shardKey]?.evidenceJournal || []);
+  const journal = mergeEvidenceJournal([...archived,...(stored.evidenceJournal || [])].filter(event => !removeEventIds.includes(event.eventId)), events);
   journal.sort((a, b) => (a.at || 0) - (b.at || 0));
   // Rebuild once per checkpoint and write once, even for a long school bank.
   // The same event identity updates an outcome without another attempt.
   const projected = journal.reduce((model, item) => applyEvidence(model, item), baseline);
-  const next = { ...stored, ...projected,
+  const unsharded = { ...stored, ...projected,
     testTaking: { ...projected.testTaking, reasons: stored.testTaking?.reasons || {}, missTypes: stored.testTaking?.missTypes || {}, diagnosticKeys: stored.testTaking?.diagnosticKeys || [] },
     evidenceBaseline: baseline, evidenceJournal: journal };
-  return next;
+  const storedValueForSize = (() => { const value={...unsharded}; for(const field of ['objectives','atoms','lectures','sources','taskTypes','orderLevels','total','correct'])delete value[field]; return value; })();
+  if (byteSize(storedValueForSize) <= MAIN_TARGET_BYTES && !stored.evidenceShards?.length) return {value:unsharded,writes:[]};
+
+  let activeCount=Math.min(ACTIVE_EVENT_TARGET,journal.length);
+  let active=journal.slice(-activeCount);
+  const mainFor = (activeJournal, manifests=[]) => ({...unsharded,evidenceJournal:activeJournal,evidenceShards:manifests});
+  while(activeCount>0 && byteSize((()=>{const value={...mainFor(active)};for(const field of ['objectives','atoms','lectures','sources','taskTypes','orderLevels','total','correct'])delete value[field];return value;})())>MAIN_TARGET_BYTES){activeCount=Math.floor(activeCount/2);active=journal.slice(-activeCount);}
+  const archive=activeCount?journal.slice(0,-activeCount):journal;
+  const chunks=[];let chunk=[];
+  for(const event of archive){const candidate=[...chunk,event];if(chunk.length&&byteSize({version:1,evidenceJournal:candidate})>SHARD_TARGET_BYTES){chunks.push(chunk);chunk=[event];}else chunk=candidate;}
+  if(chunk.length)chunks.push(chunk);
+  const manifests=chunks.map((items,index)=>({key:`${SHARD_PREFIX}${String(index+1).padStart(4,'0')}`,count:items.length,firstAt:items[0]?.at||0,lastAt:items.at(-1)?.at||0}));
+  const writes=chunks.map((items,index)=>({logicalKey:manifests[index].key,value:{version:1,evidenceJournal:items}}));
+  const used=new Set(manifests.map(item=>item.key));
+  for(const oldKey of shardKeys(stored))if(!used.has(oldKey))writes.push({logicalKey:oldKey,value:{version:1,evidenceJournal:[]}});
+  return {value:mainFor(active,manifests),writes};
   };
-  if(userId)return updateCloudAwait(userId,key,rebuild);
-  const next=rebuild(readJson(userId,key,fallback));writeJson(userId,key,next);return next;
+  if(userId)return updateCloudGroupAwait(userId,key,shardKeys,rebuild);
+  const prepared=rebuild(readJson(userId,key,fallback));writeJson(userId,key,prepared.value);return prepared.value;
 }
 
 export function recordEvidenceAwait(userId, event) {
@@ -278,14 +323,18 @@ function projectMissTypes(stored, userId) {
  }
  return model.testTaking.missTypes;
 }
-function recordMissJournal(userId, missType, diagnosticKey) {
- const stored = userId ? readCloud(userId, key, fallback) || fallback : readJson(userId, key, fallback) || fallback;
+function withMissJournal(stored,missType,diagnosticKey) {
  const journal = stored.missTypeJournal || [];
  if (journal.some(event => event.diagnosticKey === diagnosticKey)) return stored;
  return { ...applyMissType(stored, missType, diagnosticKey), missTypeBaseline: stored.missTypeBaseline || stored.testTaking?.missTypes || {}, missTypeJournal: [...journal, { missType, diagnosticKey, at: Date.now() }] };
 }
+function recordMissJournal(userId, missType, diagnosticKey) {
+ const stored = userId ? readCloud(userId, key, fallback) || fallback : readJson(userId, key, fallback) || fallback;
+ return withMissJournal(stored,missType,diagnosticKey);
+}
 export function recordMissType(userId, missType, diagnosticKey) {
   const next = recordMissJournal(userId, missType, diagnosticKey);
+  const optimistic=optimisticEvidence.get(userId);if(optimistic)optimistic.value=withMissJournal(optimistic.value,missType,diagnosticKey);
   if (userId) writeCloud(userId, key, next);
   else writeJson(userId, key, next);
   return next;
@@ -293,6 +342,7 @@ export function recordMissType(userId, missType, diagnosticKey) {
 
 export async function recordMissTypeAwait(userId, missType, diagnosticKey) {
   const next = recordMissJournal(userId, missType, diagnosticKey);
+  const optimistic=optimisticEvidence.get(userId);if(optimistic)optimistic.value=withMissJournal(optimistic.value,missType,diagnosticKey);
   if (userId) await writeCloudAwait(userId, key, next);
   else writeJson(userId, key, next);
   return next;
@@ -312,13 +362,23 @@ export function recordLearningNote(userId, note, {persistAwait=false}={}) {
  const entry={...note,note:text,at:Date.now()};
  const notes=(stored.learningNotes || []).filter(item=>item.questionKey!==entry.questionKey || item.blockId!==entry.blockId);
  const next={...stored,learningNotes:[...notes,entry].slice(-300)};
+ const optimistic=optimisticEvidence.get(userId);if(optimistic){const currentNotes=(optimistic.value.learningNotes||[]).filter(item=>item.questionKey!==entry.questionKey||item.blockId!==entry.blockId);optimistic.value={...optimistic.value,learningNotes:[...currentNotes,entry].slice(-300)};}
  if(userId && persistAwait)return writeCloudAwait(userId,key,next).then(()=>next);
  if(userId) writeCloud(userId,key,next); else writeJson(userId,key,next);
  return next;
 }
 
-export function isHydrated(userId) { return !userId || cloudIsHydrated(userId, key); }
-export function readError(userId) { return userId ? cloudReadError(userId, key) : null; }
+export function isHydrated(userId) {
+ if(!userId)return true;
+ if(!cloudIsHydrated(userId,key))return false;
+ const main=readCloud(userId,key,fallback)||fallback;
+ return shardKeys(main).every(shardKey=>cloudIsHydrated(userId,shardKey));
+}
+export function readError(userId) {
+ if(!userId)return null;
+ const main=readCloud(userId,key,fallback)||fallback;
+ return cloudReadError(userId,key)||shardKeys(main).map(shardKey=>cloudReadError(userId,shardKey)).find(Boolean)||null;
+}
 
 /** Replace an identified legacy event as its key migrates, including an earlier duplicate repair. */
 export function mergeEvidenceJournal(current=[], events=[]) {

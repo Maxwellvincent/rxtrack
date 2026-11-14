@@ -103,6 +103,18 @@ function docRef(userId, logicalKey) {
   return docFn(db, ...docPathFor(userId, logicalKey));
 }
 
+const LEARNER_EVIDENCE_KEY = "rxt-learner-evidence-v1";
+const LEARNER_EVIDENCE_SHARD_PREFIX = `${LEARNER_EVIDENCE_KEY}-shard-`;
+function notifyCloudChange(logicalKey, detail) {
+  notifyStoreChanged(logicalKey, detail);
+  // Learner-evidence consumers subscribe to the logical profile, not every
+  // dynamically created archive shard. Wake that subscription when a shard
+  // hydrates or changes so read() can rebuild the complete journal.
+  if (logicalKey.startsWith(LEARNER_EVIDENCE_SHARD_PREFIX)) {
+    notifyStoreChanged(LEARNER_EVIDENCE_KEY, { ...detail, shardKey: logicalKey });
+  }
+}
+
 function entryFor(userId, logicalKey) {
   const id = cacheKey(userId, logicalKey);
   let entry = entries.get(id);
@@ -193,14 +205,14 @@ export function ensureSubscribed(userId, logicalKey) {
       }
       // A change made on another device has to reach App's copy too.
       mirrorLocally(userId, logicalKey, entry.value);
-      notifyStoreChanged(logicalKey, { userId, source: "firestore" });
+      notifyCloudChange(logicalKey, { userId, source: "firestore" });
     },
     (error) => {
       // Leave the last good value in place; a listener error must not blank the UI.
       entry.error = error;
       entry.hydrated = true;
       console.warn(`store ${logicalKey}: snapshot failed`, error?.message || error);
-      notifyStoreChanged(logicalKey, { userId, source: "firestore-error" });
+      notifyCloudChange(logicalKey, { userId, source: "firestore-error" });
     }
   );
 }
@@ -283,6 +295,37 @@ export async function updateCloudAwait(userId, logicalKey, update) {
   mirrorLocally(userId, logicalKey, value);
   notifyStoreChanged(logicalKey, {userId, source: "confirmed-transaction"});
   return value;
+}
+
+/** Atomic primary-document update with a dynamic set of sibling KV writes.
+ * All reads happen before writes, satisfying Firestore transaction ordering. */
+export async function updateCloudGroupAwait(userId, logicalKey, childKeysFor, update) {
+  if (!userId) throw new Error("Sign in before changing this record.");
+  const {runTransaction: transact, serverTimestamp: stamp} = api();
+  const ref = docRef(userId, logicalKey);
+  const result = await transact(db, async transaction => {
+    const snapshot = await transaction.get(ref);
+    const current = snapshot.exists() ? snapshot.data()?.data : undefined;
+    const childKeys = [...new Set((childKeysFor(current) || []).filter(Boolean))];
+    const childSnapshots = await Promise.all(childKeys.map(key => transaction.get(docRef(userId, key))));
+    const children = Object.fromEntries(childKeys.map((key, index) => [key, childSnapshots[index].exists() ? childSnapshots[index].data()?.data : undefined]));
+    const prepared = update(current, children) || {};
+    const value = stripUndefined(prepared.value);
+    const writes = (prepared.writes || []).map(write => ({ logicalKey: write.logicalKey, value: stripUndefined(write.value) }));
+    transaction.set(ref, {data: evidenceStorageValue(logicalKey, value), updatedAt: stamp()});
+    for (const write of writes) transaction.set(docRef(userId, write.logicalKey), {data: write.value, updatedAt: stamp()});
+    return {value, writes};
+  });
+  for (const write of result.writes) {
+    const child = entryFor(userId, write.logicalKey);
+    child.value = write.value; child.hydrated = true; child.error = null;
+    notifyCloudChange(write.logicalKey, {userId, source: "confirmed-transaction"});
+  }
+  const entry = entryFor(userId, logicalKey);
+  entry.value = result.value; entry.hydrated = true; entry.error = null;
+  mirrorLocally(userId, logicalKey, result.value);
+  notifyCloudChange(logicalKey, {userId, source: "confirmed-transaction"});
+  return result.value;
 }
 
 /** Same change notification channel as the localStorage stores. */
