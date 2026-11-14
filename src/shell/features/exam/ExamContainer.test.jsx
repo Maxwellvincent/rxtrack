@@ -246,7 +246,9 @@ describe("ExamContainer", () => {
       studyMode: "balanced", preparedQuestionIds,
       questions: preparedQuestionIds.map(poolId => ({ poolId })),
     }]);
-    launchExamSessionMock.mockResolvedValue({ ok: true, prepared: 30, generationErrors: [] });
+    launchExamSessionMock
+      .mockResolvedValueOnce({ ok: true, prepared: 18, generationErrors: [], preparedGenerationId: "generation-short", preparedQuestionIds: Array.from({ length: 18 }, (_, index) => `pool-${index}`), preparedAllocation: { "lec-1": 30 } })
+      .mockResolvedValueOnce({ ok: true, prepared: 30, generationErrors: [], preparedGenerationId: "generation-short" });
     const { host, unmount } = render(<ExamContainer blockId="b1" userId="u1" onNavigateToLecture={vi.fn()} />);
     await flush();
     expect(host.textContent).toContain("Nothing is generating until you choose Prepare missing");
@@ -259,6 +261,11 @@ describe("ExamContainer", () => {
       prepareOnly: true, appendToPreparedSet: true, preparedGenerationId: "generation-short",
       preparedQuestionIds, initialPreparedCount: 10, questionCount: 30,
     }), expect.any(Object));
+    expect(launchExamSessionMock).toHaveBeenCalledTimes(2);
+    expect(launchExamSessionMock.mock.calls[1][0]).toMatchObject({
+      prepareOnly: true, appendToPreparedSet: true, preparedGenerationId: "generation-short",
+      initialPreparedCount: 18, questionCount: 30, preparedAllocation: { "lec-1": 30 },
+    });
     expect(host.querySelector('[data-testid="session-runner"]')).toBeNull();
     unmount();
   });

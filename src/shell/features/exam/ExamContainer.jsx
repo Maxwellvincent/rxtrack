@@ -581,23 +581,44 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
     setShowLaunchModal(false);
     startBackgroundJob({ label: "Preparing exam questions", detail: "Checking saved questions…",
       run: async report => {
-        const result = await launchExamSession({ userId, blockId, ...config, prepareOnly: true,
-          eligibleLectures: scopedLectures, objectivesByLecture: scopedObjectives, atomsByLecture, lecturesById, lectures,
-          ...(config.blueprintExam ? {...blueprintContext,schoolBanks:allBlueprintBanks()} : {}),
-          weakConceptAccuracyByLecture, weakConcepts },
-          { callAIJSON, onProgress: p => {
-            const target = Number(p.total) || Number(config.questionCount) || 0;
-            const confirmed = Number(p.completed) || 0;
-            const initialMissing = Math.max(0, target - (Number(config.initialPreparedCount) || 0));
-            report(config.appendToPreparedSet
-              ? `Preparing ${initialMissing} missing · ${confirmed}/${target} total set confirmed · ${p.message}`
-              : `${confirmed}/${target} ready · ${p.message}`);
-          } });
-        if (!result.ok) throw new Error(result.error);
+        const target = Number(config.questionCount) || 0;
+        let result = null;
+        let passConfig = { ...config };
+        let previousPrepared = Math.max(0, Number(config.initialPreparedCount) || 0);
+        let stalledPasses = 0;
+        // One explicit Prepare request owns the whole requested set. Continue
+        // bounded refill waves automatically instead of making the learner
+        // return to the dashboard and press another button after every wave.
+        for (let pass = 0; pass < 5 && previousPrepared < target; pass += 1) {
+          result = await launchExamSession({ userId, blockId, ...passConfig, prepareOnly: true,
+            eligibleLectures: scopedLectures, objectivesByLecture: scopedObjectives, atomsByLecture, lecturesById, lectures,
+            ...(passConfig.blueprintExam ? {...blueprintContext,schoolBanks:allBlueprintBanks()} : {}),
+            weakConceptAccuracyByLecture, weakConcepts },
+            { callAIJSON, onProgress: p => {
+              const confirmed = Number(p.completed) || 0;
+              report(`${Math.max(previousPrepared, confirmed)}/${target} ready · ${p.message}`);
+            } });
+          if (!result.ok) throw new Error(result.error);
+          const prepared = Math.max(previousPrepared, Number(result.prepared) || 0);
+          report(`${prepared}/${target} ready${prepared < target ? " · continuing automatically" : ""}`);
+          stalledPasses = prepared > previousPrepared ? 0 : stalledPasses + 1;
+          previousPrepared = prepared;
+          if (prepared >= target || stalledPasses >= 2) break;
+          passConfig = {
+            ...config,
+            preparedGenerationId: result.preparedGenerationId,
+            preparedQuestionIds: result.preparedQuestionIds,
+            preparedAllocation: result.preparedAllocation,
+            appendToPreparedSet: true,
+            initialPreparedCount: prepared,
+          };
+        }
+        if (!result) throw new Error("Question preparation did not start.");
         setGenerationCoverage(result.coverage || null);
         await refreshQuestionReserve();
         await refreshPreparedSets();
-        return `${result.prepared}/${config.questionCount} questions prepared. This named set is saved below and will still be there after reload.${result.generationErrors?.length ? " The saved set will report and fill any shortfall when you start it." : ""}`;
+        if (previousPrepared < target) throw new Error(`${previousPrepared}/${target} questions are safely saved. Preparation stopped after two refill waves made no progress; the timer has not started.`);
+        return `${target}/${target} questions prepared. This named set is saved below and will still be there after reload.`;
       },
     });
   };

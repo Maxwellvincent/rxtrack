@@ -256,7 +256,16 @@ async function runLaunch(
     };
   }
 
-  if (prepareOnly) return { ok: true, prepared: questions.length, cacheHits, generationErrors, coverage };
+  if (prepareOnly) return {
+    ok: true,
+    prepared: questions.length,
+    cacheHits,
+    generationErrors,
+    coverage,
+    preparedGenerationId: preparedGenerationId || sessionId,
+    preparedQuestionIds: (questions || []).map(question => question.poolId).filter(Boolean).slice(0, questionCount),
+    preparedAllocation: allocation,
+  };
   if (format === "exam" && questions.length < questionCount) {
     return {
       ok: false,
