@@ -876,7 +876,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
                 </div>
               </div>}
               {set.assignedCount > 0 && <div className="text-xs text-text-3">Starting will create a separately named attempt and fill the remaining {Math.max(0, requested - available)} slots from unused reserve questions or generation. The original set’s name and question list will not be changed.</div>}
-              {actualShortfall > 0 && <div className="text-xs text-warn">{actualShortfall} question{actualShortfall === 1 ? "" : "s"} short of the requested set; missing questions will be generated when started.</div>}
+              {actualShortfall > 0 && <div className="text-xs text-warn">{actualShortfall} question{actualShortfall === 1 ? "" : "s"} still need preparation. Nothing is generating until you choose Prepare missing.</div>}
               {confirmDeleteSetId === set.id && <div className="mt-2 rounded border border-bad/40 bg-bg-elevated p-2 text-sm text-text-2">
                 Remove this saved set and its {available} still-unused question{available === 1 ? "" : "s"}? Questions already assigned to an exam will be kept.
                 <div className="mt-2 flex flex-wrap gap-2">
@@ -887,7 +887,21 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
             </div>
             <div className="flex flex-wrap gap-2">
             <button type="button" disabled={savingPreparedSet || deletingSet} onClick={() => editingPreparedSetId === set.id ? (setEditingPreparedSetId(null), setPreparedSetDraft(null)) : editPreparedSet(set)} className="rounded-lg border border-border px-3 py-2 text-sm font-semibold text-text-2 hover:bg-bg-elevated disabled:opacity-50">{editingPreparedSetId === set.id ? "Close editor" : "Edit"}</button>
-            <Button disabled={launching || !available} onClick={() => handleLaunch({
+            {actualShortfall > 0 ? <Button disabled={launching} onClick={() => prepareQuestions({
+              blueprintExam: set.blueprintExam || null,
+              format: set.format || "exam",
+              questionCount: requested,
+              durationMinutes: Number(set.durationMinutes) || 45,
+              contentScope: set.contentScope || "block-so-far",
+              studyMode: set.studyMode || "balanced",
+              difficultyOverride: set.difficultyOverride || null,
+              focusNotes: set.focusNotes || "",
+              weekNumber: set.weekNumber ?? null,
+              examName: set.examName || "Integrated exam",
+              preparedGenerationId: set.id,
+              preparedQuestionIds: set.preparedQuestionIds || set.questions.map((question) => question.poolId),
+              appendToPreparedSet: true,
+            })}>Prepare missing {actualShortfall}</Button> : <Button disabled={launching || !available} onClick={() => handleLaunch({
               blueprintExam: set.blueprintExam || null,
               format: set.format || "exam",
               questionCount: requested,
@@ -902,7 +916,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
               preparedGenerationId: set.id,
               preparedQuestionIds: set.preparedQuestionIds || set.questions.map((question) => question.poolId),
               startWhilePreparing: true,
-            })}>Start this {requested}-question set</Button>
+            })}>Start this {requested}-question set</Button>}
             <button type="button" disabled={deletingSet} onClick={() => { setDeleteSetError(null); setConfirmDeleteSetId(confirmDeleteSetId === set.id ? null : set.id); }} className="rounded-lg border border-bad/40 px-3 py-2 text-sm font-semibold text-bad hover:bg-bad/5 disabled:opacity-50">Delete</button>
             </div>
           </li>;

@@ -19,10 +19,10 @@ it("limits a follow-up to six practiced unresolved objectives and prioritizes cu
  expect(shortRetestPlan(extra,{},[]).count).toBe(0);
 });
 it("targets observed choice contrasts and explicit notes only within the requested curriculum",()=>{
- const context=questionLearningContext({topic:"Nerve exits",choices:{A:"Foramen ovale",B:"Foramen rotundum"},correct:"B"},"A");
+ const context=questionLearningContext({stem:"A facial sensory deficit localizes to which nerve exit?",topic:"Nerve exits",choices:{A:"Foramen ovale",B:"Foramen rotundum"},correct:"B"},"A");
  const state={learningJournal:[{objectiveIds:["o0"],blockId:"NB",questionKey:"q",correct:false,learningContext:context},{objectiveIds:["other"],correct:false,learningContext:{selected:"Private unrelated",keyed:"other"}}],learningNotes:[{objectiveIds:["o0"],note:"I confuse V2 and V3"}]};
  const focus=learningFocus({objectives,evidence:state,blockId:"NB"});
- expect(focus).toContain("Foramen ovale");expect(focus).toContain("I confuse V2 and V3");expect(focus).not.toContain("Private unrelated");
+ expect(focus).toContain("Foramen ovale");expect(focus).toContain("facial sensory deficit");expect(focus).toContain("reversing the supported endpoint");expect(focus).toContain("I confuse V2 and V3");expect(focus).not.toContain("Private unrelated");
  expect(focus).toContain("not medical authority");
  expect(learningFocus({objectives,evidence:{learningJournal:[],evidenceJournal:state.learningJournal}})).toBe("");
 });

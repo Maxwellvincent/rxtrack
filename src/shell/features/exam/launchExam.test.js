@@ -224,6 +224,20 @@ describe("launchExamSession", () => {
     expect(createExamSessionMock).not.toHaveBeenCalled();
   });
 
+  it("fills an existing prepared set without creating or starting an exam", async () => {
+    const existing = { ...makeQuestion("saved", "lec-1"), poolId: "pool-saved", poolBucket: "old" };
+    const fresh = { ...makeQuestion("fresh", "lec-1"), poolId: "pool-fresh", poolBucket: "new" };
+    generateExamQuestionsMock.mockResolvedValue({ questions: [existing, fresh], errors: [] });
+    const result = await launchExamSession({ ...BASE_ARGS, questionCount: 2, prepareOnly: true,
+      appendToPreparedSet: true, preparedGenerationId: "prepared-1", preparedQuestionIds: ["pool-saved"] });
+    expect(result).toMatchObject({ ok: true, prepared: 2 });
+    expect(generateExamQuestionsMock.mock.calls[0][0]).toMatchObject({
+      preparedGenerationId: "prepared-1", preparedQuestionIds: ["pool-saved"],
+    });
+    expect(addPreparedQuestionsMock).toHaveBeenCalledWith("prepared-1", [existing, fresh]);
+    expect(createExamSessionMock).not.toHaveBeenCalled();
+  });
+
   it("opens immediately with saved questions and fills missing slots asynchronously", async () => {
     const saved = { ...makeQuestion("saved", "lec-1"), poolId: "pool-saved", poolBucket: "old" };
     const fresh = { ...makeQuestion("fresh", "lec-1"), poolId: "pool-fresh", poolBucket: "new" };

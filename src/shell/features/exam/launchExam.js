@@ -81,6 +81,7 @@ async function runLaunch(
     weekNumber = null,
     preparedGenerationId = null,
     preparedQuestionIds = [],
+    appendToPreparedSet = false,
   },
   deps = {}
 ) {
@@ -100,7 +101,7 @@ async function runLaunch(
   deps.onProgress?.({ message: "Checking exam storage access…", completed: 0 });
   await checkExamAccess(userId);
   const pool = deps.pool || createQuestionPool(userId, blockId);
-  await pool.begin(sessionId, { requestedCount: questionCount, prepareOnly, examName, contentScope: resolvedContentScope, format, durationMinutes, studyMode, difficultyOverride, focusNotes, weekNumber, ...(blueprintExam ? { blueprintExam } : {}) });
+  await pool.begin(sessionId, { requestedCount: questionCount, prepareOnly: prepareOnly && !appendToPreparedSet, examName, contentScope: resolvedContentScope, format, durationMinutes, studyMode, difficultyOverride, focusNotes, weekNumber, ...(blueprintExam ? { blueprintExam } : {}) });
   const startedGenerationAt = Date.now();
   try {
 
@@ -226,14 +227,19 @@ async function runLaunch(
       studyMode,
       difficultyOverride,
       focusNotes: adaptiveFocusNotes,
+      preparedGenerationId,
+      preparedQuestionIds,
     },
     { ...preparationDeps, pool, savedOnly }
   );
 
+  if (appendToPreparedSet && preparedGenerationId && questions?.length) {
+    await pool.addPreparedQuestions(preparedGenerationId, questions);
+  }
   await pool.finish(sessionId, { status: "complete", readyCount: questions?.length || 0,
     cacheHits, durationMs: Date.now() - startedGenerationAt, errors: generationErrors,
     questionIds: (questions || []).map(q => q.poolId).filter(Boolean),
-    ...(prepareOnly ? { preparedQuestionIds: (questions || []).map(q => q.poolId).filter(Boolean) } : {}) });
+    ...(prepareOnly && !appendToPreparedSet ? { preparedQuestionIds: (questions || []).map(q => q.poolId).filter(Boolean) } : {}) });
 
   if (!questions || questions.length === 0) {
     return {

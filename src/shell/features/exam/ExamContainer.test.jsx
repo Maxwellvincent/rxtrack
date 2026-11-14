@@ -236,11 +236,36 @@ describe("ExamContainer", () => {
     unmount();
   });
 
+  it("prepares a saved set's missing questions explicitly without starting its timer", async () => {
+    const preparedQuestionIds = Array.from({ length: 10 }, (_, index) => `pool-${index}`);
+    poolPreparedSetsMock.mockResolvedValue([{
+      id: "generation-short", prepareOnly: true, examName: "BPM 2 Test 4", format: "exam",
+      requestedCount: 30, preparedCount: 10, durationMinutes: 45, contentScope: "entire-block",
+      studyMode: "balanced", preparedQuestionIds,
+      questions: preparedQuestionIds.map(poolId => ({ poolId })),
+    }]);
+    launchExamSessionMock.mockResolvedValue({ ok: true, prepared: 30, generationErrors: [] });
+    const { host, unmount } = render(<ExamContainer blockId="b1" userId="u1" onNavigateToLecture={vi.fn()} />);
+    await flush();
+    expect(host.textContent).toContain("Nothing is generating until you choose Prepare missing");
+    const prepare = Array.from(host.querySelectorAll("button")).find(button => button.textContent === "Prepare missing 20");
+    expect(prepare).toBeTruthy();
+    expect(Array.from(host.querySelectorAll("button")).some(button => button.textContent.includes("Start this 30-question set"))).toBe(false);
+    await act(async () => prepare.click());
+    await flush();
+    expect(launchExamSessionMock).toHaveBeenCalledWith(expect.objectContaining({
+      prepareOnly: true, appendToPreparedSet: true, preparedGenerationId: "generation-short",
+      preparedQuestionIds, questionCount: 30,
+    }), expect.any(Object));
+    expect(host.querySelector('[data-testid="session-runner"]')).toBeNull();
+    unmount();
+  });
+
   it("gives a partially-used named set a distinct title when replacement questions are generated", async () => {
     const preparedQuestionIds = Array.from({ length: 20 }, (_, index) => `pool-${index}`);
     poolPreparedSetsMock.mockResolvedValue([{
       id: "generation-used", prepareOnly: true, examName: "Exam 1", format: "exam",
-      requestedCount: 20, assignedCount: 14, preparedQuestionIds,
+      requestedCount: 20, preparedCount: 20, assignedCount: 14, preparedQuestionIds,
       questions: preparedQuestionIds.slice(14).map(poolId => ({ poolId })),
     }]);
     listExamSessionsMock.mockResolvedValue([{ title: "Exam 1", status: "submitted" }]);
