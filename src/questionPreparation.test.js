@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 vi.mock("./llmBridge.js", () => ({ questionPreparationCapabilities: vi.fn() }));
 import { withQuestionAIRouting } from "./engine/mcq.js";
 import { questionPreparationCapabilities } from "./llmBridge.js";
-import { questionPreparationDeps, questionPreparationStatus, questionPreparationBudget, resetQuestionProviderLimit, QUESTION_PREPARATION_BUDGET_MS } from "./questionPreparation.js";
+import { questionPreparationDeps, questionPreparationStatus, questionPreparationBudget, resetQuestionProviderLimit, QUESTION_PREPARATION_BUDGET_MS, QUESTION_PREPARATION_POLICY } from "./questionPreparation.js";
 
 beforeEach(() => { resetQuestionProviderLimit(); questionPreparationCapabilities.mockResolvedValue({ writer: "ollama-cloud", reviewer: "codex" }); });
 afterEach(() => { vi.useRealTimers(); });
@@ -33,6 +33,9 @@ describe("question preparation routing", () => {
     expect(deps.prepareBatchSize).toBe(5);
     expect(deps.prepareConcurrency).toBe(3);
     expect(deps.releaseVerifiedFirst).toBe(true);
+    expect(deps.parallelIndependentReview).toBe(true);
+    expect(deps.blindSourceReview).toBe(false);
+    expect(QUESTION_PREPARATION_POLICY.blindSourceReview).toBe(false);
     expect(deps.maxPreparationMs).toBe(QUESTION_PREPARATION_BUDGET_MS);
     expect(QUESTION_PREPARATION_BUDGET_MS).toBe(600000);
   });

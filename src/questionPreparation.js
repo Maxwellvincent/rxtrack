@@ -17,7 +17,14 @@ export const QUESTION_PREPARATION_POLICY = Object.freeze({
   starterBatchSize: 5,
   parallelIndependentReview: true,
   releaseVerifiedFirst: true,
-  blindSourceReview: true,
+  // Keep the key-hidden solve and the source/objective audit as separate
+  // independent calls. The combined one-call review requires a full rewritten
+  // rationale for every option and repeatedly rejected entire sound batches
+  // when one compact field was missing, leaving Weak Concepts at 0/5. The
+  // standard path still fails closed on key mismatch, unsupported evidence,
+  // ambiguity, objective mismatch, or insufficient reasoning, and can repair a
+  // rejected draft before the next refill.
+  blindSourceReview: false,
   prepareSpareCandidates: 0,
   continueAfterEmptyRounds: true,
   maxEmptyRounds: 3,
