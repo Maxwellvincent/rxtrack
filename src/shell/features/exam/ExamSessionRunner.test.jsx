@@ -59,6 +59,7 @@ function baseController(overrides = {}) {
     submitting: false,
     submitResult: null,
     answerQuestion: vi.fn(() => true),
+    setEliminatedChoices: vi.fn(() => true),
     startExam: vi.fn(async () => ({ status: "in_progress" })),
     submit: vi.fn(async () => ({ ok: true })),
     abandon: vi.fn(async () => ({ status: "abandoned" })),
@@ -347,9 +348,20 @@ describe("ExamSessionRunner", () => {
     const cross = host.querySelector('[aria-label="Cross out choice B"]');
     act(() => cross.click());
     expect(host.querySelector('[aria-label="Restore choice B"]')).toBeTruthy();
+    expect(controller.setEliminatedChoices).toHaveBeenCalledWith("q1", ["B"]);
     expect(controller.answerQuestion).not.toHaveBeenCalled();
     act(() => host.querySelector('[aria-label="Restore choice B"]').click());
     expect(host.querySelector('[aria-label="Cross out choice B"]')).toBeTruthy();
+    unmount();
+  });
+
+  it("shows saved eliminations in submitted review", () => {
+    const controller = baseController({session:{...baseController().session,status:"submitted",questions:[makeQuestion("q1","A")],answers:[{questionId:"q1",value:"B",eliminatedChoices:["A","C"]}]}});
+    controller.session.questions[0].choices.C = "Choice C";
+    controllerMock.mockReturnValue(controller);
+    const { host, unmount } = render(<ExamSessionRunner sessionId="s1" userId="u1" />);
+    expect([...host.querySelectorAll("button")].find(button => button.textContent.includes("Choice A"))?.textContent).toContain("ELIMINATED");
+    expect([...host.querySelectorAll("button")].find(button => button.textContent.includes("Choice C"))?.textContent).toContain("ELIMINATED");
     unmount();
   });
 

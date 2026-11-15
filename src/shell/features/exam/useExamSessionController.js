@@ -310,7 +310,9 @@ export function useExamSessionController(sessionId, userId) {
       // "pending" forever.
       if (autosaveStoppedRef.current) return false;
 
+      const existingAnswer = session.answers?.find((a) => a.questionId === questionId);
       const answer = {
+        ...existingAnswer,
         questionId,
         value,
         ...(session.format === "practice" ? { revealed: options.revealed ?? true } : {}),
@@ -318,14 +320,12 @@ export function useExamSessionController(sessionId, userId) {
         seq: seqRef.current++,
         writerId: writerIdRef.current,
         responseMs: (() => {
-          const existing = session.answers?.find((a) => a.questionId === questionId);
-          if (Number.isFinite(existing?.responseMs)) return existing.responseMs;
+          if (Number.isFinite(existingAnswer?.responseMs)) return existingAnswer.responseMs;
           const firstSeen = firstSeenAtRef.current.get(questionId);
           return firstSeen ? Math.max(0, Date.now() - firstSeen) : null;
         })(),
         answerChanges: (() => {
-          const existing = session.answers?.find((a) => a.questionId === questionId);
-          return (existing?.answerChanges || 0) + (existing && existing.value !== value ? 1 : 0);
+          return (existingAnswer?.answerChanges || 0) + (existingAnswer && existingAnswer.value !== value ? 1 : 0);
         })(),
       };
 
@@ -364,6 +364,42 @@ export function useExamSessionController(sessionId, userId) {
     [session, remainingMs, userId, sessionId]
   );
 
+  const setEliminatedChoices = useCallback((questionId, letters = []) => {
+    const currentSession = sessionRef.current;
+    if (!currentSession || currentSession.status !== "in_progress" || autosaveStoppedRef.current) return false;
+    if (currentSession.format === "exam" && (currentSession.startedAt == null || currentSession.deadline == null || (remainingMs != null && remainingMs <= 0))) return false;
+    const question = currentSession.questions?.find(item => item.questionId === questionId);
+    if (!question) return false;
+    const eliminatedChoices = [...new Set(letters)].filter(letter => Object.hasOwn(question.choices || {}, letter)).sort();
+    const existing = currentSession.answers?.find(answer => answer.questionId === questionId);
+    const answer = {
+      ...existing,
+      questionId,
+      value: existing?.value ?? null,
+      eliminatedChoices,
+      answeredAt: Date.now(),
+      seq: seqRef.current++,
+      writerId: writerIdRef.current,
+    };
+    sessionRef.current = { ...currentSession, answers: mergeAnswer(currentSession.answers, answer) };
+    setSession(previous => previous ? { ...previous, answers: mergeAnswer(previous.answers, answer) } : previous);
+    setSyncStatus("pending");
+    updateExamSessionTransaction(userId, sessionId, current => current?.status === "in_progress"
+      ? { ...normalizeSessionSchoolChoices(current), answers: mergeAnswer(current.answers, answer) }
+      : null)
+      .then(result => {
+        if (!mountedRef.current) return;
+        if (!result || result.status !== "in_progress") {
+          autosaveStoppedRef.current = true;
+          setSyncStatus("stopped");
+          return;
+        }
+        setSyncStatus("synced");
+      })
+      .catch(() => { if (mountedRef.current) setSyncStatus("error"); });
+    return true;
+  }, [remainingMs, userId, sessionId]);
+
   // in_progress -> abandoned. Never calls finalizeExamSession — an abandoned
   // session must never enter finalization.
   const abandon = useCallback(async () => {
@@ -394,6 +430,7 @@ export function useExamSessionController(sessionId, userId) {
     submitting,
     submitResult,
     answerQuestion,
+    setEliminatedChoices,
     submit,
     abandon,
     refetch: load,

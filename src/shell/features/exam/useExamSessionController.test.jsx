@@ -326,6 +326,25 @@ describe("useExamSessionController", () => {
   });
 
   describe("answerQuestion", () => {
+    it("persists eliminated choices and keeps them when an answer is selected", async () => {
+      let stored = makeSession();
+      getExamSessionMock.mockResolvedValue(stored);
+      updateExamSessionTransactionMock.mockImplementation(async (_userId, _sessionId, updateFn) => {
+        stored = updateFn(stored) || stored;
+        return stored;
+      });
+      const probe = mountController(SESSION_ID, USER);
+      await probe.render();
+
+      await act(async () => { probe.get().setEliminatedChoices("q1", ["B"]); await Promise.resolve(); });
+      expect(probe.get().session.answers).toEqual([expect.objectContaining({questionId:"q1",value:null,eliminatedChoices:["B"]})]);
+
+      await act(async () => { probe.get().answerQuestion("q1", "A"); await Promise.resolve(); });
+      expect(probe.get().session.answers).toEqual([expect.objectContaining({questionId:"q1",value:"A",eliminatedChoices:["B"]})]);
+      expect(stored.answers).toEqual([expect.objectContaining({questionId:"q1",value:"A",eliminatedChoices:["B"]})]);
+      probe.unmount();
+    });
+
     it("keeps timed questions locked while the set is still generating", async () => {
       const session = makeSession({ deadline: null, startedAt: null, fillStatus: "generating", targetQuestionCount: 5 });
       getExamSessionMock.mockResolvedValue(session);

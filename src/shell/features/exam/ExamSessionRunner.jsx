@@ -253,13 +253,16 @@ function SyncIndicator({ status }) {
 function ChoiceList({questionId,...props}) {
   return <QuestionChoices key={questionId} {...props}/>;
 }
-function QuestionChoices({ choices, picked, revealed, correct, onPick, locked = false, choiceColumns = [], choiceLayout = null }) {
-  const [crossed, setCrossed] = useState(new Set());
+function QuestionChoices({ choices, picked, revealed, correct, onPick, onCrossedChange, crossedChoices = [], locked = false, choiceColumns = [], choiceLayout = null }) {
+  const [crossed, setCrossed] = useState(() => new Set(crossedChoices));
+  const crossedKey = crossedChoices.join("|");
+  useEffect(() => setCrossed(new Set(crossedChoices)), [crossedKey]); // eslint-disable-line react-hooks/exhaustive-deps -- key represents the complete ordered letter set
   return (
     <div className="flex flex-col gap-1.5">
       {orderedChoiceEntries(choices).map(([letter, text]) => {
         const isPicked = picked === letter;
-        const isCrossed = !revealed && crossed.has(letter);
+        const wasEliminated = crossed.has(letter);
+        const isCrossed = !revealed && wasEliminated;
         const stateCls = !revealed
           ? isPicked
             ? "border-accent bg-accent/15 ring-2 ring-accent/30"
@@ -278,7 +281,7 @@ function QuestionChoices({ choices, picked, revealed, correct, onPick, locked = 
             aria-pressed={isPicked}
             className={
               "flex min-w-0 flex-1 items-center gap-3 px-3 py-2.5 text-left text-sm text-text-1 " +
-              (isCrossed ? "line-through " : "")
+              (wasEliminated ? "line-through " : "")
             }
           >
             <span className="font-mono text-text-3">{letter}</span>
@@ -286,12 +289,14 @@ function QuestionChoices({ choices, picked, revealed, correct, onPick, locked = 
             {isPicked && !revealed && <span className="rounded bg-accent px-2 py-0.5 text-[10px] font-bold text-white">SELECTED</span>}
             {revealed && letter === correct && <span className="rounded border-2 border-good bg-bg px-2 py-0.5 text-[10px] font-black text-text-1">✓ CORRECT</span>}
             {revealed && isPicked && letter !== correct && <span className="rounded border-2 border-bad bg-bg px-2 py-0.5 text-[10px] font-black text-text-1">✕ YOUR ANSWER</span>}
+            {revealed && wasEliminated && <span className="rounded border border-border-strong bg-bg px-2 py-0.5 text-[10px] font-bold text-text-2">ELIMINATED</span>}
           </button>
           {!revealed && !locked && <button type="button" aria-label={`${isCrossed ? "Restore" : "Cross out"} choice ${letter}`} aria-pressed={isCrossed} onClick={() => {
             if (!isCrossed && isPicked) onPick(null);
             setCrossed(current => {
               const next = new Set(current);
               if (next.has(letter)) next.delete(letter); else next.add(letter);
+              onCrossedChange?.([...next].sort());
               return next;
             });
           }} className="w-10 shrink-0 border-l border-border text-text-3 hover:bg-bg-2 hover:text-text-1 sm:w-11">{isCrossed ? "↩" : "×"}</button>}
@@ -382,7 +387,7 @@ function QuestionNavigator({ questions, session, currentIndex, onSelect, indices
 }
 
 function ExamFormat({ controller, submitOpts, objectivesById, lectureLabelsByLectureId, userId, saveExitAction }) {
-  const { session, currentIndex, setCurrentIndex, remainingMs, answerQuestion, submit, submitting } =
+  const { session, currentIndex, setCurrentIndex, remainingMs, answerQuestion, setEliminatedChoices, submit, submitting } =
     controller;
   const questions = session.questions || [];
   const q = restoreVisualChoices(questions[currentIndex]);
@@ -421,8 +426,10 @@ function ExamFormat({ controller, submitOpts, objectivesById, lectureLabelsByLec
             choiceColumns={q.choiceColumns}
             choiceLayout={q.choiceLayout}
             picked={pickedFor(session, q.questionId)}
+            crossedChoices={(session.answers || []).find(answer => answer.questionId === q.questionId)?.eliminatedChoices || []}
             revealed={false}
             onPick={(letter) => answerQuestion(q.questionId, letter)}
+            onCrossedChange={(letters) => setEliminatedChoices?.(q.questionId, letters)}
           />
         </div>
       )}
@@ -490,7 +497,7 @@ function ExamStartGate({ session, onStart, onExit, onAbandon }) {
 // calls the same `submit()` the controller already exposes for format
 // "exam" — same function, now reachable from practice's UI too.
 function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, userId, objectivesById, lectureLabelsByLectureId, onNavigateToLecture, saveExitAction, abandonAction }) {
-  const { session, currentIndex, setCurrentIndex, answerQuestion, submit, submitting } = controller;
+  const { session, currentIndex, setCurrentIndex, answerQuestion, setEliminatedChoices, submit, submitting } = controller;
   const questions = session.questions || [];
   const focusStorageKey = `rxt-practice-sections:${userId}:${session.sessionId}`;
   const [selectedSections, setSelectedSections] = useState(() => {
@@ -579,10 +586,12 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
           choiceColumns={q.choiceColumns}
           choiceLayout={q.choiceLayout}
           picked={picked}
+          crossedChoices={savedAnswer?.eliminatedChoices || []}
           revealed={showAnswer}
           locked={revealed && !showAnswer}
           correct={q.correct}
           onPick={letter => answerQuestion(q.questionId, letter, { revealed: false })}
+          onCrossedChange={letters => setEliminatedChoices?.(q.questionId, letters)}
         />
 
         {!revealed && (
@@ -760,7 +769,7 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, object
             <QuestionMeta question={q} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} />
             <QuestionStem text={q.stem} questionId={q.questionId} />
             <SchoolQuestionFigure question={q} userId={userId} />
-            <ChoiceList questionId={q.questionId} choices={q.choices} choiceColumns={q.choiceColumns} choiceLayout={q.choiceLayout} picked={picked} revealed correct={q.correct} onPick={() => {}} />
+            <ChoiceList questionId={q.questionId} choices={q.choices} choiceColumns={q.choiceColumns} choiceLayout={q.choiceLayout} picked={picked} crossedChoices={(session.answers || []).find(answer => answer.questionId === q.questionId)?.eliminatedChoices || []} revealed correct={q.correct} onPick={() => {}} />
             {(q.explanation || Object.keys(q.whyWrong || {}).length > 0) ? (
               <div className="mt-3">
                 <QuestionExplanation selectedLetter={picked} text={q.explanation} correctLetter={q.correct} whyWrong={q.whyWrong} choices={q.choices} sourceType={q.sourceType || session.sourceType} />

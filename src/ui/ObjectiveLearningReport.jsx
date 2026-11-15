@@ -32,7 +32,7 @@ export function ObjectiveLearningReport({objectives=[],evidence={},records=[],on
  <div className="mb-4 rounded border border-border p-3" aria-label="Current session evidence">
  <h3 className="font-bold">Current session</h3>
  <p className="mt-1 text-sm">{missedRows.length?`${missedRows.length} objective${missedRows.length===1?'':'s'} with a missed answer.`:'No missed objectives in this session.'}</p>
- {notSampledCount>0&&<p className="mt-1 text-xs text-text-2">{notSampledCount} objective{notSampledCount===1?' was':'s were'} not sampled in this session; no mastery or weakness is inferred from them.{neverPracticedCount>0?` ${neverPracticedCount} still have no saved answer evidence.`:''}</p>}
+ {notSampledCount>0&&<p className="mt-1 text-xs text-text-2"><strong>Coverage note:</strong> This exam tested {touchedObjectiveIds.size} of {objectives.length} objectives. The other {notSampledCount} were not tested, so they are not being labeled strong or weak.{neverPracticedCount>0?` Across all saved work, ${neverPracticedCount} objectives have not been tested yet.`:''}</p>}
  </div>
  {transferRows.length>0&&<div className="mb-4" aria-label="Repair and transfer">
  {currentTransferRows.length>0&&<><h3 className="font-bold">Current-session repair</h3><ul className="mt-2 space-y-1 text-sm">{currentTransferRows.slice(0,6).map(row=><li key={row.id}>{row.concept} · {row.state==='transfer'?'Fresh application next':row.state==='due'?'Independent retest due':`Retest ${new Date(row.dueAt).toLocaleDateString()}`}</li>)}</ul></>}

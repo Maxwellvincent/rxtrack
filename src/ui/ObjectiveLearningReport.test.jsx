@@ -55,6 +55,7 @@ it('separates a correct current result from historical repairs and unsampled obj
  expect(host.textContent).toContain('No missed objectives in this session');
  expect(host.textContent).toContain('Historical repair queue');
  expect(host.textContent).toContain('Old pathway');
- expect(host.textContent).toContain('2 objectives were not sampled');
+ expect(host.textContent).toContain('This exam tested 1 of 3 objectives');
+ expect(host.textContent).toContain('The other 2 were not tested');
  act(()=>root.unmount());
 });
