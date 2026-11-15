@@ -8,6 +8,7 @@
 import { useMemo, useState } from "react";
 import { useWeakConcepts } from "../../hooks/useWeakConcepts.js";
 import { weakConceptView, isLandmine, groupWeakConcepts } from "./weakConcepts.js";
+import { Button } from "../../../ui/Button.jsx";
 
 const MASTERY_STYLE = {
   struggling: "text-bad",
@@ -66,7 +67,7 @@ function AngleGroup({ group }) {
   );
 }
 
-export function WeakConcepts({ blockId, userId, onBack }) {
+export function WeakConcepts({ blockId, userId, onBack, embedded = false, onStartFocusedRepair }) {
   const store = useWeakConcepts(null, userId);
   const [scope, setScope] = useState("block"); // block | everything
   const [includeMastered, setIncludeMastered] = useState(false);
@@ -81,9 +82,17 @@ export function WeakConcepts({ blockId, userId, onBack }) {
   const grouped = useMemo(() => groupWeakConcepts(shown), [shown]);
 
   return (
-    <div className="p-5">
-      <button onClick={onBack} className="mb-3 font-mono text-xs text-text-3 hover:text-text-1">← block</button>
-      <h2 className="text-sm font-bold text-text-1">Weak concepts</h2>
+    <div className={embedded ? "rounded-xl border border-border bg-bg-elevated p-4" : "p-5"}>
+      {!embedded && onBack && <button onClick={onBack} className="mb-3 font-mono text-xs text-text-3 hover:text-text-1">← block</button>}
+      <div className="mb-1 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className={embedded ? "text-lg font-bold text-text-1" : "text-sm font-bold text-text-1"}>Weak concepts</h2>
+          {embedded && <p className="mt-1 max-w-2xl text-sm text-text-3">Your repeated misses across exams and practice, grouped by the exact topic within each lecture.</p>}
+        </div>
+        {onStartFocusedRepair && (
+          <Button onClick={onStartFocusedRepair}>Start focused repair</Button>
+        )}
+      </div>
       <div className="mb-3 font-mono text-[12px] text-text-3">
         {view.counts.total} tracked · {view.counts.struggling || 0} struggling · {view.counts.landmines} landmines
       </div>

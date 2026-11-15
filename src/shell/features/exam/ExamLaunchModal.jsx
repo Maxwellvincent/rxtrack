@@ -45,6 +45,7 @@ export function ExamLaunchModal({
   userId,
   eligibleLectures = [],
   defaultBlueprintExam = "",
+  defaultStudyMode = "balanced",
   blueprintLectures = [],
   blueprintObjectives = {},
   defaultQuestionCount,
@@ -68,7 +69,7 @@ export function ExamLaunchModal({
   }, [launching]);
   const [blueprintExam, setBlueprintExam] = useState(String(defaultBlueprintExam));
   const [format, setFormat] = useState("exam");
-  const [studyMode, setStudyMode] = useState("balanced");
+  const [studyMode, setStudyMode] = useState(defaultStudyMode === "repair" ? "repair" : "balanced");
   const [difficulty, setDifficulty] = useState("adaptive");
   const initialCount = Math.max(1, Math.min(MAX_QUESTION_COUNT, parseInt(defaultQuestionCount, 10) || 20));
   const [count, setCount] = useState(String(initialCount));

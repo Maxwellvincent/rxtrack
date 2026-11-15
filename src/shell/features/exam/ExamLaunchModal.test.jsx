@@ -192,6 +192,18 @@ describe("ExamLaunchModal", () => {
     unmount();
   });
 
+  it("can open with focused repair already selected", () => {
+    const onLaunch = vi.fn();
+    const { host, unmount } = render(<ExamLaunchModal blockId="b1" userId="u1" eligibleLectures={ELIGIBLE}
+      defaultQuestionCount={10} defaultStudyMode="repair" onLaunch={onLaunch} onCancel={vi.fn()} />);
+    expect(host.textContent).toContain("fresh retest");
+    const start = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Start focused repair");
+    expect(start).toBeTruthy();
+    act(() => start.click());
+    expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({ studyMode: "repair" }));
+    unmount();
+  });
+
   it("passes an explicit medium difficulty to the launch and prepare actions", () => {
     const onLaunch = vi.fn();
     const onPrepare = vi.fn();

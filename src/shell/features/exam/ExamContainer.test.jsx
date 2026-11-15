@@ -84,8 +84,8 @@ vi.mock("../../../stores/questionBankMeta.js", () => ({
 }));
 
 vi.mock("./ExamLaunchModal.jsx", () => ({
-  ExamLaunchModal: ({ onLaunch, onPrepare, onStartSaved, savedQuestionCount, onCancel, launching, error }) => (
-    <div data-testid="launch-modal" data-launching={launching ? "true" : "false"}>
+  ExamLaunchModal: ({ onLaunch, onPrepare, onStartSaved, savedQuestionCount, onCancel, launching, error, defaultStudyMode }) => (
+    <div data-testid="launch-modal" data-launching={launching ? "true" : "false"} data-default-study-mode={defaultStudyMode}>
       {error && <div role="alert">{error}</div>}
       <button
         data-testid="fire-launch"
@@ -113,6 +113,15 @@ vi.mock("./ExamSessionRunner.jsx", () => ({
 
 vi.mock("./ExamDashboard.jsx", () => ({
   ExamDashboard: () => <div data-testid="exam-dashboard">dashboard</div>,
+}));
+
+vi.mock("../tracker/WeakConcepts.jsx", () => ({
+  WeakConcepts: ({ embedded, onStartFocusedRepair }) => (
+    <div data-testid="weak-concepts" data-embedded={embedded ? "true" : "false"}>
+      longitudinal weak concepts
+      <button onClick={onStartFocusedRepair}>Start focused repair</button>
+    </div>
+  ),
 }));
 
 const { ExamContainer } = await import("./ExamContainer.jsx");
@@ -416,6 +425,22 @@ describe("ExamContainer", () => {
     act(() => resultsTab.click());
     expect(host.querySelector('[data-testid="exam-dashboard"]')).toBeTruthy();
     expect(host.querySelector('[data-testid="session-runner"]')).toBeFalsy();
+
+    unmount();
+  });
+
+  it("shows longitudinal weak concepts in Exams and opens focused repair from them", () => {
+    const { host, unmount } = render(
+      <ExamContainer blockId="b1" userId="u1" onNavigateToLecture={vi.fn()} />
+    );
+
+    const weakTab = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Weak concepts");
+    act(() => weakTab.click());
+    expect(host.querySelector('[data-testid="weak-concepts"]')?.dataset.embedded).toBe("true");
+
+    const repair = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Start focused repair");
+    act(() => repair.click());
+    expect(host.querySelector('[data-testid="launch-modal"]')?.dataset.defaultStudyMode).toBe("repair");
 
     unmount();
   });

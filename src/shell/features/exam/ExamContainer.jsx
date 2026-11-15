@@ -36,6 +36,7 @@ import { readTutorModeEnabled, writeTutorModeEnabled } from "./tutorPrefs.js";
 import { ExamLaunchModal } from "./ExamLaunchModal.jsx";
 import { ExamSessionRunner } from "./ExamSessionRunner.jsx";
 import { ExamDashboard } from "./ExamDashboard.jsx";
+import { WeakConcepts } from "../tracker/WeakConcepts.jsx";
 import { launchExamSession } from "./launchExam.js";
 import { startBackgroundJob } from "../../backgroundJobs.js";
 import { launchQuestionBankSession } from "./launchQuestionBank.js";
@@ -126,7 +127,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   const [examPageSection, setExamPageSection] = useState(() => {
     try {
       const saved = localStorage.getItem(`rxt-exam-page:${blockId}`);
-      return ["start", "banks", "results"].includes(saved) ? saved : "start";
+      return ["start", "banks", "results", "weak"].includes(saved) ? saved : "start";
     } catch { return "start"; }
   });
   const [bankStoreRevision, setBankStoreRevision] = useState(0);
@@ -137,6 +138,14 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   const [launchWarning, setLaunchWarning] = useState(null);
   const [generationCoverage, setGenerationCoverage] = useState(null);
   const [selectedBlueprint, setSelectedBlueprint] = useState("");
+  const [launchStudyMode, setLaunchStudyMode] = useState("balanced");
+
+  const openExamLaunch = ({ studyMode = "balanced", blueprint = "" } = {}) => {
+    setLaunchError(null);
+    setSelectedBlueprint(String(blueprint));
+    setLaunchStudyMode(studyMode);
+    setShowLaunchModal(true);
+  };
 
   const selectExamPageSection = (section) => {
     setExamPageSection(section);
@@ -763,11 +772,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
             Tutor mode
           </label>
           <Button
-            onClick={() => {
-              setLaunchError(null);
-              setSelectedBlueprint("");
-              setShowLaunchModal(true);
-            }}
+            onClick={() => openExamLaunch()}
           >
             Start Integrated Exam
           </Button>
@@ -776,11 +781,11 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
 
       <details className="mb-5 rounded-xl border border-border p-3"><summary className="cursor-pointer text-sm font-semibold">Optional school subject weighting</summary>
       <BpmBlueprintDashboard blockId={blockId} userId={userId} objectivesByLecture={blueprintContext.objectivesByLecture} lectures={blueprintContext.lectures}
-        onReview={onNavigateToLecture} onStart={exam=>{setSelectedBlueprint(String(exam));setLaunchError(null);setShowLaunchModal(true);}} />
+        onReview={onNavigateToLecture} onStart={exam => openExamLaunch({ blueprint: exam })} />
       </details>
 
       <nav className="mb-5 flex flex-wrap gap-2 border-b border-border pb-3" aria-label="Exam center sections">
-        {[["start", "Start & continue"], ["banks", `Question banks${blockQuestionBanks.length ? ` · ${blockQuestionBanks.length}` : ""}`], ["results", "Results & weak lectures"]].map(([id, label]) => (
+        {[["start", "Start & continue"], ["banks", `Question banks${blockQuestionBanks.length ? ` · ${blockQuestionBanks.length}` : ""}`], ["results", "Results & weak lectures"], ["weak", "Weak concepts"]].map(([id, label]) => (
           <button key={id} type="button" aria-current={examPageSection === id ? "page" : undefined}
             onClick={() => selectExamPageSection(id)}
             className={`rounded-lg border px-3 py-2 text-sm font-semibold ${examPageSection === id ? "border-accent bg-accent/10 text-accent-text" : "border-border text-text-2 hover:bg-panel"}`}>
@@ -794,6 +799,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           blockId={blockId}
           userId={userId}
           defaultBlueprintExam={selectedBlueprint}
+          defaultStudyMode={launchStudyMode}
           eligibleLectures={eligibleLectures}
           blueprintLectures={blueprintContext.eligibleLectures}
           blueprintObjectives={blueprintContext.objectivesByLecture}
@@ -1034,6 +1040,13 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           generationCoverage={generationCoverage}
           onNavigateToLecture={onNavigateToLecture}
           onReviewSession={setActiveSessionId}
+        />}
+
+        {examPageSection === "weak" && <WeakConcepts
+          blockId={blockId}
+          userId={userId}
+          embedded
+          onStartFocusedRepair={() => openExamLaunch({ studyMode: "repair" })}
         />}
     </div>
   );
