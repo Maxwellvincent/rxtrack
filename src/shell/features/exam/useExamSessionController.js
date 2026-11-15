@@ -25,6 +25,7 @@ import { getExamSession, updateExamSessionTransaction } from "../../../supabase.
 import { mergeAnswer } from "../../../examSessions.js";
 import { finalizeExamSession } from "./finalize.js";
 import { releaseUnansweredQuestions } from "../../../questionPool.js";
+import { examDurationMinutes } from "./examTiming.js";
 
 function newWriterId() {
   return typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
@@ -207,7 +208,7 @@ export function useExamSessionController(sessionId, userId) {
       if (current.startedAt != null && current.deadline != null) return current;
       if (current.fillStatus === "generating" || !(current.questions || []).length) return null;
       const startedAt = Date.now();
-      const durationMinutes = Math.max(1, Number(current.durationMinutes) || (current.questions || []).length * 1.5);
+      const durationMinutes = Math.max(1, Number(current.durationMinutes) || examDurationMinutes((current.questions || []).length));
       return { ...current, startedAt, deadline: startedAt + durationMinutes * 60_000, updatedAt: startedAt };
     });
     if (!result?.deadline) throw new Error("This exam is not ready to start yet.");

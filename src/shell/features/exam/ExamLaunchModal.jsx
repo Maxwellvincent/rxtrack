@@ -72,7 +72,7 @@ export function ExamLaunchModal({
   const [difficulty, setDifficulty] = useState("adaptive");
   const initialCount = Math.max(1, Math.min(MAX_QUESTION_COUNT, parseInt(defaultQuestionCount, 10) || 20));
   const [count, setCount] = useState(String(initialCount));
-  // Auto-calculated from question count (1.5 min/question, matching real
+  // Auto-calculated from question count (72 seconds/question, matching real
   // exam pacing) until the user types into the duration field themselves —
   // then their value sticks and stops following count changes.
   const [duration, setDuration] = useState(() =>
@@ -318,7 +318,7 @@ export function ExamLaunchModal({
               />
               {!durationTouched && (
                 <div className="mt-1 font-mono text-[11px] text-text-3">
-                  1.5 min/question — edit to override
+                  72 sec/question — edit to override
                 </div>
               )}
             </div>

@@ -908,7 +908,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
               blueprintExam: set.blueprintExam || null,
               format: set.format || "exam",
               questionCount: requested,
-              durationMinutes: Number(set.durationMinutes) || 45,
+              durationMinutes: Number(set.durationMinutes) || examDurationMinutes(requested),
               contentScope: set.contentScope || "block-so-far",
               studyMode: set.studyMode || "balanced",
               difficultyOverride: set.difficultyOverride || null,
@@ -924,7 +924,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
               blueprintExam: set.blueprintExam || null,
               format: set.format || "exam",
               questionCount: requested,
-              durationMinutes: Number(set.durationMinutes) || 45,
+              durationMinutes: Number(set.durationMinutes) || examDurationMinutes(requested),
               contentScope: set.contentScope || "block-so-far",
               studyMode: set.studyMode || "balanced",
               difficultyOverride: set.difficultyOverride || null,
@@ -949,7 +949,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
         <section className="mb-4 rounded-xl border border-border bg-bg-elevated p-3">
           <div className="mb-1 text-sm font-bold text-text-1">Original question banks · ExamSoft, IMCQ, homework & clicker examples</div>
           <div className="mb-3 font-mono text-[11px] text-text-3">
-            {blockQuestionBanks.length ? "Authentic uploaded questions for this block." : "No uploaded bank is assigned to this block yet, so all imported banks are shown here."} Timed sessions use 90 seconds per question; practice reveals the keyed rationale after each answer. Source keys are preserved and analyzed separately from medical correctness.
+            {blockQuestionBanks.length ? "Authentic uploaded questions for this block." : "No uploaded bank is assigned to this block yet, so all imported banks are shown here."} Timed sessions use 72 seconds per question; practice reveals the keyed rationale after each answer. Source keys are preserved and analyzed separately from medical correctness.
           </div>
           <div className="mb-3 flex gap-1 overflow-x-auto border-b border-border" role="tablist" aria-label="School question bank categories">
             {bankGroups.map(([group]) => <button key={group} type="button" role="tab" aria-selected={activeBankCategory === group} onClick={() => setBankCategory(group)} className={`shrink-0 border-b-2 px-4 py-3 text-sm font-bold ${activeBankCategory === group ? "border-accent text-accent-text" : "border-transparent text-text-3 hover:text-text-1"}`}>{group}</button>)}

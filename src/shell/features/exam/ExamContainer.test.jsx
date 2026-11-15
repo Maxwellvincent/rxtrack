@@ -333,7 +333,7 @@ describe("ExamContainer", () => {
     const bankTab = Array.from(host.querySelectorAll("button")).find((button) => button.textContent.includes("Question banks"));
     await act(async () => bankTab.click());
     expect(host.textContent).toMatch(/Original question banks/);
-    expect(host.textContent).toMatch(/30 distinct questions · 45 min timed/);
+    expect(host.textContent).toMatch(/30 distinct questions · 36 min timed/);
     const timed = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Timed quiz");
     const practice = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Practice");
     const studyActions = host.querySelector('[data-testid="bank-study-actions"]');

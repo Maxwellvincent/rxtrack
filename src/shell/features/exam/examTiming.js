@@ -1,4 +1,4 @@
-export const EXAM_SECONDS_PER_QUESTION = 90;
+export const EXAM_SECONDS_PER_QUESTION = 72;
 
 export function examDurationMs(questionCount) {
   const count = Math.max(0, Number(questionCount) || 0);

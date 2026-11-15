@@ -56,6 +56,7 @@ import { classifyQuestionOrder, QUESTION_ORDER_LABELS } from "../../../engine/qu
 import { callAIJSON } from "../../../aiClient.js";
 import { diagnoseQuestionMiss, MISS_TYPE_LABELS } from "../../../engine/questionReasoning.js";
 import { recordMissType } from "../../../stores/learnerEvidence.js";
+import { examDurationMinutes } from "./examTiming.js";
 
 export function sittingAnswers(session, baseline = []) {
   const prior = new Map(baseline.map(answer => [answer.questionId, answer.value]));
@@ -472,7 +473,7 @@ function ExamStartGate({ session, onStart, onExit, onAbandon }) {
       <p className="text-sm font-semibold text-accent-text">Preparation finished</p>
       <h2 className="mt-1 text-2xl font-bold text-text-1">{ready}/{target} questions ready</h2>
       <p className="mt-2 text-sm text-text-2">{incomplete ? "This is incomplete practice and will not count as a full diagnostic." : "Your exam is ready."} The countdown has not started.</p>
-      <p className="mt-1 text-sm text-text-2">You will receive {Math.max(1, Number(session.durationMinutes) || ready * 1.5)} minutes beginning only after you press Start.</p>
+      <p className="mt-1 text-sm text-text-2">You will receive {Math.max(1, Number(session.durationMinutes) || examDurationMinutes(ready))} minutes beginning only after you press Start.</p>
       {session.fillError && <details className="mt-3 text-sm text-text-2"><summary className="cursor-pointer font-medium">Why some questions were not ready</summary><p className="mt-2 whitespace-pre-line">{session.fillError}</p></details>}
       {error && <p role="alert" className="mt-3 text-sm text-bad">{error}</p>}
       <div className="mt-5 flex flex-wrap gap-2"><Button onClick={start} disabled={starting}>{starting ? "Starting…" : incomplete ? `Start ${ready}-question incomplete practice` : "Start timed exam"}</Button>{onExit}{onAbandon}</div>

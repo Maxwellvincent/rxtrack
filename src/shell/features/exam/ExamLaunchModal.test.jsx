@@ -155,7 +155,7 @@ describe("ExamLaunchModal", () => {
     unmount();
   });
 
-  it("duration defaults to 1.5 min/question and launch is enabled without typing", () => {
+  it("duration defaults to 72 seconds per question and launch is enabled without typing", () => {
     const onLaunch = vi.fn();
     const { host, unmount } = render(
       <ExamLaunchModal
@@ -169,12 +169,12 @@ describe("ExamLaunchModal", () => {
     );
 
     const durationInput = host.querySelectorAll('input[type="number"]')[1];
-    expect(durationInput.value).toBe("30"); // 20 * 1.5
+    expect(durationInput.value).toBe("24");
 
     const startBtn = Array.from(host.querySelectorAll("button")).find((b) => b.textContent === "Start quiz / exam now");
     expect(startBtn.disabled).toBe(false);
     act(() => startBtn.click());
-    expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({ format: "exam", examName: expect.stringMatching(/^Timed exam ·/), questionCount: 20, durationMinutes: 30, startWhilePreparing: true }));
+    expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({ format: "exam", examName: expect.stringMatching(/^Timed exam ·/), questionCount: 20, durationMinutes: 24, startWhilePreparing: true }));
 
     unmount();
   });
@@ -188,7 +188,7 @@ describe("ExamLaunchModal", () => {
     expect(host.textContent).toContain("fresh retest");
     const start = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Start focused repair");
     act(() => start.click());
-    expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({ format: "exam", examName: expect.stringMatching(/^Timed exam ·/), studyMode: "repair", questionCount: 10, durationMinutes: 15, startWhilePreparing: true }));
+    expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({ format: "exam", examName: expect.stringMatching(/^Timed exam ·/), studyMode: "repair", questionCount: 10, durationMinutes: 12, startWhilePreparing: true }));
     unmount();
   });
 
@@ -222,10 +222,10 @@ describe("ExamLaunchModal", () => {
 
     const countInput = host.querySelector('input[type="number"]');
     const durationInput = host.querySelectorAll('input[type="number"]')[1];
-    expect(durationInput.value).toBe("30");
+    expect(durationInput.value).toBe("24");
 
     act(() => setInputValue(countInput, "10"));
-    expect(durationInput.value).toBe("15"); // still auto-following: 10 * 1.5
+    expect(durationInput.value).toBe("12");
 
     // User types a duration directly — auto-calc stops following count.
     act(() => setInputValue(durationInput, "60"));
@@ -235,7 +235,7 @@ describe("ExamLaunchModal", () => {
     unmount();
   });
 
-  it("keeps an exact 90-second budget for odd question counts", () => {
+  it("keeps an exact 72-second budget for every question count", () => {
     const onLaunch = vi.fn();
     const { host, unmount } = render(
       <ExamLaunchModal
@@ -248,14 +248,14 @@ describe("ExamLaunchModal", () => {
       />
     );
     const durationInput = host.querySelectorAll('input[type="number"]')[1];
-    expect(durationInput.value).toBe("22.5");
+    expect(durationInput.value).toBe("18");
     const start = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Start quiz / exam now");
     act(() => start.click());
-    expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({ format: "exam", examName: expect.stringMatching(/^Timed exam ·/), questionCount: 15, durationMinutes: 22.5, startWhilePreparing: true }));
+    expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({ format: "exam", examName: expect.stringMatching(/^Timed exam ·/), questionCount: 15, durationMinutes: 18, startWhilePreparing: true }));
     unmount();
   });
 
-  it("defaults a generated 100-question exam to 150 minutes", () => {
+  it("defaults a generated 100-question exam to 120 minutes", () => {
     const onLaunch = vi.fn();
     const { host, unmount } = render(
       <ExamLaunchModal
@@ -269,10 +269,10 @@ describe("ExamLaunchModal", () => {
     );
     const inputs = host.querySelectorAll('input[type="number"]');
     expect(inputs[0].value).toBe("100");
-    expect(inputs[1].value).toBe("150");
+    expect(inputs[1].value).toBe("120");
     const start = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Start quiz / exam now");
     act(() => start.click());
-    expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({ format: "exam", examName: expect.stringMatching(/^Timed exam ·/), questionCount: 100, durationMinutes: 150, startWhilePreparing: true }));
+    expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({ format: "exam", examName: expect.stringMatching(/^Timed exam ·/), questionCount: 100, durationMinutes: 120, startWhilePreparing: true }));
     unmount();
   });
 
@@ -342,7 +342,7 @@ describe("ExamLaunchModal", () => {
     expect(host.textContent).toContain("7 objectives across 1 lectures");
     const start = [...host.querySelectorAll("button")].find(button => button.textContent === "Start quiz / exam now");
     act(() => start.click());
-    expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({ format: "exam", examName: expect.stringMatching(/^Timed exam · Week 2 ·/), questionCount: 10, durationMinutes: 15, weekNumber: "2", startWhilePreparing: true }));
+    expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({ format: "exam", examName: expect.stringMatching(/^Timed exam · Week 2 ·/), questionCount: 10, durationMinutes: 12, weekNumber: "2", startWhilePreparing: true }));
     unmount();
   });
 
@@ -430,7 +430,7 @@ it("keeps settings open when editing question count or clicking the backdrop", (
 it("starts within the limit when a saved school-bank default exceeds 100", () => {
  const { host, unmount } = render(<ExamLaunchModal eligibleLectures={ELIGIBLE} defaultQuestionCount={150} onLaunch={vi.fn()} onCancel={vi.fn()} />);
  expect(host.querySelector('[aria-label="Number of questions"]').value).toBe("100");
- expect(host.querySelectorAll('input[type="number"]')[1].value).toBe("150");
+ expect(host.querySelectorAll('input[type="number"]')[1].value).toBe("120");
  expect(host.querySelector('[aria-label="Number of questions"]').validity.valid).toBe(true);
  unmount();
 });

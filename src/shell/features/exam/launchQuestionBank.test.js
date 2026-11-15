@@ -12,16 +12,16 @@ const QUESTIONS = Array.from({ length: 30 }, (_, index) => ({
 }));
 
 describe("exam timing", () => {
-  it("budgets exactly 90 seconds per question", () => {
-    expect(examDurationMs(30)).toBe(45 * 60_000);
-    expect(examDurationMinutes(30)).toBe(45);
-    expect(examDurationMinutes(15)).toBe(22.5);
-    expect(examDurationMinutes(100)).toBe(150);
+  it("budgets exactly 72 seconds per question", () => {
+    expect(examDurationMs(30)).toBe(36 * 60_000);
+    expect(examDurationMinutes(30)).toBe(36);
+    expect(examDurationMinutes(15)).toBe(18);
+    expect(examDurationMinutes(100)).toBe(120);
   });
 });
 
 describe("launchQuestionBankSession", () => {
-  it("creates a timed 30-question session with a 45-minute persisted deadline", async () => {
+  it("creates a timed 30-question session with a 36-minute persisted deadline", async () => {
     const createExamSession = vi.fn().mockResolvedValue({ ok: true });
     const before = Date.now();
     const result = await launchQuestionBankSession(
@@ -37,7 +37,7 @@ describe("launchQuestionBankSession", () => {
     expect(session.questions).toHaveLength(30);
     expect(session.startedAt).toBeGreaterThanOrEqual(before);
     expect(session.startedAt).toBeLessThanOrEqual(after);
-    expect(session.deadline).toBe(session.startedAt + 45 * 60_000);
+    expect(session.deadline).toBe(session.startedAt + 36 * 60_000);
     expect(session.questions[0]).toMatchObject({
       source: "Original school question",
       sourceType: "question-bank",
