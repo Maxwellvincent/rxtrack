@@ -26,4 +26,9 @@ describe("Friday study-week scopes", () => {
   it("filters an explicit inclusive date range", () => {
     expect(filterLecturesByScope(lectures, "date-range:2026-09-05:2026-09-12").map((item) => item.id)).toEqual(["current"]);
   });
+
+  it("can isolate one exact lecture for a concept drill", () => {
+    const scoped = filterLecturesByScope([{ lectureId: "auditory/pathways" }, { lectureId: "vision" }], "lecture:auditory%2Fpathways");
+    expect(scoped).toEqual([{ lectureId: "auditory/pathways" }]);
+  });
 });

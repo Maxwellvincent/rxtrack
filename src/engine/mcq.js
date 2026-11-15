@@ -873,7 +873,7 @@ function buildAtomQuestionsPromptInternal({ atoms = [], objectives = [], difficu
     ? `\n\n${clinicalCorrelatePracticePrompt(clinicalCorrelateLibrary, atoms.length, avoidStems.length)}`
     : "";
   const focusSection = String(focusNotes || "").trim()
-    ? `\n\nINSTRUCTOR/LEARNER EMPHASIS (high-priority targeting guidance, not a substitute for lecture evidence):\n${String(focusNotes).trim()}\nDistribute questions across these requested topics when the supplied lecture facts/objectives support them. Give extra attention to stated blockers, rate-limiting steps, cofactors, enzyme reactions, and regulatory consequences. Do not invent unsupported facts.\n`
+    ? `\n\nLEARNER CONCEPT DRILL (high-priority targeting guidance, not a substitute for lecture evidence):\n${String(focusNotes).trim()}\nWhen the supplied lecture facts and objectives support the request, make the set concentrate on these concepts. Vary the decisive findings and required inference across interpretation, mechanism, localization, comparison, and predicted clinical consequence. For named tests or rules, vary the result patterns and laterality. For closely confused concepts, make distractors represent the adjacent alternatives and explain the decisive distinction. Do not merely repeat the same fact, change demographics, or invent unsupported content.\n`
     : "";
 
   const v2Blueprint = generationVersion === "v2" ?
@@ -1759,7 +1759,7 @@ function buildFullMcqPrompt({ subject = "this lecture", lectureText = "", exampl
     ? `\n\n${clinicalCorrelatePracticePrompt(clinicalCorrelateLibrary, count, avoidStems.length)}`
     : "";
   const focusSection = String(focusNotes || "").trim()
-    ? `\n\nINSTRUCTOR/LEARNER EMPHASIS (high-priority targeting guidance, not a substitute for lecture evidence):\n${String(focusNotes).trim()}\nDistribute questions across these requested topics when the supplied lecture facts/objectives support them. Give extra attention to stated blockers, rate-limiting steps, cofactors, enzyme reactions, and regulatory consequences. Do not invent unsupported facts.\n`
+    ? `\n\nLEARNER CONCEPT DRILL (high-priority targeting guidance, not a substitute for lecture evidence):\n${String(focusNotes).trim()}\nWhen the supplied lecture facts and objectives support the request, make the set concentrate on these concepts. Vary the decisive findings and required inference across interpretation, mechanism, localization, comparison, and predicted clinical consequence. For named tests or rules, vary the result patterns and laterality. For closely confused concepts, make distractors represent the adjacent alternatives and explain the decisive distinction. Do not merely repeat the same fact, change demographics, or invent unsupported content.\n`
     : "";
   const feedbackSection = feedback?.sampleSize
     ? `\n\nLEARNED FEEDBACK FROM PRIOR QUESTIONS (${feedback.sampleSize} ratings): recurring issue codes ${JSON.stringify(feedback.issueCounts || {})}; fairness misses ${feedback.fairNo}; ExamSoft-style misses ${feedback.examStyleNo}. Correct these patterns in every new question.\n`

@@ -346,6 +346,28 @@ describe("ExamLaunchModal", () => {
     unmount();
   });
 
+  it("launches a plain-language concept drill against one exact lecture", () => {
+    const onLaunch = vi.fn();
+    const { host, unmount } = render(<ExamLaunchModal eligibleLectures={[
+      { lectureId: "auditory", lectureLabel: "Auditory system", objectiveCount: 4 },
+      { lectureId: "vision", lectureLabel: "Visual pathways", objectiveCount: 5 },
+    ]} defaultQuestionCount={10} onLaunch={onLaunch} />);
+    expect(host.textContent).toContain("Specific concept drill");
+    const notes = host.querySelector("#exam-focus-notes");
+    act(() => setInputValue(notes, "Weber and Rinne; AC > BC; conductive vs sensorineural loss; vary laterality"));
+    const scope = host.querySelector('[aria-label="Content scope"]');
+    act(() => setInputValue(scope, "lecture:auditory"));
+    expect(host.textContent).toContain("4 objectives across 1 lectures");
+    const start = [...host.querySelectorAll("button")].find(button => button.textContent === "Start quiz / exam now");
+    act(() => start.click());
+    expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({
+      contentScope: "lecture:auditory",
+      focusNotes: "Weber and Rinne; AC > BC; conductive vs sensorineural loss; vary laterality",
+      questionCount: 10,
+    }));
+    unmount();
+  });
+
   it("launching=true disables both buttons and relabels Start (Task 12 review fix #2, double-launch race)", () => {
     const onLaunch = vi.fn();
     const onCancel = vi.fn();

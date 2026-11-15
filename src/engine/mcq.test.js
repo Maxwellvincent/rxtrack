@@ -184,6 +184,17 @@ describe("buildMcqPrompt", () => {
     expect(prompt).toContain("do not repeat, paraphrase, or test the same clue-to-answer route");
     expect(prompt).toContain("3+ reasoning steps");
   });
+  it("turns a learner's named concepts into varied clinical interpretation tasks", () => {
+    const conceptPrompt = buildAtomQuestionsPrompt({
+      atoms: [{ type: "relationship", term: "Rinne test", content: "Air and bone conduction are compared." }],
+      objectives: [{ id: "o1", objective: "Interpret bedside hearing tests." }],
+      focusNotes: "Weber and Rinne; AC > BC; conductive versus sensorineural hearing loss",
+    });
+    expect(conceptPrompt).toContain("LEARNER CONCEPT DRILL");
+    expect(conceptPrompt).toContain("Weber and Rinne");
+    expect(conceptPrompt).toContain("vary the result patterns and laterality");
+    expect(conceptPrompt).toContain("interpretation, mechanism, localization, comparison, and predicted clinical consequence");
+  });
   it("requires atom-targeted questions to use full clinical vignettes rather than recall templates", () => {
     const atomPrompt = buildAtomQuestionsPrompt({
       atoms: [{ type: "definition", term: "Insulin", content: "Lowers serum glucose." }],

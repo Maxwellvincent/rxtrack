@@ -46,6 +46,12 @@ export function filterLecturesByScope(lectures = [], scope = "block-so-far", now
   const list = Array.isArray(lectures) ? lectures : [];
   const current = currentStudyWeek(list, now);
   if (scope === "entire-block") return list;
+  const lectureScope = String(scope).match(/^lecture:(.+)$/);
+  if (lectureScope) {
+    let wanted = lectureScope[1];
+    try { wanted = decodeURIComponent(wanted); } catch { /* retain legacy/raw ids */ }
+    return list.filter((lecture) => String(lecture?.lectureId || lecture?.id || "") === wanted);
+  }
   const range = String(scope).match(/^date-range:(\d{4}-\d{2}-\d{2}):(\d{4}-\d{2}-\d{2})$/);
   if (range) {
     const start = localDate(range[1]);
@@ -72,7 +78,14 @@ export function filterLecturesByScope(lectures = [], scope = "block-so-far", now
   return dated.filter((lecture) => localDate(lectureDate(lecture)) <= today);
 }
 
-export function scopeLabel(scope) {
+export function scopeLabel(scope, lectures = []) {
+  const lectureScope = String(scope || "").match(/^lecture:(.+)$/);
+  if (lectureScope) {
+    let wanted = lectureScope[1];
+    try { wanted = decodeURIComponent(wanted); } catch { /* retain legacy/raw ids */ }
+    const lecture = (lectures || []).find((item) => String(item?.lectureId || item?.id || "") === wanted);
+    return lecture?.lectureLabel || lecture?.lectureTitle || lecture?.fileName || "Selected lecture";
+  }
   const range = String(scope || "").match(/^date-range:(\d{4}-\d{2}-\d{2}):(\d{4}-\d{2}-\d{2})$/);
   if (range) return `${range[1]} → ${range[2]}`;
   return {
