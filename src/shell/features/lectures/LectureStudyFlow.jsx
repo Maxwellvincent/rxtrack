@@ -23,6 +23,8 @@ import { preparationErrorMessage } from "../../../preparationError.js";
 import { readQuestionDiagnostics, saveQuestionDiagnostics } from "../../../questionDiagnostics.js";
 import { questionWritingBenchmarkPrompt } from "../../../engine/questionWritingStandard.js";
 import { TutorMessage } from "../../../ui/TutorMessage.jsx";
+import * as weakConceptsStore from "../../../stores/weakConcepts.js";
+import { objectivesForWeakConcept, weakConceptsForLectureView } from "./lectureWeakConcepts.js";
 /**
  * SP1 T2.1 — one surface for studying a lecture.
  *
@@ -415,10 +417,16 @@ export function LectureStudyFlow({
   const mismatchedLectureObjectives = useMemo(() => linkedObjectives
     .filter((objective) => objectiveLectureNumberConflict(objective, lecture)), [linkedObjectives, lecture]);
   const learnerEvidence = useStoreResource(learnerEvidenceStore, userId);
+  const weakConceptResource = useStoreResource(weakConceptsStore, userId);
   const recentLearningRecords = useMemo(()=>latestLearningRecords(learnerEvidence.data || {}, lecture?.id, blockId, true),[learnerEvidence.data,lecture?.id,blockId]);
   const lectureObjectives = useMemo(() => selectLectureObjectives(
     selectBlockObjectives(objectiveResource.data, blockId), lecture, learnerEvidence.data
   ), [objectiveResource.data, blockId, lecture, learnerEvidence.data]);
+  const lectureWeakConcepts = useMemo(() => weakConceptsForLectureView(weakConceptResource.data || {}, {
+    blockId,
+    lectureId: lecture?.id,
+    objectives: lectureObjectives,
+  }), [weakConceptResource.data, blockId, lecture?.id, lectureObjectives]);
   const title = lecture?.lectureTitle || lecture?.title || lecture?.fileName || "Lecture";
   const objectivePractice = useMemo(
     () => objectivePracticePlan(lectureObjectives, learnerEvidence.data),
@@ -2321,7 +2329,29 @@ export function LectureStudyFlow({
 
       </LecturePanel>
       <LecturePanel name="practice" workspace={workspace} visited={visitedWorkspaces} aria-label="Practice this lecture">
-      <div className="my-3 flex flex-wrap justify-between gap-2"><h2 className="text-lg font-semibold">Test this lecture</h2><p className="text-sm text-text-3">{qStats.loading ? "Loading practice history…" : qStats.answered ? `${qStats.answered} answered · ${accuracyPct}% correct` : "No questions answered yet"}</p></div>
+      <div className="my-3 flex flex-wrap justify-between gap-2"><h2 className="text-lg font-semibold">Test this lecture</h2><p className="text-sm text-text-3">{qStats.loading ? "Loading practice history…" : qStats.answered ? `${qStats.answered} answered · ${qStats.correct} correct · ${qStats.answered - qStats.correct} missed · ${accuracyPct}%` : "No questions answered yet"}</p></div>
+      {lectureWeakConcepts.length > 0 && <section aria-label="Weak concepts in this lecture" className="my-4 rounded-xl border border-warn/40 bg-warn/5 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div><h3 className="font-semibold">Weak concepts in this lecture</h3><p className="mt-1 text-xs text-text-3">These use the same lecture objectives and saved question history as every other lecture quiz.</p></div>
+          <span className="font-mono text-xs text-text-3">{lectureWeakConcepts.length} active</span>
+        </div>
+        <ul className="mt-3 space-y-2">
+          {lectureWeakConcepts.map((concept) => {
+            const targets = objectivesForWeakConcept(concept, lectureObjectives);
+            const focused = examRepairContext?.weakConcept && String(examRepairContext.weakConcept).toLowerCase() === String(concept.concept).toLowerCase();
+            return <li key={concept.id || concept.concept} className={`flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3 ${focused ? "border-accent bg-accent-soft" : "border-border bg-bg-elevated"}`}>
+              <div>
+                <p className="text-sm font-semibold">{concept.concept || concept.description}</p>
+                <p className="mt-1 text-xs text-text-3">{concept.misses} missed · {concept.correct} correct{concept.lastOutcome ? ` · last ${concept.lastOutcome}` : ""}</p>
+              </div>
+              <Button variant="outline" disabled={!!busy || !targets.length} onClick={() => runQuiz(5, resolveDefaultDifficulty(qStats.accuracy), [], false, targets, `Test this weak concept specifically: ${concept.concept}. Use fresh second- or third-order applications tied to this lecture's linked objectives.`)}>
+                Quiz this concept · 5
+              </Button>
+              {!targets.length && <p className="w-full text-xs text-warn">This concept needs a current objective link before targeted questions can be generated.</p>}
+            </li>;
+          })}
+        </ul>
+      </section>}
       {pendingQuiz && <div role="status" className="my-3 rounded-lg border border-border bg-panel p-3 text-sm">
         <strong>{pendingQuiz.questions.length}/{pendingQuiz.count} questions ready</strong>
         <p className="mt-1 text-text-2">Your ready questions are saved. Finish or exit the current quiz before retrying the remaining {pendingQuiz.count - pendingQuiz.questions.length} slots, or choose a shorter quiz.</p>
