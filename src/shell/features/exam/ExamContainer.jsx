@@ -152,6 +152,51 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
     try { localStorage.setItem(`rxt-exam-page:${blockId}`, section); } catch { /* optional preference */ }
   };
 
+  const weakTopicTargets = (topic) => {
+    const items = topic?.items || [];
+    const lectureIds = [...new Set(items.flatMap(item => item?.linkedLecIds || []).filter(Boolean))];
+    const explicitObjectiveIds = [...new Set(items.flatMap(item => [
+      ...(item?.objectiveIds || []),
+      item?.linkedObjId,
+    ]).filter(Boolean))];
+    const fallbackObjectiveIds = lectureIds.flatMap(lectureId =>
+      (objectivesByLecture[lectureId] || []).map(objective => objective?.id || objective?.code).filter(Boolean)
+    );
+    return {
+      lectureIds,
+      objectiveIds: explicitObjectiveIds.length ? explicitObjectiveIds : [...new Set(fallbackObjectiveIds)],
+    };
+  };
+
+  const studyWeakTopic = (topic) => {
+    const { lectureIds, objectiveIds } = weakTopicTargets(topic);
+    if (!lectureIds[0]) {
+      setLaunchError(`“${topic?.concept || "This concept"}” needs a verified lecture link before its study page can open.`);
+      return;
+    }
+    onNavigateToLecture?.(lectureIds[0], { focusObjectiveIds: objectiveIds, weakConcept: topic?.concept });
+  };
+
+  const quizWeakTopic = (topic) => {
+    const { objectiveIds } = weakTopicTargets(topic);
+    if (!objectiveIds.length) {
+      setLaunchError(`“${topic?.concept || "This concept"}” needs a verified objective link before a focused quiz can start.`);
+      return;
+    }
+    const count = 5;
+    handleLaunch({
+      format: "practice",
+      questionCount: count,
+      durationMinutes: examDurationMinutes(count),
+      examName: `Weak concept · ${topic.concept} · ${count} questions`,
+      focusNotes: `Test this weak concept specifically: ${topic.concept}. Use fresh second- or third-order Step 1-style applications tied to the linked lecture objectives.`,
+      studyMode: "repair",
+      targetObjectiveIds: objectiveIds,
+      includeSeen: false,
+      startWhilePreparing: true,
+    });
+  };
+
   const lecturesRes = useLectures(blockId, userId);
   const objectivesRes = useObjectives(null, userId);
   const blueprintEvidenceRes = useStoreResource(learnerEvidenceStore, userId);
@@ -1047,6 +1092,9 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           userId={userId}
           embedded
           onStartFocusedRepair={() => openExamLaunch({ studyMode: "repair" })}
+          onStudyTopic={studyWeakTopic}
+          onQuizTopic={quizWeakTopic}
+          quizBusy={launching}
         />}
     </div>
   );

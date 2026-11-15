@@ -116,10 +116,12 @@ vi.mock("./ExamDashboard.jsx", () => ({
 }));
 
 vi.mock("../tracker/WeakConcepts.jsx", () => ({
-  WeakConcepts: ({ embedded, onStartFocusedRepair }) => (
+  WeakConcepts: ({ embedded, onStartFocusedRepair, onStudyTopic, onQuizTopic }) => (
     <div data-testid="weak-concepts" data-embedded={embedded ? "true" : "false"}>
       longitudinal weak concepts
       <button onClick={onStartFocusedRepair}>Start focused repair</button>
+      <button onClick={() => onStudyTopic({ concept: "Ocular reflex pathway", items: [{ linkedLecIds: ["lec-1"], objectiveIds: ["o1"] }] })}>Study concept</button>
+      <button onClick={() => onQuizTopic({ concept: "Ocular reflex pathway", items: [{ linkedLecIds: ["lec-1"], objectiveIds: ["o1"] }] })}>Quiz concept</button>
     </div>
   ),
 }));
@@ -442,6 +444,31 @@ describe("ExamContainer", () => {
     act(() => repair.click());
     expect(host.querySelector('[data-testid="launch-modal"]')?.dataset.defaultStudyMode).toBe("repair");
 
+    unmount();
+  });
+
+  it("opens a weak concept for study and launches a five-question concept quiz", async () => {
+    launchExamSessionMock.mockResolvedValue({ ok: true, sessionId: "concept-quiz" });
+    const navigate = vi.fn();
+    const { host, unmount } = render(
+      <ExamContainer blockId="b1" userId="u1" onNavigateToLecture={navigate} />
+    );
+    act(() => Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Weak concepts").click());
+
+    act(() => Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Study concept").click());
+    expect(navigate).toHaveBeenCalledWith("lec-1", expect.objectContaining({ focusObjectiveIds: ["o1"], weakConcept: "Ocular reflex pathway" }));
+
+    await act(async () => Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Quiz concept").click());
+    await flush();
+    expect(launchExamSessionMock).toHaveBeenCalledWith(expect.objectContaining({
+      format: "practice",
+      questionCount: 5,
+      studyMode: "repair",
+      targetObjectiveIds: ["o1"],
+      includeSeen: false,
+      focusNotes: expect.stringContaining("Ocular reflex pathway"),
+    }), expect.anything());
+    expect(host.querySelector('[data-testid="session-runner"]')?.textContent).toContain("concept-quiz");
     unmount();
   });
 

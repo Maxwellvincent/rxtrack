@@ -16,7 +16,7 @@ const MASTERY_STYLE = {
   mastered: "text-good",
 };
 
-function TopicRow({ topic }) {
+function TopicRow({ topic, onStudyTopic, onQuizTopic, quizBusy }) {
   const landmine = topic.items.some(isLandmine);
   const count = topic.items.length;
 
@@ -36,24 +36,28 @@ function TopicRow({ topic }) {
         {topic.missCount} miss{topic.missCount === 1 ? "" : "es"}
         {count > 1 && ` across ${count} cards`}
       </div>
+      {(onStudyTopic || onQuizTopic) && <div className="mt-2 flex flex-wrap gap-2">
+        {onStudyTopic && <Button variant="outline" className="min-h-8 px-3 py-1 text-xs" onClick={() => onStudyTopic(topic)}>Study</Button>}
+        {onQuizTopic && <Button className="min-h-8 px-3 py-1 text-xs" disabled={quizBusy} onClick={() => onQuizTopic(topic)}>{quizBusy ? "Starting…" : "Quiz 5"}</Button>}
+      </div>}
     </div>
   );
 }
 
-function LectureGroup({ lecture }) {
+function LectureGroup({ lecture, onStudyTopic, onQuizTopic, quizBusy }) {
   return (
     <div className="border-b border-border py-2 pl-3 last:border-b-0">
       <div className="mb-1 font-mono text-[12px] font-bold uppercase tracking-wider text-text-3">
         {lecture.lectureLabel}
       </div>
       {lecture.topics.map((topic) => (
-        <TopicRow key={topic.concept.toLowerCase()} topic={topic} />
+        <TopicRow key={topic.concept.toLowerCase()} topic={topic} onStudyTopic={onStudyTopic} onQuizTopic={onQuizTopic} quizBusy={quizBusy} />
       ))}
     </div>
   );
 }
 
-function AngleGroup({ group }) {
+function AngleGroup({ group, onStudyTopic, onQuizTopic, quizBusy }) {
   const topicCount = group.lectures.reduce((n, l) => n + l.topics.length, 0);
   return (
     <div className="border-b border-border py-2 last:border-b-0">
@@ -61,13 +65,13 @@ function AngleGroup({ group }) {
         {group.angle} ({topicCount})
       </div>
       {group.lectures.map((lecture) => (
-        <LectureGroup key={lecture.lectureLabel} lecture={lecture} />
+        <LectureGroup key={lecture.lectureLabel} lecture={lecture} onStudyTopic={onStudyTopic} onQuizTopic={onQuizTopic} quizBusy={quizBusy} />
       ))}
     </div>
   );
 }
 
-export function WeakConcepts({ blockId, userId, onBack, embedded = false, onStartFocusedRepair }) {
+export function WeakConcepts({ blockId, userId, onBack, embedded = false, onStartFocusedRepair, onStudyTopic, onQuizTopic, quizBusy = false }) {
   const store = useWeakConcepts(null, userId);
   const [scope, setScope] = useState("block"); // block | everything
   const [includeMastered, setIncludeMastered] = useState(false);
@@ -140,7 +144,7 @@ export function WeakConcepts({ blockId, userId, onBack, embedded = false, onStar
       ) : (
         <div className="rounded-lg border border-border px-3">
           {grouped.map((group) => (
-            <AngleGroup key={group.angle} group={group} />
+            <AngleGroup key={group.angle} group={group} onStudyTopic={onStudyTopic} onQuizTopic={onQuizTopic} quizBusy={quizBusy} />
           ))}
         </div>
       )}
