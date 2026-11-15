@@ -761,6 +761,13 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, object
             <QuestionStem text={q.stem} questionId={q.questionId} />
             <SchoolQuestionFigure question={q} userId={userId} />
             <ChoiceList questionId={q.questionId} choices={q.choices} choiceColumns={q.choiceColumns} choiceLayout={q.choiceLayout} picked={picked} revealed correct={q.correct} onPick={() => {}} />
+            {(q.explanation || Object.keys(q.whyWrong || {}).length > 0) ? (
+              <div className="mt-3">
+                <QuestionExplanation selectedLetter={picked} text={q.explanation} correctLetter={q.correct} whyWrong={q.whyWrong} choices={q.choices} sourceType={q.sourceType || session.sourceType} />
+              </div>
+            ) : picked != null ? (
+              <p role="status" className="mt-3 rounded border border-warn/40 bg-panel p-3 text-sm text-text-2">No answer rationale was saved with this source question.</p>
+            ) : null}
             <div className="mt-2"><QuestionQualityRating userId={userId} question={q} /></div>
             {picked != null && picked !== q.correct && <LearningGapNote key={q.questionId} userId={userId} question={q} blockId={session.blockId} lectureId={q.lectureId} />}
             {picked != null && picked !== q.correct && <details><summary className="cursor-pointer py-2 text-sm text-text-3">Review this miss · optional</summary><MissReflection userId={userId} question={q} /><MissDiagnosis question={q} selectedChoice={picked} initialResult={reviewDiagnostics[q.questionId]} onSkip={()=>saveReviewDiagnostic(q.questionId,{skipped:true}).catch(()=>{})} onNavigateToLecture={onNavigateToLecture} onComplete={(diagnostic) => {

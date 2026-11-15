@@ -279,7 +279,33 @@ describe("ExamSessionRunner", () => {
     expect(host.querySelectorAll('[data-testid="review-question"]')).toHaveLength(2);
     expect(host.textContent).toContain("Print / save detailed review PDF");
     expect(host.textContent.toLowerCase()).not.toContain("confidence");
-    expect(host.textContent).not.toContain("Because reasons.");
+    expect(host.querySelectorAll('[data-testid="correct-answer-reason"]')).toHaveLength(2);
+    expect(host.textContent).toContain("Why A is correct");
+    expect(host.textContent).toContain("Because reasons.");
+    unmount();
+  });
+
+  it("shows why the selected answer is wrong in submitted exam review", () => {
+    const missed = {
+      ...makeQuestion("q1", "A"),
+      whyWrong: {
+        A: "The supplied findings support the keyed mechanism.",
+        B: "This alternative predicts the opposite laboratory pattern.",
+      },
+    };
+    const controller = baseController({
+      session: {
+        ...baseController().session,
+        status: "submitted",
+        questions: [missed],
+        answers: [{ questionId: "q1", value: "B" }],
+      },
+    });
+    controllerMock.mockReturnValue(controller);
+    const { host, unmount } = render(<ExamSessionRunner sessionId="s1" userId="u1" />);
+    expect(host.querySelector('[data-testid="correct-answer-reason"]')?.textContent).toContain("Why A is correct");
+    expect(host.querySelector('[data-testid="selected-answer-reason"]')?.textContent).toContain("Why your answer (B) is incorrect");
+    expect(host.querySelector('[data-testid="selected-answer-reason"]')?.textContent).toContain("opposite laboratory pattern");
     unmount();
   });
   it("format exam: renders a countdown timer, a submit button, and no per-question reveal", () => {
@@ -734,7 +760,8 @@ describe("ExamSessionRunner", () => {
       expect(score).toBeTruthy();
       expect(score.textContent).toMatch(/1\/2 correct · 50%/);
       expect(host.querySelectorAll('[data-testid="review-question"]')).toHaveLength(2);
-      expect(host.textContent).not.toContain("Because reasons.");
+      expect(host.querySelectorAll('[data-testid="correct-answer-reason"]')).toHaveLength(2);
+      expect(host.textContent).toContain("Because reasons.");
       const optionalRatings = host.querySelectorAll('[data-testid="question-quality-rating"]');
       expect(optionalRatings).toHaveLength(2);
       expect(Array.from(optionalRatings).every(detail => !detail.open && detail.querySelector("summary")?.textContent.includes("Rate or report question"))).toBe(true);

@@ -18,7 +18,7 @@ describe("QuestionExplanation", () => {
       sourceType="question-bank"
     />));
     expect(host.textContent).toContain("not independently medically verified");
-    expect(host.textContent).toContain("Key point · condensed from source");
+    expect(host.textContent).toContain("Why B is correct · condensed from source");
     expect(host.querySelector("details")?.open).toBe(false);
     expect(host.querySelector(".rounded.border")?.textContent).not.toContain("causes limit dextrin");
     act(() => host.querySelector("summary").click());
@@ -37,7 +37,7 @@ it("shows the decisive explanation and selected misconception without expanding 
     whyWrong={{ A: "Permeability causes extracellular leakage.", B: "The pump depends on ATP.", C: "CSF secretion does not explain cellular swelling.", D: "Absorption affects ventricular size." }} />));
   expect(host.querySelector("details").open).toBe(false);
   expect(host.querySelector("summary").textContent).toBe("Compare answer choices");
-  expect(host.querySelector("details").previousElementSibling.textContent).toContain("Your choice · A");
+  expect(host.querySelector("details").previousElementSibling.textContent).toContain("Why your answer (A) is incorrect");
   expect(host.querySelector("details").previousElementSibling.textContent).toContain("extracellular leakage");
   expect(host.querySelector("details").textContent).toContain("Absorption affects ventricular size");
   act(() => root.unmount());

@@ -54,17 +54,21 @@ export function QuestionExplanation({ text, correctLetter, whyWrong, choices = {
     .sort()
     .map((letter) => ({ letter, body: cleanText(whyWrong[letter]) }));
   const bullets = structured.length ? structured : parsed.bullets;
+  const correctReason = bullets.find(item => item.letter === correctLetter)?.body || "";
   const selectedContrast = selectedLetter !== correctLetter ? bullets.find(item => item.letter === selectedLetter) : null;
   const isSourceBank = sourceType === "question-bank";
   const condensed = isSourceBank ? condensedSourcePoint(text, choices[correctLetter]) : "";
+  const primaryCorrectReason = isSourceBank ? (condensed || correctReason || parsed.lead) : (parsed.lead || correctReason);
 
   return (
     <div className="space-y-2 rounded border-l-2 border-accent bg-panel p-3 text-[13px] leading-relaxed text-text-2">
       {isSourceBank && <div className="font-mono text-[10px] font-semibold uppercase tracking-wide text-text-3">Source key preserved · source rationale not independently medically verified</div>}
-      {isSourceBank && condensed && <div className="rounded border border-border/60 bg-bg-elevated p-2.5"><div className="mb-1 font-semibold text-text-1">Key point · condensed from source</div><LabAnnotatedText text={condensed} className="block" /></div>}
-      {!isSourceBank && parsed.lead && <div className="rounded border border-border/60 bg-bg-elevated p-2.5"><LabAnnotatedText text={parsed.lead} className="block" /></div>}
-      {!isSourceBank && selectedContrast && <div className="rounded border border-border/60 bg-bg-elevated p-2.5">
-        <div className="mb-1 font-semibold text-text-1">Your choice · {selectedLetter}</div>
+      {primaryCorrectReason && <div data-testid="correct-answer-reason" className="rounded border border-good/30 bg-bg-elevated p-2.5">
+        <div className="mb-1 font-semibold text-text-1">Why {correctLetter} is correct{isSourceBank ? " · condensed from source" : ""}</div>
+        <LabAnnotatedText text={primaryCorrectReason} className="block" />
+      </div>}
+      {selectedContrast && <div data-testid="selected-answer-reason" className="rounded border border-bad/30 bg-bg-elevated p-2.5">
+        <div className="mb-1 font-semibold text-text-1">Why your answer ({selectedLetter}) is incorrect{isSourceBank ? " · source rationale" : ""}</div>
         <LabAnnotatedText text={selectedContrast.body} className="block" />
       </div>}
       {bullets.length > 0 && !isSourceBank && (
