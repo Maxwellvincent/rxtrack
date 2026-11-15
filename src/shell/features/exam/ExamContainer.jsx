@@ -139,11 +139,13 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   const [generationCoverage, setGenerationCoverage] = useState(null);
   const [selectedBlueprint, setSelectedBlueprint] = useState("");
   const [launchStudyMode, setLaunchStudyMode] = useState("balanced");
+  const [launchTarget, setLaunchTarget] = useState({ objectiveIds: [], focusNotes: "" });
 
-  const openExamLaunch = ({ studyMode = "balanced", blueprint = "" } = {}) => {
+  const openExamLaunch = ({ studyMode = "balanced", blueprint = "", objectiveIds = [], focusNotes = "" } = {}) => {
     setLaunchError(null);
     setSelectedBlueprint(String(blueprint));
     setLaunchStudyMode(studyMode);
+    setLaunchTarget({ objectiveIds, focusNotes });
     setShowLaunchModal(true);
   };
 
@@ -153,7 +155,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   };
 
   const weakTopicTargets = (topic) => {
-    const items = topic?.items || [];
+    const items = topic?.items || (topic ? [topic] : []);
     const lectureIds = [...new Set(items.flatMap(item => item?.linkedLecIds || []).filter(Boolean))];
     const explicitObjectiveIds = [...new Set(items.flatMap(item => [
       ...(item?.objectiveIds || []),
@@ -845,6 +847,8 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           userId={userId}
           defaultBlueprintExam={selectedBlueprint}
           defaultStudyMode={launchStudyMode}
+          defaultTargetObjectiveIds={launchTarget.objectiveIds}
+          defaultFocusNotes={launchTarget.focusNotes}
           eligibleLectures={eligibleLectures}
           blueprintLectures={blueprintContext.eligibleLectures}
           blueprintObjectives={blueprintContext.objectivesByLecture}
@@ -1091,7 +1095,16 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           blockId={blockId}
           userId={userId}
           embedded
-          onStartFocusedRepair={() => openExamLaunch({ studyMode: "repair" })}
+          onStartFocusedRepair={(topics = []) => {
+            const selectedTopics = Array.isArray(topics) ? topics : [];
+            const objectiveIds = [...new Set(selectedTopics.flatMap(topic => weakTopicTargets(topic).objectiveIds))];
+            const names = selectedTopics.map(topic => topic?.concept).filter(Boolean).slice(0, 8);
+            openExamLaunch({
+              studyMode: "repair",
+              objectiveIds,
+              focusNotes: names.length ? `Prioritize these highest-benefit weak concepts: ${names.join("; ")}. Use fresh second- and third-order applications.` : "",
+            });
+          }}
           onStudyTopic={studyWeakTopic}
           onQuizTopic={quizWeakTopic}
           quizBusy={launching}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { flattenWeakConcepts, groupWeakConcepts } from "./weakConcepts.js";
+import { flattenWeakConcepts, groupWeakConcepts, highBenefitConcepts } from "./weakConcepts.js";
 
 describe("flattenWeakConcepts", () => {
   const store = {
@@ -84,5 +84,24 @@ describe("groupWeakConcepts", () => {
   it("keeps a card with no angle under a general bucket rather than dropping it", () => {
     const groups = groupWeakConcepts([{ id: "x", concept: "Mystery", missCount: 1, masteryLevel: "struggling" }]);
     expect(groups.find((g) => g.angle === "general")).toBeTruthy();
+  });
+});
+
+describe("highBenefitConcepts", () => {
+  it("narrows exam review to repeated landmines and mapped recent weaknesses", () => {
+    const now = Date.parse("2026-11-15T12:00:00Z");
+    const concepts = Array.from({ length: 12 }, (_, index) => ({
+      id: `c${index}`,
+      concept: `Concept ${index}`,
+      masteryLevel: index < 10 ? "struggling" : "developing",
+      missCount: index,
+      consecutiveCorrect: index === 11 ? 2 : 0,
+      objectiveIds: index % 2 ? ["o"] : [],
+      lastMissed: new Date(now - index * 86_400_000).toISOString(),
+    }));
+    const selected = highBenefitConcepts(concepts, 8, now);
+    expect(selected).toHaveLength(8);
+    expect(selected[0].id).toBe("c9");
+    expect(selected.some(item => item.id === "c11")).toBe(false);
   });
 });

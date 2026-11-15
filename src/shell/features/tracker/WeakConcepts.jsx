@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useWeakConcepts } from "../../hooks/useWeakConcepts.js";
 import { useStoreResource } from "../../hooks/useStoreResource.js";
-import { weakConceptView, isLandmine, groupWeakConcepts } from "./weakConcepts.js";
+import { weakConceptView, isLandmine, groupWeakConcepts, highBenefitConcepts } from "./weakConcepts.js";
 import { Button } from "../../../ui/Button.jsx";
 import * as learnerEvidenceStore from "../../../stores/learnerEvidence.js";
 import * as weakConceptsStore from "../../../stores/weakConcepts.js";
@@ -81,6 +81,7 @@ export function WeakConcepts({ blockId, userId, onBack, embedded = false, onStar
   const [scope, setScope] = useState("block"); // block | everything
   const [includeMastered, setIncludeMastered] = useState(false);
   const [landminesOnly, setLandminesOnly] = useState(false);
+  const [priorityOnly, setPriorityOnly] = useState(embedded);
 
   const reconciledStore = useMemo(() => reconcileWeakConceptRecovery(
     store.data,
@@ -98,7 +99,8 @@ export function WeakConcepts({ blockId, userId, onBack, embedded = false, onStar
     [reconciledStore, blockId, scope, includeMastered]
   );
 
-  const shown = landminesOnly ? view.landmines : view.concepts;
+  const available = landminesOnly ? view.landmines : view.concepts;
+  const shown = priorityOnly ? highBenefitConcepts(available, 8) : available;
   const grouped = useMemo(() => groupWeakConcepts(shown), [shown]);
 
   return (
@@ -110,7 +112,7 @@ export function WeakConcepts({ blockId, userId, onBack, embedded = false, onStar
           {embedded && <p className="mt-1 max-w-2xl text-sm text-text-3">Your repeated misses across exams and practice, grouped by the exact topic within each lecture.</p>}
         </div>
         {onStartFocusedRepair && (
-          <Button onClick={onStartFocusedRepair}>Start focused repair</Button>
+          <Button onClick={() => onStartFocusedRepair(shown)}>Quiz top priorities</Button>
         )}
       </div>
       <div className="mb-3 font-mono text-[12px] text-text-3">
@@ -151,7 +153,15 @@ export function WeakConcepts({ blockId, userId, onBack, embedded = false, onStar
         >
           show mastered
         </button>
+        <button
+          onClick={() => setPriorityOnly((value) => !value)}
+          className={"rounded border px-2 py-0.5 font-mono text-[12px] " + (priorityOnly ? "border-accent text-text-1" : "border-border text-text-3 hover:text-text-2")}
+        >
+          {priorityOnly ? `show all ${available.length}` : "show top priorities"}
+        </button>
       </div>
+
+      {priorityOnly && available.length > shown.length && <p className="mb-3 text-sm text-text-2">Showing the {shown.length} highest-benefit weaknesses from {available.length}: repeated misses and landmines first, then recent objective-mapped gaps.</p>}
 
       {shown.length === 0 ? (
         <div className="rounded-lg border border-border p-3 text-xs text-text-3">

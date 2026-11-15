@@ -74,6 +74,23 @@ export function rankConcepts(concepts) {
   });
 }
 
+/** Exam-mode triage: favor repeated, unresolved, recent, and safely mapped weaknesses. */
+export function highBenefitConcepts(concepts, limit = 8, now = Date.now()) {
+  const score = (concept) => {
+    const missedAt = Date.parse(concept?.lastMissed || "") || 0;
+    const ageDays = missedAt ? Math.max(0, (now - missedAt) / 86_400_000) : 365;
+    return (isLandmine(concept) ? 40 : 0)
+      + (concept?.masteryLevel === "struggling" ? 25 : concept?.masteryLevel === "developing" ? 8 : 0)
+      + Math.min(10, Number(concept?.missCount) || 0) * 3
+      + ((concept?.objectiveIds || []).length ? 8 : 0)
+      + (ageDays <= 7 ? 6 : ageDays <= 21 ? 3 : 0)
+      + Math.min(8, Math.max(0, Number(concept?.reportGap) || 0) / 5);
+  };
+  return [...(concepts || [])]
+    .sort((a, b) => score(b) - score(a) || (b.missCount || 0) - (a.missCount || 0) || String(a.concept || "").localeCompare(String(b.concept || "")))
+    .slice(0, Math.max(1, Number(limit) || 8));
+}
+
 /**
  * Anatomy/discipline -> lecture -> topic. An Anki image-occlusion deck often
  * splits one concept into several near-identical notes (one per occluded

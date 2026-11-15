@@ -46,6 +46,8 @@ export function ExamLaunchModal({
   eligibleLectures = [],
   defaultBlueprintExam = "",
   defaultStudyMode = "balanced",
+  defaultTargetObjectiveIds = [],
+  defaultFocusNotes = "",
   blueprintLectures = [],
   blueprintObjectives = {},
   defaultQuestionCount,
@@ -84,7 +86,7 @@ export function ExamLaunchModal({
   const [rangeStart, setRangeStart] = useState("");
   const [rangeEnd, setRangeEnd] = useState("");
   const [includeSeen, setIncludeSeen] = useState(false);
-  const [focusNotes, setFocusNotes] = useState("");
+  const [focusNotes, setFocusNotes] = useState(defaultFocusNotes);
   const [examNameOverride, setExamNameOverride] = useState(null);
 
   const availableWeeks = [...new Set(eligibleLectures.map((lecture) => lecture.weekNumber).filter((week) => week != null))]
@@ -109,6 +111,7 @@ export function ExamLaunchModal({
   const examName = examNameOverride ?? suggestedName;
   const namePayload = { examName: examName.trim() || suggestedName, ...(blueprintExam ? {blueprintExam:Number(blueprintExam),contentScope:"entire-block"} : {}) };
   const durationValid = format !== "exam" || (Number.isFinite(parsedDuration) && parsedDuration > 0);
+  const targetPayload = defaultTargetObjectiveIds.length ? { targetObjectiveIds: defaultTargetObjectiveIds } : {};
 
   const datesValid = !!blueprintExam || contentScope !== "custom-dates" || (rangeStart && rangeEnd && rangeStart <= rangeEnd);
   const missingSubjects = blueprintExam ? subjectTargets(blueprintExam, parsedCount).filter(row=>row.count && !inventory.counts[row.subject]) : [];
@@ -147,6 +150,7 @@ export function ExamLaunchModal({
       durationMinutes: format === "exam" ? parsedDuration : null,
       startWhilePreparing: true,
       includeSeen,
+      ...targetPayload,
       ...scopePayload,
       ...(focusNotes.trim() ? { focusNotes: focusNotes.trim() } : {}),
     });
@@ -356,7 +360,7 @@ export function ExamLaunchModal({
         )}
 
         {onPrepare && <div className="mt-4 border-t border-border pt-3 text-sm text-text-2">
-      <button type="button" disabled={!canLaunch || launching} onClick={() => onPrepare({ format, ...namePayload, ...(studyMode === "repair" ? { studyMode } : {}), ...(difficulty !== "adaptive" ? { difficultyOverride: difficulty } : {}), questionCount: parsedCount, durationMinutes: format === "exam" ? parsedDuration : null, ...(effectiveScope === "block-so-far" ? {} : /^\d+$/.test(String(effectiveScope)) ? { weekNumber: effectiveScope } : { contentScope: effectiveScope }), ...(focusNotes.trim() ? { focusNotes: focusNotes.trim() } : {}) })}
+      <button type="button" disabled={!canLaunch || launching} onClick={() => onPrepare({ format, ...namePayload, ...(studyMode === "repair" ? { studyMode } : {}), ...targetPayload, ...(difficulty !== "adaptive" ? { difficultyOverride: difficulty } : {}), questionCount: parsedCount, durationMinutes: format === "exam" ? parsedDuration : null, ...(effectiveScope === "block-so-far" ? {} : /^\d+$/.test(String(effectiveScope)) ? { weekNumber: effectiveScope } : { contentScope: effectiveScope }), ...(focusNotes.trim() ? { focusNotes: focusNotes.trim() } : {}) })}
             className="rounded border border-border px-3 py-2 font-semibold text-text-1 disabled:opacity-40">Prepare questions for later</button>
           <p className="mt-2 text-xs">Saves unused questions privately in Firestore. No timer or score starts in this mode.</p>
         </div>}
