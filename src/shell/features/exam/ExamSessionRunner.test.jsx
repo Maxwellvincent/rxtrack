@@ -277,6 +277,8 @@ describe("ExamSessionRunner", () => {
     const { host, unmount } = render(<ExamSessionRunner sessionId="s1" userId="u1" />);
     expect(host.querySelector('[data-testid="exam-score"]')?.textContent).toContain("1/2 correct · 50%");
     expect(host.querySelectorAll('[data-testid="review-question"]')).toHaveLength(2);
+    expect(host.textContent).toContain("Print / save detailed review PDF");
+    expect(host.textContent.toLowerCase()).not.toContain("confidence");
     expect(host.textContent).not.toContain("Because reasons.");
     unmount();
   });
@@ -289,6 +291,7 @@ describe("ExamSessionRunner", () => {
     expect(host.textContent).toMatch(/Submit exam/);
     // No per-question reveal: correct/explanation text never renders pre-submit.
     expect(host.textContent).not.toMatch(/Because reasons\./);
+    expect(host.textContent.toLowerCase()).not.toContain("confidence");
     expect(host.querySelector('[data-testid="practice-reveal"]')).toBeFalsy();
 
     unmount();

@@ -34,3 +34,8 @@ it('does not strand lower-level objectives behind an unsupported third-order tar
  const delayed={...fresh,at:DAY+3000,sessionKey:'s2',questionKey:'delayed'};
  expect(repairTransferPlan([objective],{},[first,fresh,delayed],DAY+4000)).toEqual([]);
 });
+it('does not cap a diagnostic repair queue at three and exposes the supported set sizes',()=>{
+ const rows=Array.from({length:6},(_,i)=>({objective:{...o,id:`o${i}`},anchor:event({objectiveIds:[`o${i}`]}),state:'transfer'}));
+ const request=repairTransferRequest(rows);
+ expect(request.objectives).toHaveLength(6);expect(request.count).toBe(10);expect(request.questionCounts).toEqual([5,10,20,30]);
+});

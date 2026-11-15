@@ -13,8 +13,10 @@ it("explains progress and launches a bounded retest for unresolved practiced obj
  expect(host.textContent).not.toContain("Ready for retest");
  act(()=>[...host.querySelectorAll("button")].find(button=>button.textContent.includes("Show all practiced")).click());
  expect(host.textContent).toContain("Ready for retest");expect(host.textContent).toContain("another session");
- act(()=>[...host.querySelectorAll("button")].find(button=>button.textContent.includes("Fresh 4-question")).click());
- expect(onRetest).toHaveBeenCalledWith({objectives,count:4});
+ expect(host.textContent).toContain("Start 10-question targeted retest");
+ act(()=>[...host.querySelectorAll("button")].find(button=>button.textContent==="20").click());
+ act(()=>[...host.querySelectorAll("button")].find(button=>button.textContent.includes("Start 20-question")).click());
+ expect(onRetest).toHaveBeenCalledWith({objectives,count:20,questionCounts:[5,10,20,30]});
  act(()=>[...host.querySelectorAll("button")].find(button=>button.textContent.includes("consolidate notes")).click());expect(onReviewNotes).toHaveBeenCalled();
  act(()=>root.render(<ObjectiveLearningReport objectives={objectives} evidence={evidence} records={[]}/>));expect(host.textContent).toBe("");
  act(()=>root.unmount());
@@ -38,10 +40,10 @@ it('offers the connected handoff after assisted success and preserves the reques
  const objective={id:'o',blockId:'nb2',lectureId:'l',objective:'Explain pathway crossing'};
  act(()=>root.render(<ObjectiveLearningReport objectives={[objective]} onRetest={onRetest} records={[{at:Date.now()-1000,questionKey:'q',sessionKey:'s',objectiveIds:['o'],lectureId:'l',blockId:'nb2',correct:true,assisted:true,learningContext:{topic:'Pathway crossing'}}]}/>));
  expect(host.textContent).toContain('Fresh application next');
- const button=[...host.querySelectorAll('button')].find(b=>b.textContent.includes('Continue with'));
+ const button=[...host.querySelectorAll('button')].find(b=>b.textContent.includes('Start 10-question'));
  act(()=>button.click());expect(onRetest.mock.calls[0][0].objectives[0]._transferOrder).toBe('second-order');
  expect(onRetest.mock.calls[0][0].focusNotes).toContain('Pathway crossing');
- expect(host.textContent).not.toContain('Fresh 4-question targeted retest');
+ expect(host.textContent).not.toContain('Review the gaps first, then choose a fresh set');
  act(()=>root.unmount());
 });
 it('separates a correct current result from historical repairs and unsampled objectives',()=>{

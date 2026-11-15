@@ -7,6 +7,7 @@ export function ObjectiveLearningReport({objectives=[],evidence={},records=[],on
  const detailGroup=useId();
  const [page,setPage]=useState(0);
  const [showSuccessful,setShowSuccessful]=useState(false);
+ const [retestCount,setRetestCount]=useState(10);
  const transferRows=useMemo(()=>repairTransferPlan(objectives,evidence,records,planningTime),[objectives,evidence,records,planningTime]);
  const currentEventIds=useMemo(()=>new Set(records.map(record=>record.eventId).filter(Boolean)),[records]);
  const currentTransferRows=transferRows.filter(row=>row.anchor?.eventId&&currentEventIds.has(row.anchor.eventId));
@@ -36,7 +37,7 @@ export function ObjectiveLearningReport({objectives=[],evidence={},records=[],on
  {transferRows.length>0&&<div className="mb-4" aria-label="Repair and transfer">
  {currentTransferRows.length>0&&<><h3 className="font-bold">Current-session repair</h3><ul className="mt-2 space-y-1 text-sm">{currentTransferRows.slice(0,6).map(row=><li key={row.id}>{row.concept} · {row.state==='transfer'?'Fresh application next':row.state==='due'?'Independent retest due':`Retest ${new Date(row.dueAt).toLocaleDateString()}`}</li>)}</ul></>}
  {historicalTransferRows.length>0&&<><h3 className={`${currentTransferRows.length?'mt-4 ':''}font-bold`}>Historical repair queue</h3><p className="mt-1 text-xs text-text-2">Unresolved connections from earlier questions, separate from this session's result.</p><ul className="mt-2 space-y-1 text-sm">{historicalTransferRows.slice(0,6).map(row=><li key={row.id}>{row.concept} · {row.state==='transfer'?'Fresh application next':row.state==='due'?'Independent retest due':`Retest ${new Date(row.dueAt).toLocaleDateString()}`}</li>)}</ul></>}
- {transferRequest.count>0&&onRetest&&<button type="button" disabled={busy} className="mt-3 rounded bg-accent px-3 py-2 text-sm text-white disabled:opacity-40" onClick={()=>onRetest(transferRequest)}>Continue with {transferRequest.count} fresh cases →</button>}
+ {transferRequest.count>0&&onRetest&&<div className="mt-3"><TargetedRetestControls count={retestCount} onCount={setRetestCount} disabled={busy} onLaunch={()=>onRetest({...transferRequest,count:retestCount})} /></div>}
  <p className="mt-2 text-xs text-text-2">Use Help Me Reason if a connection is missing. Guided answers stay assisted; fresh independent application is checked separately, then retested after at least a day.</p>
  </div>}
  {!transferRows.length&&<>
@@ -66,8 +67,12 @@ export function ObjectiveLearningReport({objectives=[],evidence={},records=[],on
  </details>
  <div className="mt-3 flex flex-wrap gap-2">
  {onReviewNotes && <button type="button" onClick={onReviewNotes} className="rounded border border-border px-3 py-2 text-sm">Review or consolidate notes →</button>}
- {!transferRows.length && retest.count>0 && onRetest && <button type="button" disabled={busy} onClick={()=>onRetest(retest)} className="rounded bg-accent px-3 py-2 text-sm font-semibold text-white disabled:opacity-40">Fresh {retest.count}-question targeted retest →</button>}
+ {!transferRows.length && retest.count>0 && onRetest && <TargetedRetestControls count={retestCount} onCount={setRetestCount} disabled={busy} onLaunch={()=>onRetest({...retest,count:retestCount})} />}
  </div>
- {!transferRows.length && retest.count>0 && <p className="mt-2 text-xs text-text-2">Review the gaps first, then return for a short retest. It uses fresh questions on up to six unresolved objectives; it does not repeat the whole quiz or guarantee mastery.</p>}
+ {!transferRows.length && retest.count>0 && <p className="mt-2 text-xs text-text-2">Review the gaps first, then choose a fresh set. Questions target the missed objectives with new clinical evidence and distractors; they do not repeat the original quiz or guarantee mastery.</p>}
  </section>;
+}
+
+function TargetedRetestControls({count,onCount,onLaunch,disabled}) {
+ return <div aria-label="Targeted retest size"><p className="mb-2 text-xs font-semibold text-text-2">Fresh targeted questions</p><div className="flex flex-wrap gap-2">{[5,10,20,30].map(value=><button key={value} type="button" aria-pressed={count===value} onClick={()=>onCount(value)} className={`min-h-10 rounded border px-3 py-2 text-sm font-semibold ${count===value?'border-accent bg-accent/15 text-text-1':'border-border text-text-2'}`}>{value}</button>)}<button type="button" disabled={disabled} onClick={onLaunch} className="min-h-10 rounded bg-accent px-3 py-2 text-sm font-semibold text-white disabled:opacity-40">Start {count}-question targeted retest →</button></div></div>;
 }

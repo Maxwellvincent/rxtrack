@@ -31,13 +31,13 @@ export function repairTransferPlan(objectives=[],evidence={},records=[],now=Date
  });
 }
 export function repairTransferRequest(rows=[]){
- const active=rows.filter(row=>row.state!=='waiting').slice(0,3);
+ const active=rows.filter(row=>row.state!=='waiting');
  const targets=new Map();
  for(const row of active){
   const prior=targets.get(row.objective.id),order=prior?._transferOrder==='third-order'?'third-order':row.state==='due'?delayedOrder(row.objective):'second-order';
   targets.set(row.objective.id,{...row.objective,_transferOrder:order,_targetOrder:order});
  }
- return {objectives:[...targets.values()],count:active.length?Math.max(2,active.length):0,
+ return {objectives:[...targets.values()],count:active.length?10:0,questionCounts:[5,10,20,30],
   focusNotes:repairTransferPrompt(active)};
 }
 export function repairTransferPrompt(rows=[]){

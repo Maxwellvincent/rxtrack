@@ -2,20 +2,20 @@ import {expect,it} from "vitest";
 import {learningFocus,questionLearningContext,objectiveLearningReport,shortRetestPlan,latestLearningRecords} from "./learningLoop.js";
 const objectives=Array.from({length:4},(_,i)=>({id:`o${i}`,objective:`Explain source relationship ${i}`}));
 const evidence={objectives:Object.fromEntries(objectives.map(o=>[o.id,{attempts:3,correct:3,recent:[true,true,true],sessions:["first"],taskTypes:{recognition:1,mechanism:2}}]))};
-it("all correct in one session counts as practiced and offers a four-question fresh retest",()=>{
+it("all correct in one session counts as practiced and offers selectable fresh retest sizes",()=>{
  const records=objectives.map(o=>({objectiveIds:[o.id],correct:true}));
  expect(objectiveLearningReport(objectives,evidence,records).every(row=>row.label==="Ready for retest")).toBe(true);
- expect(shortRetestPlan(objectives,evidence,records)).toMatchObject({count:4,objectives});
+ expect(shortRetestPlan(objectives,evidence,records)).toMatchObject({count:10,questionCounts:[5,10,20,30],objectives});
  const ready={objectives:Object.fromEntries(Object.entries(evidence.objectives).map(([id,value])=>[id,{...value,sessions:["first","second"]}]))};
  expect(objectiveLearningReport(objectives,ready,records).every(row=>row.label==="Consistently demonstrated")).toBe(true);
  expect(shortRetestPlan(objectives,ready,records).count).toBe(0);
 });
-it("limits a follow-up to six practiced unresolved objectives and prioritizes current misses",()=>{
+it("keeps all practiced unresolved objectives available and prioritizes current misses",()=>{
  const extra=Array.from({length:10},(_,i)=>({id:`o${i}`}));
  const state={objectives:Object.fromEntries(extra.map(o=>[o.id,{attempts:1,correct:1,recent:[true]}]))};
  const records=extra.map(o=>({objectiveIds:[o.id],correct:o.id!=="o9"}));
  const plan=shortRetestPlan(extra,state,records);
- expect(plan.count).toBe(6);expect(plan.objectives).toHaveLength(6);expect(plan.objectives[0].id).toBe("o9");
+ expect(plan.count).toBe(10);expect(plan.questionCounts).toEqual([5,10,20,30]);expect(plan.objectives).toHaveLength(10);expect(plan.objectives[0].id).toBe("o9");
  expect(shortRetestPlan(extra,{},[]).count).toBe(0);
 });
 it("targets observed choice contrasts and explicit notes only within the requested curriculum",()=>{

@@ -40,8 +40,8 @@ export function objectiveLearningReport(objectives=[], evidence={}, records=[]) 
 export function shortRetestPlan(objectives=[],evidence={},records=[]) {
  const report=objectiveLearningReport(objectives,evidence,records).filter(row=>!row.ready && row.worked)
   .sort((a,b)=>Number(b.label==="Needs repair")-Number(a.label==="Needs repair") || (a.accuracy??1)-(b.accuracy??1));
- const ids=report.slice(0,6).map(row=>row.id);
- return {objectives:ids.map(id=>objectives.find(o=>o.id===id)).filter(Boolean),count:ids.length?Math.min(6,Math.max(4,ids.length)):0};
+ const ids=report.map(row=>row.id);
+ return {objectives:ids.map(id=>objectives.find(o=>o.id===id)).filter(Boolean),count:ids.length?10:0,questionCounts:[5,10,20,30]};
 }
 
 export function latestLearningRecords(evidence={},lectureId,blockId,includeAssisted=false) {

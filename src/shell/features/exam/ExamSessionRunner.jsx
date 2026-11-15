@@ -652,6 +652,7 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
 function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, objectivesById, lectureLabelsByLectureId, onNavigateToLecture, onTargetedRetest, retestBusy }) {
   const learningEvidence=useStoreResource(learnerEvidenceStore,userId);
   const [, refreshQuality] = useState(0);
+  const [reviewDiagnostics,setReviewDiagnostics]=useState(()=>session.reviewDiagnostics || {});
   useEffect(() => questionRatingsStore.subscribe(() => refreshQuality(n => n + 1)), []);
   const questions = session.questions || [];
   // Start with the complete, PDF-like exam review; filters remain available
@@ -668,6 +669,10 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, object
   const targetQuestionCount = Math.max(questions.length, Number(session.targetQuestionCount) || questions.length);
   const incompleteDiagnostic = session.sourceType !== "question-bank" && targetQuestionCount > questions.length;
   const missingQuestionCount = Math.max(0, targetQuestionCount - questions.length);
+  const saveReviewDiagnostic = async (questionId, diagnostic) => {
+    setReviewDiagnostics(current=>({...current,[questionId]:diagnostic}));
+    await updateExamSessionTransaction(userId,session.sessionId,current=>current ? {...current,reviewDiagnostics:{...(current.reviewDiagnostics || {}),[questionId]:diagnostic}} : null);
+  };
   const visible = questions.filter((q) => {
     const picked = pickedFor(session, q.questionId);
     if (filter === "correct") return !questionRatingsStore.isExcluded(userId, q) && picked === q.correct;
@@ -681,6 +686,13 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, object
       return !questionRatingsStore.isExcluded(userId, q) && picked != null && picked !== q.correct;
     }).map((question) => ({
       ...question,
+      selectedAnswer: pickedFor(session,question.questionId),
+      reviewDiagnostic: reviewDiagnostics[question.questionId],
+      errorClassification: (()=>{
+        const diagnostic=reviewDiagnostics[question.questionId];
+        if(!diagnostic || diagnostic.skipped || !diagnostic.primaryType)return "Not classified";
+        return [MISS_TYPE_LABELS[diagnostic.primaryType] || diagnostic.primaryType,diagnostic.secondaryType && (MISS_TYPE_LABELS[diagnostic.secondaryType] || diagnostic.secondaryType)].filter(Boolean).join(" + ");
+      })(),
       lectureLabel: question.lectureLabel || lectureLabelsByLectureId?.[question.lectureId || question.lectureIds?.[0]],
       objectiveLabels: (question.objectiveIds || []).map((id) => {
         const objective = objectivesById?.[id];
@@ -717,9 +729,9 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, object
       {incorrectCount > 0 && <div className="rounded-lg border border-accent/40 bg-bg-elevated p-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="text-sm font-semibold text-text-1">Take your missed questions to Goodnotes</div>
-          <Button variant="outline" onClick={exportMissedQuestions}>Print / save worksheet as PDF</Button>
+          <Button variant="outline" onClick={exportMissedQuestions}>Print / save detailed review PDF</Button>
         </div>
-        <p className="mt-1 text-xs text-text-3">Exports {incorrectCount} missed questions with their figures and full choices, plus space to reason. Answers are left out.</p>
+        <p className="mt-1 text-xs text-text-3">Exports {incorrectCount} missed questions with your saved selection, correct answer, explanation, objective, and any optional post-exam error classification.</p>
         {worksheetError && <p role="alert" className="mt-2 text-xs text-bad">{worksheetError}</p>}
       </div>}
       <ReservedAssessmentReport session={session} excludedIds={questions.filter(q=>questionRatingsStore.isExcluded(userId,q)).map(q=>q.questionId)} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} />
@@ -750,8 +762,9 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, object
             <ChoiceList questionId={q.questionId} choices={q.choices} choiceColumns={q.choiceColumns} choiceLayout={q.choiceLayout} picked={picked} revealed correct={q.correct} onPick={() => {}} />
             <div className="mt-2"><QuestionQualityRating userId={userId} question={q} /></div>
             {picked != null && picked !== q.correct && <LearningGapNote key={q.questionId} userId={userId} question={q} blockId={session.blockId} lectureId={q.lectureId} />}
-            {picked != null && picked !== q.correct && <details><summary className="cursor-pointer py-2 text-sm text-text-3">Review this miss · optional</summary><MissReflection userId={userId} question={q} /><MissDiagnosis question={q} selectedChoice={picked} onNavigateToLecture={onNavigateToLecture} onComplete={(diagnostic) => {
+            {picked != null && picked !== q.correct && <details><summary className="cursor-pointer py-2 text-sm text-text-3">Review this miss · optional</summary><MissReflection userId={userId} question={q} /><MissDiagnosis question={q} selectedChoice={picked} initialResult={reviewDiagnostics[q.questionId]} onSkip={()=>saveReviewDiagnostic(q.questionId,{skipped:true}).catch(()=>{})} onNavigateToLecture={onNavigateToLecture} onComplete={(diagnostic) => {
               recordMissType(userId, diagnostic.primaryType, `${session.sessionId}:${q.questionId}`);
+              saveReviewDiagnostic(q.questionId,diagnostic).catch(()=>{});
             }} /></details>}
             {tutorModeEnabled && <TutorPanelForQuestion question={q} callAI={callAI} />}
           </article>
