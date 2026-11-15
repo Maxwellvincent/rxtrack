@@ -29,6 +29,51 @@ function makeSessionId() {
   return `sess_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
+const normalizedStem = question => String(question?.stem || "").toLowerCase().replace(/\s+/g, " ").trim();
+
+/** Prefer already-reviewed, unassigned block questions before spending time or
+ * model usage on new generation. Allocation guides balance, but a surplus in
+ * one eligible lecture may fill a missing slot in another lecture. */
+export function selectReviewedReserve(reserve = [], allocation = {}, requestedCount = 0) {
+  const selected = [], usedIds = new Set(), usedStems = new Set(), counts = {};
+  const candidates = reserve.filter(question => question?.poolId && normalizedStem(question));
+  while (selected.length < requestedCount && candidates.length) {
+    candidates.sort((a, b) => {
+      const aSlot = questionSlot(a), bSlot = questionSlot(b);
+      const aDeficit = Math.max(0, Number(allocation[aSlot] || 0) - Number(counts[aSlot] || 0));
+      const bDeficit = Math.max(0, Number(allocation[bSlot] || 0) - Number(counts[bSlot] || 0));
+      return Number(bDeficit > 0) - Number(aDeficit > 0)
+        || bDeficit - aDeficit
+        || Number(counts[aSlot] || 0) - Number(counts[bSlot] || 0)
+        || String(a.poolId).localeCompare(String(b.poolId));
+    });
+    const question = candidates.shift(), stem = normalizedStem(question);
+    if (usedIds.has(question.poolId) || usedStems.has(stem)) continue;
+    selected.push(question); usedIds.add(question.poolId); usedStems.add(stem);
+    const slot = questionSlot(question); counts[slot] = (counts[slot] || 0) + 1;
+  }
+  return selected;
+}
+
+function remainingAllocationAfterReserve(allocation, selected, requestedCount) {
+  let remaining = Math.max(0, requestedCount - selected.length);
+  if (!remaining) return {};
+  const counts = selected.reduce((result, question) => {
+    const slot = questionSlot(question); result[slot] = (result[slot] || 0) + 1; return result;
+  }, {});
+  const deficits = Object.entries(allocation).map(([slot, count]) => [slot, Math.max(0, Number(count || 0) - Number(counts[slot] || 0))])
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const result = {};
+  for (const [slot, deficit] of deficits) {
+    const take = Math.min(deficit, remaining);
+    if (take > 0) result[slot] = take;
+    remaining -= take;
+    if (!remaining) break;
+  }
+  if (remaining && deficits.length) result[deficits[0][0]] = (result[deficits[0][0]] || 0) + remaining;
+  return result;
+}
+
 /**
  * Runs the full launch sequence for an Integrated Exam session: allocate →
  * generate → shape → persist. Returns `{ok: true, sessionId, generationErrors}`
@@ -216,9 +261,25 @@ async function runLaunch(
     return { ok: true, sessionId, generationErrors: [], cacheHits: savedResult.cacheHits || 0 };
   }
 
-  const { questions, errors: generationErrors, cacheHits = 0, coverage = null } = await generateExamQuestions(
+  let reserveQuestions = [];
+  let generationAllocation = allocation;
+  if (prepareOnly && !blueprintExam && studyMode !== "repair" && !targetObjectiveIds?.length
+    && !preparedGenerationId && pool.readyForLectures) {
+    const eligibleIds = eligibleLectures.map(lecture => lecture.lectureId || lecture.id).filter(Boolean);
+    reserveQuestions = selectReviewedReserve(await pool.readyForLectures(eligibleIds), allocation, questionCount);
+    generationAllocation = remainingAllocationAfterReserve(allocation, reserveQuestions, questionCount);
+    if (reserveQuestions.length) deps.onProgress?.({
+      message: reserveQuestions.length >= questionCount
+        ? `Loaded ${questionCount}/${questionCount} from reviewed unused questions`
+        : `Loaded ${reserveQuestions.length}/${questionCount} from reviewed unused questions · generating only the shortfall`,
+      completed: reserveQuestions.length,
+      total: questionCount,
+    });
+  }
+
+  const generated = Object.keys(generationAllocation).length ? await generateExamQuestions(
     {
-      allocation,
+      allocation: generationAllocation,
       lecturesById,
       objectivesByLecture,
       atomsByLecture,
@@ -234,7 +295,11 @@ async function runLaunch(
       preparedQuestionIds,
     },
     { ...preparationDeps, pool, savedOnly }
-  );
+  ) : { questions: [], errors: [], cacheHits: 0, coverage: null };
+  const questions = [...reserveQuestions, ...(generated.questions || [])].slice(0, questionCount);
+  const generationErrors = generated.errors || [];
+  const cacheHits = (generated.cacheHits || 0) + reserveQuestions.length;
+  const coverage = generated.coverage || null;
 
   // A named entire-block set should use the reviewed reserve before asking
   // the learner to run another expensive generation wave. Exact per-lecture

@@ -6,6 +6,7 @@ it('preserves visual question page ranges without including the next question pa
  const a='NB 19 Eye\n1. A. Rationale.\n2. B. Rationale.';
  const result=parsePairedSourceDocuments(q,a);
  expect(result[0]).toMatchObject({sourcePage:28,sourceEndPage:29,hasImage:true});
+ expect(result[0]).toMatchObject({answerKeyVerified:true,keyProvenance:'paired-source',answerKeyEvidence:'Paired uploaded answer file'});
  expect(result[1]).toMatchObject({sourcePage:30,sourceEndPage:30});
 });
 it('pairs both supplied filename conventions despite parentheses and a typo',()=>{

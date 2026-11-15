@@ -244,6 +244,26 @@ describe("launchExamSession", () => {
     expect(readyForLecturesMock).toHaveBeenCalledWith(["lec-1", "lec-2"]);
   });
 
+  it("uses a sufficient reviewed reserve before generating anything new", async () => {
+    allocateQuestionsMock.mockReturnValue({ "lec-1": 15, "lec-2": 15 });
+    readyForLecturesMock.mockResolvedValue(Array.from({ length: 37 }, (_, index) => ({
+      ...makeQuestion(`reserve-${index + 1}`, index < 10 ? "lec-1" : "lec-2"),
+      poolId: `pool-reserve-${index + 1}`,
+      poolBucket: "reviewed",
+    })));
+    const progress = vi.fn();
+    const result = await launchExamSession({
+      ...BASE_ARGS,
+      questionCount: 30,
+      prepareOnly: true,
+      eligibleLectures: [{ lectureId: "lec-1" }, { lectureId: "lec-2" }],
+    }, { onProgress: progress });
+    expect(result).toMatchObject({ ok: true, prepared: 30, cacheHits: 30 });
+    expect(result.preparedQuestionIds).toHaveLength(30);
+    expect(generateExamQuestionsMock).not.toHaveBeenCalled();
+    expect(progress).toHaveBeenCalledWith(expect.objectContaining({ message: "Loaded 30/30 from reviewed unused questions", completed: 30 }));
+  });
+
   it("fills an existing prepared set without creating or starting an exam", async () => {
     const existing = { ...makeQuestion("saved", "lec-1"), poolId: "pool-saved", poolBucket: "old" };
     const fresh = { ...makeQuestion("fresh", "lec-1"), poolId: "pool-fresh", poolBucket: "new" };

@@ -52,7 +52,7 @@ import { sourceLabel } from "../../logic/questionBankAnalysis.js";
 import { filterLecturesByScope } from "../../logic/weekScope.js";
 import { namePreparedReplacementAttempt } from "./preparedSetNaming.js";
 import { updateQuestionBankMetadata } from "../../logic/questionBankMetadataEdits.js";
-import { confirmQuestionBankCurriculumLinks, prepareBankQuestionSet, scoreAnsweredQuestions } from "./questionBankLinks.js";
+import { prepareBankQuestionSet, scoreAnsweredQuestions } from "./questionBankLinks.js";
 import { questionSlot } from "./bpmBlueprint.js";
 
 const DEFAULT_QUESTION_COUNT_FALLBACK = 20;
@@ -477,29 +477,6 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
       setBankStoreRevision((value) => value + 1);
     } catch (error) {
       setLaunchError(`Could not save the practice-set date: ${error?.message || String(error)}`);
-    } finally { setBankEditBusy(false); }
-  };
-
-  const confirmBankCurriculumLink = async (bank, item) => {
-    if (bank.analysis?.status !== "reviewed" || item?.objectiveLinkReviewStatus !== "ai-reviewed") return;
-    const sourceQuestion = bank.questions.find((question, index) => String(question?.id ?? question?.num ?? index + 1) === String(item.id ?? item.num));
-    if (!sourceQuestion) return;
-    const nextQuestion = confirmQuestionBankCurriculumLinks(sourceQuestion, item, {
-      objectiveIds: objectives.map((objective) => objective.id || objective.code).filter(Boolean),
-      lectureIds: Object.keys(lecturesById),
-    });
-    if (!nextQuestion) return;
-    setBankEditBusy(true);
-    setLaunchError(null);
-    try {
-      const banks = questionBanksStore.read(userId) || {};
-      const questions = (banks[bank.filename] || bank.questions).map((question, index) =>
-        String(question?.id ?? question?.num ?? index + 1) === String(item.id ?? item.num) ? nextQuestion : question
-      );
-      await questionBanksStore.writeAwait(userId, { ...banks, [bank.filename]: questions });
-      setBankStoreRevision((value) => value + 1);
-    } catch (error) {
-      setLaunchError(`Could not confirm the curriculum link: ${error?.message || String(error)}`);
     } finally { setBankEditBusy(false); }
   };
 
@@ -999,7 +976,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
                     <div className="truncate text-[13px] font-medium text-text-1">{bank.displayName || cleanLectureTitle(bank.filename)}</div>
                     <div className="font-mono text-[11px] text-text-3">{distinctQuestionSet.questions.length} distinct questions{distinctQuestionSet.removedDuplicateCount ? ` · ${distinctQuestionSet.removedDuplicateCount} repeats skipped` : ""} · {minutes} min timed · {sourceLabel(bank.sourceKind, bank.filename)}{bank.assignedDate ? ` · assigned ${bank.assignedDate}` : ""} · {stats.attempts} practice attempt{stats.attempts === 1 ? "" : "s"}{stats.latest ? ` · latest ${stats.latest.score}%` : ""}{stats.improvement != null ? ` · ${stats.improvement >= 0 ? "+" : ""}${stats.improvement}% change` : ""}</div>
                     <QuestionBankMappingStatus userId={userId} blockId={blockId} filename={bank.filename} lectures={lectures} objectives={objectives}/>
-                    {analysis && <div className="mt-1 text-[11px] text-text-2">Analysis: {analysis.clinicalQuestionCount || 0} clinical cue item{analysis.clinicalQuestionCount === 1 ? "" : "s"} · {analysis.objectiveCount || 0} objective link{analysis.objectiveCount === 1 ? "" : "s"}{focusSummary ? ` · ${focusSummary}` : ""} · {analysis.status === "reviewed" ? "reviewed" : "source-key review ready"}</div>}
+                    {analysis && <div className="mt-1 text-[11px] text-text-2">Question analysis: {analysis.clinicalQuestionCount || 0} clinical cue item{analysis.clinicalQuestionCount === 1 ? "" : "s"}{focusSummary ? ` · ${focusSummary}` : ""} · uploaded source preserved</div>}
                     {stats.latest?.missed?.length > 0 && <div className="mt-1 text-[11px] text-text-2">Mental-model repair: {stats.latest.missed.length} missed concept{stats.latest.missed.length === 1 ? "" : "s"}</div>}
                     {resumableBankSession && partialScore && <div className="mt-1 text-[11px] text-accent-text">In progress · {partialScore.answered}/{resumableBankSession.questions?.length || 0} answered{resumableBankSession.purpose!=="reserved-assessment" && partialScore.accuracy != null ? ` · ${partialScore.accuracy}% so far (${partialScore.correct} right, ${partialScore.incorrect} wrong)` : ""}</div>}
                     {reserved && <p className="mt-1 text-xs text-accent-text">Reserved for assessment · excluded from generation examples. Prior exposure will be checked at launch.</p>}
@@ -1011,21 +988,18 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
                     {incomplete && <div className="mt-1 text-[11px] font-bold text-bad">⚠ Incomplete import: {bank.questions.length}/{expectedCount}. Re-upload this PDF once to replace the old parse.</div>}
                     {exampleOnly && <div className="mt-1 text-[11px] text-accent-text">Example-only bank: use these clicker stems and images to guide generation; unkeyed slides are not scored as practice questions.</div>}
                     {!reserved && analysis?.items?.length > 0 && <details className="mt-2 text-xs text-text-2">
-                      <summary className="cursor-pointer font-semibold">Question critique & lecture links</summary>
+                      <summary className="cursor-pointer font-semibold">Question analysis & automatic curriculum links</summary>
                       <div className="mt-2 space-y-2">{analysis.items.slice(0, 8).map((item) => {
                         const linkedQuestion = bank.questions.find((question, index) => String(question?.id ?? question?.num ?? index + 1) === String(item.id ?? item.num));
-                        const confirmed = linkedQuestion?.curriculumLinkStatus === "user-confirmed";
-                        const reviewedObjectiveLabels = (item.objectiveIds || []).map((id) => objectivesById[id]?.objective || objectivesById[id]?.text || objectivesById[id]?.content).filter(Boolean);
+                        const verified = ["evidence-verified", "user-confirmed"].includes(linkedQuestion?.curriculumLinkStatus);
+                        const objectiveLabels = (linkedQuestion?.objectiveIds || []).map((id) => objectivesById[id]?.objective || objectivesById[id]?.text || objectivesById[id]?.content || id).filter(Boolean);
+                        const lectureLabel = linkedQuestion?.lectureLabel || lecturesById[linkedQuestion?.lectureId]?.lectureTitle || lecturesById[linkedQuestion?.lectureId]?.title;
                         return <div key={item.id} className="rounded border border-border px-2 py-1.5">
-                        <div className="font-mono text-[11px] text-text-3">Q{item.num} · {item.focus} · {item.correctnessStatus}</div>
-                        <div>{item.critique?.[0] || "Lecture support reviewed."}</div>
+                        <div className="font-mono text-[11px] text-text-3">Q{item.num} · {item.focus} · source answer preserved</div>
                         {(item.clinicalCues?.length || item.buzzwords?.length) > 0 && <div className="text-text-3">Cues: {[...(item.clinicalCues || []), ...(item.buzzwords || [])].join(" · ")}</div>}
-                        {confirmed ? <div className="text-good">Linked to objective{(linkedQuestion.objectiveIds || []).length === 1 ? "" : "s"}: {(linkedQuestion.objectiveIds || []).map((id) => objectivesById[id]?.objective || objectivesById[id]?.text || objectivesById[id]?.content || id).join(" · ")}</div> : item.objectiveLinks?.length > 0 && <div className="text-text-3">Candidate objective match ({item.objectiveBasis || "candidate"}): {item.objectiveLinks.map((link) => link.label || link.id).join(" · ")}</div>}
-                        {!confirmed && item.objectiveLinkReviewStatus === "ai-reviewed" && reviewedObjectiveLabels.length > 0 && <div className="mt-1 flex flex-wrap items-center gap-2"><span className="text-text-2">Reviewer proposal: {reviewedObjectiveLabels.join(" · ")}</span><Button variant="outline" disabled={bankEditBusy} onClick={() => confirmBankCurriculumLink(bank, item)}>{bankEditBusy ? "Saving…" : "Confirm link"}</Button></div>}
-                        {item.lectureLinks?.length > 0 && <div className="text-text-3">Lecture match: {item.lectureLinks.map((link) => link.label).join(" · ")}</div>}
-                        {item.clinicalCorrelates?.length > 0 && <div className="text-text-3">Lecture support: {item.clinicalCorrelates[0]}</div>}
+                        {verified ? <div className="mt-1 text-good">Automatically linked{lectureLabel ? ` to ${lectureLabel}` : ""}{objectiveLabels.length ? ` · ${objectiveLabels.join(" · ")}` : ""}</div> : <div className="mt-1 text-text-3">No source-supported current-block lecture/objective link was found. This question remains available for practice and as a generation reference.</div>}
                       </div>})}</div>
-                      {analysis.items.length > 8 && <div className="mt-1 text-text-3">Showing the first 8; practice all {analysis.items.length} questions to see their source-keyed rationales.</div>}
+                      {analysis.items.length > 8 && <div className="mt-1 text-text-3">Showing the first 8; practice all {analysis.items.length} questions to see the imported questions and available rationales.</div>}
                     </details>}
                   </div>
                   <div data-testid="bank-study-actions" aria-label="Question bank study actions" className="grid min-w-0 grid-cols-2 items-start gap-2 sm:grid-cols-[repeat(auto-fit,minmax(9rem,1fr))]">

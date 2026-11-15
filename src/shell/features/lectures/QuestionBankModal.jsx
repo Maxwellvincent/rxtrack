@@ -150,6 +150,7 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], obje
           />
         </label>
         <p className="mb-4 text-xs text-text-3">For daily class-deck updates, upload the latest file with the same name. New questions are added; unchanged questions keep their saved progress. PowerPoint conversion runs on your local bridge.</p>
+        <p className="mb-4 rounded-lg border border-border bg-bg-elevated px-3 py-2 text-xs text-text-2"><span className="font-semibold text-text-1">Questions plus answers:</span> select both matching PDFs in the same upload. RxTrack uses the clean question copy for practice and figures, applies the supplied answer key for scoring, and keeps the completed bank available to Practice, Timed Quiz, and generated-question reference.</p>
         <label className="mb-4 flex cursor-pointer items-center justify-between rounded-lg border border-accent/40 bg-accent-soft px-4 py-3 text-sm hover:border-accent">
           <span className="text-text-1"><span className="block font-semibold">Import a homework folder</span><span className="text-xs text-text-3">Select a local Practice Questions folder; files are assigned to this block.</span></span>
           <span className="font-mono text-[12px] text-accent-text">folder</span>

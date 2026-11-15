@@ -290,7 +290,7 @@ export async function processQuestionBankFiles({
         }
         parsed.questions = [...pairedKey.entries()].map(([number, answer]) => {
           const question = questionsByNumber.get(number);
-          return { ...question, correct: answer.correct, explanation: answer.explanation || question.explanation || null };
+          return { ...question, correct: answer.correct, explanation: answer.explanation || question.explanation || null, answerKeyVerified: true, answerKeyEvidence: "Paired uploaded answer file", keyProvenance: "paired-source" };
         });
         parsed.expectedQuestions = parsed.questions.length;
       }
@@ -300,7 +300,7 @@ export async function processQuestionBankFiles({
         if (sourceQuestions.length !== imcqKeys.length) {
           throw new Error(`IMCQ source contained ${sourceQuestions.length} questions; expected ${imcqKeys.length} to match the supplied breakdown.`);
         }
-        parsed.questions = sourceQuestions.map((question, questionIndex) => ({ ...question, correct: imcqKeys[questionIndex] }));
+        parsed.questions = sourceQuestions.map((question, questionIndex) => ({ ...question, correct: imcqKeys[questionIndex], answerKeyVerified: true, answerKeyEvidence: "Paired uploaded IMCQ answer breakdown", keyProvenance: "paired-source" }));
       }
 
       // Keep the exact uploaded source in Storage so later app practice can
@@ -351,13 +351,14 @@ export async function processQuestionBankFiles({
         pendingBanks = Object.fromEntries(Object.entries(pendingBanks).filter(([filename]) => cleanLectureTitle(filename) !== bankTitle));
         pendingBanks[bankTitle] = questions;
         pendingMeta = Object.fromEntries(Object.entries(pendingMeta).filter(([, entry]) => cleanLectureTitle(entry?.filename) !== bankTitle));
+        const expectedQuestions = parsed.expectedQuestions ?? questions.length;
         const analysis = buildQuestionBankAnalysis({
           questions,
           objectives,
           lectures,
           sourceKind: isPptx ? 'clicker' : sourceKind,
           filename: bankTitle,
-          expectedQuestions: questions.length,
+          expectedQuestions,
           extractionMethod: "exam-parser",
         });
         report.pendingAnalyses.push({ filename: bankTitle, questions, analysis });
@@ -365,7 +366,7 @@ export async function processQuestionBankFiles({
           filename: bankTitle,
           blockId,
           sourceKind: isPptx ? 'clicker' : sourceKind,
-          expectedQuestions: questions.length,
+          expectedQuestions,
           extractionMethod: isPptx ? 'powerpoint-local' : 'exam-parser',
           analysisStatus: "ready",
           sourceStoragePath,
