@@ -17,9 +17,11 @@ import {
   subscribeToCloudStore,
   writeCloud,
   writeCloudAwait,
+  updateCloudAwait,
 } from "./cloudBase.js";
 import { readJson } from "./base.js";
 import { mergeWeakConcepts } from "./merge.js";
+import { reconcileWeakConceptRecovery } from "../engine/weakConceptRecovery.js";
 
 export const key = "rxt-weak-concepts";
 const fallback = {};
@@ -42,6 +44,19 @@ export async function writeAwait(userId, value) {
   if (!userId) return value;
   await writeCloudAwait(userId, key, value);
   return value;
+}
+
+/** Atomically persist recovery statuses without overwriting a concept added by another tab. */
+export async function reconcileEvidenceAwait(userId, evidence) {
+  if (!userId) {
+    const current = read(userId) || fallback;
+    const next = reconcileWeakConceptRecovery(current, evidence);
+    if (next !== current) write(userId, next);
+    return next;
+  }
+  return updateCloudAwait(userId, key, (current) =>
+    reconcileWeakConceptRecovery(current || fallback, evidence)
+  );
 }
 
 export function merge(userId, incoming) {

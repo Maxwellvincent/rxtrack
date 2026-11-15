@@ -5,10 +5,14 @@
  * Landmines (missed twice or more, never yet held down) come first, because
  * those are the sure-but-wrong gaps the calibration work exists to catch.
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useWeakConcepts } from "../../hooks/useWeakConcepts.js";
+import { useStoreResource } from "../../hooks/useStoreResource.js";
 import { weakConceptView, isLandmine, groupWeakConcepts } from "./weakConcepts.js";
 import { Button } from "../../../ui/Button.jsx";
+import * as learnerEvidenceStore from "../../../stores/learnerEvidence.js";
+import * as weakConceptsStore from "../../../stores/weakConcepts.js";
+import { reconcileWeakConceptRecovery } from "../../../engine/weakConceptRecovery.js";
 
 const MASTERY_STYLE = {
   struggling: "text-bad",
@@ -73,13 +77,25 @@ function AngleGroup({ group, onStudyTopic, onQuizTopic, quizBusy }) {
 
 export function WeakConcepts({ blockId, userId, onBack, embedded = false, onStartFocusedRepair, onStudyTopic, onQuizTopic, quizBusy = false }) {
   const store = useWeakConcepts(null, userId);
+  const evidence = useStoreResource(learnerEvidenceStore, userId);
   const [scope, setScope] = useState("block"); // block | everything
   const [includeMastered, setIncludeMastered] = useState(false);
   const [landminesOnly, setLandminesOnly] = useState(false);
 
+  const reconciledStore = useMemo(() => reconcileWeakConceptRecovery(
+    store.data,
+    evidence.data?.learningJournal || []
+  ), [store.data, evidence.data]);
+
+  useEffect(() => {
+    if (store.loading || evidence.loading || reconciledStore === store.data) return;
+    weakConceptsStore.reconcileEvidenceAwait(userId, evidence.data?.learningJournal || [])
+      .catch((error) => console.warn("Weak-concept recovery sync failed", error?.message || error));
+  }, [userId, store.data, store.loading, evidence.data, evidence.loading, reconciledStore]);
+
   const view = useMemo(
-    () => weakConceptView(store.data, { blockId: scope === "block" ? blockId : null, includeMastered }),
-    [store.data, blockId, scope, includeMastered]
+    () => weakConceptView(reconciledStore, { blockId: scope === "block" ? blockId : null, includeMastered }),
+    [reconciledStore, blockId, scope, includeMastered]
   );
 
   const shown = landminesOnly ? view.landmines : view.concepts;
