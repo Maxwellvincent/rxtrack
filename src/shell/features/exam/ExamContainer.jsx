@@ -156,17 +156,38 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
 
   const weakTopicTargets = (topic) => {
     const items = topic?.items || (topic ? [topic] : []);
-    const lectureIds = [...new Set(items.flatMap(item => item?.linkedLecIds || []).filter(Boolean))];
+    const rawLectureIds = [...new Set(items.flatMap(item => item?.linkedLecIds || []).filter(Boolean))];
     const explicitObjectiveIds = [...new Set(items.flatMap(item => [
       ...(item?.objectiveIds || []),
       item?.linkedObjId,
     ]).filter(Boolean))];
+    const lectureIds = rawLectureIds.filter(lectureId => lecturesById[lectureId] || objectivesByLecture[lectureId]?.length);
+    for (const objectiveId of explicitObjectiveIds) {
+      const linkedLectureId = objectivesById[objectiveId]?.linkedLecId;
+      if (linkedLectureId && !lectureIds.includes(linkedLectureId)) lectureIds.push(linkedLectureId);
+    }
+    if (!lectureIds.length) {
+      const labels = items.flatMap(item => item?.lectureLabels || []).filter(Boolean);
+      const normalize = value => String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+      for (const label of labels) {
+        const wanted = normalize(label);
+        const match = lectures.find(lecture => {
+          const candidate = normalize(formatLectureLabel(lecture));
+          return candidate === wanted || candidate.includes(wanted) || wanted.includes(candidate);
+        });
+        if (match?.id && !lectureIds.includes(match.id)) lectureIds.push(match.id);
+      }
+    }
+    const currentObjectiveIds = new Set(lectureIds.flatMap(lectureId =>
+      (objectivesByLecture[lectureId] || []).map(objective => objective?.id || objective?.code).filter(Boolean)
+    ));
+    const validExplicitObjectiveIds = explicitObjectiveIds.filter(objectiveId => currentObjectiveIds.has(objectiveId));
     const fallbackObjectiveIds = lectureIds.flatMap(lectureId =>
       (objectivesByLecture[lectureId] || []).map(objective => objective?.id || objective?.code).filter(Boolean)
     );
     return {
       lectureIds,
-      objectiveIds: explicitObjectiveIds.length ? explicitObjectiveIds : [...new Set(fallbackObjectiveIds)],
+      objectiveIds: validExplicitObjectiveIds.length ? validExplicitObjectiveIds : [...new Set(fallbackObjectiveIds)],
     };
   };
 

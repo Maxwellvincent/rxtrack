@@ -120,8 +120,8 @@ vi.mock("../tracker/WeakConcepts.jsx", () => ({
     <div data-testid="weak-concepts" data-embedded={embedded ? "true" : "false"}>
       longitudinal weak concepts
       <button onClick={onStartFocusedRepair}>Start focused repair</button>
-      <button onClick={() => onStudyTopic({ concept: "Ocular reflex pathway", items: [{ linkedLecIds: ["lec-1"], objectiveIds: ["o1"] }] })}>Study concept</button>
-      <button onClick={() => onQuizTopic({ concept: "Ocular reflex pathway", items: [{ linkedLecIds: ["lec-1"], objectiveIds: ["o1"] }] })}>Quiz concept</button>
+      <button onClick={() => onStudyTopic({ concept: "Ocular reflex pathway", items: [{ linkedLecIds: ["lec-1"], objectiveIds: ["stale-objective"] }] })}>Study concept</button>
+      <button onClick={() => onQuizTopic({ concept: "Ocular reflex pathway", items: [{ linkedLecIds: ["lec-1"], objectiveIds: ["stale-objective"] }] })}>Quiz concept</button>
     </div>
   ),
 }));
