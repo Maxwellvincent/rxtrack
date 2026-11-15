@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { installDomStorage } from "../../../stores/testEnv.js";
 import { buildObjectiveCoverage, generateExamQuestions, resolveQuestionObjectiveIds } from "./generation.js";
+import { readExemplarsForBlock } from "../objectives/quizLaunch.js";
 
 const LECTURE_BODY = "Brachial plexus anatomy. ".repeat(20); // over the 150-char floor
 
@@ -306,6 +307,22 @@ describe("generateExamQuestions", () => {
     for (const call of callAIJSON.mock.calls) {
       expect(call[1]).toContain("Exemplar Q");
     }
+  });
+
+  it("uses curriculum-wide aggregate style without exposing foreign-block factual content", async () => {
+    localStorage.setItem("rxt-question-banks",JSON.stringify({foreign:[
+      {id:"f1",stem:"Foreign style example one?",choices:{A:"a",B:"b"},correct:"A",clinicalCorrelate:"Parkinson disease"},
+      {id:"f2",stem:"Foreign style example two?",choices:{A:"a",B:"b"},correct:"A",clinicalCorrelate:"Parkinson disease"},
+    ]}));
+    localStorage.setItem("rxt-question-bank-meta",JSON.stringify({m:{filename:"foreign",blockId:"other",sourceKind:"examsoft"}}));
+    expect(readExemplarsForBlock(null,"b1").map(question=>question.blockId)).toEqual(["other","other"]);
+    const callAIJSON=vi.fn().mockResolvedValue({questions:[mcq("Q1")]});
+    await generateExamQuestions({allocation:{lec1:1},lecturesById,objectivesByLecture,atomsByLecture:{},blockId:"b1",lectures,userId:null},
+      {callAIJSON,skipQuestionAudit:true});
+    const prompt=callAIJSON.mock.calls[0][1];
+    expect(prompt).toContain('"sampleSize":2');
+    expect(prompt).not.toContain("Foreign style example");
+    expect(prompt).not.toContain("Parkinson disease");
   });
 });
 

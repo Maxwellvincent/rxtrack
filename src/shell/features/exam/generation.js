@@ -4,7 +4,7 @@ import { remainingObjectiveAllocation, fitsObjectiveAllocation } from "./objecti
 import { readSlot, questionSlot, objectiveSubject, bpmObjective } from "./bpmBlueprint.js";
 import { waitForConnection } from "./preparationRecovery.js";
 import { hasReusableQuestionReview } from "../../../engine/questionReuse.js";
-import { readClinicalAnalysesForBlock, readExemplarsForBlock, resolveDefaultDifficulty, startObjectiveQuiz, buildQuizConfig } from "../objectives/quizLaunch.js";
+import { readClinicalAnalysesForBlock, readExemplarsForBlock, resolveDefaultDifficulty, selectClinicalExamplesForBlock, startObjectiveQuiz, buildQuizConfig } from "../objectives/quizLaunch.js";
 import { isSemanticDuplicate, questionFingerprint, schoolStyleSimilarity, questionQualityIssues } from "./questionQuality.js";
 import { questionPoolKey, isValidPoolQuestion } from "../../../questionPool.js";
 import { withDeadline, boundedAIAdapter } from "../../../asyncDeadline.js";
@@ -16,6 +16,7 @@ import { fetchLectureContent } from "../../../supabase.js";
 import { getLecText } from "../../../lectureText.js";
 import { loadExamLectureEvidence } from "./lectureEvidence.js";
 import { objectiveOrderProfile } from "../../../engine/questionOrder.js";
+import { buildStyleProfile } from "../../../engine/styleProfile.js";
 
 const MAX_ATTEMPTS = 3;
 // Local Ollama completions for large, school-style prompts routinely take a little over
@@ -105,13 +106,22 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
     }
     const sourceBlockId = subject ? lecture?.blockId || blockId : blockId;
     const exemplars = sourceBlockId === blockId ? baseExemplars : readExemplarsForBlock(userId, sourceBlockId);
+    const generationExemplars = selectClinicalExamplesForBlock(exemplars, sourceBlockId);
+    // Aggregate structure can safely calibrate SGU style across blocks. Actual
+    // stems, explanations and clinical metadata remain in the active block so
+    // they cannot become foreign factual evidence or template content.
+    const styleProfile = buildStyleProfile(exemplars);
     const clinicalAnalyses = sourceBlockId === blockId ? baseClinicalAnalyses : readClinicalAnalysesForBlock(userId, sourceBlockId);
     const clinicalCorrelateLibrary = buildClinicalCorrelateLibrary({
       atoms,
-      examples: exemplars,
+      // The exemplar library is intentionally curriculum-wide for writing
+      // style. Clinical targets are factual content and must remain block-safe.
+      examples: generationExemplars,
       analyses: clinicalAnalyses,
       lecture,
       lectureTitle,
+      lectureText,
+      blockId: sourceBlockId,
     });
     const difficulty = ["medium", "hard", "expert"].includes(difficultyOverride)
       ? difficultyOverride
@@ -128,7 +138,7 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
     const studyMode = objectives.some((objective) => objective.repairPriority > 0) ? "repair" : "balanced";
     const adaptiveFocusNotes = [focusNotes, repeatedSuccessfulAnswerGuidance(history), objectiveFacetHistoryGuidance(history, objectives)].filter(Boolean).join("\n\n");
     const { config: adaptiveConfig } = buildQuizConfig({ objectives, lectureTitle, lectureIdHint: lectureId,
-      blockId, lectures, lectureText, atoms, exemplars, difficulty, questionCount: requested, userId, studyMode, focusNotes:adaptiveFocusNotes, evidenceModel });
+      blockId, lectures, lectureText, atoms, exemplars:generationExemplars, styleProfile, difficulty, questionCount: requested, userId, studyMode, focusNotes:adaptiveFocusNotes, evidenceModel });
     const objectivePlan = adaptiveConfig?.objectives || [];
     const lectureQuestions = () => questions.filter(question => questionSlot(question) === allocationId);
     const remainingPlan = limit => remainingObjectiveAllocation(objectivePlan, lectureQuestions(), limit);
@@ -171,7 +181,7 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
         result = await withDeadline(signal => {
           const boundedAdapter=adapter=>boundedAIAdapter(adapter,{signal,deadline,bridgeTimeoutMs:LOCAL_BRIDGE_TIMEOUT_MS,label:"Exam question preparation",onRequest:args=>progress(`${/independent|audit|solve/i.test(String(args[0])) ? "Reviewing accuracy" : "Writing questions"}: ${lectureTitle}`,lectureId)});
           const batchAllocation = remainingPlan(Math.min(3, requested - obtained));
-          return startObjectiveQuiz({objectives,lectureTitle,lectureIdHint:lectureId,blockId,lectures,exemplars,atoms,
+          return startObjectiveQuiz({objectives,lectureTitle,lectureIdHint:lectureId,blockId,lectures,exemplars:generationExemplars,styleProfile,atoms,
             lectureText,studyMode,focusNotes:adaptiveFocusNotes,difficulty,userId,clinicalCorrelateLibrary,
             generationVersion:"v2", evidenceModel, objectiveAllocation:batchAllocation.length ? batchAllocation : null,
             conceptCoverageQuestions:lectureQuestions(),

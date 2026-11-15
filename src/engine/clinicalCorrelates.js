@@ -76,7 +76,7 @@ export function curatedClinicalCorrelatesForLecture({ lecture = null, lectureTit
     .map((entry) => ({ ...entry, curated: true }));
 }
 
-function addSignal(signals, value, source, evidence = "") {
+function addSignal(signals, value, source, evidence = "", { explicit = false } = {}) {
   const label = normalizeClinicalPhrase(value);
   const key = phraseKey(label);
   if (!key || key.length < 3 || key.length > 240) return;
@@ -88,10 +88,41 @@ function addSignal(signals, value, source, evidence = "") {
   };
   existing.frequency += 1;
   existing.sourceKinds.add(source);
+  existing.explicit = existing.explicit || explicit;
   if (evidence && existing.evidence.length < 4 && !existing.evidence.includes(evidence)) {
     existing.evidence.push(evidence);
   }
   signals.set(key, existing);
+}
+
+const CLINICAL_ENTITY_ENDINGS = "disease|syndrome|deficiency|palsy|neuropathy|neuralgia|hemorrhage|hematoma|carcinoma|sarcoma|tumou?r|infection|infarction|ischemia|aneurysm|malformation|dystrophy|myopathy|encephalopathy";
+const CLINICAL_ENTITY_PATTERN = new RegExp(`\\b([A-Za-z][A-Za-z0-9'’+/-]*(?:\\s+[A-Za-z][A-Za-z0-9'’+/-]*){0,4}\\s+(?:${CLINICAL_ENTITY_ENDINGS}))\\b`, "gi");
+const ENTITY_PREFIX = /^(?:(?:a|an|the|this|that|with|and|or|of|in|from|by|patients?|individuals?|children|adults|associated|can|could|may|might|causes?|caused|causing|develops?|results?|due|secondary)\s+)+/i;
+
+/**
+ * Extract only explicitly named clinical entities from source text. This is a
+ * retrieval index, not a medical inference: every entry keeps the exact source
+ * sentence and page so the writer and reviewer can verify the relationship.
+ */
+export function explicitClinicalCorrelatesFromText(text = "", { sourceLabel = "lecture" } = {}) {
+  const rows = [];
+  for (const [pageIndex, page] of String(text || "").split(/\f/).entries()) {
+    const sentences = page.split(/(?<=[.!?])\s+|\n+/).map(value => value.replace(/\s+/g, " ").trim()).filter(Boolean);
+    for (const sentence of sentences) {
+      CLINICAL_ENTITY_PATTERN.lastIndex = 0;
+      for (const match of sentence.matchAll(CLINICAL_ENTITY_PATTERN)) {
+        const relationshipTrimmed = match[1].replace(/^.*\b(?:discuss(?:es|ed)?|include(?:s|d)?|feature(?:s|d)?|has|have|had|cause(?:s|d)?|associated with|results? in|presents? with)\s+/i, "");
+        const label = normalizeClinicalPhrase(relationshipTrimmed.replace(ENTITY_PREFIX, ""));
+        if (!label || label.split(/\s+/).length > 5) continue;
+        rows.push({
+          label,
+          evidence: `${sourceLabel} page ${pageIndex + 1}: ${sentence.slice(0, 320)}`,
+          page: pageIndex + 1,
+        });
+      }
+    }
+  }
+  return [...new Map(rows.map(row => [phraseKey(row.label), row])).values()];
 }
 
 function questionSource(question) {
@@ -117,6 +148,15 @@ function addAtomSignals(signals, atoms = []) {
     for (const value of [atom?.clinicalCorrelate, ...asList(atom?.clinicalCues), ...asList(atom?.buzzwords), atom?.inheritancePattern]) {
       addSignal(signals, value, "lecture", evidence);
     }
+    for (const entry of explicitClinicalCorrelatesFromText(`${atom?.term || ""}. ${atom?.content || ""}`, { sourceLabel: evidence })) {
+      addSignal(signals, entry.label, "lecture", entry.evidence, { explicit: true });
+    }
+  }
+}
+
+function addLectureTextSignals(signals, lectureText = [], lectureTitle = "lecture") {
+  for (const entry of explicitClinicalCorrelatesFromText(lectureText, { sourceLabel: lectureTitle || "lecture" })) {
+    addSignal(signals, entry.label, "lecture", entry.evidence, { explicit: true });
   }
 }
 
@@ -147,11 +187,21 @@ function addAnalysisSignals(signals, analyses = []) {
  * signal mentioned once in lecture and once in homework. The result is plain JSON so it can be
  * passed through generation configs and logged with question provenance.
  */
-export function buildClinicalCorrelateLibrary({ atoms = [], examples = [], analyses = [], lecture = null, lectureTitle = "", max = 24 } = {}) {
+export function buildClinicalCorrelateLibrary({ atoms = [], examples = [], analyses = [], lecture = null, lectureTitle = "", lectureText = "", blockId = null, max = 24 } = {}) {
   const signals = new Map();
   addAtomSignals(signals, atoms);
-  addQuestionSignals(signals, examples);
-  addAnalysisSignals(signals, analyses);
+  addLectureTextSignals(signals, lectureText, lectureTitle || lecture?.lectureTitle || lecture?.fileName || "lecture");
+  // Enforce the content boundary here as well as at retrieval call sites. Style
+  // examples may be curriculum-wide, but their diseases and clinical cues are
+  // factual generation targets and must belong to the active block.
+  const scopedExamples = blockId
+    ? (examples || []).filter((question) => question?.blockId === blockId)
+    : examples;
+  const scopedAnalyses = blockId
+    ? (analyses || []).filter((analysis) => analysis?.blockId === blockId)
+    : analyses;
+  addQuestionSignals(signals, scopedExamples);
+  addAnalysisSignals(signals, scopedAnalyses);
 
   for (const curated of curatedClinicalCorrelatesForLecture({ lecture, lectureTitle, max })) {
     const key = phraseKey(curated.label);
@@ -176,7 +226,7 @@ export function buildClinicalCorrelateLibrary({ atoms = [], examples = [], analy
   }
 
   return [...signals.values()]
-    .filter((entry) => entry.curated || entry.frequency >= 2 || (entry.sourceKinds.has("lecture") && (entry.sourceKinds.has("homework") || entry.sourceKinds.has("school"))))
+    .filter((entry) => entry.curated || entry.explicit || entry.frequency >= 2 || (entry.sourceKinds.has("lecture") && (entry.sourceKinds.has("homework") || entry.sourceKinds.has("school"))))
     .sort((a, b) => {
       if (!!a.curated !== !!b.curated) return a.curated ? -1 : 1;
       const priority = (entry) => "ABC".indexOf(entry.priority || "C");
@@ -191,6 +241,7 @@ export function buildClinicalCorrelateLibrary({ atoms = [], examples = [], analy
       frequency: entry.frequency,
       sourceKinds: [...entry.sourceKinds].map((source) => SOURCE_LABELS[source] || source),
       evidence: entry.evidence,
+      ...(entry.explicit ? { explicitSourceEntity: true } : {}),
       ...(entry.curated ? {
         id: entry.id,
         curated: true,

@@ -94,6 +94,14 @@ beforeEach(() => {
 });
 
 describe("launchExamSession", () => {
+  it("forwards targeted objective scope and required reasoning orders into generation", async () => {
+    generateExamQuestionsMock.mockResolvedValue({ questions: [makeQuestion("q1", "lec-1")], errors: [] });
+    createExamSessionMock.mockResolvedValue({ ok: true });
+    await launchExamSession({ ...BASE_ARGS, questionCount: 1, targetObjectiveIds: ["o1"], targetObjectiveOrders: { o1: "third-order" } });
+    expect(generateExamQuestionsMock.mock.calls[0][0]).toMatchObject({
+      targetObjectiveIds: ["o1"], targetObjectiveOrders: { o1: "third-order" },
+    });
+  });
   it("checks storage access before spending on generation", async () => {
     checkExamAccessMock.mockRejectedValue(new Error("Access denied"));
     await expect(launchExamSession(BASE_ARGS)).rejects.toThrow("Access denied");
@@ -303,6 +311,17 @@ describe("launchExamSession", () => {
     await vi.waitFor(() => expect(finishPoolFillMock).toHaveBeenCalledWith(result.sessionId, expect.objectContaining({ requestedCount: 2 })));
     expect(reportFillProgressMock).toHaveBeenCalledWith(result.sessionId, expect.objectContaining({ message: "Reviewing accuracy: Lecture One", totalLectures: 1 }));
     expect(addPreparedQuestionsMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps targeted reasoning orders in both saved and background fill passes", async () => {
+    generateExamQuestionsMock.mockResolvedValueOnce({ questions: [], cacheHits: 0, errors: [] })
+      .mockResolvedValueOnce({ questions: [], cacheHits: 0, errors: [] });
+    createExamSessionMock.mockResolvedValue({ ok: true });
+    const result=await launchExamSession({ ...BASE_ARGS, questionCount: 1, startWhilePreparing: true,
+      targetObjectiveIds:["o1"],targetObjectiveOrders:{o1:"third-order"} });
+    expect(result.ok).toBe(true);
+    await vi.waitFor(()=>expect(generateExamQuestionsMock).toHaveBeenCalledTimes(2));
+    for(const [args] of generateExamQuestionsMock.mock.calls)expect(args).toMatchObject({targetObjectiveIds:["o1"],targetObjectiveOrders:{o1:"third-order"}});
   });
 });
 

@@ -1,7 +1,7 @@
 import { usableSchoolExemplar } from "./schoolSourceIntegrity.js";
 import { buildStyleFingerprint, exemplarSourceTier } from "./mcq.js";
 
-export const STYLE_PROFILE_VERSION = 5;
+export const STYLE_PROFILE_VERSION = 6;
 
 const broadOutcome = /^(?:school of medicine|basic sciences|content outline\s*\/\s*systems|physician tasks\s*\/\s*competencies|disciplines|medical knowledge: applying foundational science concepts|basic principles of medicine.*)$/i;
 

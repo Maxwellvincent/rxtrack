@@ -104,9 +104,12 @@ export function computeWeakConceptEntry({
   const consecutiveCleanSessions = computeCleanSessionStreak(sortedSessions, lectureId);
   const objectiveIds = [...new Set(
     sortedSessions.flatMap((session) => {
-      const answered = new Set((session.answers || []).filter(answer => answer.value != null).map(answer => answer.questionId));
+      const answers = new Map((session.answers || []).filter(answer => answer.value != null).map(answer => [answer.questionId, answer]));
       return (session?.questions || [])
-        .filter((q) => q.lectureId === lectureId && answered.has(q.questionId))
+        // This is a weak-concept report, so its objective links must describe
+        // actual misses. Including correctly answered objectives made a weak
+        // lecture launch repair questions for concepts the learner got right.
+        .filter((q) => q.lectureId === lectureId && answers.has(q.questionId) && answers.get(q.questionId).value !== q.correct)
         .flatMap((q) => q.objectiveIds || []);
     })
   )];

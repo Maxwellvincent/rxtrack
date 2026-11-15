@@ -127,7 +127,9 @@ export function styleProfilePrompt(profile, questionCount = null) {
   // Strip them at the request boundary too; never treat these as assessment.
   const descriptive = value => {
     const features = Object.fromEntries(Object.entries(value || {}).filter(([key]) => !["secondOrderRate", "thirdOrderRate"].includes(key)));
-    return { ...features, reasoningDepth: "not-assessed" };
+    const measurement = features.reasoningDepth;
+    return { ...features, reasoningDepth: measurement && typeof measurement === "object"
+      ? measurement : { status: "not-assessed", assessed: 0, total: Number(features.sampleSize) || 0, coverage: 0, distribution: {} } };
   };
   const promptProfile = {
     version: profile.version,
@@ -212,14 +214,22 @@ function taskFamilyCounts(stems = []) {
 
 function taskVariationPrompt(styleFingerprint, difficulty, batchLabel = "batch") {
   const diff = String(difficulty).toLowerCase();
-  const secondOrderTarget = diff === "easy" ? "at least 40%" : "at least 60%";
+  const depth = styleFingerprint?.reasoningDepth;
+  const measuredDepth = depth?.status === "reviewed-source-items" && depth.assessed >= 3;
+  const applicationRate = measuredDepth
+    ? Math.round((((depth.distribution?.["second-order"] || 0) + (depth.distribution?.["third-order"] || 0)) / depth.assessed) * 100)
+    : null;
+  const thirdOrderRate = measuredDepth ? Math.round(((depth.distribution?.["third-order"] || 0) / depth.assessed) * 100) : null;
+  const applicationTarget = measuredDepth
+    ? `Approximately ${applicationRate}% of ${batchLabel} should require application (second- plus third-order), including about ${thirdOrderRate}% verified integration, matching ${depth.assessed} reviewed source items. Do not promote unassessed examples or add steps merely to hit a quota.`
+    : `${diff === "easy" ? "at least 40%" : "at least 60%"} of ${batchLabel} should require clue -> underlying mechanism or lesion -> downstream consequence when the objective supports it. This is a fallback training target because source reasoning depth has not been reviewed.`;
   const observed = styleFingerprint?.sampleSize
     ? `Observed school ending families: ${JSON.stringify(styleFingerprint.endingFamilies)}; these are wording categories, not assessed reasoning depth.`
     : "No school ending fingerprint was available; use the distribution below.";
   return `\n\nQUESTION-TASK VARIATION (${batchLabel}): ${observed}\n` +
     `- The school questions may often begin with "Which," but their final task varies. Do not repeat the generic phrase "Which of the following" as the complete template; use it no more than twice in a batch and vary the noun being requested.\n` +
     `- Rotate among these ending families when the supplied facts support them: mechanism/explanation ("Which mechanism best explains...?"), predicted downstream finding or lab ("What additional finding would be expected...?" or "Which change is most likely...?"), identification ("Which structure/enzyme/receptor...?"), diagnosis/process ("Which diagnosis or process...?"), relationship/characterization ("Which statement best describes the relationship...?"), and conditional prediction ("If this step were blocked, what would change...?"). Do not force a family that the lecture cannot support.\n` +
-    `- At least ${secondOrderTarget} of ${batchLabel} should require clue -> underlying mechanism or lesion -> downstream consequence. The final ask should test the consequence, relationship, or mechanism when the objective allows it, rather than merely naming the first recognizable term.\n` +
+    `- ${applicationTarget} The final ask should test the consequence, relationship, or mechanism when the objective allows it, rather than merely naming the first recognizable term.\n` +
     `- Across ${batchLabel}, avoid repeating the same final sentence pattern, answer object, or clue-to-answer route. A different patient age or reordered options does not make a repeated task new.\n` +
     `- Use the exact medical relationship supported by the lecture, objectives, and uploaded ExamSoft/IMCQ/homework evidence. Return taskType as recognition, mechanism, clinical-application, or fresh-retest, but vary the natural-language ending independently of that label.\n`;
 }
@@ -252,6 +262,26 @@ export function buildStyleFingerprint(examples = []) {
     ["timeline", (q) => /\b(\d+\s*(?:hours?|days?|weeks?|months?|years?)|since|after|during|progressive|sudden|newborn|postoperative|postpartum)\b/i.test(String(q.stem))],
   ].map(([label, test]) => ({ label, count: usable.filter(test).length }))
     .filter((entry) => entry.count);
+  // Measure depth only from independently reviewed generated questions or
+  // source-bank items whose analysis explicitly classified the shortest route.
+  // Stem keywords and vignette length are descriptive style, not reasoning.
+  const assessedDepth = usable.flatMap(question => {
+    if (hasCurrentReasoningAudit(question)) return [question.reasoningAudit.orderLevel];
+    if (question.sourceDepthReviewStatus === "ai-reviewed") {
+      const order = normalizeQuestionOrder(question.sourceOrderLevel);
+      const required = { "first-order": 1, "second-order": 2, "third-order": 3 }[order];
+      if (order && (question.sourceReasoningSteps || []).length >= required && String(question.sourceReasoningBasis || "").trim().length >= 8) return [order];
+    }
+    return [];
+  });
+  const depthDistribution = assessedDepth.reduce((counts, order) => ({ ...counts, [order]: (counts[order] || 0) + 1 }), {});
+  const reasoningDepth = {
+    status: assessedDepth.length ? "reviewed-source-items" : "not-assessed",
+    assessed: assessedDepth.length,
+    total: usable.length,
+    coverage: usable.length ? Math.round(assessedDepth.length / usable.length * 100) : 0,
+    distribution: depthDistribution,
+  };
   return {
     sampleSize: usable.length,
     averageStemCharacters: avg(stems.map((s) => s.length)),
@@ -270,7 +300,7 @@ export function buildStyleFingerprint(examples = []) {
     }, {})).sort(([a], [b]) => Number(a) - Number(b)).map(([options, count]) => ({ options: Number(options), count })),
     commonLeadIns: [...new Set(leadIns)].slice(0, 6),
     endingFamilies: Object.entries(endingCounts).sort((a, b) => b[1] - a[1]).map(([family, count]) => ({ family, label: TASK_FAMILY_LABELS[family], count })),
-    reasoningDepth: "not-assessed",
+    reasoningDepth,
     scenarioTypes: scenarioTypes.sort((a, b) => b.count - a.count).slice(0, 6),
     formatSignals,
   };
@@ -449,7 +479,8 @@ async function protectGenerationContext(cfg) {
     const {buildStyleProfile}=await import('./styleProfile.js');
     return {...cfg,examples,styleProfile:buildStyleProfile(examples),
       clinicalCorrelateLibrary:buildClinicalCorrelateLibrary({atoms:cfg.atoms || [],examples,
-        lecture:{lectureTitle:cfg.subject,extractedText:cfg.lectureText},lectureTitle:cfg.subject})};
+        lecture:{lectureTitle:cfg.subject,extractedText:cfg.lectureText},lectureTitle:cfg.subject,
+        lectureText:cfg.lectureText,blockId:cfg.blockId})};
   }
   return {...cfg,examples,...(examples.length!==(cfg.examples || []).length?{styleProfile:null,clinicalCorrelateLibrary:[]}:{} )};
 }

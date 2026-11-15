@@ -206,6 +206,15 @@ describe("curriculum-wide exemplars", () => {
     expect(result.map((question) => question.stem)).toEqual(["B2 Q?"]);
   });
 
+  it("joins reviewed source-depth measurements back onto style exemplars",()=>{
+    localStorage.setItem("rxt-question-banks",JSON.stringify({"school.pdf":[{id:"q1",stem:"A reviewed case?",choices:{A:"a",B:"b"},correct:"A"}]}));
+    localStorage.setItem("rxt-question-bank-meta",JSON.stringify({m:{filename:"school.pdf",blockId:"b1",sourceKind:"examsoft"}}));
+    localStorage.setItem("rxt-question-bank-analysis-v1:school.pdf",JSON.stringify({items:[{id:"q1",orderLevel:"second-order",
+      reasoningSteps:["Interpret clue","Apply relationship"],reasoningBasis:"Exact decisive clinical clue",reasoningDepthStatus:"ai-reviewed"}]}));
+    expect(readExemplarsForBlock(null,"b1")[0]).toMatchObject({sourceOrderLevel:"second-order",
+      sourceReasoningSteps:["Interpret clue","Apply relationship"],sourceDepthReviewStatus:"ai-reviewed"});
+  });
+
   it("scopes clinical prior-question evidence to the active block", () => {
     const examples = [
       { stem: "DM question", choices: { A: "a" }, blockId: "dm" },
@@ -779,6 +788,22 @@ describe("startObjectiveQuiz — objective-driven with atom evidence", () => {
       { callAIJSON }
     );
     expect(callAIJSON.mock.calls[0][1]).not.toMatch(/one question per fact/i);
+  });
+
+  it("keeps the requested block when objectives are the only available source", async () => {
+    const callAIJSON = vi.fn().mockResolvedValue({ questions: [] });
+    await expect(startObjectiveQuiz(
+      {
+        objectives: [{ id: "only-objective", objective: "Explain the supplied relationship." }],
+        lectureTitle: "Objective-only source",
+        blockId: "b1",
+        lectures: [],
+        atoms: [],
+        lectureText: "",
+        userId: "u1",
+      },
+      { callAIJSON, skipQuestionAudit: true }
+    )).resolves.toBeTruthy();
   });
 });
 

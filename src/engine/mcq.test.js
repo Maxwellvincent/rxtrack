@@ -262,14 +262,14 @@ describe("question ending analysis", () => {
     expect(questionEndingTask("Which diagnosis is most likely?")).toBe("diagnosis");
   });
 
-  it("records descriptive ending families without inferring reasoning depth in the style fingerprint", () => {
+  it("records descriptive ending families without inferring reasoning depth from unreviewed stems", () => {
     const fingerprint = buildStyleFingerprint([
       { stem: "A patient has a defect. Which mechanism best explains the findings?", choices: { A: "a", B: "b" } },
       { stem: "A patient has a defect. What additional laboratory finding would be expected?", choices: { A: "a", B: "b" } },
       { stem: "A patient has a lesion. Which enzyme is deficient?", choices: { A: "a", B: "b" } },
     ]);
     expect(fingerprint.endingFamilies.map(({ family }) => family)).toEqual(expect.arrayContaining(["mechanism", "prediction", "identification"]));
-    expect(fingerprint.reasoningDepth).toBe("not-assessed");
+    expect(fingerprint.reasoningDepth).toMatchObject({status:"not-assessed",assessed:0,total:3,coverage:0});
     expect(fingerprint).not.toHaveProperty("secondOrderRate");
     expect(fingerprint).not.toHaveProperty("thirdOrderRate");
     expect(fingerprint.medianStemWords).toBeGreaterThan(0);
@@ -1074,7 +1074,20 @@ it('requires linked-concept clue and ambiguity checks in compact and full review
 describe('truthful school calibration',()=>{
  it('does not infer advanced reasoning from a long patient story or causal word',()=>{
   const profile=buildStyleFingerprint([{stem:'A patient comes because of weakness. History is obtained. Which nerve innervates this muscle?',choices:{A:'a',B:'b'}}]);
-  expect(profile).not.toHaveProperty('thirdOrderRate');expect(profile.reasoningDepth).toBe('not-assessed');
+  expect(profile).not.toHaveProperty('thirdOrderRate');expect(profile.reasoningDepth.status).toBe('not-assessed');
+ });
+ it('measures only reviewed source-item reasoning and uses it for the batch target',()=>{
+  const examples=[
+   {stem:'Case one?',choices:{A:'a',B:'b'},sourceDepthReviewStatus:'ai-reviewed',sourceOrderLevel:'first-order',sourceReasoningSteps:['Recall fact'],sourceReasoningBasis:'Exact named relationship'},
+   {stem:'Case two?',choices:{A:'a',B:'b'},sourceDepthReviewStatus:'ai-reviewed',sourceOrderLevel:'second-order',sourceReasoningSteps:['Interpret clue','Apply relationship'],sourceReasoningBasis:'Exact clinical discriminator'},
+   {stem:'Case three?',choices:{A:'a',B:'b'},sourceDepthReviewStatus:'ai-reviewed',sourceOrderLevel:'third-order',sourceReasoningSteps:['Interpret clue','Apply relationship','Predict consequence'],sourceReasoningBasis:'Exact downstream relationship'},
+  ];
+  const profile=buildStyleFingerprint(examples);
+  expect(profile.reasoningDepth).toMatchObject({status:'reviewed-source-items',assessed:3,total:3,coverage:100,
+   distribution:{'first-order':1,'second-order':1,'third-order':1}});
+  const calibrated=buildMcqPrompt({examples,objectives:[{id:'o',objective:'Apply a relationship'}],lectureText:'A supported relationship. '.repeat(20),count:3});
+  expect(calibrated).toContain('Approximately 67%');
+  expect(calibrated).toContain('about 33% verified integration');
  });
  it('strips obsolete reasoning percentages from every persisted style group',()=>{
   const old={sampleSize:30,thirdOrderRate:.99,secondOrderRate:.9};

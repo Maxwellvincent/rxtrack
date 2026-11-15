@@ -215,9 +215,22 @@ export function readExemplars(userId = null) {
 function readExemplarsFromRegistry(banks,meta,userId) {
   const registry=sourceUseStore.read(userId);
   if(!sourceUseStore.isHydrated(userId) || sourceUseStore.readError(userId)) return [];
-  return selectExemplarsForBlock(banks,meta).map(question=>({...question,
-    evaluationReserved:isEvaluationReserved(question,registry),
-    factualAuthority:isTrustedFactualSource(question,registry), _trackSourceUse:true})).filter(question=>!question.evaluationReserved);
+  return selectExemplarsForBlock(banks,meta).map((question,index)=>{
+    const filename=question.sourceFile || question.filename;
+    const analysis=filename && questionBankAnalysisStore.isHydrated(userId,filename) && !questionBankAnalysisStore.readError(userId,filename)
+      ? questionBankAnalysisStore.read(userId,filename) : null;
+    const id=String(question.id ?? question.num ?? question.sourceQuestionNumber ?? index+1);
+    const depth=(analysis?.items || []).find((item,itemIndex)=>String(item.id ?? item.num ?? itemIndex+1)===id);
+    return {...question,
+      ...(depth?.reasoningDepthStatus==="ai-reviewed" ? {
+        sourceOrderLevel:depth.orderLevel,
+        sourceReasoningSteps:depth.reasoningSteps,
+        sourceReasoningBasis:depth.reasoningBasis,
+        sourceDepthReviewStatus:"ai-reviewed",
+      } : {}),
+      evaluationReserved:isEvaluationReserved(question,registry),
+      factualAuthority:isTrustedFactualSource(question,registry), _trackSourceUse:true};
+  }).filter(question=>!question.evaluationReserved);
 }
 
 /**
@@ -379,6 +392,8 @@ export function buildQuizConfig({
     analyses: readClinicalAnalysesForBlock(userId, blockId),
     lecture,
     lectureTitle,
+    lectureText,
+    blockId,
   });
 
   if (!selected.length && !atoms.length && !lectureText.trim()) {
@@ -392,6 +407,7 @@ export function buildQuizConfig({
   const requiredRelationships=validSourceRelationships(relationshipCatalog,relationshipScope).filter(row=>row.kind!=="figure"&&connectionIds.has(row.id));
   const relationshipPlan=[...new Map([...requiredRelationships,...relationshipTargets(relationshipCatalog,learnerModel,relationshipScope,count)].map(row=>[row.id,row])).values()].slice(0,count);
   const currentStyleProfile = styleProfile || buildStyleProfile(allowedGenerationExamples(exemplars));
+  const generationExemplars = selectClinicalExamplesForBlock(exemplars, blockId);
 
   return {
     config: {
@@ -401,7 +417,7 @@ export function buildQuizConfig({
       atoms,
       lectureText,
       lectureQuestionContext,
-      examples: exemplars,
+      examples: generationExemplars,
       styleProfile: currentStyleProfile,
       avoidStems,
       difficulty,
@@ -600,7 +616,7 @@ export async function startObjectiveQuiz(args, deps = {}) {
   return {
     ...(await generateFromAtoms(
       {
-        userId:args.userId,blockId,lectureId,
+        userId:args.userId,blockId:args.blockId,lectureId,
         atoms: objectivesAsAtoms(config?.objectives || []),
         objectives: config.objectives,
         difficulty: config?.difficulty,

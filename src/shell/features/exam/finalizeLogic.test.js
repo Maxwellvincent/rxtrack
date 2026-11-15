@@ -253,6 +253,17 @@ describe('quality-protected historical reports',()=>{
   const entry=computeWeakConceptEntry({sessions:[{questions,answers:[0,1,2].map(i=>({questionId:`q${i}`,value:'B'}))}],lectureId:'l',blockId:'b'});
   expect(entry.masteryLevel).toBe('struggling');expect(entry.objectiveIds).toEqual(['tested']);
  });
+ it('attaches only missed objectives, never correctly answered neighbors',()=>{
+  const questions=[
+   {questionId:'miss-1',lectureId:'l',correct:'A',objectiveIds:['missed']},
+   {questionId:'miss-2',lectureId:'l',correct:'A',objectiveIds:['missed']},
+   {questionId:'right',lectureId:'l',correct:'A',objectiveIds:['correct-only']},
+  ];
+  const answers=[{questionId:'miss-1',value:'B'},{questionId:'miss-2',value:'B'},{questionId:'right',value:'A'}];
+  const entry=computeWeakConceptEntry({sessions:[{questions,answers}],lectureId:'l',blockId:'b'});
+  expect(entry.masteryLevel).toBe('struggling');
+  expect(entry.objectiveIds).toEqual(['missed']);
+ });
  it('uses persisted figure recovery before deciding historical eligibility',async()=>{
   const {protectedWeakConceptHistory}=await import('./finalizeLogic.js');
   const session={questions:[{questionId:'q',lectureId:'l',correct:'A',hasImage:true}],answers:[{questionId:'q',value:'A'}]};

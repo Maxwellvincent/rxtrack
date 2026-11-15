@@ -172,7 +172,8 @@ async function runLaunch(
       minimumOrder: difficultyOverride === "expert" ? "third-order" : difficultyOverride === "hard" ? "second-order" : null });
     const savedResult = Object.keys(school.allocation).length ? await generateExamQuestions(
       { allocation: school.allocation, lecturesById, objectivesByLecture, atomsByLecture, blockId, lectures,
-        weakConceptAccuracyByLecture, userId, generationId: sessionId, studyMode, difficultyOverride, focusNotes: adaptiveFocusNotes, preparedGenerationId, preparedQuestionIds },
+        weakConceptAccuracyByLecture, userId, generationId: sessionId, studyMode, difficultyOverride, focusNotes: adaptiveFocusNotes,
+        targetObjectiveIds, targetObjectiveOrders, preparedGenerationId, preparedQuestionIds },
       { ...preparationDeps, pool, savedOnly: true }
     ) : { questions: [], cacheHits: 0 };
     const savedQuestions = [...school.questions, ...(savedResult.questions || [])];
@@ -233,7 +234,7 @@ async function runLaunch(
             result = await generateExamQuestions(
               { allocation: missingAllocation, lecturesById, objectivesByLecture, atomsByLecture,
                 blockId, lectures, weakConceptAccuracyByLecture, userId, generationId: sessionId,
-                studyMode, difficultyOverride, focusNotes: adaptiveFocusNotes },
+                studyMode, difficultyOverride, focusNotes: adaptiveFocusNotes, targetObjectiveIds, targetObjectiveOrders },
               { ...preparationDeps, pool, savedOnly: false,
                 onProgress: reportFill,
                 onQuestionReady: question => {
@@ -291,6 +292,8 @@ async function runLaunch(
       studyMode,
       difficultyOverride,
       focusNotes: adaptiveFocusNotes,
+      targetObjectiveIds,
+      targetObjectiveOrders,
       preparedGenerationId,
       preparedQuestionIds,
     },

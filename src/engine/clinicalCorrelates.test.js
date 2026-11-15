@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildClinicalCorrelateLibrary, buildClinicalCorrelatePlan, clinicalSignalsFromQuestion, curatedClinicalCorrelatesForLecture } from "./clinicalCorrelates.js";
+import { buildClinicalCorrelateLibrary, buildClinicalCorrelatePlan, clinicalSignalsFromQuestion, curatedClinicalCorrelatesForLecture, explicitClinicalCorrelatesFromText } from "./clinicalCorrelates.js";
 
 describe("clinical correlate library", () => {
   it("keeps repeated lecture signals and cross-source lecture/homework signals", () => {
@@ -27,6 +27,16 @@ describe("clinical correlate library", () => {
       examples: [{ stem: "A question with a patient", choices: { A: "one", B: "two" }, correct: "A" }],
     });
     expect(library).toEqual([]);
+  });
+
+  it("indexes explicitly named lecture diseases once with exact page evidence", () => {
+    const text="Normal movement depends on basal ganglia circuits. Parkinson disease causes bradykinesia and rigidity.\fA separate page discusses Huntington disease.";
+    const extracted=explicitClinicalCorrelatesFromText(text,{sourceLabel:"Motor lecture"});
+    expect(extracted.map(row=>row.label)).toEqual(expect.arrayContaining(["Parkinson disease","Huntington disease"]));
+    const library=buildClinicalCorrelateLibrary({lectureText:text,lectureTitle:"Motor lecture"});
+    expect(library.find(row=>row.label==="Parkinson disease")).toMatchObject({
+      explicitSourceEntity:true,sourceKinds:["lecture"],evidence:[expect.stringContaining("page 1")],
+    });
   });
 
   it("extracts conservative stem cues for uploaded questions", () => {

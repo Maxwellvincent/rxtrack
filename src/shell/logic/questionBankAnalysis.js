@@ -1,5 +1,6 @@
 import { rankLectureContent } from "./lectureContentMatch.js";
 import { alignSchoolQuestions } from "../../engine/schoolAlignment.js";
+import { normalizeQuestionOrder } from "../../engine/questionOrder.js";
 
 const FOCUS_RULES = [
   ["genetics / inheritance", /inherit|autosomal|x-linked|dominant|recessive|pedigree|family history|consanguin|mutation|chromosome|allele/i],
@@ -115,6 +116,10 @@ export function buildQuestionBankAnalysis({ questions = [], objectives = [], lec
       schoolLearningOutcomes: question.schoolLearningOutcomes || null,
       sourceKeyStatus: question.sourceKeyStatus || (question.correct && question.choices?.[question.correct] ? "present" : "missing"),
       correctnessStatus: question.correct && question.choices?.[question.correct] ? "source-key-present-not-medically-audited" : "needs-review",
+      orderLevel: null,
+      reasoningSteps: [],
+      reasoningBasis: null,
+      reasoningDepthStatus: "not-assessed",
       critique: critique.length ? critique : ["Source key is present. Compare the rationale and lecture support before treating this as medically confirmed."],
     };
   });
@@ -155,7 +160,23 @@ export function buildQuestionBankCritiquePrompt(analysis, questions, objectives 
   const source = (questions || []).slice(0, 60).map((question, index) => `Source context: ${[question.sourceFile, question.sourceTitle, question.sourceSection, question.sourceSectionTitle].filter(Boolean).join(" / ")}\n${index + 1}. [${question.id || `q${index + 1}`}] ${question.stem}\nChoices: ${Object.entries(question.choices || {}).map(([key, value]) => `${key}: ${typeof value === "object" ? JSON.stringify(value) : value}`).join(" | ")}\nKey: ${question.correct || "missing"}\nSource explanation: ${question.explanation || "missing"}`).join("\n\n");
   const curriculum = (objectives || []).slice(0, 80).map((objective) => `[${objective.id || objective.code || "objective"}] ${textOfObjective(objective)}`).join("\n");
   const lectureText = (lectures || []).slice(0, 30).map((lecture) => `${lecture.id}: ${lecture.lectureTitle}\n${lecture.teachingMap?.summary || ""}\nClinical hook: ${lecture.teachingMap?.clinicalHook || ""}`).join("\n\n");
-  return `Review uploaded school or homework questions against the supplied curriculum. Never change the source answer key. Mark correctness as source-key-present-not-medically-audited unless the lecture evidence supports a concern, then use needs-review. Separate direct lecture support from candidate word overlap. Use homework section/subheading, source week and lecture sequence with clinical findings to select the primary teaching lecture when topics overlap; prefer the specific lecture teaching the relationship over a general lecture merely listing the keyed structure. Context alone is not objective evidence. Identify what each item is testing, its clinical cues/buzzwords, the matching objective and lecture, and one actionable critique. Do not import outside facts as if taught.\n\nCURRENT DETERMINISTIC ANALYSIS:\n${JSON.stringify(analysis)}\n\nOBJECTIVES:\n${curriculum || "none"}\n\nLECTURE MAPS:\n${lectureText || "none"}\n\nQUESTIONS:\n${source}\n\nReturn JSON only: {"items":[{"id":"q1","focus":"...","clinicalCues":["..."],"buzzwords":["..."],"objectiveIds":["exact supplied id"],"lectureIds":["exact supplied id"],"clinicalCorrelates":["..."],"correctnessStatus":"source-key-confirmed|source-key-present-not-medically-audited|needs-review|unsupported-by-lecture","critique":"..."}]}`;
+  return `Review uploaded school or homework questions against the supplied curriculum. Never change the source answer key. Mark correctness as source-key-present-not-medically-audited unless the lecture evidence supports a concern, then use needs-review. Separate direct lecture support from candidate word overlap. Use homework section/subheading, source week and lecture sequence with clinical findings to select the primary teaching lecture when topics overlap; prefer the specific lecture teaching the relationship over a general lecture merely listing the keyed structure. Context alone is not objective evidence. Identify what each item is testing, its clinical cues/buzzwords, the matching objective and lecture, and one actionable critique. Do not import outside facts as if taught.
+
+Measure the ACTUAL shortest reasoning route to the source key, ignoring stem length and labels. first-order recognizes one supplied fact. second-order interprets a clue and applies one taught relationship. third-order integrates at least two dependent taught relationships to reach a downstream result. Return orderLevel only when the source item and supplied lecture/objective evidence establish the route. Return reasoningSteps as the shortest dependent chain and reasoningBasis as the exact decisive clue or source-supported relationship. If depth cannot be established, use null and an empty steps array; never guess from words such as patient, mechanism, or most likely.
+
+CURRENT DETERMINISTIC ANALYSIS:
+${JSON.stringify(analysis)}
+
+OBJECTIVES:
+${curriculum || "none"}
+
+LECTURE MAPS:
+${lectureText || "none"}
+
+QUESTIONS:
+${source}
+
+Return JSON only: {"items":[{"id":"q1","focus":"...","clinicalCues":["..."],"buzzwords":["..."],"objectiveIds":["exact supplied id"],"lectureIds":["exact supplied id"],"clinicalCorrelates":["..."],"orderLevel":"first-order|second-order|third-order|null","reasoningSteps":["shortest required step"],"reasoningBasis":"exact decisive clue or supported relationship|null","correctnessStatus":"source-key-confirmed|source-key-present-not-medically-audited|needs-review|unsupported-by-lecture","critique":"..."}]}`;
 }
 
 export function mergeQuestionBankCritique(analysis, reviewed, curriculum = {}) {
@@ -175,6 +196,11 @@ export function mergeQuestionBankCritique(analysis, reviewed, curriculum = {}) {
       const reviewedLectures = Array.isArray(review.lectureIds)
         ? [...new Set(review.lectureIds.map(String).filter((id) => !validLectureIds || validLectureIds.has(id)))]
         : item.lectureIds;
+      const reviewedOrder = normalizeQuestionOrder(review.orderLevel);
+      const reasoningSteps = Array.isArray(review.reasoningSteps) ? review.reasoningSteps.map(String).map(step => step.trim()).filter(Boolean).slice(0, 5) : [];
+      const minimumSteps = { "first-order": 1, "second-order": 2, "third-order": 3 }[reviewedOrder] || Infinity;
+      const reasoningBasis = String(review.reasoningBasis || "").trim();
+      const depthAssessed = !!reviewedOrder && reasoningSteps.length >= minimumSteps && reasoningBasis.length >= 8;
       return {
         ...item,
         ...review,
@@ -183,6 +209,10 @@ export function mergeQuestionBankCritique(analysis, reviewed, curriculum = {}) {
         objectiveLinkReviewStatus: Array.isArray(review.objectiveIds) ? (reviewedObjectives.length ? "ai-reviewed" : "no-supported-match") : item.objectiveLinkReviewStatus || "candidate",
         clinicalCues: Array.isArray(review.clinicalCues) ? review.clinicalCues : item.clinicalCues,
         buzzwords: Array.isArray(review.buzzwords) ? review.buzzwords : [],
+        orderLevel: depthAssessed ? reviewedOrder : null,
+        reasoningSteps: depthAssessed ? reasoningSteps : [],
+        reasoningBasis: depthAssessed ? reasoningBasis : null,
+        reasoningDepthStatus: depthAssessed ? "ai-reviewed" : "not-assessed",
       };
     }),
     updatedAt: Date.now(),

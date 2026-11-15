@@ -44,6 +44,15 @@ describe("question bank analysis", () => {
     expect(question.correct).toBe("A");
   });
 
+  it("records reasoning depth only when review supplies a complete shortest route",()=>{
+    const analysis=buildQuestionBankAnalysis({questions:[question]});
+    const reviewed=mergeQuestionBankCritique(analysis,{items:[{id:"q1",orderLevel:"second-order",
+      reasoningSteps:["Interpret the pedigree","Apply the inheritance relationship"],reasoningBasis:"The family pattern is the decisive clue"}]});
+    expect(reviewed.items[0]).toMatchObject({orderLevel:"second-order",reasoningDepthStatus:"ai-reviewed"});
+    const incomplete=mergeQuestionBankCritique(analysis,{items:[{id:"q1",orderLevel:"third-order",reasoningSteps:["Name a diagnosis"],reasoningBasis:"Long patient vignette"}]});
+    expect(incomplete.items[0]).toMatchObject({orderLevel:null,reasoningDepthStatus:"not-assessed"});
+  });
+
   it("marks only curriculum IDs present in the supplied curriculum as reviewer proposals", () => {
     const analysis = buildQuestionBankAnalysis({ questions: [question] });
     const merged = mergeQuestionBankCritique(analysis, { items: [{ id: "q1", objectiveIds: ["obj-1", "hallucinated"], lectureIds: ["lec-1", "other"] }] }, {
