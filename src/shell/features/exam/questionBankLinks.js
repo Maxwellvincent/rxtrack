@@ -140,15 +140,41 @@ export function linkSourceLecture(question, lectures = [], blockId) {
   return { ...question, lectureId: candidates[0].id, lectureLabel: formatLectureLabel(candidates[0]), curriculumLinkStatus: "source-label-matched", lectureLinkBasis: "explicit-source-number-and-title", sourceLectureClue: clue.label, sourceLectureNumber: clue.number, curriculumMapping: curriculumMappingProvenance(question, candidates[0], blockId, "explicit-source-number-and-title") };
 }
 
-export function lectureReviewSummary(session, labels = {}) {
+function missedConcept(question, objectivesById = {}) {
+  const objective = (question.objectiveIds || []).map(id => objectivesById[id]).find(Boolean);
+  const candidates = [
+    question.objectiveFacet,
+    question.topic,
+    objective?.objective,
+    objective?.text,
+    objective?.content,
+  ];
+  return candidates.map(value => String(value || "").replace(/\s+/g, " ").trim())
+    .find(value => value && !/^(?:mixed block|uploaded|unknown|general)$/i.test(value)) || null;
+}
+
+export function lectureReviewSummary(session, labels = {}, objectivesById = {}) {
   const rows = new Map();
   const answers = new Map((session.answers || []).filter(a => a.value != null).map(a => [a.questionId, a]));
-  for (const q of session.questions || []) {
+  for (const [index, q] of (session.questions || []).entries()) {
     const answer = answers.get(q.questionId);
     if (!answer || !q.lectureId) continue;
-    const row = rows.get(q.lectureId) || { lectureId: q.lectureId, label: labels[q.lectureId] || q.lectureLabel || q.lectureId, answered: 0, correct: 0, misses: 0 };
-    row.answered++; if (answer.value === q.correct) row.correct++; else row.misses++;
+    const row = rows.get(q.lectureId) || { lectureId: q.lectureId, label: labels[q.lectureId] || q.lectureLabel || q.lectureId, answered: 0, correct: 0, misses: 0, concepts: [], unmappedMisses: 0 };
+    row.answered++;
+    if (answer.value === q.correct) row.correct++;
+    else {
+      row.misses++;
+      const concept = missedConcept(q, objectivesById);
+      if (!concept) row.unmappedMisses++;
+      else {
+        const key = normalize(concept);
+        const existing = row.concepts.find(item => item.key === key);
+        if (existing) { existing.misses++; existing.questionNumbers.push(index + 1); }
+        else row.concepts.push({ key, label: concept, misses: 1, questionNumbers: [index + 1] });
+      }
+    }
     rows.set(q.lectureId, row);
   }
-  return [...rows.values()].sort((a, b) => b.misses - a.misses || a.correct / a.answered - b.correct / b.answered);
+  return [...rows.values()].map(row => ({ ...row, concepts: row.concepts.map(({ key, ...concept }) => concept) }))
+    .sort((a, b) => b.misses - a.misses || a.correct / a.answered - b.correct / b.answered);
 }

@@ -47,9 +47,15 @@ it("attributes explicit NB05 homework labels only to a unique current-block numb
   expect(linkSourceLecture(question, [{ ...lectures[0], lectureTitle: "Auditory pathways" }], "nb1").lectureId).toBeUndefined();
 });
 it("ranks missed lectures using answered questions only", () => {
-  const summary = lectureReviewSummary({ questions: [{ questionId: "a", lectureId: "l5", correct: "A" }, { questionId: "b", lectureId: "l6", correct: "A" }, { questionId: "c", lectureId: "l5", correct: "A" }], answers: [{ questionId: "a", value: "B" }, { questionId: "b", value: "A" }] }, { l5: "Neurons and Glia" });
+  const summary = lectureReviewSummary({ questions: [{ questionId: "a", lectureId: "l5", objectiveFacet:"Astrocyte support of the blood-brain barrier", correct: "A" }, { questionId: "b", lectureId: "l6", correct: "A" }, { questionId: "c", lectureId: "l5", correct: "A" }], answers: [{ questionId: "a", value: "B" }, { questionId: "b", value: "A" }] }, { l5: "Neurons and Glia" });
   expect(summary[0]).toMatchObject({ lectureId: "l5", label: "Neurons and Glia", answered: 1, misses: 1 });
+  expect(summary[0].concepts).toEqual([{label:"Astrocyte support of the blood-brain barrier",misses:1,questionNumbers:[1]}]);
   expect(summary[1]).toMatchObject({ lectureId: "l6", answered: 1, correct: 1 });
+});
+
+it("uses saved objective text when a missed question has no narrower topic", () => {
+  const session={questions:[{questionId:"q",lectureId:"l",objectiveIds:["o"],correct:"A"}],answers:[{questionId:"q",value:"B"}]};
+  expect(lectureReviewSummary(session,{}, {o:{objective:"Compare direct and consensual pupillary light reflex pathways"}})[0].concepts[0].label).toBe("Compare direct and consensual pupillary light reflex pathways");
 });
 
 it("cleans already-saved school choices when reopening without changing the source key", () => {

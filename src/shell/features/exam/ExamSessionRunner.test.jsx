@@ -829,7 +829,7 @@ it("links resumed NB05 homework in review and opens the missed lecture", () => {
   controllerMock.mockReturnValue(controller);
   const navigate = vi.fn();
   const { host, unmount } = render(<ExamSessionRunner sessionId="s1" userId="u1" lectures={[{ id: "l5", blockId: "b1", lectureNumber: 5, lectureTitle: "NB 05 Neurons and Glia" }]} onNavigateToLecture={navigate} />);
-  expect(host.textContent).toContain("Lectures to revisit");
+  expect(host.textContent).toContain("Lectures and concepts to revisit");
   expect(host.textContent).toContain("Neurons and Glia");
   expect(host.textContent).toContain("0/1 correct");
   const button = [...host.querySelectorAll("button")].find(b => b.textContent === "Review lecture");
@@ -874,13 +874,15 @@ it("offers reasoning before reveal as an explicit opt-in", () => {
  expect(host.querySelector('[data-testid="practice-reveal"]')).toBeTruthy();
  unmount();
 });
-it("never recommends a perfect-score lecture as a missed-lecture repair", () => {
- const controller=baseController({session:{...baseController().session,status:'submitted',questions:[{...makeQuestion('q1','A'),lectureId:'clean'}, {...makeQuestion('q2','A'),lectureId:'missed'}],answers:[{questionId:'q1',value:'A'},{questionId:'q2',value:'B'}]}});
+it("shows the missed concept and never recommends a perfect-score lecture as repair", () => {
+ const controller=baseController({session:{...baseController().session,status:'submitted',questions:[{...makeQuestion('q1','A'),lectureId:'clean'}, {...makeQuestion('q2','A'),lectureId:'missed',objectiveFacet:'Distinguish the crossed spinothalamic pathway from the dorsal columns'}],answers:[{questionId:'q1',value:'A'},{questionId:'q2',value:'B'}]}});
  controllerMock.mockReturnValue(controller);
  const {host,unmount}=render(<ExamSessionRunner sessionId="s1" userId="u1" lectureLabelsByLectureId={{clean:'Perfect lecture',missed:'Weak lecture'}}/>);
- const section=[...host.querySelectorAll('section')].find(s=>s.textContent.includes('Lectures to revisit after missed questions'));
+ const section=[...host.querySelectorAll('section')].find(s=>s.textContent.includes('Lectures and concepts to revisit'));
  expect(section.querySelector('ul').textContent).toContain('Weak lecture');
  expect(section.querySelector('ul').textContent).not.toContain('Perfect lecture');
+ expect(section.querySelector('ul').textContent).toContain('Distinguish the crossed spinothalamic pathway from the dorsal columns');
+ expect(section.querySelector('ul').textContent).toContain('Q2');
  expect(section.querySelector('details').textContent).toContain('Perfect lecture');
  unmount();
 });

@@ -63,13 +63,13 @@ export function sittingAnswers(session, baseline = []) {
   return (session.answers || []).filter(answer => answer.value != null && prior.get(answer.questionId) !== answer.value);
 }
 
-function SavedPracticeSummary({ session, baseline, userId, labels, onExit, onResume, onNavigateToLecture }) {
+function SavedPracticeSummary({ session, baseline, userId, labels, objectivesById, onExit, onResume, onNavigateToLecture }) {
   const answers = sittingAnswers(session, baseline);
   const scoped = protectSessionScoring({ ...session, answers }, questionRatingsStore.read(userId).ratings);
   const answered = (scoped.questions || []).filter(q => pickedFor(scoped, q.questionId) != null);
   const correct = answered.filter(q => pickedFor(scoped, q.questionId) === q.correct).length;
   const missed = answered.length - correct;
-  const rows = lectureReviewSummary(scoped, labels).filter(row => row.misses > 0);
+  const rows = lectureReviewSummary(scoped, labels, objectivesById).filter(row => row.misses > 0);
   const unlinked = answered.filter(q => !q.lectureId && pickedFor(scoped, q.questionId) !== q.correct).length;
   const total = (session.questions || []).filter(q => pickedFor(session, q.questionId) != null).length;
   return <section aria-label="Saved sitting summary" className="space-y-4 rounded-lg border border-border bg-bg-elevated p-4">
@@ -81,10 +81,15 @@ function SavedPracticeSummary({ session, baseline, userId, labels, onExit, onRes
     <details className="rounded border border-border p-3"><summary className="cursor-pointer font-semibold">Section results · saved homework</summary><ul className="mt-2 space-y-2">{practiceSections(session.questions, session.answers, labels, protectSessionScoring(session, questionRatingsStore.read(userId).ratings)).map(section=><li key={section.key}><strong>{section.title || section.label}</strong> · {section.answered}/{section.indices.length} answered · {section.accuracy == null ? 'No revealed scores yet' : `${section.accuracy}% correct (${section.correct}/${section.scored})`}{section.pending ? ` · ${section.pending} saved without reveal` : ''}</li>)}</ul></details>
     <h3 className="font-semibold">Lectures to revisit from this sitting</h3>
     {!missed && <p>{answered.length ? "No scored misses this sitting." : "No new scored answers this sitting."}</p>}
-    <ul className="space-y-2">{rows.map(row => <li key={row.lectureId}><strong>{row.label}</strong> · {row.misses} wrong of {row.answered} answered{onNavigateToLecture && <button className="ml-2 underline" onClick={() => onNavigateToLecture(row.lectureId)}>Review lecture</button>}</li>)}</ul>
+    <ul className="space-y-3">{rows.map(row => <li key={row.lectureId}><strong>{row.label}</strong> · {row.misses} wrong of {row.answered} answered{onNavigateToLecture && <button className="ml-2 underline" onClick={() => onNavigateToLecture(row.lectureId)}>Review lecture</button>}<MissedConcepts row={row} /></li>)}</ul>
     {unlinked > 0 && <p>{unlinked} missed questions have no confirmed lecture link yet; they still count toward your score.</p>}
     <div className="flex gap-2"><Button onClick={onExit}>Done · exit to question banks</Button><Button variant="outline" onClick={onResume}>Continue practice</Button></div>
   </section>;
+}
+
+function MissedConcepts({ row }) {
+  if (!row.concepts?.length && !row.unmappedMisses) return null;
+  return <div className="mt-1.5 text-sm text-text-2"><span className="font-semibold text-text-1">Missed concepts:</span><ul className="ml-5 mt-1 list-disc space-y-1">{row.concepts?.map(concept => <li key={concept.label}>{concept.label}{concept.questionNumbers?.length ? ` · Q${concept.questionNumbers.join(", Q")}` : ""}</li>)}{row.unmappedMisses > 0 && <li className="text-text-3">{row.unmappedMisses} missed question{row.unmappedMisses === 1 ? " has" : "s have"} no specific objective or topic link yet.</li>}</ul></div>;
 }
 
 function sessionLabel(session) {
@@ -674,6 +679,7 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, object
   const correctCount = scoreableAnswered.filter((q) => pickedFor(session, q.questionId) === q.correct).length;
   const incorrectCount = scoreableAnswered.length - correctCount;
   const unlinkedMisses = scoreableAnswered.filter(q => !q.lectureId && pickedFor(session, q.questionId) !== q.correct).length;
+  const lectureRows = lectureReviewSummary(protectSessionScoring(session, questionRatingsStore.read(userId).ratings), lectureLabelsByLectureId, objectivesById);
   const scoreDenominator=session.purpose==='reserved-assessment' ? questions.filter(q=>!questionRatingsStore.isExcluded(userId,q) && !(session.scoringExcludedQuestionIds || []).includes(q.questionId)).length : scoreableAnswered.length;
   const percent = scoreDenominator ? Math.round(correctCount / scoreDenominator * 100) : 0;
   const targetQuestionCount = Math.max(questions.length, Number(session.targetQuestionCount) || questions.length);
@@ -725,12 +731,12 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, object
         </div>
       </div>
       {incompleteDiagnostic&&<div role="alert" className="rounded-lg border border-warn/50 bg-bg-elevated p-3 text-sm text-text-1"><strong>Incomplete diagnostic · {questions.length}/{targetQuestionCount} questions prepared.</strong><p className="mt-1 text-text-2">This attempt is reviewable practice, not a full diagnostic score, and is excluded from Exam accuracy and readiness.</p></div>}
-      {lectureReviewSummary(protectSessionScoring(session, questionRatingsStore.read(userId).ratings), lectureLabelsByLectureId).length > 0 && <section className="rounded-lg border border-border p-3">
-        <h3 className="font-semibold">Lectures to revisit after missed questions</h3>
-        <p className="text-xs text-text-3">Only lectures with missed answers in this session appear here.</p>
-        {!lectureReviewSummary(protectSessionScoring(session, questionRatingsStore.read(userId).ratings), lectureLabelsByLectureId).some(row => row.misses > 0) && <p className="mt-2 text-sm text-good">No misses in the linked lectures this session.</p>}
-        <details className="mt-2 text-sm"><summary className="cursor-pointer text-text-3">Lectures with no misses this session</summary>{lectureReviewSummary(protectSessionScoring(session, questionRatingsStore.read(userId).ratings), lectureLabelsByLectureId).filter(row => row.misses === 0).map(row => <p key={row.lectureId} className="mt-1">{row.label} · {row.correct}/{row.answered} correct</p>)}</details>
-        <ul className="mt-2 space-y-2">{lectureReviewSummary(protectSessionScoring(session, questionRatingsStore.read(userId).ratings), lectureLabelsByLectureId).filter(row => row.misses > 0).map(row => <li key={row.lectureId} className="text-sm"><strong>{row.label}</strong> · {row.correct}/{row.answered} correct · {row.misses ? `${row.misses} missed — review this lecture, then try fresh questions` : "No misses in this session"}{onNavigateToLecture && row.misses > 0 && <button type="button" className="ml-2 text-accent underline" onClick={() => onNavigateToLecture(row.lectureId)}>Review lecture</button>}</li>)}</ul>
+      {lectureRows.length > 0 && <section className="rounded-lg border border-border p-3">
+        <h3 className="font-semibold">Lectures and concepts to revisit</h3>
+        <p className="text-xs text-text-3">Only lectures with missed answers appear below. Concepts come from each question’s saved objective or topic link.</p>
+        {!lectureRows.some(row => row.misses > 0) && <p className="mt-2 text-sm text-good">No misses in the linked lectures this session.</p>}
+        <details className="mt-2 text-sm"><summary className="cursor-pointer text-text-3">Lectures with no misses this session</summary>{lectureRows.filter(row => row.misses === 0).map(row => <p key={row.lectureId} className="mt-1">{row.label} · {row.correct}/{row.answered} correct</p>)}</details>
+        <ul className="mt-3 space-y-4">{lectureRows.filter(row => row.misses > 0).map(row => <li key={row.lectureId} className="border-b border-border/60 pb-3 text-sm last:border-0 last:pb-0"><div><strong>{row.label}</strong> · {row.correct}/{row.answered} correct · {row.misses} missed{onNavigateToLecture && <button type="button" className="ml-2 text-accent underline" onClick={() => onNavigateToLecture(row.lectureId)}>Review lecture</button>}</div><MissedConcepts row={row} /></li>)}</ul>
       </section>}
       <ObjectiveLearningReport objectives={Object.values(objectivesById || {})} evidence={learningEvidence.data || {}}
         records={scoreableAnswered.filter(q=>!questionRatingsStore.isExcluded(userId,q,"objective")).map(q=>sessionEvidenceEvent(session,q,session.answers.find(a=>a.questionId===q.questionId)))}
@@ -863,7 +869,7 @@ export function ExamSessionRunner({
   if (error) return <div className="text-sm text-bad">{error}</div>;
   if (!session) return <div className="text-sm text-text-3">Session not found.</div>;
 
-  if (savedSitting && savedSitting.sessionId === sessionId) return <SavedPracticeSummary session={savedSitting} baseline={sittingBaseline.current?.answers || []} userId={userId} labels={lectureLabelsByLectureId} onExit={onExit} onResume={() => { sittingBaseline.current = { sessionId, answers: (savedSitting.answers || []).map(a => ({ ...a })) }; setSavedSitting(null); }} onNavigateToLecture={onNavigateToLecture} />;
+  if (savedSitting && savedSitting.sessionId === sessionId) return <SavedPracticeSummary session={savedSitting} baseline={sittingBaseline.current?.answers || []} userId={userId} labels={lectureLabelsByLectureId} objectivesById={objectivesById} onExit={onExit} onResume={() => { sittingBaseline.current = { sessionId, answers: (savedSitting.answers || []).map(a => ({ ...a })) }; setSavedSitting(null); }} onNavigateToLecture={onNavigateToLecture} />;
 
   if (session.status === "finalizing") {
     // A prior finalize call can fail resumably (network blip, a transient
