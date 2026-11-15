@@ -348,13 +348,13 @@ export function ExamLaunchModal({
         {!launching && error && <div role="alert" className="mt-4 rounded-lg border border-bad p-3 text-sm text-text-1">{error}</div>}
 
         {!launching && partialLaunch?.readyCount > 0 && (
-          <button type="button" onClick={() => onStartSaved?.({ format, ...namePayload, ...(difficulty !== "adaptive" ? { difficultyOverride: difficulty } : {}), questionCount: partialLaunch.readyCount, durationMinutes: format === "exam" ? parsedDuration : null, ...(effectiveScope === "block-so-far" ? {} : /^\d+$/.test(String(effectiveScope)) ? { weekNumber: effectiveScope } : { contentScope: effectiveScope }) })} className="mt-3 min-h-11 w-full rounded-lg bg-accent px-4 py-2.5 text-sm font-bold text-white">
+          <button type="button" onClick={() => onStartSaved?.({ format, ...namePayload, ...(studyMode === "repair" ? { studyMode } : {}), ...targetPayload, ...(difficulty !== "adaptive" ? { difficultyOverride: difficulty } : {}), questionCount: partialLaunch.readyCount, durationMinutes: format === "exam" ? parsedDuration : null, ...(effectiveScope === "block-so-far" ? {} : /^\d+$/.test(String(effectiveScope)) ? { weekNumber: effectiveScope } : { contentScope: effectiveScope }), ...(focusNotes.trim() ? { focusNotes: focusNotes.trim() } : {}) })} className="mt-3 min-h-11 w-full rounded-lg bg-accent px-4 py-2.5 text-sm font-bold text-white">
             Start with {partialLaunch.readyCount} saved questions and fill the rest
           </button>
         )}
 
         {!launching && savedQuestionCount > 0 && (
-          <button type="button" onClick={() => onStartSaved?.({ format, ...namePayload, ...(difficulty !== "adaptive" ? { difficultyOverride: difficulty } : {}), questionCount: parsedCount, durationMinutes: format === "exam" ? parsedDuration : null, ...(effectiveScope === "block-so-far" ? {} : /^\d+$/.test(String(effectiveScope)) ? { weekNumber: effectiveScope } : { contentScope: effectiveScope }) })} className="mt-3 min-h-11 w-full rounded-lg border border-accent px-4 py-2.5 text-sm font-bold text-accent">
+          <button type="button" onClick={() => onStartSaved?.({ format, ...namePayload, ...(studyMode === "repair" ? { studyMode } : {}), ...targetPayload, ...(difficulty !== "adaptive" ? { difficultyOverride: difficulty } : {}), questionCount: parsedCount, durationMinutes: format === "exam" ? parsedDuration : null, ...(effectiveScope === "block-so-far" ? {} : /^\d+$/.test(String(effectiveScope)) ? { weekNumber: effectiveScope } : { contentScope: effectiveScope }), ...(focusNotes.trim() ? { focusNotes: focusNotes.trim() } : {}) })} className="mt-3 min-h-11 w-full rounded-lg border border-accent px-4 py-2.5 text-sm font-bold text-accent">
             Start now · reuse saved questions and generate any missing for this scope
           </button>
         )}

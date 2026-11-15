@@ -206,12 +206,15 @@ describe("ExamLaunchModal", () => {
 
   it("keeps a narrowed priority objective set in the focused repair launch", () => {
     const onLaunch = vi.fn();
+    const onStartSaved = vi.fn();
     const { host, unmount } = render(<ExamLaunchModal eligibleLectures={ELIGIBLE} defaultQuestionCount={8}
       defaultStudyMode="repair" defaultTargetObjectiveIds={["o-priority"]} defaultFocusNotes="Prioritize pupillary reflexes"
-      onLaunch={onLaunch} onCancel={vi.fn()} />);
+      savedQuestionCount={3} onStartSaved={onStartSaved} onLaunch={onLaunch} onCancel={vi.fn()} />);
     expect(host.querySelector("#exam-focus-notes").value).toContain("pupillary reflexes");
     act(() => Array.from(host.querySelectorAll("button")).find(button => button.textContent === "Start focused repair").click());
     expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({ targetObjectiveIds: ["o-priority"], focusNotes: "Prioritize pupillary reflexes" }));
+    act(() => Array.from(host.querySelectorAll("button")).find(button => button.textContent.includes("Start now · reuse saved questions")).click());
+    expect(onStartSaved).toHaveBeenCalledWith(expect.objectContaining({ studyMode: "repair", targetObjectiveIds: ["o-priority"], focusNotes: "Prioritize pupillary reflexes" }));
     unmount();
   });
 
