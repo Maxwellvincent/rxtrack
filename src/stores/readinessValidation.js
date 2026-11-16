@@ -21,4 +21,9 @@ export const saveActual=(uid,id,actual)=>updateCloudAwait(uid,key,current=>{
  if(actual.takenAt>Date.now())throw new Error('Actual test date cannot be in the future.');
  return {...current,snapshots:current.snapshots.map(s=>s.id===id?{...s,actual:{...comparison,recordedAt:Date.now()}}:s)};
 });
-export const saveAudit=(uid,audit)=>updateCloudAwait(uid,key,current=>({...current,snapshots:current?.snapshots||[],audits:[...(current?.audits||[]),audit].slice(-20)}));
+export const saveAudit=(uid,audit)=>updateCloudAwait(uid,key,current=>{
+ if((current?.audits||[]).length>=20)throw new Error('Audit history is full; existing reports have been preserved.');
+ const next={...current,snapshots:current?.snapshots||[],audits:[...(current?.audits||[]),audit]};
+ if(new TextEncoder().encode(JSON.stringify(next)).length>850000)throw new Error('Audit report exceeds the safe storage limit; existing reports have been preserved.');
+ return next;
+});
