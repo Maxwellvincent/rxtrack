@@ -59,11 +59,16 @@ export async function recoverExamPreparation({ session, userId, pool, generate, 
       // An empty model response is transport-like, not proof that the lecture
       // cannot support a valid question. Clear blocks left by the failed run
       // so only its missing slots are tried again after the bridge recovers.
-      const blockedLectureIds = manual || emptyStructuredFailure(claimed.fillError) ? [] : (claimed.fillBlockedLectureIds || []);
       const working={...claimed,questions:[...(claimed.questions||[])]};
       // Use reviewed, unused reserve items in the ORIGINAL curriculum scope
       // before asking the model to retry the same failing final slots.
       const targeted=claimed.fillPlan.targetObjectiveIds?.length||claimed.fillPlan.studyMode==='repair'||claimed.blueprintExam||Object.keys(claimed.fillPlan.allocation).some(id=>id.includes('::bpm::'));
+      if(manual&&!targeted)working.fillPlan={...claimed.fillPlan,allocation:{...Object.fromEntries((claimed.lectureIds||[]).map(id=>[id,0])),...claimed.fillPlan.allocation}};
+      const previousBlocks=claimed.fillBlockedLectureIds||[];
+      const canRedistribute=manual&&!targeted&&Object.keys(working.fillPlan.allocation).some(id=>!previousBlocks.includes(id));
+      // Balanced exams may move failed slots to other ORIGINAL lecture slots.
+      // Focused/blueprint exams keep their exact ownership and review targets.
+      const blockedLectureIds=canRedistribute?previousBlocks:manual||emptyStructuredFailure(claimed.fillError)?[]:previousBlocks;
       if(manual&&!targeted&&pool.readyForLectures){
        const allowed=[...new Set([...claimed.lectureIds||[],...Object.keys(claimed.fillPlan.allocation).map(id=>readSlot(id).lectureId)])];
        const prior=[...(pool.history?await pool.history():[]),...working.questions];

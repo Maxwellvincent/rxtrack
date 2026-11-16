@@ -27,6 +27,13 @@ it('reconciles a stale fulfilled lecture plan with five missing questions in a 3
  expect(missingRecoveryAllocation({targetQuestionCount:32,questions:q,fillPlan:{allocation:{l:27}}})).toEqual({l:5});
  expect(missingRecoveryAllocation({targetQuestionCount:32,questions:q,fillPlan:{allocation:{l:40}}})).toEqual({l:5});
 });
+it('redistributes a repeatedly rejected balanced-exam slot within the original lecture plan',async()=>{
+ const current={...session,targetQuestionCount:3,lectureIds:['l','other'],fillBlockedLectureIds:['l'],fillPlan:{studyMode:'balanced',allocation:{l:2,other:1}},questions:[{lectureId:'l'},{lectureId:'other'}]};
+ const pool={claimSessionFill:vi.fn(async()=>current),finishSessionFill:vi.fn(),appendToSession:vi.fn(),reportSessionFillProgress:vi.fn()};
+ const generate=vi.fn(async()=>({errors:[]}));
+ await recoverExamPreparation({session:current,userId:'u',pool,generate,context:{},manual:true});
+ expect(generate.mock.calls[0][0].allocation).toEqual({other:1});
+});
 it('surfaces an actual partial result instead of resolving the manual retry as successful',async()=>{
  const pool={claimSessionFill:vi.fn(async()=>session),finishSessionFill:vi.fn(async()=>session),appendToSession:vi.fn(),reportSessionFillProgress:vi.fn()};
  await expect(recoverExamPreparation({session,userId:'u',pool,generate:async()=>({errors:[]}),context:{},manual:true})).rejects.toThrow('1/3 questions saved');
