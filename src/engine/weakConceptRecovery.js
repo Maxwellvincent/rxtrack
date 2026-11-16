@@ -43,7 +43,7 @@ function sameRecovery(a, b) {
 }
 
 function reconcileConcept(concept, evidence) {
-  const recoveryStartedAt = Date.parse(concept?.lastMissed || concept?.dateFirstSeen || "") || 0;
+  const recoveryStartedAt = Number(concept.recoveryStartedAt) || Date.parse(concept?.lastMissed || concept?.dateFirstSeen || "") || 0;
   const matched = (evidence || []).filter((event) =>
     matchesConcept(concept, event) && (Number(event?.at) || 0) > recoveryStartedAt
   );
@@ -58,6 +58,7 @@ function reconcileConcept(concept, evidence) {
   const latestWrong = [...recoveryEvidence].reverse().find((event) => !event.correct);
   const next = {
     ...concept,
+    recoveryStartedAt,
     recoveryEvidence,
     recoveryEvidenceVersion: 1,
     consecutiveCorrect,

@@ -133,7 +133,7 @@ export async function bridgeComplete(req) {
     probe = { at: Date.now(), ok: true };
     if (typeof window !== "undefined") {
       window.dispatchEvent(
-        new CustomEvent("rxt-bridge-used", { detail: { backend: data.backend } })
+        new CustomEvent("rxt-bridge-used", { detail: { backend: data.backend, provider: data.provider || data.backend, model: data.model, usage: data.usage } })
       );
     }
     if(req.backendOnly)providerCooldowns.delete(providerKey);

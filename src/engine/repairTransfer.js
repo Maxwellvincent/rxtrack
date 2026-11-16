@@ -1,5 +1,6 @@
 import {objectiveOrderProfile} from "./questionOrder.js";
 import {isIndependentAttempt} from './practiceAssistance.js';
+import {conceptName,conceptKey} from './conceptIdentity.js';
 const DAY=86400000;
 const time=e=>Number(e.at||e.ts)||0;
 const key=e=>e.questionKey||e.questionId||e.eventId||e.learningContext?.stem;
@@ -16,17 +17,17 @@ export function repairTransferPlan(objectives=[],evidence={},records=[],now=Date
  return objectives.flatMap(objective=>{
   const scoped=(byObjective.get(objective.id)||[]).filter(e=>(!objective.blockId||e.blockId===objective.blockId)&&(!(objective.linkedLecId||objective.lectureId)||e.lectureId===(objective.linkedLecId||objective.lectureId)));
   const anchors=new Map();
-  for(const e of scoped)if(!e.correct||!isIndependentAttempt(e))anchors.set(e.sourceRelationshipIds?.length?`relations:${[...e.sourceRelationshipIds].sort().join(',')}`:`concept:${e.learningContext?.topic||'unlinked'}`,e);
+  for(const e of scoped)if(!e.correct||!isIndependentAttempt(e))anchors.set(e.sourceRelationshipIds?.length?`relations:${[...e.sourceRelationshipIds].sort().join(',')}`:`concept:${conceptKey(e.learningContext?.topic,e.learningContext?.keyed)}`,e);
   return [...anchors.values()].flatMap(anchor=>{
   // An objective-wide success cannot clear a specific relationship or concept.
-  const matches=e=>anchor.sourceRelationshipIds?.length?e.relationshipSourceVersion===anchor.relationshipSourceVersion&&anchor.sourceRelationshipIds.every(id=>e.sourceRelationshipIds?.includes(id)):Boolean(anchor.learningContext?.topic)&&e.learningContext?.topic===anchor.learningContext.topic;
+  const matches=e=>anchor.sourceRelationshipIds?.length?e.relationshipSourceVersion===anchor.relationshipSourceVersion&&anchor.sourceRelationshipIds.every(id=>e.sourceRelationshipIds?.includes(id)):Boolean(anchor.learningContext?.topic)&&conceptKey(e.learningContext?.topic,e.learningContext?.keyed)===conceptKey(anchor.learningContext.topic,anchor.learningContext.keyed);
   const seen=new Set(scoped.filter(e=>time(e)<=time(anchor)).map(key));
   const fresh=scoped.filter(e=>time(e)>time(anchor)&&isIndependentAttempt(e)&&e.correct&&application(e)&&!seen.has(key(e))&&matches(e));
   const transfer=fresh[0];
   const delayed=transfer&&fresh.find(e=>key(e)!==key(transfer)&&(e.orderLevel==='third-order'||delayedOrder(objective)==='second-order')&&e.sessionKey&&e.sessionKey!==transfer.sessionKey&&time(e)>=time(transfer)+DAY);
   if(delayed)return [];
   const dueAt=transfer?time(transfer)+DAY:null;
-  return [{objective,anchor,id:`${objective.id}:${key(anchor)}`,state:!transfer?'transfer':now>=dueAt?'due':'waiting',dueAt,concept:anchor.learningContext?.topic||objective.objective||objective.text}];
+  return [{objective,anchor,id:`${objective.id}:${key(anchor)}`,state:!transfer?'transfer':now>=dueAt?'due':'waiting',dueAt,concept:conceptName(anchor.learningContext?.topic||objective.objective||objective.text,anchor.learningContext?.keyed)}];
   });
  });
 }

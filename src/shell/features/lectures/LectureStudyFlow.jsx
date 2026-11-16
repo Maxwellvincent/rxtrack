@@ -1,4 +1,5 @@
 import {UnfinishedLectureQuizzes} from "./UnfinishedLectureQuizzes.jsx";
+import {MissedQuestions} from '../../../ui/MissedQuestions.jsx';
 import {repairTransferPlan,repairTransferPrompt,repairTransferRequest} from "../../../engine/repairTransfer.js";
 import {isIndependentAttempt} from '../../../engine/practiceAssistance.js';
 import {ReviewSourceStatus} from './ReviewSourceStatus.jsx';
@@ -426,7 +427,8 @@ export function LectureStudyFlow({
     blockId,
     lectureId: lecture?.id,
     objectives: lectureObjectives,
-  }), [weakConceptResource.data, blockId, lecture?.id, lectureObjectives]);
+    evidence: learnerEvidence.data?.learningJournal || [],
+  }), [weakConceptResource.data, learnerEvidence.data, blockId, lecture?.id, lectureObjectives]);
   const title = lecture?.lectureTitle || lecture?.title || lecture?.fileName || "Lecture";
   const objectivePractice = useMemo(
     () => objectivePracticePlan(lectureObjectives, learnerEvidence.data),
@@ -2329,6 +2331,7 @@ export function LectureStudyFlow({
 
       </LecturePanel>
       <LecturePanel name="practice" workspace={workspace} visited={visitedWorkspaces} aria-label="Practice this lecture">
+      <MissedQuestions evidence={learnerEvidence.data || {}} blockId={blockId} lectureId={lecture?.id} lectures={[lecture]} busy={!!busy || !!questions} onReplay={items=>{setAdHocQuiz(true);startQuizSession(items);}} onStudy={()=>setWorkspace('learn')} />
       <div className="my-3 flex flex-wrap justify-between gap-2"><h2 className="text-lg font-semibold">Test this lecture</h2><p className="text-sm text-text-3">{qStats.loading ? "Loading practice history…" : qStats.answered ? `${qStats.answered} answered · ${qStats.correct} correct · ${qStats.answered - qStats.correct} missed · ${accuracyPct}%` : "No questions answered yet"}</p></div>
       {lectureWeakConcepts.length > 0 && <section aria-label="Weak concepts in this lecture" className="my-4 rounded-xl border border-warn/40 bg-warn/5 p-4">
         <div className="flex flex-wrap items-start justify-between gap-2">
@@ -2343,6 +2346,7 @@ export function LectureStudyFlow({
               <div>
                 <p className="text-sm font-semibold">{concept.concept || concept.description}</p>
                 <p className="mt-1 text-xs text-text-3">{concept.misses} missed · {concept.correct} correct{concept.lastOutcome ? ` · last ${concept.lastOutcome}` : ""}</p>
+                <p className="mt-1 text-xs text-text-3">Recovery: {Math.min(4, concept.consecutiveCorrect || 0)}/4 consecutive fresh answers without help. At 4, this leaves the active list; original misses stay in history.</p>
               </div>
               <Button variant="outline" disabled={!!busy || !targets.length} onClick={() => runQuiz(5, resolveDefaultDifficulty(qStats.accuracy), [], false, targets, `Test this weak concept specifically: ${concept.concept}. Use fresh second- or third-order applications tied to this lecture's linked objectives.`)}>
                 Quiz this concept · 5

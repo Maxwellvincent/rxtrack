@@ -1,4 +1,5 @@
 import {reviewModuleForBlock} from '../engine/reviewSourceContext.js';
+import { useRecoverySync } from './hooks/useRecoverySync.js';
 import { CBSE_BLOCK_ID, ensureCbseTerms } from "./features/cbse/cbsePrep.js";
 import { useTerms } from "./hooks/useTerms.js";
 import * as termsStore from "../stores/terms.js";
@@ -196,6 +197,7 @@ export default function Shell() {
 }
 
 function ShellMain({ theme, toggle, userId }) {
+  useRecoverySync(userId);
   // Reactive via the store hooks — no longer a one-shot read that goes stale
   // the moment a schedule is imported or a lecture uploaded.
   const blocks = useBlocks(userId);

@@ -1,4 +1,5 @@
 import {SourceUseAdmin} from '../../SourceUseAdmin.jsx';
+import {MissedQuestions} from '../../../ui/MissedQuestions.jsx';
 import * as sourceUseStore from '../../../stores/sourceUse.js';
 import {isEvaluationReserved} from '../../../engine/sourceUse.js';
 import {subscribeExamSessionChanges} from "../../../examSessionChanges.js";
@@ -824,6 +825,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
 
   return (
     <div className="desk-page desk-exam mx-auto w-full max-w-6xl p-4 sm:p-5">
+      <MissedQuestions evidence={blueprintEvidenceRes.data || {}} blockId={blockId} lectures={lectures} busy={!!bankLaunching} onReplay={questions=>handleBankLaunch({filename:'Missed questions · all sources',questions},'practice',questions)} onStudy={group=>onNavigateToLecture?.(group.lectureId,{focusObjectiveIds:[...new Set(group.questions.flatMap(q=>q.objectiveIds||[]))],weakConcept:group.concept})} />
       <div className="desk-page-heading mb-5 flex flex-wrap items-center justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold text-text-1">Integrated exam center</h2>

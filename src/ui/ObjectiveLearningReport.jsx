@@ -2,6 +2,16 @@ import {usePlanningClock} from "../shell/hooks/usePlanningClock.js";
 import {repairTransferPlan,repairTransferRequest} from "../engine/repairTransfer.js";
 import { useId, useState, useMemo } from "react";
 import { objectiveLearningReport, shortRetestPlan } from "../engine/learningLoop.js";
+function groupedRepairRows(rows) {
+ const groups=new Map();
+ for(const row of rows){
+  const key=JSON.stringify([row.objective.linkedLecId||row.objective.lectureId,row.concept]);
+  const previous=groups.get(key);
+  if(!previous)groups.set(key,{...row,count:1});
+  else groups.set(key,{...(row.state==='transfer'?row:previous),count:previous.count+1});
+ }
+ return [...groups.values()];
+}
 export function ObjectiveLearningReport({objectives=[],evidence={},records=[],onRetest,onReviewNotes,busy=false}) {
  const planningTime=usePlanningClock(evidence.updatedAt||records.at(-1)?.at||records.at(-1)?.ts);
  const detailGroup=useId();
@@ -10,8 +20,9 @@ export function ObjectiveLearningReport({objectives=[],evidence={},records=[],on
  const [retestCount,setRetestCount]=useState(10);
  const transferRows=useMemo(()=>repairTransferPlan(objectives,evidence,records,planningTime),[objectives,evidence,records,planningTime]);
  const currentEventIds=useMemo(()=>new Set(records.map(record=>record.eventId).filter(Boolean)),[records]);
- const currentTransferRows=transferRows.filter(row=>row.anchor?.eventId&&currentEventIds.has(row.anchor.eventId));
- const historicalTransferRows=transferRows.filter(row=>!currentTransferRows.includes(row));
+ const currentRows=transferRows.filter(row=>row.anchor?.eventId&&currentEventIds.has(row.anchor.eventId));
+ const currentTransferRows=groupedRepairRows(currentRows);
+ const historicalTransferRows=groupedRepairRows(transferRows.filter(row=>!currentRows.includes(row)));
  const transferRequest=repairTransferRequest(transferRows);
  const allRows=useMemo(()=>objectiveLearningReport(objectives,evidence,records),[objectives,evidence,records]);
  const missedRows=allRows.filter(row=>row.sessionMisses>0);

@@ -3,7 +3,8 @@ import { objectivePracticePlan } from "./objectivePractice.js";
 const compact = (value, limit=220) => (value && typeof value === "object" ? JSON.stringify(value) : String(value || "")).replace(/\s+/g," ").trim().slice(0,limit);
 export function questionLearningContext(question={}, selected) {
  return { stem:String(question.stem || ""), choices:question.choices || {}, correctLetter:question.correct, selectedLetter:selected, explanation:question.explanation || null, topic:compact(question.objectiveFacet || question.topic), selected:compact(question.choices?.[selected]), keyed:compact(question.choices?.[question.correct]),
-  sourceCue:compact(question.reasoningAudit?.sourceQuotes?.[0],350) };
+  sourceCue:compact(question.reasoningAudit?.sourceQuotes?.[0],350),
+  ...Object.fromEntries(['sourceFile','sourceQuestionId','sourceImageUrl','hasImage','imageDependent','sourceFigureCropped','sourcePage'].filter(key=>question[key]!==undefined).map(key=>[key,question[key]])) };
 }
 /** Only observed answer contrasts and explicitly saved learning notes; never infer a diagnosis. */
 export function learningFocus({objectives=[], evidence={}, blockId, lectureId, tutorProfile={}}={}) {

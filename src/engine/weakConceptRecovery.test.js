@@ -13,6 +13,13 @@ const answer = (id, at, correct, overrides = {}) => ({
 });
 
 describe("reconcileWeakConceptRecovery", () => {
+  it('is stable across repeated refreshes after a new miss',()=>{
+    const store={b1:[{id:'c',objectiveIds:['o1'],lastMissed:new Date(1000).toISOString()}]};
+    const events=[answer('q1',2000,false),answer('q2',3000,true),answer('q3',4000,true)];
+    const first=reconcileWeakConceptRecovery(store,events);
+    expect(reconcileWeakConceptRecovery(first,events)).toBe(first);
+    expect(first.b1[0].consecutiveCorrect).toBe(2);
+  });
   it("moves an objective-mapped concept through developing and mastered using fresh answers after the miss", () => {
     const missedAt = new Date(1000).toISOString();
     const store = { b1: [{ id: "c1", concept: "pupillary reflex", blockId: "b1", objectiveIds: ["o1"], linkedLecIds: ["l1"], lastMissed: missedAt, masteryLevel: "struggling", consecutiveCorrect: 0 }] };

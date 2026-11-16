@@ -11,6 +11,7 @@
  * fromObjective, linkedObjId, tags.
  */
 
+import {conceptName} from '../../../engine/conceptIdentity.js';
 export const MASTERY_ORDER = { struggling: 0, developing: 1, mastered: 2 };
 
 /**
@@ -105,7 +106,7 @@ export function groupWeakConcepts(concepts) {
   for (const c of concepts || []) {
     const angle = (c?.angle || "general").toLowerCase();
     const lectureLabel = c?.lectureLabels?.[0] || "Unlinked";
-    const topicName = (c?.concept || c?.description || "Unnamed").trim();
+    const topicName = conceptName(c?.concept || c?.description || "Unnamed");
 
     if (!byAngle.has(angle)) byAngle.set(angle, { angle, lectures: new Map() });
     const angleGroup = byAngle.get(angle);
