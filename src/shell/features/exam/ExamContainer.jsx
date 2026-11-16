@@ -1,5 +1,6 @@
 import {SourceUseAdmin} from '../../SourceUseAdmin.jsx';
 import {MissedQuestions} from '../../../ui/MissedQuestions.jsx';
+import {ReadinessValidation} from './ReadinessValidation.jsx';
 import * as sourceUseStore from '../../../stores/sourceUse.js';
 import {isEvaluationReserved} from '../../../engine/sourceUse.js';
 import {subscribeExamSessionChanges} from "../../../examSessionChanges.js";
@@ -125,11 +126,14 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   const [partialLaunch, setPartialLaunch] = useState(null);
   const [resumableSessions, setResumableSessions] = useState([]);
   const [bankAttempts, setBankAttempts] = useState([]);
+  const [validationSessions,setValidationSessions]=useState([]);
+  const [validationLoading,setValidationLoading]=useState(true);
+  const [validationError,setValidationError]=useState(null);
   const [bankCategory, setBankCategory] = useState(null);
   const [examPageSection, setExamPageSection] = useState(() => {
     try {
       const saved = localStorage.getItem(`rxt-exam-page:${blockId}`);
-      return ["start", "banks", "results", "weak", "missed"].includes(saved) ? saved : "start";
+      return ["start", "banks", "results", "weak", "missed", "validation"].includes(saved) ? saved : "start";
     } catch { return "start"; }
   });
   const [bankStoreRevision, setBankStoreRevision] = useState(0);
@@ -480,12 +484,15 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
 
   const refreshBankAttempts = async () => {
     if (!userId || !blockId) return;
+    setValidationLoading(true);setValidationError(null);
     try {
       const submitted = await listExamSessions(userId, blockId, { status: "submitted" });
+      setValidationSessions(submitted||[]);
       setBankAttempts((submitted || []).filter((session) => session?.sourceType === "question-bank"));
-    } catch {
+    } catch (error) {
+      setValidationError(error.message||'Could not load saved test evidence.');
       setBankAttempts([]);
-    }
+    } finally {setValidationLoading(false);}
   };
 
   useEffect(() => {
@@ -855,7 +862,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
       </details>
 
       <nav className="mb-5 flex flex-wrap gap-2 border-b border-border pb-3" aria-label="Exam center sections">
-        {[["start", "Start & continue"], ["banks", `Question banks${blockQuestionBanks.length ? ` · ${blockQuestionBanks.length}` : ""}`], ["results", "Results & weak lectures"], ["weak", "Weak concepts"], ["missed", "Missed questions"]].map(([id, label]) => (
+        {[["start", "Start & continue"], ["banks", `Question banks${blockQuestionBanks.length ? ` · ${blockQuestionBanks.length}` : ""}`], ["results", "Results & weak lectures"], ["weak", "Weak concepts"], ["missed", "Missed questions"], ["validation", "Accuracy & 80% goal"]].map(([id, label]) => (
           <button key={id} type="button" aria-current={examPageSection === id ? "page" : undefined}
             onClick={() => selectExamPageSection(id)}
             className={`rounded-lg border px-3 py-2 text-sm font-semibold ${examPageSection === id ? "border-accent bg-accent/10 text-accent-text" : "border-border text-text-2 hover:bg-panel"}`}>
@@ -863,6 +870,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           </button>
         ))}
       </nav>
+      {examPageSection==='validation'&&<>{validationError&&<p role="alert">{validationError}</p>}<ReadinessValidation key={blockId} userId={userId} blockId={blockId} lectures={lectures} objectives={objectives} evidence={blueprintEvidenceRes.data||{}} ratings={questionRatingsRes.data?.ratings||{}} sessions={validationSessions} loading={validationLoading||!!validationError||lecturesRes.loading||!!lecturesRes.error||objectivesRes.loading||!!objectivesRes.error||blueprintEvidenceRes.loading||!!blueprintEvidenceRes.error||questionRatingsRes.loading||!!questionRatingsRes.error} onRefresh={refreshBankAttempts}/></>}
       {examPageSection === 'missed' && <MissedQuestions evidence={blueprintEvidenceRes.data || {}} blockId={blockId} lectures={lectures} busy={!!bankLaunching} onReplay={questions=>handleBankLaunch({filename:'Missed questions · all sources',questions},'practice',questions)} onStudy={group=>onNavigateToLecture?.(group.lectureId,{focusObjectiveIds:[...new Set(group.questions.flatMap(q=>q.objectiveIds||[]))],weakConcept:group.concept})} />}
 
       {showLaunchModal && (
