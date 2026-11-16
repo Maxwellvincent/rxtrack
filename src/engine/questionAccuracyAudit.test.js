@@ -10,7 +10,7 @@ it('requires exact source support, one answer, every choice rationale and alignm
 it('withholds the answer key and explanation from the solver and never rewrites the item',async()=>{
  const call=vi.fn().mockResolvedValueOnce(review).mockResolvedValueOnce({explanationAccurate:true});
  const before=JSON.stringify(q);
- expect((await auditQuestionAccuracy(q,{source,callAIJSON:call})).status).toBe('ai-check-passed');
+ expect((await auditQuestionAccuracy(q,{source,objectives:[{id:'o'}],callAIJSON:call})).status).toBe('ai-check-passed');
  const prompt=call.mock.calls[0][1];
  expect(prompt).not.toContain('"correct":"A"');expect(prompt).not.toContain(q.explanation);
  expect(JSON.stringify(q)).toBe(before);

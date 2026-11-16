@@ -37,14 +37,15 @@ export function ReadinessValidation({userId,blockId,lectures=[],objectives=[],ev
     if(!sourceCache.has(question.lectureId)){const local=scoped.find(l=>l.id===question.lectureId);const remote=await withDeadline(()=>fetchLectureContent(userId,question.lectureId),15000,undefined,'Lecture source read');sourceCache.set(question.lectureId,lectureTextFrom(remote)||lectureTextFrom(local));}
     result=await auditQuestionAccuracy(question,{source:sourceCache.get(question.lectureId),objectives:objectives.filter(o=>o.linkedLecId===question.lectureId),callAIJSON:provider.reviewAIJSON});
     if(result.status==='needs-review'){
-     await ratingsStore.rateQuestionAwait(userId,question,{sourceIssue:result.issueCategory||'invalid-choices',sourceNote:`Accuracy audit flagged this item for review: ${result.issues.join('; ')}`,excludeFromPerformance:true,excludeFromObjectives:true});
+     const onlyAlignment=result.issues.length===1&&result.issues[0]==='Lecture objective alignment not verified';
+     await ratingsStore.rateQuestionAwait(userId,question,{sourceIssue:result.issueCategory||'invalid-choices',sourceNote:`Accuracy audit flagged this item for review: ${result.issues.join('; ')}`,excludeFromPerformance:!onlyAlignment,excludeFromObjectives:true});
      await reconcileQuestionQuality(userId,question);
     }
    }catch(error){result={status:'unverified',issues:[error.message||'Audit could not finish'],humanVerified:false};}
    results.push({questionId:question.questionId||question.questionKey||null,questionKey:question.questionKey||null,poolId:question.poolId||null,sourceFile:question.sourceFile||null,lectureId:question.lectureId||null,stem:question.stem,choices:question.choices,correct:question.correct,...result});
   }
   await validationStore.saveAudit(userId,{id:crypto.randomUUID(),blockId,createdAt:Date.now(),sampling:'Random sample of retained answered questions only; untouched assessments excluded.',results});
-  setMessage('Audit saved. AI-passed items still need independent human review. Flagged items are excluded from practice evidence.');
+  setMessage('Audit saved. AI-passed items still need independent human review. Flagged items are protected pending review; an objective-only mismatch keeps its score but cannot establish objective mastery.');
  }
  return <section aria-label="Accuracy and 80 percent goal" className="space-y-4">
   <h2 className="text-xl font-bold">Accuracy & 80% goal</h2>
