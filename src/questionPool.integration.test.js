@@ -17,6 +17,22 @@ describe.skipIf(!process.env.FIRESTORE_EMULATOR_HOST)("Firestore prepared questi
   afterAll(async () => env?.cleanup());
   const question = { questionId: "q", blockId: "b", lectureId: "l", difficulty: "medium", objectiveIds: ["o"], stem: "A distinct stored question?", choices: { A: "One", B: "Two" }, correct: "A" };
   const session = (id, q) => createSessionShape({ sessionId: id, blockId: "b", lectureIds: ["l"], format: "exam", questions: [q], startedAt: 1000, deadline: 91000 });
+  it('manually refills an answered partial exam without replacing answers or question choices',async()=>{
+    const existing={...question,questionId:'existing'};
+    const ref=database.doc('users/owner/examSessions/repair');
+    await ref.set({...session('repair',existing),status:'in_progress',targetQuestionCount:2,fillStatus:'partial',fillRecoveryAttempts:3,fillLeaseUntil:0,fillPlan:{allocation:{l:2}},answers:[{questionId:'existing',value:'B'}]});
+    const claimed=await pool.claimSessionFill('repair',null,{manual:true});
+    expect(claimed.answers).toEqual([{questionId:'existing',value:'B'}]);
+    expect(claimed.deadline).toBeNull();
+    const added=await pool.save({...question,questionId:'added',stem:'Another distinct stored question?'},'bucket','repair-run');
+    await pool.appendToSession('repair',added,{requestedCount:2});
+    const stored=(await ref.get()).data();
+    expect(stored.questions[0]).toEqual(existing);
+    expect(stored.answers).toEqual([{questionId:'existing',value:'B'}]);
+    expect(stored.questions).toHaveLength(2);
+    expect(stored.fillStatus).toBe('complete');
+    expect(stored.deadline).toBeGreaterThan(Date.now());
+  });
   it("stores, reloads and atomically assigns a question, preserving the session and timer", async () => {
     await pool.begin("run", { requestedCount: 1 });
     const saved = await pool.save(question, "bucket", "run");

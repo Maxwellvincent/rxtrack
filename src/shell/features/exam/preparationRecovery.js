@@ -19,28 +19,30 @@ export function waitForConnection() {
 
 // The plan lives on the session; browser memory only prevents duplicate workers
 // in this tab. Firestore's lease prevents two tabs resuming the same attempt.
-export async function recoverExamPreparation({ session, userId, pool, generate, context, report = () => {} }) {
+export async function recoverExamPreparation({ session, userId, pool, generate, context, report = () => {}, manual = false }) {
   const key = `${userId}:${session.sessionId}`;
+  if (!manual && session.format === 'exam' && session.startedAt != null) return;
   if (running.has(key) || session.status !== "in_progress" || session.fillLeaseUntil > Date.now()) return;
-  if (!["generating", "partial"].includes(session.fillStatus)) return;
-  if (session.fillStatus === "partial" && !retryablePreparationFailure(session.fillError)) return;
-  if ((session.fillRecoveryAttempts || 0) >= 3) return;
+  if (!manual && !["generating", "partial"].includes(session.fillStatus)) return;
+  if (!manual && session.fillStatus === "partial" && !retryablePreparationFailure(session.fillError)) return;
+  if (!manual && (session.fillRecoveryAttempts || 0) >= 3) return;
   const ids = session.lectureIds || [];
   if (!ids.length) return;
   const allocation = Object.fromEntries(ids.map(id => [id, (session.questions || []).filter(q => q.lectureId === id).length]));
   const missing = Math.max(0, session.targetQuestionCount - (session.questions || []).length);
+  if (!missing) return;
   for (let i = 0; i < missing; i++) allocation[ids[i % ids.length]]++;
   const plan = session.fillPlan || { allocation, studyMode: session.studyMode || "balanced" };
   running.add(key);
   try {
     await waitForConnection();
-    const claimed = await pool.claimSessionFill(session.sessionId, plan);
+    const claimed = await pool.claimSessionFill(session.sessionId, plan, { manual });
     if (!claimed) return;
     const run = async reportJob => {
       // An empty model response is transport-like, not proof that the lecture
       // cannot support a valid question. Clear blocks left by the failed run
       // so only its missing slots are tried again after the bridge recovers.
-      const blockedLectureIds = emptyStructuredFailure(claimed.fillError) ? [] : (claimed.fillBlockedLectureIds || []);
+      const blockedLectureIds = manual || emptyStructuredFailure(claimed.fillError) ? [] : (claimed.fillBlockedLectureIds || []);
       const allocation = Object.fromEntries(Object.entries(claimed.fillPlan.allocation).map(([id, count]) => [id,
         Math.max(0, count - (claimed.questions || []).filter(q => questionSlot(q) === id).length)]).filter(([id, count]) => count && !blockedLectureIds.includes(id)));
       if (!Object.keys(allocation).length) {

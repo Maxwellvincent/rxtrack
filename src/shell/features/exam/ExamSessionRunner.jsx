@@ -824,6 +824,7 @@ export function ExamSessionRunner({
   const [savedSitting, setSavedSitting] = useState(null);
   const sittingBaseline = useRef(null);
   const [exitError, setExitError] = useState(null);
+  const [recovering, setRecovering] = useState(false);
   const { session: storedSession, loading, error, submit, abandon, submitResult, submitting, syncStatus } = controller;
   useEffect(() => {
     if (storedSession && sittingBaseline.current?.sessionId !== sessionId) sittingBaseline.current = { sessionId, answers: (storedSession.answers || []).map(a => ({ ...a })) };
@@ -840,7 +841,7 @@ export function ExamSessionRunner({
   }, [session?.status]);
   useEffect(() => {
     if (!session || !onRecoverPreparation) return;
-    const resume = () => onRecoverPreparation(session);
+    const resume = () => Promise.resolve(onRecoverPreparation(session)).catch(error=>setExitError(error.message || 'Question recovery failed. Please retry.'));
     resume();
     window.addEventListener("online", resume);
     window.addEventListener("focus", resume);
@@ -866,8 +867,8 @@ export function ExamSessionRunner({
   }, [session?.status]);
 
   if (loading) return <div className="text-sm text-text-3">Loading session…</div>;
-  if (error) return <div className="text-sm text-bad">{error}</div>;
-  if (!session) return <div className="text-sm text-text-3">Session not found.</div>;
+  if (error) return <div className="text-sm text-bad">{error}{onExit&&<Button onClick={onExit}>Back to exam center</Button>}</div>;
+  if (!session) return <div className="text-sm text-text-3">Session not found.{onExit&&<Button onClick={onExit}>Back to exam center</Button>}</div>;
 
   if (savedSitting && savedSitting.sessionId === sessionId) return <SavedPracticeSummary session={savedSitting} baseline={sittingBaseline.current?.answers || []} userId={userId} labels={lectureLabelsByLectureId} objectivesById={objectivesById} onExit={onExit} onResume={() => { sittingBaseline.current = { sessionId, answers: (savedSitting.answers || []).map(a => ({ ...a })) }; setSavedSitting(null); }} onNavigateToLecture={onNavigateToLecture} />;
 
@@ -931,14 +932,24 @@ export function ExamSessionRunner({
             onExit?.();
           }}>Abandon session</Button>;
 
+  const missingCount = Math.max(0,Number(session.targetQuestionCount || 0)-(session.questions || []).length);
+  const recoveryAction = missingCount>0 && onRecoverPreparation && <div className="rounded border border-warn p-3 text-sm"><p>Your selected answers are saved. Add the {missingCount} missing questions to this same session before submitting a complete diagnostic.</p><Button disabled={recovering || session.fillLeaseUntil>Date.now()} onClick={async()=>{
+    setRecovering(true);setExitError(null);
+    try{await controller.saveProgress(submitOpts);await onRecoverPreparation(session,true);}
+    catch(error){setExitError(error.message||'Could not prepare missing questions. Your answers remain saved.');}
+    finally{await controller.refetch();setRecovering(false);}
+  }}>{recovering?'Preparing missing questions…':`Generate remaining ${missingCount} questions`}</Button>{exitError&&<p role="alert">{exitError}</p>}</div>;
   if (session.format === "exam" && session.fillStatus === "generating") {
-    return <div className="mb-5 space-y-4"><SessionTitle session={session} /><ExamPreparationStatus session={session} /><p className="text-sm text-text-2">Questions stay hidden and the timer remains paused until preparation finishes and you choose Start.</p><div className="flex flex-wrap gap-2">{saveExitAction}{abandonAction}</div>{exitError && <p role="alert" className="text-sm text-bad">{exitError}</p>}</div>;
+    // Preparation must never spend the learner's answer time.
+    const timingNotice = <p className="text-sm text-text-2">The timer remains paused during preparation. Selected answers are preserved.</p>;
+    return <div className="mb-5 space-y-4"><SessionTitle session={session} /><ExamPreparationStatus session={session} />{recoveryAction}{timingNotice}<div className="flex flex-wrap gap-2">{saveExitAction}{abandonAction}</div>{exitError && <p role="alert" className="text-sm text-bad">{exitError}</p>}</div>;
   }
 
   if (session.fillStatus === "partial" && !(session.questions || []).length) {
     return (
       <div className="space-y-3">
         <SessionTitle session={session} />
+        {recoveryAction}{saveExitAction}{abandonAction}
         <div role="alert" className="rounded-lg border border-bad/40 bg-bg-elevated p-4 text-sm text-text-2">
           No questions could be prepared for this scope.{session.fillError ? ` ${session.fillError}` : ""}
         </div>
@@ -951,6 +962,8 @@ export function ExamSessionRunner({
   }
   return (
     <div className="mb-5 space-y-3">
+      {recoveryAction}
+      {session.timingRecovery&&<p className="text-xs text-text-2">Preparation interrupted this timed attempt. Saved answers are retained; added questions receive 72 seconds each. This is a recovered session.</p>}
       {session.format === 'exam' && <SessionTitle session={session} />}
       {session.fillStatus === "partial" && <div role="alert" className="rounded-lg border border-warn/50 bg-bg-elevated p-3 text-sm text-text-2"><strong>{session.questions?.length || 0}/{session.targetQuestionCount || session.questions?.length || 0} questions prepared.</strong> You may review these as practice, but the result will be marked incomplete and will not count as a full diagnostic.</div>}
       {session.format === "exam" ? (

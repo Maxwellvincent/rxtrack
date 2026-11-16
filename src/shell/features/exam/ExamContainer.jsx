@@ -44,7 +44,8 @@ import { launchQuestionBankSession } from "./launchQuestionBank.js";
 import { examDurationMinutes } from "./examTiming.js";
 import { callAI, callAIJSON } from "../../../aiClient.js";
 import { createQuestionPool } from "../../../questionPool.js";
-import { listExamSessions } from "../../../supabase.js";
+import { listExamSessions, updateExamSessionTransaction } from "../../../supabase.js";
+import {releaseUnansweredQuestions} from '../../../questionPool.js';
 import { cleanLectureTitle, formatLectureLabel } from "../../../lectureTitle.js";
 import * as learnerEvidenceStore from "../../../stores/learnerEvidence.js";
 import { useStoreResource } from "../../hooks/useStoreResource.js";
@@ -800,7 +801,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
         <ExamSessionRunner
           retestBusy={launching}
           onTargetedRetest={({objectives: targets,count,focusNotes})=>handleLaunch({format:"practice",questionCount:count,durationMinutes:examDurationMinutes(count),examName:`Targeted retest · ${count} questions`,focusNotes,studyMode:"repair",targetObjectiveIds:targets.map(o=>o.id),targetObjectiveOrders:Object.fromEntries(targets.filter(o=>o._transferOrder).map(o=>[o.id,o._transferOrder])),includeSeen:false,startWhilePreparing:true})}
-          onRecoverPreparation={session => recoverExamPreparation({ session, userId, pool: createQuestionPool(userId, blockId), generate: generateExamQuestions, context: { lecturesById, objectivesByLecture, atomsByLecture, lectures, ...(session.blueprintExam ? blueprintContext : {}), callAIJSON } }).catch(() => {})}
+          onRecoverPreparation={(session,manual=false) => recoverExamPreparation({ session, manual, userId, pool: createQuestionPool(userId, blockId), generate: generateExamQuestions, context: { lecturesById, objectivesByLecture, atomsByLecture, lectures, ...(session.blueprintExam ? blueprintContext : {}), callAIJSON } })}
           sessionId={activeSessionId}
           userId={userId}
           blockId={blockId}
@@ -903,8 +904,17 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           <div>
             <div className="font-semibold text-text-1">{session.title || (session.format === "exam" ? "Timed exam" : "Practice session")}</div>
             <div className="text-sm text-text-3">{session.answers?.length || 0}/{session.questions?.length || 0} answered{session.fillStatus === "generating" ? ` · preparing to ${session.targetQuestionCount}` : ""}</div>
+            {Number(session.targetQuestionCount)>(session.questions?.length||0)&&<p className="text-xs text-warn">{session.targetQuestionCount-(session.questions?.length||0)} questions still needed · Resume to generate the remainder and keep your answers.</p>}
           </div>
-          <Button onClick={() => setActiveSessionId(session.sessionId)}>Resume</Button>
+          <div className="flex gap-2"><Button onClick={() => setActiveSessionId(session.sessionId)}>Resume</Button>
+          <Button variant="outline" onClick={async()=>{
+            if(!window.confirm('Remove this unfinished session from the list? Saved answers remain archived; unanswered questions return to the reserve.'))return;
+            try {
+              const archived=await updateExamSessionTransaction(userId,session.sessionId,current=>current?.status==='in_progress'?{...current,status:'abandoned',fillLeaseUntil:0}:null);
+              if(archived?.status==='abandoned')await releaseUnansweredQuestions(userId,archived);
+              await refreshResumableSessions();
+            }catch(error){setLaunchError(error.message||'Could not remove session. Please retry.');}
+          }}>Remove</Button></div>
         </div>)}</div>
       </section>}
 

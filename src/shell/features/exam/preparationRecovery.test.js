@@ -8,6 +8,16 @@ it("resumes only missing slots and keeps rejected quality items excluded", async
  expect(generate.mock.calls[0][0].allocation).toEqual({ l: 2 });
  expect(pool.finishSessionFill.mock.calls[0][1].blockedLectureIds).toEqual(["bad", "l"]);
 });
+it('allows an explicit retry after quality failures and automatic retry exhaustion, preserving answered items',async()=>{
+ const answered={...session,fillError:'reviewer rejected weak_explanation',fillRecoveryAttempts:3,answers:[{questionId:'existing',value:'B'}],questions:[{questionId:'existing',lectureId:'l',choices:{A:'a',B:'b'}}],fillBlockedLectureIds:['l']};
+ const pool={claimSessionFill:vi.fn(async()=>answered),finishSessionFill:vi.fn(),appendToSession:vi.fn(),reportSessionFillProgress:vi.fn()};
+ const generate=vi.fn(async()=>({errors:[]}));
+ await recoverExamPreparation({session:answered,userId:'u',pool,generate,context:{},manual:true});
+ expect(pool.claimSessionFill).toHaveBeenCalledWith('s',answered.fillPlan,{manual:true});
+ expect(generate.mock.calls[0][0].allocation).toEqual({l:2});
+ expect(answered.answers).toEqual([{questionId:'existing',value:'B'}]);
+ expect(answered.questions[0].choices).toEqual({A:'a',B:'b'});
+});
 it("does not automatically retry quality failures or exhausted recovery attempts", async () => {
  const pool = { claimSessionFill: vi.fn() };
  for (const patch of [{ fillError: "reviewer rejected weak_explanation" }, { fillRecoveryAttempts: 3 }]) {

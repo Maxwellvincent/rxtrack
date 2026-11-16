@@ -222,6 +222,7 @@ export function createQuestionPool(userId, blockId, database = db) {
         const row = questionSnap.data();
         if (session.status !== "in_progress" || row.status !== "ready") return { ok: false, reason: "no-longer-available" };
         const existing = session.questions || [];
+        if (Number.isFinite(requestedCount) && existing.length >= requestedCount) return {ok:false,reason:'target-already-filled'};
         const alreadyIncluded = existing.some(item => item.poolId === question.poolId || item.questionId === question.questionId);
         const nextQuestions = alreadyIncluded ? existing : [...existing, question];
         tx.update(questionRef, { status: "assigned", bucket: `assigned:${row.bucket}`, sessionId, assignedAt: Date.now() });
@@ -230,6 +231,7 @@ export function createQuestionPool(userId, blockId, database = db) {
         const next = {
           ...session,
           questions: nextQuestions,
+          ...(isFilled && session.fillRemainingMs != null ? {deadline:Date.now()+session.fillRemainingMs,fillRemainingMs:null} : {}),
           fillStatus: isDone ? (isFilled ? "complete" : "partial") : "generating",
           updatedAt: Date.now(),
           rev: (session.rev || 0) + 1,
@@ -255,15 +257,19 @@ export function createQuestionPool(userId, blockId, database = db) {
         }) });
       });
     },
-    async claimSessionFill(sessionId, fallbackPlan) {
+    async claimSessionFill(sessionId, fallbackPlan, { manual = false } = {}) {
       const ref = doc(db, "users", userId, "examSessions", sessionId);
       return runTransaction(db, async tx => {
         const snap = await tx.get(ref);
         if (!snap.exists()) return null;
         const session = snap.data();
-        if (session.status !== "in_progress" || !["generating", "partial"].includes(session.fillStatus) || (session.fillRecoveryAttempts || 0) >= 3 || (!session.fillPlan && !fallbackPlan) || session.fillLeaseUntil > Date.now()) return null;
-        const next = { ...session, fillPlan: session.fillPlan || fallbackPlan, fillRecoveryAttempts: (session.fillRecoveryAttempts || 0) + 1, fillStatus: "generating", fillLeaseUntil: Date.now() + 600000 };
-        tx.update(ref, { fillPlan: next.fillPlan, fillRecoveryAttempts: next.fillRecoveryAttempts, fillStatus: next.fillStatus, fillLeaseUntil: next.fillLeaseUntil });
+        if (session.status !== "in_progress" || (!manual && (!["generating", "partial"].includes(session.fillStatus) || (session.fillRecoveryAttempts || 0) >= 3)) || (!session.fillPlan && !fallbackPlan) || session.fillLeaseUntil > Date.now()) return null;
+        const timing = manual && session.format==='exam' && session.startedAt!=null && session.fillRemainingMs==null ? {
+          fillRemainingMs:Math.max(0,(session.deadline||Date.now())-Date.now())+Math.max(0,session.targetQuestionCount-(session.questions||[]).length)*72000,
+          deadline:null,timingRecovery:true,
+        } : {};
+        const next = { ...session, ...timing, fillPlan: session.fillPlan || fallbackPlan, fillRecoveryAttempts: (session.fillRecoveryAttempts || 0) + 1, fillStatus: "generating", fillLeaseUntil: Date.now() + 600000 };
+        tx.update(ref, { ...timing, fillPlan: next.fillPlan, fillRecoveryAttempts: next.fillRecoveryAttempts, fillStatus: next.fillStatus, fillLeaseUntil: next.fillLeaseUntil });
         return next;
       });
     },

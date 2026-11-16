@@ -224,6 +224,7 @@ export function useExamSessionController(sessionId, userId) {
     if (!session) return;
     if (session.format !== "exam") return;
     if (session.status !== "in_progress") return;
+    if (session.sourceType !== 'question-bank' && Number(session.targetQuestionCount) > (session.questions || []).length) return;
     if (session.deadline == null) return;
 
     const bump = () => setTick((t) => t + 1);
@@ -289,6 +290,7 @@ export function useExamSessionController(sessionId, userId) {
     if (session.status !== "in_progress") return;
     if (remainingMs == null || remainingMs > 0) return;
     if (autoSubmitTriggeredRef.current) return;
+    if (session.sourceType !== 'question-bank' && Number(session.targetQuestionCount) > (session.questions || []).length) return;
     autoSubmitTriggeredRef.current = true;
     submit();
   }, [remainingMs, session, submit]);
