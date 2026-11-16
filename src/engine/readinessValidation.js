@@ -2,10 +2,11 @@ import {isIndependentAttempt} from './practiceAssistance.js';
 import {questionIsExcluded} from './questionScoringPolicy.js';
 import {schoolQuestionIdentity} from '../shell/features/exam/schoolSourceIdentity.js';
 import {missingRequiredVisual} from './questionVisual.js';
+import {objectiveSubject} from '../shell/features/exam/bpmBlueprint.js';
 
-export const READINESS_POLICY = 'fresh-timed-proxy-v1';
+export const READINESS_POLICY = 'fresh-timed-proxy-v2-subjects';
 const identity=q=>schoolQuestionIdentity({...q,correct:q.correct || q.correctLetter});
-export function readinessSnapshot({blockId,lectureIds,objectives=[],sessions=[],evidence={},ratings={},weights={},now=Date.now()}) {
+export function readinessSnapshot({blockId,lectureIds,objectives=[],sessions=[],evidence={},ratings={},weights={},subjectWeights=null,now=Date.now()}) {
  const scope=new Set(lectureIds),seen=new Set(),records=[],excluded={repeated:0,assisted:0,recovered:0,incomplete:0,quality:0};
  // Account-wide first exposure, including prior quizzes and guided answers.
  const exposures=[...(evidence.learningJournal||[]),...(evidence.assistedJournal||[])].filter(e=>e.learningContext?.stem&&Number(e.at)<=now).sort((a,b)=>a.at-b.at);
@@ -26,7 +27,8 @@ export function readinessSnapshot({blockId,lectureIds,objectives=[],sessions=[],
    if(!isIndependentAttempt(q)||!isIndependentAttempt(answer||{})){excluded.assisted++;continue;}
    if(questionIsExcluded(q,ratings)||choiceAuditIssues(q).length||missingRequiredVisual(q)||['needs-review','unsupported-by-lecture'].includes(q.sourceKeyReviewStatus)||(q.sourceType!=='question-bank'&&(q.generationVersion!=='v2'||q.qualityAudit?.status!=='approved'||q.qualityAudit?.blindSolve?.status!=='matched'))){excluded.quality++;continue;}
    if(Number(session.submittedAt)<now-30*86400000)continue;
-   records.push({id,sessionId:session.sessionId,lectureId:q.lectureId,objectiveIds:q.objectiveIds||[],correct:answer?.value===q.correct,source:q.sourceFile||q.sourceType||'generated'});
+   const subjects=[...new Set((q.objectiveIds||[]).map(id=>objectives.find(o=>o.id===id)).filter(Boolean).map(objectiveSubject).filter(Boolean))];
+   records.push({id,sessionId:session.sessionId,lectureId:q.lectureId,objectiveIds:q.objectiveIds||[],subject:subjects.length===1?subjects[0]:subjects.length?null:objectiveSubject(q),correct:answer?.value===q.correct,source:q.sourceFile||q.sourceType||'generated'});
   }
  }
  const scopedObjectives=objectives.filter(o=>scope.has(o.linkedLecId||o.lectureId));
@@ -34,10 +36,22 @@ export function readinessSnapshot({blockId,lectureIds,objectives=[],sessions=[],
  const coverage=scopedObjectives.length?scopedObjectives.filter(o=>covered.has(o.id)).length/scopedObjectives.length:0;
  const byLecture=lectureIds.map(id=>{const rows=records.filter(r=>r.lectureId===id);return {id,total:rows.length,correct:rows.filter(r=>r.correct).length,weight:Number(weights[id])>0?Number(weights[id]):1};});
  const sampled=byLecture.filter(l=>l.total),weight=sampled.reduce((n,l)=>n+l.weight,0);
- const practicePercent=weight?100*sampled.reduce((n,l)=>n+l.weight*l.correct/l.total,0)/weight:null;
+ const bySubject=Object.entries(subjectWeights||{}).map(([subject,weight])=>{const rows=records.filter(r=>r.subject===subject),subjectObjectives=scopedObjectives.filter(o=>objectiveSubject(o)===subject);return {subject,weight:Number(weight),total:rows.length,correct:rows.filter(r=>r.correct).length,coverage:subjectObjectives.length?subjectObjectives.filter(o=>covered.has(o.id)).length/subjectObjectives.length:0};});
+ const subjectReady=bySubject.length>0&&bySubject.every(s=>s.total>0&&s.weight>0&&s.coverage>=0.7);
+ const subjectTotal=bySubject.reduce((n,s)=>n+s.weight,0);
+ const practicePercent=subjectWeights?(bySubject.every(s=>s.total>0)&&subjectTotal>0?100*bySubject.reduce((n,s)=>n+s.weight*s.correct/s.total,0)/subjectTotal:null):weight?100*sampled.reduce((n,l)=>n+l.weight*l.correct/l.total,0)/weight:null;
  const sessionCount=new Set(records.map(r=>r.sessionId)).size;
- const sufficient=records.length>=30&&sessionCount>=2&&coverage>=0.7&&sampled.length===lectureIds.length&&lectureIds.length>0;
- return {policy:READINESS_POLICY,createdAt:now,blockId,lectureIds,windowDays:30,weights:Object.fromEntries(byLecture.map(l=>[l.id,l.weight])),goal:80,practicePercent,estimatePercent:sufficient?practicePercent:null,sufficient,total:records.length,sessionCount,objectiveCoverage:coverage,objectiveTotal:scopedObjectives.length,byLecture,excluded,evidenceIds:records.map(r=>r.id),limitations:['Practice-based proxy; not a validated school-score prediction.','First recorded exposure cannot detect questions seen outside RXTrack.','Equal lecture weighting unless school weights are supplied.'],auditStatus:'Automated generation checks only; independent human validation not established.'};
+ const sufficient=records.length>=30&&sessionCount>=2&&coverage>=0.7&&sampled.length===lectureIds.length&&lectureIds.length>0&&(!subjectWeights||subjectReady);
+ return {policy:READINESS_POLICY,createdAt:now,blockId,lectureIds,windowDays:30,subjectWeights,bySubject,weights:Object.fromEntries(byLecture.map(l=>[l.id,l.weight])),goal:80,practicePercent,estimatePercent:sufficient?practicePercent:null,sufficient,total:records.length,sessionCount,objectiveCoverage:coverage,objectiveTotal:scopedObjectives.length,byLecture,excluded,evidenceIds:records.map(r=>r.id),limitations:['Practice-based proxy; not a validated school-score prediction.','First recorded exposure cannot detect questions seen outside RXTrack.',subjectWeights?'School subject weights; unclassified questions cannot establish subject readiness.':'Equal lecture weighting unless school weights are supplied.'],auditStatus:'Automated generation checks only; independent human validation not established.'};
+}
+export function nbExam2Scope(lectures,blockId){
+ return lectures.filter(l=>{
+  if(l.blockId!==blockId||l.mergedInto)return false;
+  const title=l.lectureTitle||l.title||l.fileName||'';
+  if(/^DLA$/i.test(l.lectureType||'')||/\bDLA\b/i.test(title))return true;
+  const number=Number(l.lectureNumber||title.match(/(?:NB|LEC|Lecture)\s*0*(\d+)\b/i)?.[1]);
+  return number>=27&&number<=54;
+ }).map(l=>l.id);
 }
 export function compareActual(snapshot,actual){
  if(!Number.isFinite(actual.correct)||!Number.isInteger(actual.correct)||!Number.isInteger(actual.total)||actual.total<=0||actual.correct<0||actual.correct>actual.total)throw new Error('Enter valid correct and total question counts.');

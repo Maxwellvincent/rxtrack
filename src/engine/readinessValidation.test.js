@@ -1,10 +1,22 @@
 import {describe,it,expect} from 'vitest';
-import {readinessSnapshot,compareActual,choiceAuditIssues,randomAuditSample} from './readinessValidation.js';
+import {readinessSnapshot,compareActual,choiceAuditIssues,randomAuditSample,nbExam2Scope} from './readinessValidation.js';
 const now=1000000;
 const questions=Array.from({length:30},(_,i)=>({questionId:`q${i}`,lectureId:i<15?'l1':'l2',objectiveIds:[i<15?'o1':'o2'],sourceType:'question-bank',stem:`Unique clinical item ${i}`,choices:{A:'Yes',B:'No'},correct:'A'}));
 const session=(id,qs,at)=>({sessionId:id,blockId:'b',status:'submitted',format:'exam',startedAt:at,submittedAt:at+100,deadline:at+100,questions:qs,answers:qs.map(q=>({questionId:q.questionId,value:'A'}))});
 const args={blockId:'b',lectureIds:['l1','l2'],objectives:[{id:'o1',linkedLecId:'l1'},{id:'o2',linkedLecId:'l2'}],sessions:[session('s1',questions.slice(0,15),100),session('s2',questions.slice(15),300)],now};
 describe('pre-test readiness evidence',()=>{
+ it('uses the school subject split rather than equal lecture weighting',()=>{
+  const objectives=[{id:'o1',linkedLecId:'l1',subject:'Neuroscience'},{id:'o2',linkedLecId:'l2',subject:'Behavioral Science'}];
+  const sessions=[args.sessions[0],{...args.sessions[1],answers:[]}];
+  const snap=readinessSnapshot({...args,objectives,sessions,subjectWeights:{neuroscience:67.5,behavioral:32.5}});
+  expect(snap.estimatePercent).toBe(67.5);
+  expect(snap.bySubject.map(s=>s.total)).toEqual([15,15]);
+  expect(readinessSnapshot({...args,objectives:[objectives[0]],sessions,subjectWeights:{neuroscience:67.5,behavioral:32.5}}).estimatePercent).toBeNull();
+ });
+ it('keeps the NB exam range and DLAs inside their owning block',()=>{
+  const lectures=[{id:'27',blockId:'b',lectureNumber:27},{id:'54',blockId:'b',lectureNumber:54},{id:'55',blockId:'b',lectureNumber:55},{id:'dla',blockId:'b',lectureType:'DLA',lectureNumber:11},{id:'other',blockId:'other',lectureType:'DLA'}];
+  expect(nbExam2Scope(lectures,'b')).toEqual(['27','54','dla']);
+ });
  it('requires broad fresh evidence before returning a provisional numeric proxy',()=>{
   expect(readinessSnapshot(args)).toMatchObject({total:30,estimatePercent:100,objectiveCoverage:1,sufficient:true});
   expect(readinessSnapshot({...args,lectureIds:['l1','l2','untested']})).toMatchObject({estimatePercent:null,sufficient:false});
