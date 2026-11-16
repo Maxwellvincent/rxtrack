@@ -64,14 +64,14 @@ export function buildObjectiveCoverage(questions = [], objectives = []) {
 /** Two bounded workers, incremental cloud persistence, then atomic assignment
  * at launch. A prepared pool is not an answer history or a mastery claim. */
 export async function generateExamQuestions({ allocation, lecturesById, objectivesByLecture, atomsByLecture,
-  blockId, lectures, weakConceptAccuracyByLecture, userId, generationId, targetObjectiveIds = null, targetObjectiveOrders = {}, focusNotes = "", difficultyOverride = null, preparedGenerationId = null, preparedQuestionIds = [] }, deps = {}) {
+  blockId, lectures, weakConceptAccuracyByLecture, userId, generationId, existingQuestions = [], targetObjectiveIds = null, targetObjectiveOrders = {}, focusNotes = "", difficultyOverride = null, preparedGenerationId = null, preparedQuestionIds = [] }, deps = {}) {
   const questions = [], errors = [], accepted = [];
   const evidenceModel = deps.evidenceModel || readLearnerEvidence(userId);
   const baseExemplars = readExemplarsForBlock(userId, blockId);
   const baseClinicalAnalyses = readClinicalAnalysesForBlock(userId, blockId);
   const lectureIds = Object.keys(allocation || {}).filter(id => allocation[id] > 0);
   const total = lectureIds.reduce((n, id) => n + allocation[id], 0);
-  const history = deps.pool ? await deps.pool.history() : [];
+  const history = [...(deps.pool ? await deps.pool.history() : []),...existingQuestions];
   let nextIndex = 0, cacheHits = 0, stopError = null;
   let completedLectures = 0;
   const activities = new Map();

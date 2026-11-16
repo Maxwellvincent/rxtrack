@@ -825,6 +825,7 @@ export function ExamSessionRunner({
   const sittingBaseline = useRef(null);
   const [exitError, setExitError] = useState(null);
   const [recovering, setRecovering] = useState(false);
+  const [recoveryMessage,setRecoveryMessage]=useState('');
   const { session: storedSession, loading, error, submit, abandon, submitResult, submitting, syncStatus } = controller;
   useEffect(() => {
     if (storedSession && sittingBaseline.current?.sessionId !== sessionId) sittingBaseline.current = { sessionId, answers: (storedSession.answers || []).map(a => ({ ...a })) };
@@ -934,11 +935,20 @@ export function ExamSessionRunner({
 
   const missingCount = Math.max(0,Number(session.targetQuestionCount || 0)-(session.questions || []).length);
   const recoveryAction = missingCount>0 && onRecoverPreparation && <div className="rounded border border-warn p-3 text-sm"><p>Your selected answers are saved. Add the {missingCount} missing questions to this same session before submitting a complete diagnostic.</p><Button disabled={recovering || session.fillLeaseUntil>Date.now()} onClick={async()=>{
-    setRecovering(true);setExitError(null);
-    try{await controller.saveProgress(submitOpts);await onRecoverPreparation(session,true);}
+    setRecovering(true);setExitError(null);setRecoveryMessage('Saving your selected answers before refilling…');
+    try{
+      await controller.saveProgress(submitOpts);setRecoveryMessage('Checking reviewed unused questions, then generating only what is missing…');
+      let refreshed=false;
+      await onRecoverPreparation(session,true,message=>{
+        setRecoveryMessage(String(message||'').slice(0,500));
+        // Observe the claimed generating state so the existing live-session
+        // poll follows saved additions rather than showing the old 27/32.
+        if(!refreshed){refreshed=true;controller.refetch();}
+      });
+    }
     catch(error){setExitError(error.message||'Could not prepare missing questions. Your answers remain saved.');}
     finally{await controller.refetch();setRecovering(false);}
-  }}>{recovering?'Preparing missing questions…':`Generate remaining ${missingCount} questions`}</Button>{exitError&&<p role="alert">{exitError}</p>}</div>;
+  }}>{recovering?'Preparing missing questions…':`Generate remaining ${missingCount} questions`}</Button>{recovering&&<p role="status" className="mt-2 break-words">{recoveryMessage}</p>}{session.fillError&&!recovering&&!exitError&&<p className="mt-2 break-words">Last preparation result: {String(session.fillError).slice(0,800)}</p>}{exitError&&<p role="alert" className="mt-2 break-words">{exitError}</p>}</div>;
   if (session.format === "exam" && session.fillStatus === "generating") {
     // Preparation must never spend the learner's answer time.
     const timingNotice = <p className="text-sm text-text-2">The timer remains paused during preparation. Selected answers are preserved.</p>;

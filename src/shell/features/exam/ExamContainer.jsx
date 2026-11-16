@@ -808,7 +808,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
         <ExamSessionRunner
           retestBusy={launching}
           onTargetedRetest={({objectives: targets,count,focusNotes})=>handleLaunch({format:"practice",questionCount:count,durationMinutes:examDurationMinutes(count),examName:`Targeted retest · ${count} questions`,focusNotes,studyMode:"repair",targetObjectiveIds:targets.map(o=>o.id),targetObjectiveOrders:Object.fromEntries(targets.filter(o=>o._transferOrder).map(o=>[o.id,o._transferOrder])),includeSeen:false,startWhilePreparing:true})}
-          onRecoverPreparation={(session,manual=false) => recoverExamPreparation({ session, manual, userId, pool: createQuestionPool(userId, blockId), generate: generateExamQuestions, context: { lecturesById, objectivesByLecture, atomsByLecture, lectures, ...(session.blueprintExam ? blueprintContext : {}), callAIJSON } })}
+          onRecoverPreparation={(session,manual=false,report) => recoverExamPreparation({ session, manual, report, userId, pool: createQuestionPool(userId, blockId), generate: generateExamQuestions, context: { lecturesById, objectivesByLecture, atomsByLecture, lectures, ...(session.blueprintExam ? blueprintContext : {}), callAIJSON } })}
           sessionId={activeSessionId}
           userId={userId}
           blockId={blockId}
