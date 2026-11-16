@@ -129,7 +129,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   const [examPageSection, setExamPageSection] = useState(() => {
     try {
       const saved = localStorage.getItem(`rxt-exam-page:${blockId}`);
-      return ["start", "banks", "results", "weak"].includes(saved) ? saved : "start";
+      return ["start", "banks", "results", "weak", "missed"].includes(saved) ? saved : "start";
     } catch { return "start"; }
   });
   const [bankStoreRevision, setBankStoreRevision] = useState(0);
@@ -826,7 +826,6 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
 
   return (
     <div className="desk-page desk-exam mx-auto w-full max-w-6xl p-4 sm:p-5">
-      <MissedQuestions evidence={blueprintEvidenceRes.data || {}} blockId={blockId} lectures={lectures} busy={!!bankLaunching} onReplay={questions=>handleBankLaunch({filename:'Missed questions · all sources',questions},'practice',questions)} onStudy={group=>onNavigateToLecture?.(group.lectureId,{focusObjectiveIds:[...new Set(group.questions.flatMap(q=>q.objectiveIds||[]))],weakConcept:group.concept})} />
       <div className="desk-page-heading mb-5 flex flex-wrap items-center justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold text-text-1">Integrated exam center</h2>
@@ -856,7 +855,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
       </details>
 
       <nav className="mb-5 flex flex-wrap gap-2 border-b border-border pb-3" aria-label="Exam center sections">
-        {[["start", "Start & continue"], ["banks", `Question banks${blockQuestionBanks.length ? ` · ${blockQuestionBanks.length}` : ""}`], ["results", "Results & weak lectures"], ["weak", "Weak concepts"]].map(([id, label]) => (
+        {[["start", "Start & continue"], ["banks", `Question banks${blockQuestionBanks.length ? ` · ${blockQuestionBanks.length}` : ""}`], ["results", "Results & weak lectures"], ["weak", "Weak concepts"], ["missed", "Missed questions"]].map(([id, label]) => (
           <button key={id} type="button" aria-current={examPageSection === id ? "page" : undefined}
             onClick={() => selectExamPageSection(id)}
             className={`rounded-lg border px-3 py-2 text-sm font-semibold ${examPageSection === id ? "border-accent bg-accent/10 text-accent-text" : "border-border text-text-2 hover:bg-panel"}`}>
@@ -864,6 +863,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           </button>
         ))}
       </nav>
+      {examPageSection === 'missed' && <MissedQuestions evidence={blueprintEvidenceRes.data || {}} blockId={blockId} lectures={lectures} busy={!!bankLaunching} onReplay={questions=>handleBankLaunch({filename:'Missed questions · all sources',questions},'practice',questions)} onStudy={group=>onNavigateToLecture?.(group.lectureId,{focusObjectiveIds:[...new Set(group.questions.flatMap(q=>q.objectiveIds||[]))],weakConcept:group.concept})} />}
 
       {showLaunchModal && (
         <ExamLaunchModal

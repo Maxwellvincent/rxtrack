@@ -170,6 +170,17 @@ beforeEach(() => {
 });
 
 describe("ExamContainer", () => {
+  it('keeps missed-question history in its own remembered section',async()=>{
+    const {host,unmount}=render(<ExamContainer blockId="b1" blockName="Block" userId="u1"/>);
+    await flush();
+    expect(host.querySelector('[aria-label="Missed questions from all sources"]')).toBeNull();
+    act(()=>[...host.querySelectorAll('button')].find(button=>button.textContent==='Missed questions').click());
+    expect(host.querySelector('[aria-label="Missed questions from all sources"]')).not.toBeNull();
+    expect(localStorage.getItem('rxt-exam-page:b1')).toBe('missed');
+    act(()=>[...host.querySelectorAll('button')].find(button=>button.textContent==='Start & continue').click());
+    expect(host.querySelector('[aria-label="Missed questions from all sources"]')).toBeNull();
+    unmount();
+  });
   it("edits and durably saves a prepared quiz name and date scope", async () => {
     poolPreparedSetsMock.mockResolvedValue([{
       id: "generation-edit", prepareOnly: true, examName: "Old quiz", format: "practice",
