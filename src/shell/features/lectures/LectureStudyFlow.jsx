@@ -2443,7 +2443,8 @@ export function LectureStudyFlow({
                 </div>
               </div>
               <p className="text-sm text-text-2">
-                Covers lecture objectives first, using atoms as supporting facts. Difficulty advances automatically from your performance; this quiz starts at <strong className="capitalize text-text-1">{quizPicker.difficulty}</strong>.
+                {qStats.loading ? "Loading your lecture performance…" : qStats.answered ? `${qStats.answered} answered · ${accuracyPct}% correct in this lecture. ` : "First practice for this lecture. "}
+                {!qStats.loading && <>Starting level: <strong className="capitalize text-text-1">{resolveDefaultDifficulty(qStats.accuracy)}</strong>. {qStats.answered ? "Based on your saved lecture accuracy; individual objectives guide question selection." : "Your answers will guide the next set."}</>}
               </p>
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-condensed text-[12px] font-semibold uppercase tracking-wide text-text-3">Generator</span>
@@ -2457,7 +2458,8 @@ export function LectureStudyFlow({
               <div className="flex flex-wrap items-center gap-3">
                 <Button
                   onClick={() => {
-                    const { count, difficulty } = quizPicker;
+                    const { count } = quizPicker;
+                    const difficulty = resolveDefaultDifficulty(qStats.accuracy);
                     setQuizPicker(null);
                     runQuiz(count, difficulty);
                   }}
