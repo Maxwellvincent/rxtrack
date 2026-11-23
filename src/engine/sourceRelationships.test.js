@@ -80,3 +80,9 @@ it('schedules only current-source due relationships and leaves same-day successe
  expect(relationshipTargets(c,{learningJournal:[{...event,correct:false}]},scope,3,200)[0].practiceState).toBe('repair');
  expect(relationshipTargets(c,{learningJournal:[],evidenceJournal:[event]},scope,3,200)[0].practiceState).toBe('unseen');
 });
+it('preserves standalone source page markers in flattened lecture exports',async()=>{
+ const {relationshipPages}=await import('./sourceRelationships.js');
+ expect(relationshipPages({},'Page 1\nTitle\nPage 19\nCortical fibers enter the ipsilateral pontine nuclei.\nPage 20\nPontine fibers cross to the opposite cerebellum.').map(row=>row.page)).toEqual([1,19,20]);
+ expect(relationshipPages({},'See Page 19 for a diagram.')).toEqual([{page:1,text:'See Page 19 for a diagram.'}]);
+ expect(relationshipPages({chunks:[{pageNumber:7,text:'Original page'}]},'Page 1\nOther\nPage 2\nOther')).toEqual([{page:7,text:'Original page'}]);
+});

@@ -26,3 +26,18 @@ it('retains extracted-fact evidence when no original lecture is supplied',()=>{
  const prompt=buildBlindSolvePrompt([q],{atoms:[{term:'Local response',content:note}]});
  expect(prompt).toContain(note);expect(prompt).toContain('extracted-fact');
 });
+it('independently distinguishes dependent integration from one-rule application without receiving writer routes',()=>{
+ const prompt=buildBlindSolvePrompt([{...q,orderLevel:'third-order'}],{lectureText:source,writerIntegrationPlans:[{intermediate:'PRIVATE_INTERMEDIATE'}]});
+ expect(prompt).toContain('two dependent taught relationships');
+ expect(prompt).toContain('Two parallel lookups do not qualify');
+ expect(prompt).not.toContain('PRIVATE_INTERMEDIATE');
+ const route={kind:'connected-integration',stemClue:'persists after upstream interruption',requiredRelationship:'A local generator persists and then drives the downstream response.',whyNotRestatement:'Both dependent rules are needed to infer the downstream response.',outcomeRestatement:false,choiceShortcut:false};
+ expect(blindSolveIssue({...solved,answerRoute:route},{...q,orderLevel:'third-order'},{lectureText:source})).toBeNull();
+ expect(blindSolveIssue({...solved,answerRoute:{...route,kind:'relationship-application'}},{...q,orderLevel:'third-order'},{lectureText:source})).toBe('insufficient_reasoning_depth');
+});
+it('rejects the live cortical-to-body shortcut even when the solver claims a longer cerebellar chain',()=>{
+ const question={...q,stem:'A patient has a right precentral gyrus lesion. Which side of the body would have received coordination support from this cortical copy?',choices:{A:'Left side of the body',B:'Right side of the body'},orderLevel:'third-order'};
+ const route={kind:'connected-integration',stemClue:'right precentral gyrus lesion',requiredRelationship:'Trace the ipsilateral pontine relay and then the crossed cerebellar input.',whyNotRestatement:'A proposed cerebellar route has two necessary links.',outcomeRestatement:false,choiceShortcut:false};
+ expect(blindSolveIssue({...solved,answerRoute:route},question,{lectureText:source})).toBe('insufficient_reasoning_depth');
+ expect(blindSolveIssue({...solved,answerRoute:{...route,stemClue:'right precentral gyrus lesion'}},{...question,stem:'A patient has a right precentral gyrus lesion. Which cerebellar hemisphere receives the indirect input?',choices:{A:'Left cerebellar hemisphere',B:'Right cerebellar hemisphere'}},{lectureText:source})).toBeNull();
+});

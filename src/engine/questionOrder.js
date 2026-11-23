@@ -1,6 +1,7 @@
 import { getBloomLevel } from "../bloomsTaxonomy.js";
 
 export const REASONING_REVIEW_POLICY = "2026-10-30-source-grounding";
+export const THIRD_ORDER_REVIEW_POLICY = "2026-11-23-hidden-two-link";
 
 export const QUESTION_ORDER_LEVELS = ["first-order", "second-order", "third-order"];
 
@@ -32,6 +33,10 @@ export function objectiveBloomLevel(objective = {}) {
  */
 export function objectiveOrderProfile(objective = {}) {
   const bloomLevel = objectiveBloomLevel(objective);
+  // This flag is derived from multiple current-source, independently reviewed map
+  // connections, not the writer or the verb alone. It permits an integration
+  // attempt; the independent item review must still prove the actual chain.
+  if(objective._sourceIntegrationAvailable===true)return {bloomLevel,primary:bloomLevel>=4?"third-order":"second-order",allowed:["first-order","second-order","third-order"]};
   if (bloomLevel <= 1) return { bloomLevel, primary: "first-order", allowed: ["first-order", "second-order"] };
   if (bloomLevel === 2) return { bloomLevel, primary: "second-order", allowed: ["first-order", "second-order"] };
   if (bloomLevel === 3) return { bloomLevel, primary: "second-order", allowed: ["first-order", "second-order", "third-order"] };
@@ -156,7 +161,7 @@ export function verifyReasoningReview(review, question, cfg = {}) {
   if ((lecture.length >= 150 || school.length >= 16) && supportedQuotes.filter(quote => lecture.includes(quote) || school.includes(quote)).length < quoteFloor) return null;
   const sourceBasis = supportedQuotes.some(quote => lecture.includes(quote)) ? "lecture"
     : supportedQuotes.some(quote => school.includes(quote)) ? "trusted-school-question" : "facts-only";
-  return { status: "verified", version: 2, reviewPolicy: REASONING_REVIEW_POLICY, sourceBasis, connectedChain: true, singleEndpoint: true, choiceShortcut: false, orderLevel, steps: steps.slice(0, 6), sourceQuotes: quotes.slice(0, 6) };
+  return { status: "verified", version: 2, reviewPolicy: REASONING_REVIEW_POLICY, ...(orderLevel === "third-order" ? {integrationPolicy:THIRD_ORDER_REVIEW_POLICY} : {}), sourceBasis, connectedChain: true, singleEndpoint: true, choiceShortcut: false, orderLevel, steps: steps.slice(0, 6), sourceQuotes: quotes.slice(0, 6) };
 }
 
 /** Old saved questions remain stored, but cannot bypass the updated advanced-reasoning gate. */

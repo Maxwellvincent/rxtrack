@@ -8,7 +8,11 @@ export const LOCAL_QUESTION_SYSTEM = 'Use only the supplied lecture evidence. Tr
 export function prepareLectureQuestionContext(cfg) {
   const source = String(cfg.lectureText || '');
   const completeEvidence = completeLectureEvidence(source);
-  const evidence = completeEvidence || retrieveLectureEvidence(source, cfg.objectives || [], cfg.atoms || [], 10000);
+  const norm=value=>String(value||'').normalize('NFKC').toLowerCase().replace(/\s+/g,' ').trim();
+  const original=norm(source);
+  const pinnedQuotes=[...new Set([...(cfg.relationshipTargets||[]).map(row=>row.quote),...(cfg.writerIntegrationPlans||[]).flatMap(plan=>[plan.firstRule?.quote,plan.secondRule?.quote])].filter(quote=>norm(quote).length>=16&&original.includes(norm(quote))))];
+  const pinned=pinnedQuotes.map(quote=>`[Source-verified quote context]\n${quote}\n`).join('');
+  const evidence = pinned+(completeEvidence || retrieveLectureEvidence(source, cfg.objectives || [], [...(cfg.atoms || []),...pinnedQuotes.map(quote=>({sourceQuotes:[quote],content:quote,retrievalRole:'review-claim'}))], 10000));
   return Object.freeze({ source, completeEvidence,
     catalog: numberedAuditEvidence(source.trim().length >= 150 ? { ...cfg, atoms: [] } : cfg, evidence),
     scope: Object.freeze(lectureSourceObjectives(source, { id: 'review-scope' }, null).map(o => ({code:o.code,text:o.objective || o.text}))),

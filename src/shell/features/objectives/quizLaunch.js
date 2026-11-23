@@ -1,3 +1,4 @@
+import {integrationConnectionTargets,planThirdOrderQuestions} from '../../../engine/thirdOrderConstruction.js';
 import {objectivesWithConnectionGaps} from '../../../engine/objectiveConnections.js';
 import {repairTransferPlan} from "../../../engine/repairTransfer.js";
 import { prepareLectureQuestionContext } from '../../../engine/lectureQuestionContext.js';
@@ -383,6 +384,7 @@ export function buildQuizConfig({
   evidenceModel = null,
   objectiveAllocation = null,
   feedback = null,
+  writerIntegrationPlans = [],
   sourcePages: suppliedSourcePages = null,
 }) {
   const learnerModel = evidenceModel || readLearnerEvidence(userId);
@@ -415,13 +417,14 @@ export function buildQuizConfig({
   const relationshipCatalog=relationshipScope.lectureId?relationshipsStore.read(userId,relationshipScope.lectureId):{};
   const connectionIds=new Set([...selected.flatMap(o=>o._connectionTargetIds||[]),...repairTransferPlan(selected,learnerModel).filter(row=>row.state!=="waiting").flatMap(row=>row.anchor.sourceRelationshipIds||[])]);
   const requiredRelationships=validSourceRelationships(relationshipCatalog,relationshipScope).filter(row=>row.kind!=="figure"&&connectionIds.has(row.id));
-  const relationshipPlan=[...new Map([...requiredRelationships,...relationshipTargets(relationshipCatalog,learnerModel,relationshipScope,count)].map(row=>[row.id,row])).values()].slice(0,count);
+  const primaryRelationships=[...new Map([...requiredRelationships,...relationshipTargets(relationshipCatalog,learnerModel,relationshipScope,count)].map(row=>[row.id,row])).values()].slice(0,count);
+  const relationshipPlan=integrationConnectionTargets(primaryRelationships,validSourceRelationships(relationshipCatalog,relationshipScope),selected,count);
   const currentStyleProfile = styleProfile || buildStyleProfile(allowedGenerationExamples(exemplars));
   const generationExemplars = selectClinicalExamplesForBlock(exemplars, blockId);
 
   return {
     config: {
-      userId, blockId, lectureId:relationshipScope.lectureId, sourcePages, relationshipTargets:relationshipPlan,
+      userId, blockId, lectureId:relationshipScope.lectureId, sourcePages, relationshipTargets:relationshipPlan, writerIntegrationPlans,
       subject: lectureTitle || "these objectives",
       objectives: selected,
       atoms,
@@ -728,6 +731,13 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
   const plannedEvidence = args.evidenceModel || readLearnerEvidence(args.userId);
   const plannedObjectives = connectionAwareObjectives(objectivesWithConceptGaps(objectivesWithPracticeEvidence(args.objectives || [], plannedEvidence), args.atoms || [], plannedEvidence),args,plannedEvidence);
   let allocationPlan = buildAdaptiveObjectivePlan(plannedObjectives, args.plannedCount || requested);
+  if(contextConfig && allocationPlan.some(o=>o._targetOrder==='third-order') && typeof boundedDeps.callAIJSON==='function'){
+    try{
+      const writerIntegrationPlans=await planThirdOrderQuestions({...contextConfig,objectives:allocationPlan},boundedDeps.callAIJSON,{signal:deps.signal});
+      args={...args,writerIntegrationPlans,lectureQuestionContext:prepareLectureQuestionContext({...contextConfig,writerIntegrationPlans})};
+    }catch(error){return {questions:[],error:preparationErrorMessage(error),diagnostics:diagnosticSnapshot()};}
+  }
+
   const unsupportedObjectiveIds = new Set();
   const enforceAllocation = allocationPlan.length > 0 && args.generationVersion === "v2";
   const accepted = [];

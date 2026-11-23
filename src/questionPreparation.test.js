@@ -254,3 +254,16 @@ it('bounds local output headroom without changing cloud budgets or forwarding in
  await deps.callAIJSON('system','draft',{},8000,undefined,undefined,{localMaxTokens:3000});
  expect(call.mock.calls[0][3]).toBe(3000);expect(call.mock.calls[0][6]).not.toHaveProperty('localMaxTokens');
 });
+it('uses the configured integration tier for third-order requests while retaining quality fallback',async()=>{
+ questionPreparationCapabilities.mockResolvedValue({writer:'codex',reviewer:'codex',fallbackWriter:'ollama-cloud',localWriter:'ollama',cloudTiers:[{tier:'quality',model:'deepseek'},{tier:'escalation',model:'kimi'}]});
+ const call=vi.fn().mockRejectedValueOnce(new Error('HTTP 429')).mockResolvedValue({questions:[]});
+ const deps=await questionPreparationDeps(call,{allowCodexFallback:false});
+ await deps.callAIJSON('system','third-order',{},2000,undefined,undefined,{preferredQuestionTier:'escalation'});
+ expect(call.mock.calls.map(args=>args[6].bridgeModelTier)).toEqual(['escalation','quality']);
+});
+it('does not require an integration tier when only the quality tier is configured',async()=>{
+ questionPreparationCapabilities.mockResolvedValue({writer:'codex',reviewer:'codex',fallbackWriter:'ollama-cloud',cloudTiers:[{tier:'quality',model:'deepseek'}]});
+ const call=vi.fn().mockResolvedValue({questions:[]});const deps=await questionPreparationDeps(call);
+ await deps.callAIJSON('system','third-order',{},2000,undefined,undefined,{preferredQuestionTier:'escalation'});
+ expect(call.mock.calls[0][6].bridgeModelTier).toBe('quality');
+});

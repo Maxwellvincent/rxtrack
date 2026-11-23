@@ -103,6 +103,8 @@ export async function questionPreparationDeps(callAIJSON, { allowCodexFallback =
   const gate=preparationRequestGate;
   const routed = async (...params) => {
     const options = params[6] || {};
+    const primaryCloudTier = options.preferredQuestionTier === "escalation" && cloudTiers.includes("escalation") ? "escalation" : "quality";
+    const requestCloudTiers = [primaryCloudTier,...cloudTiers.filter(tier=>tier!==primaryCloudTier)].filter(tier=>cloudTiers.includes(tier));
     const deadline = options.timeoutMs ? Date.now() + Number(options.timeoutMs) : null;
     const call = (backend, tier = "routine") => (backend === "ollama" ? localRequestGate : gate)(() => {
       options.signal?.throwIfAborted();
@@ -135,7 +137,7 @@ export async function questionPreparationDeps(callAIJSON, { allowCodexFallback =
     };
     const fallbackCall = async () => {
       let lastError = null;
-      for (const tier of cloudAvailable ? cloudTiers : []) {
+      for (const tier of cloudAvailable ? requestCloudTiers : []) {
         const paused = cloudLimitErrors.get(tier);
         if (paused && Date.now() < paused.retryAt) { lastError = paused; continue; }
         for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -183,14 +185,15 @@ export async function questionPreparationDeps(callAIJSON, { allowCodexFallback =
       if (localAvailable) return call("ollama").catch(error => { throw exhausted(error); });
       throw exhausted(lastError || [...cloudLimitErrors.values()].at(-1) || new Error("No fallback question model is available."));
     };
-    // DeepSeek quality is the primary lecture-question model when the user's
+    // Integration requests prefer the configured escalation tier; other requests
+    // keep DeepSeek quality as primary when the user's
     // Ollama Cloud plan advertises it. Codex remains a strong fallback; local
     // Ollama is last, rather than slowing every request merely by being installed.
-    if (cloudAvailable && cloudTiers.includes("quality") && !(cloudLimitErrors.get("quality")?.retryAt > Date.now())) {
-      try { return await call("ollama-cloud", "quality"); }
+    if (cloudAvailable && cloudTiers.includes(primaryCloudTier) && !(cloudLimitErrors.get(primaryCloudTier)?.retryAt > Date.now())) {
+      try { return await call("ollama-cloud", primaryCloudTier); }
       catch (error) {
         options.signal?.throwIfAborted();
-        if (capacityKind(error)) cloudLimitErrors.set("quality", Object.assign(error instanceof Error ? error : new Error(String(error)), {
+        if (capacityKind(error)) cloudLimitErrors.set(primaryCloudTier, Object.assign(error instanceof Error ? error : new Error(String(error)), {
           retryAt: Math.max(Number(error?.retryAt) || 0, Date.now() + RECHECK_MS),
         }));
         else if (!isRetryableQuestionProviderFailure(error)) throw error;

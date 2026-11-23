@@ -1,6 +1,6 @@
 import {answerRoute} from '../../../engine/testFixtures/answerRoute.js';
 import { QUESTION_REUSE_REVIEW_POLICY } from "../../../engine/questionReuse.js";
-import { REASONING_REVIEW_POLICY } from "../../../engine/questionOrder.js";
+import { REASONING_REVIEW_POLICY, THIRD_ORDER_REVIEW_POLICY } from "../../../engine/questionOrder.js";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { generateExamQuestions, alreadyUsed } from "./generation.js";
 const generate = vi.hoisted(() => vi.fn());
@@ -154,7 +154,7 @@ const ownedQuestion = (stem, id, order = 'second-order') => {
  const question = q(stem);
  return {...question,choices:{A:`Answer ${id}`,B:"Alternative"},objectiveIds:[id],orderLevel:order,
   qualityAudit:{...question.qualityAudit,semanticObjectiveAlignment:true,objectiveId:id},
-  reasoningAudit:{...question.reasoningAudit,orderLevel:order}};
+  reasoningAudit:{...question.reasoningAudit,orderLevel:order,...(order==='third-order'?{integrationPolicy:THIRD_ORDER_REVIEW_POLICY}:{})}};
 };
 it('keeps whole-set coverage across three small generation batches',async()=>{
  const objectives=Array.from({length:9},(_,i)=>({id:`o${i}`,objective:`Explain relationship number ${i}`}));

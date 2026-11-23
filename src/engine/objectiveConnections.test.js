@@ -74,3 +74,19 @@ it('shows assisted connection practice without counting it as independent unders
  expect(map[0].connections[0]).toMatchObject({attempts:0,assistedAttempts:1,practiceState:'unseen'});
  expect(objectivesWithConnectionGaps([objective],catalog,evidence,scope,100)[0]._focusPriority).toBe(0);
 });
+it('permits a source-supported integration attempt for a Describe objective with multiple reviewed connections',async()=>{
+ const low={...objective,bloomLevel:2,objective:'Compare vibration pathways and their spinal laterality.'};
+ const catalog=await mapCatalog(),map=objectiveConnectionMap(catalog,{}, {...scope,objectives:[low]},100);
+ expect(map[0].objective._sourceIntegrationAvailable).toBe(true);
+ expect(connectionPracticeRequest({...map[0].connections[0],practiceState:'due',objective:map[0].objective}).objectives[0]._targetOrder).toBe('third-order');
+ const one={...catalog,relationships:{[map[0].connections[0].id]:catalog.relationships[map[0].connections[0].id]}};
+ expect(objectiveConnectionMap(one,{}, {...scope,objectives:[low]},100)[0].objective._sourceIntegrationAvailable).toBe(false);
+});
+it('retrieves factual pathway pages rather than repeated objective outlines',async()=>{
+ const {connectionEvidencePages}=await import('./objectiveConnections.js');
+ const pages=[{page:2,text:'Objectives\nNSCI.0199 Describe regional functions\nNSCI.0200 Describe major connections between cerebellum and motor systems\nNSCI.0202 Describe lesions'},
+ {page:8,text:'The cerebellum regulates normal motor function.'},
+ {page:19,text:'Cortical efferent fibers terminate in the ipsilateral pontine nuclei. Pontine input fibers cross to the opposite cerebellar peduncle.'}];
+ const evidence=connectionEvidencePages(pages,[{id:'o',code:'NSCI.0200',objective:'Describe major connections between the cerebellum and motor systems'}]);
+ expect(evidence[0].page).toBe(19);expect(evidence.some(page=>page.page===2)).toBe(false);
+});

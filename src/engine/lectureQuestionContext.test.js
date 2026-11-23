@@ -16,3 +16,10 @@ describe('shared lecture question context',()=>{
   const context=prepareLectureQuestionContext(cfg);expect(preparedLectureCatalog({...cfg,lectureQuestionContext:context,lectureText:'Different lecture.'})).toBeNull();
  });
 });
+it('pins separate exact connection rules for independent citation and excludes invented planner quotations',()=>{
+ const first='Cortical fibers terminate in the ipsilateral pontine nuclei.';
+ const second='Pontine fibers cross into the opposite cerebellar hemisphere.';
+ const cfg={lectureText:(first+' '+second+'\n').repeat(4),objectives:[{id:'o',objective:'Explain the cerebro-ponto-cerebellar connections'}],writerIntegrationPlans:[{firstRule:{quote:first},secondRule:{quote:second}},{firstRule:{quote:'An invented clinical fact absent from the lecture.'}}]};
+ const catalog=prepareLectureQuestionContext(cfg).catalog;
+ expect(catalog).toContain(`"text":"${first}"`);expect(catalog).toContain(`"text":"${second}"`);expect(catalog).not.toContain('invented clinical fact');
+});

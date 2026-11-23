@@ -8,8 +8,14 @@ export const emptyRelationships=()=>({version:RELATIONSHIP_VERSION,facets:{},rel
 export function relationshipSourceVersion(pages=[]) {return stableRecordId(pages.map(page=>[page.page,norm(page.text)]),'lecture');}
 export function relationshipPages(lecture={},text='') {
  const chunks=lecture.chunks || [];
- return chunks.length?chunks.map((chunk,index)=>({page:Number(chunk.pageNumber || chunk.page || index+1),text:chunk.markdown || chunk.text || chunk.content || ''}))
-  :String(text || lecture.extractedText || lecture.fullText || lecture.content || '').split(/\f/).map((body,index)=>({page:index+1,text:body}));
+ if(chunks.length)return chunks.map((chunk,index)=>({page:Number(chunk.pageNumber || chunk.page || index+1),text:chunk.markdown || chunk.text || chunk.content || ''}));
+ const source=String(text || lecture.extractedText || lecture.fullText || lecture.content || '');
+ if(source.includes('\f'))return source.split(/\f/).map((body,index)=>({page:index+1,text:body}));
+ // Flattened PDF exports retain explicit standalone Page N headers. Preserve
+ // those source identities instead of labeling every quotation as page 1.
+ const markers=[...source.matchAll(/^Page[ \t]+([1-9]\d*)[ \t]*\r?$/gm)];
+ if(markers.length>=2&&markers.every((m,i)=>!i||Number(m[1])>Number(markers[i-1][1])))return markers.map((marker,index)=>({page:Number(marker[1]),text:source.slice(index?marker.index:0,markers[index+1]?.index??source.length)}));
+ return [{page:1,text:source}];
 }
 /** IDs are scoped to their parent and exact clause/source relationship, never a topic guess. */
 export function createSourceRelationship({blockId,lectureId,objective,clause,label,quote,page,kind='text',pages=[]}) {

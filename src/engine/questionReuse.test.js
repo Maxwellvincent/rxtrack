@@ -1,6 +1,6 @@
 import {answerRoute} from './testFixtures/answerRoute.js';
 import { expect, it } from "vitest";
-import { hasCurrentReasoningAudit, REASONING_REVIEW_POLICY } from "./questionOrder.js";
+import { hasCurrentReasoningAudit, REASONING_REVIEW_POLICY, THIRD_ORDER_REVIEW_POLICY } from "./questionOrder.js";
 import { hasReusableQuestionReview, isReusableForObjective, QUESTION_REUSE_REVIEW_POLICY } from "./questionReuse.js";
 
 const current = () => ({ stem: "The response persists after upstream input is blocked.", choices: { A: "Local response", B: "Upstream response" }, correct: "A", generationVersion: "v2", objectiveIds: ["o"], orderLevel: "second-order",
@@ -57,4 +57,12 @@ it('requires independently reviewed connection ownership for a focused reuse slo
  const withWriterClaim={...current(),sourceRelationshipIds:['connection']};
  expect(isReusableForObjective(withWriterClaim,objective)).toBe(false);
  expect(isReusableForObjective({...withWriterClaim,qualityAudit:{...withWriterClaim.qualityAudit,relationshipIds:['connection']}},objective)).toBe(true);
+});
+
+it('requires hidden-link re-review only for new third-order reuse, preserving historical evidence',()=>{
+ const q=current();q.orderLevel=q.reasoningAudit.orderLevel='third-order';q.qualityAudit.blindSolve.answerRoute.kind='connected-integration';
+ const prior=JSON.stringify(q);
+ expect(hasReusableQuestionReview(q)).toBe(false);expect(hasCurrentReasoningAudit(q)).toBe(true);expect(JSON.stringify(q)).toBe(prior);
+ q.reasoningAudit.integrationPolicy=THIRD_ORDER_REVIEW_POLICY;
+ expect(hasReusableQuestionReview(q)).toBe(true);expect(hasReusableQuestionReview(current())).toBe(true);
 });
