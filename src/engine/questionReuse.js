@@ -22,6 +22,7 @@ export function hasReusableQuestionReview(question = {}) {
 }
 
 export function isReusableForObjective(question, objective) {
+  if(objective?._connectionTargetIds?.length&&!objective._connectionTargetIds.some(id=>question.sourceRelationshipIds?.includes(id)&&question.qualityAudit?.relationshipIds?.includes(id)))return false;
   if (!hasReusableQuestionReview(question) || !question.objectiveIds?.includes(objective?.id || objective?.code)) return false;
   const target = normalizeQuestionOrder(objective._targetOrder);
   const order = normalizeQuestionOrder(question.orderLevel);

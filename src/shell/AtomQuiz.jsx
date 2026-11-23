@@ -1,3 +1,4 @@
+import {ConnectionFeedback} from '../ui/ConnectionFeedback.jsx';
 import {HelpMeReason} from '../ui/HelpMeReason.jsx';
 import {assistanceFields,compactCoachState} from '../engine/practiceAssistance.js';
 import { hasReusableQuestionReview } from "../engine/questionReuse.js";
@@ -392,6 +393,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
                 choices={q.choices}
               />
             )}
+            <ConnectionFeedback question={q} userId={userId} lectureId={lectureId} blockId={blockId} />
             {!correct && <LearningGapNote key={q.questionKey || q.id || currentIndex} userId={userId} question={q} blockId={blockId} lectureId={lectureId} />}
             <details key={`review-tools-${currentIndex}-${q.id}`} className="text-sm">
               <summary className="cursor-pointer py-2 text-text-3 hover:text-text-1">Review tools · optional</summary>

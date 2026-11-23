@@ -1,3 +1,5 @@
+import {ObjectiveConnections,connectionMapKey} from './ObjectiveConnections.jsx';
+import {objectivesWithConnectionGaps} from '../../../engine/objectiveConnections.js';
 import {UnfinishedLectureQuizzes} from "./UnfinishedLectureQuizzes.jsx";
 import {MissedQuestions} from '../../../ui/MissedQuestions.jsx';
 import {repairTransferPlan,repairTransferPrompt,repairTransferRequest} from "../../../engine/repairTransfer.js";
@@ -925,6 +927,7 @@ export function LectureStudyFlow({
     const timer=setInterval(()=>setRelationshipNow(Date.now()),60000);
     return ()=>clearInterval(timer);
   },[workspace]);
+  const connectionScope=useMemo(()=>({blockId,lectureId:lecture?.id,objectives:lectureObjectives,pages:relationshipPages({...lecture,chunks:lectureChunks},text)}),[blockId,lecture,lectureObjectives,lectureChunks,text]);
   const relationshipRows=useMemo(()=>relationshipCoverage(relationshipResource.data,learnerEvidence.data || {},{
     blockId,lectureId:lecture?.id,objectives:lectureObjectives,pages:relationshipPages({...lecture,chunks:lectureChunks},text),
   },relationshipNow),[relationshipResource.data,learnerEvidence.data,blockId,lecture,lectureObjectives,lectureChunks,text,relationshipNow]);
@@ -1412,7 +1415,7 @@ export function LectureStudyFlow({
     const connectionRows=repairTransferPlan(retestObjectives?.length?retestObjectives:orderedObjectives,learnerEvidence.data||{}).filter(row=>row.state!=="waiting");
     const connectionOrders=new Map(repairTransferRequest(connectionRows).objectives.map(objective=>[objective.id,objective._transferOrder]));
     transferFocus=transferFocus||repairTransferPrompt(connectionRows.slice(0,3));
-    const quizObjectives = (retestObjectives?.length ? objectivesWithPracticeEvidence(retestObjectives, learnerEvidence.data) : orderedObjectives).map(objective=>connectionOrders.has(objective.id)?{...objective,_transferOrder:connectionOrders.get(objective.id),_targetOrder:connectionOrders.get(objective.id)}:objective);
+    const quizObjectives = objectivesWithConnectionGaps((retestObjectives?.length ? objectivesWithPracticeEvidence(retestObjectives, learnerEvidence.data) : orderedObjectives),relationshipResource.data,learnerEvidence.data||{},connectionScope).map(objective=>!objective._connectionTargetIds?.length&&connectionOrders.has(objective.id)?{...objective,_transferOrder:connectionOrders.get(objective.id),_targetOrder:connectionOrders.get(objective.id)}:objective);
     if (!quizObjectives.length && mismatchedLectureObjectives.length) {
       setError("This lecture needs its objective links reviewed before questions can be prepared. Open More → Admin diagnostics → Objective source and lecture links.");
       return;
@@ -1558,6 +1561,8 @@ export function LectureStudyFlow({
         plannedCount: count,
         lectureTitle: title,
         lectureText: text,
+        sourcePages: connectionScope.pages,
+        reasoningPolicy: quizObjectives.some(o=>o._connectionTargetIds?.length)?"challenge":"school",
         lectureIdHint: lecture?.id,
         blockId,
         atoms,
@@ -1689,7 +1694,7 @@ export function LectureStudyFlow({
     } catch (error) {
       if (preparationRunRef.current === runId) { setBusy(""); setQuizPreparation(null); setError(error?.message || "Quiz preparation failed. Please retry."); }
     }
-  }, [orderedObjectives, title, text, blockId, atoms, userId, lecture?.id, logActivity, startQuizSession, schoolExemplars, schoolExamplesLoading, clinicalCorrelateLibrary, objectiveById, learnerEvidence.data, mismatchedLectureObjectives.length, questionBanksRes.data, questionBankMetaRes.data, lecture]);
+  }, [orderedObjectives, title, text, blockId, atoms, userId, lecture?.id, logActivity, startQuizSession, schoolExemplars, schoolExamplesLoading, clinicalCorrelateLibrary, objectiveById, learnerEvidence.data, mismatchedLectureObjectives.length, questionBanksRes.data, questionBankMetaRes.data, lecture, connectionScope, relationshipResource.data]);
 
   // Prepare at most one small reserve batch per active quiz, never on page load.
   // Background work only saves unseen questions; it does not create a session or grade answers.
@@ -2096,6 +2101,7 @@ export function LectureStudyFlow({
 
       </LecturePanel>
       <LecturePanel name="learn" workspace={workspace} visited={visitedWorkspaces} aria-label="Learn this lecture">
+      <ObjectiveConnections key={connectionMapKey(connectionScope)} userId={userId} catalog={relationshipResource.data||{}} evidence={learnerEvidence.data||{}} scope={connectionScope} loading={relationshipResource.loading||learnerEvidence.loading} error={relationshipResource.error} enabled={workspace==='learn'} busy={!!busy||!!questions} onPractice={({count,objectives,focusNotes})=>runQuiz(count,resolveDefaultDifficulty(qStats.accuracy),[],false,objectives,focusNotes)} />
       <details id="lecture-learn" open={tutorSession?.status === "active"} className="mt-4 rounded-xl border border-border bg-bg-elevated">
         <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-text-1">Guided tutor <span className="ml-2 font-normal text-text-3">{tutorSession?.status === "active" ? "In progress" : "Open to learn this lecture"}</span></summary>
       <div className="desk-tutor-launcher rounded-b-xl border-t border-accent/30 bg-accent/5 px-3 py-3 sm:flex sm:items-center sm:justify-between sm:gap-4">
@@ -2332,7 +2338,7 @@ export function LectureStudyFlow({
       </LecturePanel>
       <LecturePanel name="practice" workspace={workspace} visited={visitedWorkspaces} aria-label="Practice this lecture">
       <MissedQuestions evidence={learnerEvidence.data || {}} blockId={blockId} lectureId={lecture?.id} lectures={[lecture]} busy={!!busy || !!questions} onReplay={items=>{setAdHocQuiz(true);startQuizSession(items);}} onStudy={()=>setWorkspace('learn')} />
-      <div className="my-3 flex flex-wrap justify-between gap-2"><h2 className="text-lg font-semibold">Test this lecture</h2><p className="text-sm text-text-3">{qStats.loading ? "Loading practice history…" : qStats.answered ? `${qStats.answered} answered · ${qStats.correct} correct · ${qStats.answered - qStats.correct} missed · ${accuracyPct}%` : "No questions answered yet"}</p></div>
+      <div className="my-3 flex flex-wrap justify-between gap-2"><h2 className="text-lg font-semibold">Test this lecture</h2><button type="button" className="text-sm font-semibold text-accent underline" onClick={()=>setWorkspace("learn")}>Study objective connections →</button><p className="text-sm text-text-3">{qStats.loading ? "Loading practice history…" : qStats.answered ? `${qStats.answered} answered · ${qStats.correct} correct · ${qStats.answered - qStats.correct} missed · ${accuracyPct}%` : "No questions answered yet"}</p></div>
       {lectureWeakConcepts.length > 0 && <section aria-label="Weak concepts in this lecture" className="my-4 rounded-xl border border-warn/40 bg-warn/5 p-4">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div><h3 className="font-semibold">Weak concepts in this lecture</h3><p className="mt-1 text-xs text-text-3">These use the same lecture objectives and saved question history as every other lecture quiz.</p></div>

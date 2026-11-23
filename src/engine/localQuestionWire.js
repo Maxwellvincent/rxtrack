@@ -17,7 +17,7 @@ export function decodeLocalQuestionWire(result) {
     if (v.b !== undefined) return {index:v.i,answer:v.k,unique:v.a,
       answerRoute:{kind:route[0],stemClue:route[1],requiredRelationship:route[2],whyNotRestatement:route[3],outcomeRestatement:route[4],choiceShortcut:route[5]},reasoning:{evidenceIds:v.z}};
     const own=Array.isArray(v.o)?v.o:[],d=Array.isArray(v.d)?v.d:[],r=Array.isArray(v.r)?v.r:[];
-    return {index:v.i,approved:v.a,objectiveAligned:v.al,issues:v.x,rationale:v.n,
+    return {index:v.i,approved:v.a,objectiveAligned:v.al,issues:v.x,rationale:v.n,...(v.cr||v.sourceRelationshipIds?{sourceRelationshipIds:v.cr||v.sourceRelationshipIds}:{}),
       objectiveAlignment:{objectiveId:own[0],objectiveClause:own[1],testedRelationship:own[2],bestSourceObjectiveCode:own[3],whyAssignedOverNeighbor:own[4]},
       discrimination:!Array.isArray(v.d) && v.d && typeof v.d === "object" ? v.d : {closestAlternative:d[0],stemClue:d[1],whyAlternativeFails:d[2],keyUniquelySupported:d[3],alternativeAlsoCorrect:d[4]},
       reasoning:{orderLevel:r[0],steps:r[1],evidenceIds:r[2],allStepsRequired:r[3],connectedChain:r[4],singleEndpoint:r[5],choiceShortcut:r[6]},

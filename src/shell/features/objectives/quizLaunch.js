@@ -1,3 +1,4 @@
+import {objectivesWithConnectionGaps} from '../../../engine/objectiveConnections.js';
 import {repairTransferPlan} from "../../../engine/repairTransfer.js";
 import { prepareLectureQuestionContext } from '../../../engine/lectureQuestionContext.js';
 import * as relationshipsStore from "../../../stores/sourceRelationships.js";
@@ -352,6 +353,14 @@ export function readClinicalAnalysesForBlock(userId = null, blockId = null) {
  * Everything the generator needs, decided without touching the network.
  * Returns `{ error }` instead of a config when there is nothing to quiz.
  */
+function connectionAwareObjectives(objectives,args,evidence){
+ const lecture=args.lectures?.find(l=>l.id===(args.lectureIdHint||objectives.find(o=>o.linkedLecId)?.linkedLecId));
+ const lectureId=lecture?.id||args.lectureIdHint;
+ if(!lectureId)return objectives;
+ const pages=args.sourcePages||relationshipPages(lecture||{},args.lectureText||'');
+ return objectivesWithConnectionGaps(objectives,relationshipsStore.read(args.userId,lectureId),evidence,{blockId:args.blockId,lectureId,pages});
+}
+
 export function buildQuizConfig({
   objectives,
   lectureTitle,
@@ -374,9 +383,10 @@ export function buildQuizConfig({
   evidenceModel = null,
   objectiveAllocation = null,
   feedback = null,
+  sourcePages: suppliedSourcePages = null,
 }) {
   const learnerModel = evidenceModel || readLearnerEvidence(userId);
-  const pool = sortWeakestFirst(objectivesWithConceptGaps(objectivesWithPracticeEvidence(objectives, learnerModel), atoms, learnerModel));
+  const pool = sortWeakestFirst(connectionAwareObjectives(objectivesWithConceptGaps(objectivesWithPracticeEvidence(objectives, learnerModel), atoms, learnerModel),{lectures,lectureIdHint,lectureText:suppliedLectureText,sourcePages:suppliedSourcePages,blockId,userId},learnerModel));
   const count = resolveQuestionCount(questionCount, Math.max(pool.length, 1));
 
   // When no objectives, fall through to atom/text-based generation
@@ -400,10 +410,10 @@ export function buildQuizConfig({
     return { error: "No objectives, lecture facts, or lecture text are available to quiz." };
   }
 
-  const sourcePages=relationshipPages(lecture || {},lectureText);
+  const sourcePages=suppliedSourcePages||relationshipPages(lecture || {},lectureText);
   const relationshipScope={blockId,lectureId:lecture?.id || lectureIdHint,objectives:selected,pages:sourcePages};
   const relationshipCatalog=relationshipScope.lectureId?relationshipsStore.read(userId,relationshipScope.lectureId):{};
-  const connectionIds=new Set(repairTransferPlan(selected,learnerModel).filter(row=>row.state!=="waiting").flatMap(row=>row.anchor.sourceRelationshipIds||[]));
+  const connectionIds=new Set([...selected.flatMap(o=>o._connectionTargetIds||[]),...repairTransferPlan(selected,learnerModel).filter(row=>row.state!=="waiting").flatMap(row=>row.anchor.sourceRelationshipIds||[])]);
   const requiredRelationships=validSourceRelationships(relationshipCatalog,relationshipScope).filter(row=>row.kind!=="figure"&&connectionIds.has(row.id));
   const relationshipPlan=[...new Map([...requiredRelationships,...relationshipTargets(relationshipCatalog,learnerModel,relationshipScope,count)].map(row=>[row.id,row])).values()].slice(0,count);
   const currentStyleProfile = styleProfile || buildStyleProfile(allowedGenerationExamples(exemplars));
@@ -601,6 +611,11 @@ export async function startObjectiveQuiz(args, deps = {}) {
       : [];
     const result = await generateMcqs({ ...config, atoms: evidenceAtoms, linkedConceptTargets: linkedTargets, focusNotes: [config.focusNotes, linkedConceptInstruction(linkedTargets)].filter(Boolean).join("\n\n"), generationVersion: args.generationVersion }, deps);
     result.questions = (result.questions || []).map(question => bindReviewedRelationships(attributeLinkedConcept(question, linkedTargets),config));
+    result.questions=result.questions.filter(question=>{
+      const objective=config.objectives.find(o=>question.objectiveIds?.includes(o.id));
+      if(!objective?._connectionTargetIds?.length||objective._connectionTargetIds.some(id=>question.sourceRelationshipIds?.includes(id)&&question.qualityAudit?.relationshipIds?.includes(id)))return true;
+      result.rejections=[...(result.rejections||[]),{objectiveIds:question.objectiveIds,issues:['connection_target_unverified'],rationale:'The independent review did not confirm that the question tests the requested connection.'}];return false;
+    });
     const bundles=result.questions.flatMap(question=>question.relationshipEvidence?.bundles || []);
     if(bundles.length && config.lectureId) {
       try { await relationshipsStore.save(args.userId,config.lectureId,bundles); }
@@ -711,7 +726,7 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
   };
   const requested = resolveQuestionCount(args.questionCount, Math.max((args.objectives || []).length, 1));
   const plannedEvidence = args.evidenceModel || readLearnerEvidence(args.userId);
-  const plannedObjectives = objectivesWithConceptGaps(objectivesWithPracticeEvidence(args.objectives || [], plannedEvidence), args.atoms || [], plannedEvidence);
+  const plannedObjectives = connectionAwareObjectives(objectivesWithConceptGaps(objectivesWithPracticeEvidence(args.objectives || [], plannedEvidence), args.atoms || [], plannedEvidence),args,plannedEvidence);
   let allocationPlan = buildAdaptiveObjectivePlan(plannedObjectives, args.plannedCount || requested);
   const unsupportedObjectiveIds = new Set();
   const enforceAllocation = allocationPlan.length > 0 && args.generationVersion === "v2";

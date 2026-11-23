@@ -1,3 +1,4 @@
+import {ConnectionFeedback} from '../../../ui/ConnectionFeedback.jsx';
 import {sessionEvidenceEvent} from "./sessionEvidence.js";
 import {markReasoningAssistance,saveReasoningCoach} from './reasoningCoachSession.js';
 import {HelpMeReason} from '../../../ui/HelpMeReason.jsx';
@@ -628,6 +629,7 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
             {(q.explanation || Object.keys(q.whyWrong || {}).length > 0) && (
               <QuestionExplanation selectedLetter={picked} text={q.explanation} correctLetter={q.correct} whyWrong={q.whyWrong} choices={q.choices} sourceType={q.sourceType || session.sourceType} />
             )}
+            <ConnectionFeedback question={q} userId={userId} lectureId={q.lectureId} blockId={session.blockId} />
             {q.correct && !isCorrect && <LearningGapNote key={q.questionId} userId={userId} question={q} blockId={session.blockId} lectureId={q.lectureId} />}
             {tutorModeEnabled && <TutorPanelForQuestion question={q} callAI={callAI} />}
             {!inFocus && visibleIndex + 1 >= questions.length && session.fillStatus === "generating" ? (
@@ -779,6 +781,7 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, object
             {(q.explanation || Object.keys(q.whyWrong || {}).length > 0) ? (
               <div className="mt-3">
                 <QuestionExplanation selectedLetter={picked} text={q.explanation} correctLetter={q.correct} whyWrong={q.whyWrong} choices={q.choices} sourceType={q.sourceType || session.sourceType} />
+              <ConnectionFeedback question={q} userId={userId} lectureId={q.lectureId} blockId={session.blockId} />
               </div>
             ) : picked != null ? (
               <p role="status" className="mt-3 rounded border border-warn/40 bg-panel p-3 text-sm text-text-2">No answer rationale was saved with this source question.</p>

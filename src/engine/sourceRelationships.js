@@ -31,7 +31,7 @@ export function mergeSourceRelationships(catalog,bundles=[]) {
  for(const {facet,relationship} of bundles){
   const old=next.relationships[relationship.id];
   next.facets[facet.id]={...next.facets[facet.id],...facet};
-  next.relationships[relationship.id]={...relationship,revision:(old?.revision || 0)+(old?.sourceVersion===relationship.sourceVersion?0:1)};
+  next.relationships[relationship.id]={...(old?.sourceVersion===relationship.sourceVersion?old:{}),...relationship,revision:(old?.revision || 0)+(old?.sourceVersion===relationship.sourceVersion?0:1)};
  }
  if(new TextEncoder().encode(JSON.stringify(next)).length>850000)throw new Error('This lecture relationship catalog is full; no records were evicted.');
  return next;
@@ -55,7 +55,7 @@ export function relationshipCoverage(catalog,evidence={},scope={},now=Date.now()
    events.push(event);if(isIndependentAttempt(event))latest.set(event.questionKey,event);
   }
   const answers=[...latest.values()].sort((a,b)=>(a.at||0)-(b.at||0));
-  return {...row,...relationshipPractice(events,now),attempts:answers.length,correct:answers.filter(answer=>answer.correct).length,lastCorrect:answers.at(-1)?.correct ?? null,lastAt:answers.at(-1)?.at || null};
+  return {...row,...relationshipPractice(events,now),assistedAttempts:events.filter(event=>!isIndependentAttempt(event)).length,attempts:answers.length,correct:answers.filter(answer=>answer.correct).length,lastCorrect:answers.at(-1)?.correct ?? null,lastAt:answers.at(-1)?.at || null};
  });
 }
 export function relationshipTargets(catalog,evidence,scope,count=3,now=Date.now()){

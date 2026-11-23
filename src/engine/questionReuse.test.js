@@ -51,3 +51,10 @@ it('withholds recent cached questions without the new independent answer-route r
  expect(hasReusableQuestionReview(missing)).toBe(false);
  expect(hasCurrentReasoningAudit(missing)).toBe(true);
 });
+it('requires independently reviewed connection ownership for a focused reuse slot',()=>{
+ const objective={id:'o',_targetOrder:'second-order',_connectionTargetIds:['connection']};
+ expect(isReusableForObjective(current(),objective)).toBe(false);
+ const withWriterClaim={...current(),sourceRelationshipIds:['connection']};
+ expect(isReusableForObjective(withWriterClaim,objective)).toBe(false);
+ expect(isReusableForObjective({...withWriterClaim,qualityAudit:{...withWriterClaim.qualityAudit,relationshipIds:['connection']}},objective)).toBe(true);
+});

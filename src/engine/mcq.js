@@ -1,3 +1,4 @@
+import {connectionReviewPrompt,reviewedConnectionIds} from './connectionReview.js';
 import {questionReferencesVisual} from './questionVisual.js';
 import {cleanSchoolExemplar} from './schoolSourceText.js';
 import {attachReviewSources,reviewSourcePrompt} from './reviewSourceContext.js';
@@ -1013,8 +1014,8 @@ function auditQuestionPayload(question, index) {
 
 export function buildQuestionAuditPrompt(questions, cfg = {}) {
   cfg = schoolCalibratedConfig(cfg);
-  if (cfg.promptProfile === "local") return buildLocalAuditPrompt(questions.map(auditQuestionPayload), cfg);
-  if (cfg.promptProfile === "compact") return buildCompactAuditPrompt(questions, cfg);
+  if (cfg.promptProfile === "local") return buildLocalAuditPrompt(questions.map(auditQuestionPayload), cfg)+connectionReviewPrompt(cfg.relationshipTargets);
+  if (cfg.promptProfile === "compact") return buildCompactAuditPrompt(questions, cfg)+connectionReviewPrompt(cfg.relationshipTargets);
   const objectives = (cfg.objectives || []).map((objective) => ({
     id: String(objective.id || objective.code || ""),
     code: String(objective.code || ""),
@@ -1030,7 +1031,7 @@ export function buildQuestionAuditPrompt(questions, cfg = {}) {
   const clinicalCorrelates = renderClinicalCorrelateLibrary(cfg.clinicalCorrelateLibrary || []);
   return (
     `Independently audit every generated question. Approve it only when ALL checks pass:\n` +
-    CONNECTED_REASONING_CONTRACT + objectiveOwnershipPrompt(cfg) + DISCRIMINATION_REVIEW_CONTRACT + schoolApplicationPrompt(cfg) + questionWritingBenchmarkPrompt(cfg) +
+    CONNECTED_REASONING_CONTRACT + objectiveOwnershipPrompt(cfg) + connectionReviewPrompt(cfg.relationshipTargets) + DISCRIMINATION_REVIEW_CONTRACT + schoolApplicationPrompt(cfg) + questionWritingBenchmarkPrompt(cfg) +
     `SCHOOL COMPARISON EXAMPLES:\n${JSON.stringify(selectStyleExemplars(cfg.examples || [], 6, cfg.difficulty, { objectives: cfg.objectives, atoms: cfg.atoms }).map(q => ({ sourceFile: q.sourceFile || q.filename, sourceKind: exemplarSourceTier(q), factualAuthority: q.factualAuthority === true, stem: q.stem, choices: q.choices, correct: q.factualAuthority === true ? q.correct : undefined })))}\nTrusted keyed school examples are factual evidence; other examples guide style only. Compare clue density, focused lead-in, and plausible distractor distinctions. Reject material departures as school_style_mismatch.\n` +
     `1. The keyed answer is medically correct and is the single best answer.\n` +
     `2. The stem, key, and explanation are supported by the supplied lecture PowerPoint, extracted lecture facts, or trusted keyed school-question evidence.\n` +
@@ -1479,7 +1480,7 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
           version: 1,
           contractVersion:QUESTION_CONTRACT_VERSION,
           reviewedAt: new Date().toISOString(),
-          relationshipIds:Array.isArray(review.sourceRelationshipIds)?review.sourceRelationshipIds.filter(id=>(cfg.relationshipTargets || []).some(row=>row.id===id)):[],
+          relationshipIds:reviewedConnectionIds(review.sourceRelationshipIds,cfg.relationshipTargets),
           ...(cfg.requireBlindKeyCheck && !blindSolveIssue(blindByIndex.get(index),question,cfg) ? { blindSolve: { status: "matched", answer: blindByIndex.get(index).answer, sourceQuotes: blindByIndex.get(index).reasoning.sourceQuotes.slice(0,3), ...(blindByIndex.get(index).answerRoute?{answerRoute:compactAnswerRoute(blindByIndex.get(index).answerRoute),answerRoutePolicy:ANSWER_ROUTE_POLICY}:{}) } } : {}),
           reviewPolicy: verifiedDiscrimination(review.discrimination, question) ? QUESTION_REUSE_REVIEW_POLICY : "legacy-without-discriminator",
           ...(verifiedDiscrimination(review.discrimination, question) ? { discrimination: verifiedDiscrimination(review.discrimination, question) } : {}),
