@@ -15,5 +15,5 @@ it('shows the saved cause and resumes the existing bank without reimporting',asy
 it('makes completed automatic mapping clear and hides unsupported candidates',()=>{
  installDomStorage();const host=document.createElement('div');const root=createRoot(host);
  act(()=>root.render(<QuestionBankMappingStatus userId="u" blockId="b" filename="Complete" lectures={[]} objectives={[]}/>));
- expect(host.textContent).toContain('Automatic curriculum links');expect(host.textContent).toContain('unrelated possibilities were discarded');expect(host.querySelector('button')).toBeNull();act(()=>root.unmount());
+ expect(host.textContent).toContain('Automatic curriculum links');expect(host.textContent).toContain('does not mean the questions are unrelated');expect(host.querySelector('button').textContent).toBe('Recheck unresolved links');act(()=>root.unmount());
 });

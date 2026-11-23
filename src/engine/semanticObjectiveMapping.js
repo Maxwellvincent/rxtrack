@@ -24,18 +24,18 @@ export function mappingLectureExcerpt(text,question,budget=2800){
  return (pinned+'\n'+retrieveLectureEvidence(text,[],[{term:'',content:[question.stem,question.choices?.[question.correct]].filter(Boolean).join(' '),retrievalRole:'school-case'}],remaining)).slice(0,budget);
 }
 
-export const MAPPING_VERSION=4;
+export const MAPPING_VERSION=5;
 
 /** Retrieval only proposes candidates. Two semantic passes must agree before credit. */
 export function objectiveMappingContext(question,lectures,objectives,blockId){
  const local=lectures.filter(l=>l.blockId===blockId && !l.mergedInto && !supplementaryObjective(l));
  const scheduled=scheduleLectureCandidates(question,local);
  const ranked=rankLectureContent(question,local,blockId).slice(0,4).map(r=>r.lecture);
- const ids=[...ranked.map(l=>l.id),...scheduled.map(l=>l.id),question.lectureId].filter(Boolean);
- const candidates=[...new Set(ids)].slice(0,3).flatMap(id=>{
+ const explicit=curriculumMappingProvenance(question,{},blockId,'retrieval').sourceContext.lectureNumbers.length>0;
+ const ids=[...(explicit?scheduled.map(l=>l.id):[]),...ranked.map(l=>l.id),...scheduled.map(l=>l.id),question.lectureId].filter(Boolean);
+ const candidates=[...new Set(ids)].slice(0,Math.max(3,explicit?scheduled.length:0)).flatMap(id=>{
   const lecture=local.find(l=>l.id===id);if(!lecture)return [];
   const targets=objectives.filter(o=>o.linkedLecId===id && (!o.blockId || o.blockId===blockId));
-  if(!targets.length)return [];
   const text=(lecture.chunks || []).map(c=>c.markdown || c.text || c.content || '').join('\n\n') || lecture.extractedText || lecture.fullText || lecture.content || ''; 
   const excerpt=mappingLectureExcerpt(text,question);
   if(!text.trim())return [];

@@ -40,3 +40,13 @@ it('ranks the clinical teaching context ahead of an old general lecture assignme
  expect(context.question.sourceContext.weekNumber).toBe(10);
  expect(context.candidates[0].weekNumber).toBe(10);
 });
+
+it('keeps every explicitly named homework lecture ahead of unrelated lexical matches',()=>{
+ const local=[...Array.from({length:4},(_,i)=>({id:`noise${i}`,blockId:'NB',lectureNumber:i+1,lectureTitle:'Cricothyroid recurrent laryngeal nerve',chunks:[{text:quote}]})),...Array.from({length:4},(_,i)=>({id:`source${i}`,blockId:'NB',lectureNumber:28+i,lectureTitle:`NB ${28+i} Assigned lecture`,chunks:[{text:quote}]}))];
+ const targets=local.map(l=>({...objectives[0],id:`o-${l.id}`,linkedLecId:l.id}));
+ const context=objectiveMappingContext({...question,sourceLectureNumbers:[28,29,30,31]},local,targets,'NB');
+ expect(context.candidates.map(c=>c.lectureId)).toEqual(['source0','source1','source2','source3']);
+});
+it('retains lecture evidence even when no catalog objective is linked yet',()=>{
+ expect(objectiveMappingContext(question,lectures,[],'NB').candidates[0]).toMatchObject({lectureId:'l',objectives:[]});
+});

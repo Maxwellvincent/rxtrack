@@ -14,3 +14,8 @@ it('uses week plus distinctive content to resolve local ambiguity without object
 it('never maps by schedule alone',()=>{
  expect(linkSourceLecture({sourceTitle:'Week 9 homework',stem:'Which structure is affected?'},lectures,'NB').lectureId).toBeUndefined();
 });
+it('prioritizes explicit lecture numbers without confusing week or block numbers',()=>{
+ const local=[{id:'28',lectureNumber:28},{id:'29',lectureTitle:'NB 29 Touch'},{id:'12',lectureNumber:12,weekNumber:12}];
+ expect(scheduleLectureCandidates({sourceSection:'NB 28 / NB 29',sourceTitle:'Week 12 NB2 Homework'},local).map(l=>l.id)).toEqual(['28','29']);
+ expect(curriculumSourceContext({sourceTitle:'Week 12 NB2 Homework'}).lectureNumbers).toEqual([]);
+});
