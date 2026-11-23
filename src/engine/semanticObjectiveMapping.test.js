@@ -50,3 +50,37 @@ it('keeps every explicitly named homework lecture ahead of unrelated lexical mat
 it('retains lecture evidence even when no catalog objective is linked yet',()=>{
  expect(objectiveMappingContext(question,lectures,[],'NB').candidates[0]).toMatchObject({lectureId:'l',objectives:[]});
 });
+it('retrieves the named sleep section ahead of drug or generic clinical vocabulary',()=>{
+ const noise=Array.from({length:8},(_,i)=>({id:`noise-${i}`,blockId:'NB',lectureTitle:'Substance use delirium dementia',fullText:'A medication changes clinical symptoms. Decreases stage effects. '.repeat(8)}));
+ const sleep={id:'sleep',blockId:'NB',lectureTitle:'NB 62 Sleep-Wake Disorders',fullText:'Parasomnias include somnambulism. The original teaching passage describes the sleep mechanism being tested.'};
+ const context=objectiveMappingContext({sourceSectionTitle:'Sleep-Wake Disorders',sourceFile:'Week 15 NB BEHS Practice Questions',stem:'What is the mechanism of the medication?',choices:{A:'Decreases stage N3 sleep'},correct:'A'},[...noise,sleep],[],'NB');
+ expect(context.candidates[0].lectureId).toBe('sleep');expect(context.candidates[0].retrieval.sectionMatch).toBe(true);
+});
+it('includes DLA teaching evidence and objectives instead of discarding it as a supplementary resource',()=>{
+ const dla={id:'dla',blockId:'NB',lectureType:'DLA',lectureTitle:'NB DLA 17 Gender Dysphoria, Sexual Dysfunctions & Paraphilias',fullText:'The lecture explicitly teaches the treatment relationship for the sexual dysfunction tested by the source case.'};
+ const context=objectiveMappingContext({sourceSectionTitle:'Sexual Dysfunctions',stem:'A patient needs treatment.',choices:{A:'A medication'},correct:'A'},[...lectures,dla],[{id:'dla-o',linkedLecId:'dla',objective:'Explain treatment of sexual dysfunctions'}],'NB');
+ expect(context.candidates[0].lectureId).toBe('dla');expect(context.candidates[0].objectives[0].id).toBe('dla-o');
+});
+it('expands original evidence before saving an unresolved mapping and records its actual search scope',async()=>{
+ const long={...lectures[0],fullText:('Background content. '.repeat(600))+quote,chunks:[]};
+ const evaluation=vi.fn();const review=vi.fn().mockResolvedValue({decision:'unresolved',reason:'The requested relationship was not established.'});
+ await classifyObjectiveMapping(question,{lectures:[long],objectives,blockId:'NB',review,onEvaluation:evaluation});
+ expect(review).toHaveBeenCalledTimes(2);expect(evaluation.mock.calls[0][0]).toMatchObject({retrieval:{expanded:true,scopeLectures:1,sourceIndexed:1},candidates:[{lectureId:'l'}]});
+});
+it('can retain verified background evidence without crediting its secondary objective',async()=>{
+ const supporting='Cricothyroid is explicitly identified as belonging to the muscle class needed by the tested example.';
+ const background={id:'background',blockId:'NB',lectureTitle:'Other pharmacology',fullText:supporting};
+ const valid={...proposal,supportingEvidence:[{lectureId:'background',sourceQuote:supporting,relationship:'Background class identity only'}]};
+ const mapped=await classifyObjectiveMapping(question,{lectures:[...lectures,background],objectives,blockId:'NB',review:vi.fn().mockResolvedValue(valid)});
+ expect(mapped.objectiveIds).toEqual(['o']);expect(mapped.curriculumMapping.supportingEvidence).toHaveLength(1);
+ expect(validateObjectiveMapping({...valid,supportingEvidence:[{lectureId:'background',sourceQuote:'Invented background text with no original lecture evidence.'}]},objectiveMappingContext(question,[...lectures,background],objectives,'NB'))).toBeNull();
+});
+it('shows the whole curriculum directory and honors a source request beyond the initial shortlist',async()=>{
+ const local=Array.from({length:14},(_,i)=>({id:`l${i}`,blockId:'NB',lectureTitle:`Teaching topic ${i}`,fullText:i===13?quote:'Generic clinical question context repeated '+i}));
+ const target={...objectives[0],id:'requested',linkedLecId:'l13'};
+ const q={stem:'Generic clinical question context',choices:{A:'A finding'},correct:'A'};
+ const first=objectiveMappingContext(q,local,[target],'NB');expect(first.directory).toHaveLength(14);expect(first.candidates.some(c=>c.lectureId==='l13')).toBe(false);
+ const accepted={decision:'objective',links:[{...proposal.links[0],lectureId:'l13',objectiveId:'requested'}]};
+ const review=vi.fn().mockResolvedValueOnce({decision:'unresolved',requestedLectureIds:['l13']}).mockResolvedValue(accepted);
+ const mapped=await classifyObjectiveMapping(q,{lectures:local,objectives:[target],blockId:'NB',review});expect(mapped?.lectureId).toBe('l13');expect(review).toHaveBeenCalledTimes(3);
+});

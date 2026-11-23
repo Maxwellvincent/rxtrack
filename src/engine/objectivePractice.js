@@ -69,9 +69,11 @@ export function objectivePracticePlan(objectives = [], evidenceModel = {}) {
     const profile = objectiveOrderProfile(objective);
     const demonstrated = Object.entries(progress.orderLevels).filter(([, stats]) => stats.correct > 0).map(([order]) => order);
     const secondOrder = progress.orderLevels["second-order"];
-    const applicationSecure = secondOrder?.correct >= 2 && (secondOrder.correct / Math.max(1, secondOrder.attempts || 0) >= OBJECTIVE_MIN_ACCURACY || progress.recentAccuracy >= OBJECTIVE_MIN_ACCURACY);
-    const confidentApplication = progress.lastFreshAnswer?.correct === true && Number(progress.lastFreshAnswer.confidence) === 5 && progress.lastFreshAnswer.reasoningVerified === true && ["second-order", "third-order"].includes(progress.lastFreshAnswer.orderLevel);
-    const targetOrder = profile.allowed.includes("third-order") && (applicationSecure || confidentApplication) && progress.latestCorrect
+    const freshApplications=[...new Map(progress.recentFreshAnswers.filter(a=>a.questionKey&&a.reasoningVerified&&a.orderLevel==='second-order').map(a=>[a.questionKey,a])).values()].slice(-5);
+    const freshCorrect=freshApplications.filter(a=>a.correct).length;
+    const applicationSecure = (secondOrder?.correct >= 3 && secondOrder.correct / Math.max(1, secondOrder.attempts || 0) >= OBJECTIVE_MIN_ACCURACY)
+      || (freshCorrect>=3 && freshCorrect/freshApplications.length>=OBJECTIVE_MIN_ACCURACY);
+    const targetOrder = profile.allowed.includes("third-order") && applicationSecure && progress.latestCorrect
       ? "third-order" : "second-order";
     const missingRequirements = [
       ...(progress.attempts < OBJECTIVE_MIN_ATTEMPTS ? ["more distinct questions"] : []),
@@ -89,6 +91,8 @@ export function objectivePracticePlan(objectives = [], evidenceModel = {}) {
       accuracy,
       demonstrated,
       targetOrder,
+      applicationSecure,
+      progressionReason:targetOrder==='third-order'?'Repeated independent application supports an integration attempt; this is not mastery.':!profile.allowed.includes('third-order')?'Practice application; the current source map does not yet establish supported integration.':'Build at least three correct independent applications at 80% or higher; confidence alone cannot advance the target.',
       missingRequirements,
       remaining,
       recovery,

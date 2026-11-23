@@ -938,3 +938,11 @@ it('offers pre-answer coaching only in untimed practice, never strict exams or r
  controller.session={...controller.session,purpose:'reserved-assessment'};rerender(<ExamSessionRunner sessionId="s1" userId="u1"/>);
  expect(host.querySelector('[aria-label="Help Me Reason"]')).toBeNull();unmount();
 });
+it('runs lecture checkpoints without teaching or correctness before submission, then reports the full assessment denominator',()=>{
+ const controller=baseController();controller.session.purpose='lecture-checkpoint';controller.session.title='Lecture checkpoint';controllerMock.mockReturnValue(controller);
+ const {host,rerender,unmount}=render(<ExamSessionRunner sessionId="s1" userId="u1"/>);
+ expect(host.textContent).toContain('Independent lecture checkpoint');expect(host.textContent).toContain('answers hidden until submission');
+ expect(host.querySelector('[aria-label="Help Me Reason"]')).toBeNull();expect(host.textContent).not.toContain('Check answer');expect(host.textContent).not.toContain('Because reasons.');
+ controller.session={...controller.session,status:'submitted',answers:[{questionId:'q1',value:'A'}]};rerender(<ExamSessionRunner sessionId="s1" userId="u1"/>);
+ expect(host.querySelector('[aria-label="Lecture checkpoint results"]').textContent).toContain('50%');expect(host.textContent).toContain('1 unanswered included');unmount();
+});

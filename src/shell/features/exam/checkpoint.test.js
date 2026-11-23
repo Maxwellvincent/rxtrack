@@ -109,8 +109,8 @@ it('honors objective-only exclusions while retaining a valid lecture attempt',as
  }finally{spy.mockRestore();}
 });
 
-it('saves a reserved assessment without publishing partial correctness or changing its deadline',async()=>{
- state.session.purpose='reserved-assessment';
+it.each(['reserved-assessment','lecture-checkpoint'])('saves %s without publishing partial correctness or changing its deadline',async purpose=>{
+ state.session.purpose=purpose;
  const result=await checkpointExamSession(null,'s1');
  expect(result.deadline).toBe(12345);expect(result.answers).toHaveLength(1);
  expect(result.assessmentSavedAt).toBeTypeOf('number');expect(result.progressSavedAt).toBeUndefined();

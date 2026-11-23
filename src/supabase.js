@@ -977,6 +977,13 @@ export async function listExamSessions(userId, blockId, { status } = {}) {
   return snap.docs.map(d => protectSessionScoring(d.data(), ratings));
 }
 
+/** One indexed lookup for this lecture; do not load the whole block on each lecture visit. */
+export async function listLectureCheckpoints(userId,blockId,lectureId){
+ if(!userId||!lectureId)return [];
+ const snap=await getDocs(query(collection(db,"users",userId,"examSessions"),where("lectureIds","array-contains",lectureId)));
+ return snap.docs.map(doc=>doc.data()).filter(session=>session.blockId===blockId&&session.purpose==='lecture-checkpoint');
+}
+
 export async function deleteExamSession(userId, sessionId) {
   if (!userId || !sessionId) return { ok: false, error: "missing session" };
   await deleteDoc(examSessionRef(userId, sessionId));

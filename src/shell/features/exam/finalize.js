@@ -89,7 +89,7 @@ export async function finalizeExamSession(
       .filter(({ question }) => question?.lectureId || question?.objectiveIds?.length)
       .map(({ question, answer }) => sessionEvidenceEvent(session, question, answer)));
     await recordAnswersBatchAwait(userId, pendingRows
-      .filter(({ question }) => question?.lectureId && (question?.sourceType !== "question-bank" || ["user-confirmed", "source-label-matched", "content-matched"].includes(question?.curriculumLinkStatus)))
+      .filter(({ question }) => question?.lectureId && (question?.sourceType !== "question-bank" || ["user-confirmed", "evidence-verified", "source-label-matched", "content-matched"].includes(question?.curriculumLinkStatus)))
       .map(({ questionId, question, wasCorrect }) => ({ lectureId: question.lectureId, wasCorrect, eventId: `exam:${session.sessionId}:${questionId}` })));
     await updateExamSessionTransaction(userId, sessionId, (current) => current ? {
       ...current,

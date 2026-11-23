@@ -11,7 +11,7 @@ export function sessionEvidenceEvent(session, question, answer) {
     ...assistanceFields(question),
     eventId: `exam:${session.sessionId}:${question.questionId}`,
     pendingLectureStats: session.status === "in_progress",
-    source: question.sourceType === "question-bank" ? "school-practice" : "integrated-exam",
+    source: session.purpose==='lecture-checkpoint' ? 'lecture-checkpoint' : question.sourceType === "question-bank" ? "school-practice" : "integrated-exam",
     sessionKey: session.sessionId,
     blockId: question.sourceBlockId || question.blockId || session.blockId,
     lectureId: question.lectureId || null, objectiveIds: question.objectiveIds || [],

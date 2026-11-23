@@ -1086,8 +1086,10 @@ describe("answer history through the next school quiz", () => {
   const answer = { source: "quiz", objectiveIds: [objective.id], questionKey: "fresh-application", sessionKey: "session-1", correct: true, confidence: 5, orderLevel: "second-order", reasoningVerified: true, at: 1 };
   const nextConfig = (evidenceModel, objectives = [objective], questionCount = 1) => schoolCalibratedConfig(buildQuizConfig({ objectives, evidenceModel, questionCount }).config);
 
-  it("carries a verified confident success into a required integration target, without granting mastery", () => {
-    const model = applyEvidence(null, answer);
+  it("requires repeated independent application before requesting integration, without granting mastery", () => {
+    const first=applyEvidence(null,answer);
+    expect(nextConfig(first).objectives[0]._targetOrder).toBe('second-order');
+    const model = [2,3].reduce((model,n)=>applyEvidence(model,{...answer,questionKey:`fresh-application-${n}`,at:n}),first);
     const config = nextConfig(model);
     expect(config.objectives[0]).toMatchObject({ id: objective.id, status: "developing", _targetOrder: "third-order" });
     expect(config.orderBlueprint.targets["third-order"]).toBe(1);

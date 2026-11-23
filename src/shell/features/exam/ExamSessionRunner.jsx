@@ -1,3 +1,5 @@
+import {isIndependentAssessment} from '../../../engine/reservedAssessment.js';
+import {LectureCheckpointReport} from '../lectures/LectureCheckpointReport.jsx';
 import {ConnectionFeedback} from '../../../ui/ConnectionFeedback.jsx';
 import {sessionEvidenceEvent} from "./sessionEvidence.js";
 import {markReasoningAssistance,saveReasoningCoach} from './reasoningCoachSession.js';
@@ -94,7 +96,8 @@ function MissedConcepts({ row }) {
 }
 
 function sessionLabel(session) {
-  if(session.purpose==='reserved-assessment')return 'Reserved assessment';
+  if(session.purpose==='lecture-checkpoint')return 'Lecture checkpoint';
+  if(isIndependentAssessment(session))return 'Reserved assessment';
   if (session.sourceType !== "question-bank") return "Exam";
   return /examsoft|esoft|imcq/i.test(session.sourceFile || "") ? "School quiz" : "Homework";
 }
@@ -260,9 +263,9 @@ function ChoiceList({questionId,...props}) {
   return <QuestionChoices key={questionId} {...props}/>;
 }
 function QuestionChoices({ choices, picked, revealed, correct, onPick, onCrossedChange, crossedChoices = [], locked = false, choiceColumns = [], choiceLayout = null }) {
-  const [crossed, setCrossed] = useState(() => new Set(crossedChoices));
   const crossedKey = crossedChoices.join("|");
-  useEffect(() => setCrossed(new Set(crossedChoices)), [crossedKey]); // eslint-disable-line react-hooks/exhaustive-deps -- key represents the complete ordered letter set
+  const [localCrossed,setCrossed]=useState(()=>({key:crossedKey,letters:new Set(crossedChoices)}));
+  const crossed=localCrossed.key===crossedKey?localCrossed.letters:new Set(crossedChoices);
   return (
     <div className="flex flex-col gap-1.5">
       {orderedChoiceEntries(choices).map(([letter, text]) => {
@@ -299,12 +302,10 @@ function QuestionChoices({ choices, picked, revealed, correct, onPick, onCrossed
           </button>
           {!revealed && !locked && <button type="button" aria-label={`${isCrossed ? "Restore" : "Cross out"} choice ${letter}`} aria-pressed={isCrossed} onClick={() => {
             if (!isCrossed && isPicked) onPick(null);
-            setCrossed(current => {
-              const next = new Set(current);
-              if (next.has(letter)) next.delete(letter); else next.add(letter);
-              onCrossedChange?.([...next].sort());
-              return next;
-            });
+            const next=new Set(crossed);
+            if(next.has(letter))next.delete(letter);else next.add(letter);
+            setCrossed({key:crossedKey,letters:next});
+            onCrossedChange?.([...next].sort());
           }} className="w-10 shrink-0 border-l border-border text-text-3 hover:bg-bg-2 hover:text-text-1 sm:w-11">{isCrossed ? "↩" : "×"}</button>}
           </div>
         );
@@ -418,13 +419,13 @@ function ExamFormat({ controller, submitOpts, objectivesById, lectureLabelsByLec
         </div><details className="relative" aria-label="Exam tools"><summary className="cursor-pointer rounded border border-border px-3 py-2 text-sm">⋯ Tools</summary><div className="absolute right-0 z-40 mt-2 w-[min(88vw,24rem)] space-y-2 rounded-lg border border-border bg-bg-elevated p-4 shadow-xl"><QuestionMeta question={q} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} /><div ref={setTextToolsTarget} /><p className="text-xs text-text-3">Click a highlighted phrase to remove only that highlight.</p></div></details></div>
       </div>
 
-      {session.purpose==='reserved-assessment' && <p className="text-xs text-text-2">Reserved timed assessment · answers hidden until submission · unanswered questions count in the score. Saving and resuming retains the original deadline.</p>}
+      {isIndependentAssessment(session) && <p className="text-xs text-text-2">{session.purpose==='lecture-checkpoint'?'Independent lecture checkpoint':'Reserved timed assessment'} · answers hidden until submission · unanswered questions count in the score. Saving and resuming retains the original deadline.</p>}
       <QuestionNavigator questions={questions} session={session} currentIndex={currentIndex} onSelect={setCurrentIndex} />
 
       {q && (
         <div className="rounded-lg bg-bg-elevated p-4 sm:p-5">
           <QuestionStem text={display.stem} questionId={q.questionId} toolsTarget={textToolsTarget} toolsInBody={false} />
-          {session.purpose==='reserved-assessment' ? <ReservedAssessmentFigure question={q}/> : <SchoolQuestionFigure question={q} userId={userId} />}
+          {isIndependentAssessment(session) ? <ReservedAssessmentFigure question={q}/> : <SchoolQuestionFigure question={q} userId={userId} />}
           {display.sourceNote && <p className="mb-3 text-[11px] text-text-3">Figure source: {display.sourceNote.replace(/^Underlying\s+(?:schematic|image|figure)\s+from\s+/i, "")}</p>}
           <ChoiceList
             questionId={q.questionId}
@@ -459,10 +460,10 @@ function ExamFormat({ controller, submitOpts, objectivesById, lectureLabelsByLec
         </div>
       </div>
       <div className="flex flex-col gap-2 rounded-lg border-2 border-border-strong bg-panel p-3 sm:flex-row sm:items-center sm:justify-between">
-        {session.purpose==='reserved-assessment' && saveExitAction}
-        <div><div className="text-xs font-bold text-text-1">{session.purpose==='reserved-assessment'?'Finish assessment':'Finished reviewing?'}</div><div className="font-mono text-[11px] text-text-3">{answeredCount} answered · {questions.length - answeredCount} {session.purpose==='reserved-assessment' ? "unanswered · counted in the assessment score" : session.sourceType === "question-bank" ? "unanswered · remain available in this set" : "return to reserve"}</div></div>
+        {isIndependentAssessment(session) && saveExitAction}
+        <div><div className="text-xs font-bold text-text-1">{isIndependentAssessment(session)?'Finish assessment':'Finished reviewing?'}</div><div className="font-mono text-[11px] text-text-3">{answeredCount} answered · {questions.length - answeredCount} {isIndependentAssessment(session) ? "unanswered · counted in the assessment score" : session.sourceType === "question-bank" ? "unanswered · remain available in this set" : "return to reserve"}</div></div>
         <Button variant="outline" disabled={submitting || session.fillStatus === "generating"} onClick={() => {
-          if (window.confirm(session.purpose==='reserved-assessment' ? `Submit this assessment? ${questions.length - answeredCount} unanswered questions will count in the assessment score.` : incompleteDiagnostic ? `Finish this incomplete practice set? ${questions.length}/${session.targetQuestionCount} requested questions were prepared; it will not count as a full diagnostic.` : `Submit ${answeredCount} answered questions for grading? ${questions.length - answeredCount} unanswered questions will not count against you.`)) submit(submitOpts);
+          if (window.confirm(isIndependentAssessment(session) ? `Submit this assessment? ${questions.length - answeredCount} unanswered questions will count in the assessment score.` : incompleteDiagnostic ? `Finish this incomplete practice set? ${questions.length}/${session.targetQuestionCount} requested questions were prepared; it will not count as a full diagnostic.` : `Submit ${answeredCount} answered questions for grading? ${questions.length - answeredCount} unanswered questions will not count against you.`)) submit(submitOpts);
         }}>{submitting ? "Grading answered questions…" : incompleteDiagnostic ? "Finish incomplete practice" : `Submit ${sessionLabel(session).toLowerCase()} · finish & grade`}</Button>
       </div>
     </div>
@@ -582,7 +583,7 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
           await controller.refetch?.();
         }} />
         {display.sourceNote && <p className="mb-3 text-[11px] text-text-3">Figure source: {display.sourceNote.replace(/^Underlying\s+(?:schematic|image|figure)\s+from\s+/i, "")}</p>}
-        {!revealed && session.purpose!=='reserved-assessment' && <HelpMeReason key={`${session.sessionId}:${q.questionId}`} question={q} userId={userId} initialState={q.reasoningCoach}
+        {!revealed && !isIndependentAssessment(session) && <HelpMeReason key={`${session.sessionId}:${q.questionId}`} question={q} userId={userId} initialState={q.reasoningCoach}
           onAssist={async()=>{const saved=await markReasoningAssistance(userId,session.sessionId,q.questionId);controller.syncCoaching?.(saved.questions.find(item=>item.questionId===q.questionId));}}
           onState={async coach=>{const saved=await saveReasoningCoach(userId,session.sessionId,q.questionId,coach);controller.syncCoaching?.(saved.questions.find(item=>item.questionId===q.questionId));}} />}
         {q.assistance?.used && <p className="mb-2 text-xs text-accent-text">Assisted answer · does not establish independent readiness.</p>}
@@ -666,7 +667,7 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
 // all. Now this always renders for a submitted format-"exam" session;
 // `tutorModeEnabled` only gates the `TutorPanelForQuestion` breakdown within
 // it, which is the actual preference-gated piece.
-function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, objectivesById, lectureLabelsByLectureId, onNavigateToLecture, onTargetedRetest, retestBusy }) {
+function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, objectivesById, lectureLabelsByLectureId, onNavigateToLecture, onTargetedRetest, retestBusy, checkpointConnectionLabels }) {
   const learningEvidence=useStoreResource(learnerEvidenceStore,userId);
   const [, refreshQuality] = useState(0);
   const [reviewDiagnostics,setReviewDiagnostics]=useState(()=>session.reviewDiagnostics || {});
@@ -677,12 +678,12 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, object
   const [filter, setFilter] = useState("all");
   const [worksheetError, setWorksheetError] = useState("");
   const answered = questions.filter((q) => pickedFor(session, q.questionId) != null);
-  const scoreableAnswered = answered.filter(q => !questionRatingsStore.isExcluded(userId, q));
+  const scoreableAnswered = answered.filter(q => !questionRatingsStore.isExcluded(userId, q) && !(session.scoringExcludedQuestionIds||[]).includes(q.questionId));
   const correctCount = scoreableAnswered.filter((q) => pickedFor(session, q.questionId) === q.correct).length;
   const incorrectCount = scoreableAnswered.length - correctCount;
   const unlinkedMisses = scoreableAnswered.filter(q => !q.lectureId && pickedFor(session, q.questionId) !== q.correct).length;
   const lectureRows = lectureReviewSummary(protectSessionScoring(session, questionRatingsStore.read(userId).ratings), lectureLabelsByLectureId, objectivesById);
-  const scoreDenominator=session.purpose==='reserved-assessment' ? questions.filter(q=>!questionRatingsStore.isExcluded(userId,q) && !(session.scoringExcludedQuestionIds || []).includes(q.questionId)).length : scoreableAnswered.length;
+  const scoreDenominator=isIndependentAssessment(session) ? questions.filter(q=>!questionRatingsStore.isExcluded(userId,q) && !(session.scoringExcludedQuestionIds || []).includes(q.questionId)).length : scoreableAnswered.length;
   const percent = scoreDenominator ? Math.round(correctCount / scoreDenominator * 100) : 0;
   const targetQuestionCount = Math.max(questions.length, Number(session.targetQuestionCount) || questions.length);
   const incompleteDiagnostic = session.sourceType !== "question-bank" && targetQuestionCount > questions.length;
@@ -729,7 +730,7 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, object
       <div className="flex items-center justify-between">
         <div className="font-mono text-[12px] uppercase tracking-wider text-accent-text">Review</div>
         <div data-testid="exam-score" className="font-mono text-sm font-bold text-text-1">
-          {correctCount}/{scoreableAnswered.length} correct · {percent}%{incompleteDiagnostic?' prepared-item accuracy':''}{answered.length > scoreableAnswered.length ? ` · ${answered.length - scoreableAnswered.length} excluded` : ""}
+          {correctCount}/{scoreDenominator} correct · {percent}%{incompleteDiagnostic?' prepared-item accuracy':''}{answered.length > scoreableAnswered.length ? ` · ${answered.length - scoreableAnswered.length} excluded` : ""}
         </div>
       </div>
       {incompleteDiagnostic&&<div role="alert" className="rounded-lg border border-warn/50 bg-bg-elevated p-3 text-sm text-text-1"><strong>Incomplete diagnostic · {questions.length}/{targetQuestionCount} questions prepared.</strong><p className="mt-1 text-text-2">This attempt is reviewable practice, not a full diagnostic score, and is excluded from Exam accuracy and readiness.</p></div>}
@@ -752,8 +753,9 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, object
         <p className="mt-1 text-xs text-text-3">Exports {incorrectCount} missed questions with your saved selection, correct answer, explanation, objective, and any optional post-exam error classification.</p>
         {worksheetError && <p role="alert" className="mt-2 text-xs text-bad">{worksheetError}</p>}
       </div>}
+      <LectureCheckpointReport session={session} objectivesById={objectivesById} connectionLabels={checkpointConnectionLabels} ratings={questionRatingsStore.read(userId).ratings} />
       <ReservedAssessmentReport session={session} excludedIds={questions.filter(q=>questionRatingsStore.isExcluded(userId,q)).map(q=>q.questionId)} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} />
-      {session.purpose!=='reserved-assessment' && <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+      {!isIndependentAssessment(session) && <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         {[[incompleteDiagnostic?"Prepared accuracy":"Score", `${percent}%`], ["Correct", correctCount], ["Incorrect", incorrectCount], [incompleteDiagnostic?"Missing":"Unused", incompleteDiagnostic?missingQuestionCount:questions.length - answered.length]].map(([label, value]) => <div key={label} className="rounded-lg border border-border bg-panel p-3"><div className="font-mono text-[10px] uppercase text-text-3">{label}</div><div className="text-lg font-bold text-text-1">{value}</div></div>)}
       </div>}
       <div className="flex flex-wrap gap-2">
@@ -816,6 +818,7 @@ export function ExamSessionRunner({
   objectivesById = {},
   onExit,
   onSubmitted = null,
+  checkpointConnectionLabels = {},
   onRecoverPreparation,
   onTargetedRetest,
   retestBusy = false,
@@ -905,7 +908,7 @@ export function ExamSessionRunner({
         <SessionTitle session={session} />
         <div className="sticky top-2 z-10 flex items-center justify-between rounded-lg border border-border bg-bg-elevated p-2 shadow-sm"><div className="text-sm font-bold text-text-1">{incompleteDiagnostic?'Incomplete practice saved.':`Submitted. ${sessionLabel(session)} saved and graded.`}</div>{onExit && <Button onClick={onExit}>Done</Button>}</div>
         {(session.questions || []).length > 0 && (
-          <SubmittedExamReview onTargetedRetest={onTargetedRetest} retestBusy={retestBusy} session={session} tutorModeEnabled={tutorModeEnabled} callAI={callAI} userId={userId} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} onNavigateToLecture={onNavigateToLecture} />
+          <SubmittedExamReview checkpointConnectionLabels={checkpointConnectionLabels} onTargetedRetest={onTargetedRetest} retestBusy={retestBusy} session={session} tutorModeEnabled={tutorModeEnabled} callAI={callAI} userId={userId} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} onNavigateToLecture={onNavigateToLecture} />
         )}
       </div>
     );

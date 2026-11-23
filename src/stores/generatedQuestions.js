@@ -166,7 +166,7 @@ export function addQuestions(userId, lectureId, newQuestions) {
 
 /** Seen is separate from answered: displaying an item never awards performance credit. */
 export function isQuestionUnseen(question) {
-  return (Number(question?.timesAnswered) || 0) === 0 && !question?.firstPresentedAt;
+  return (Number(question?.timesAnswered) || 0) === 0 && !question?.firstPresentedAt && !question?.checkpointAssignedAt;
 }
 
 export function recordPresentation(userId, lectureId, stem) {
@@ -181,6 +181,14 @@ export function recordPresentation(userId, lectureId, stem) {
   const next = { ...current, [lectureId]: { ...entry, questions } };
   queuePersist(userId, next, current);
   return next;
+}
+
+/** Reserve issued checkpoint items without recording an answer or claiming they were displayed. */
+export function reserveCheckpointQuestions(userId,lectureId,items,sessionId,at=Date.now()){
+ const current=read(userId),entry=current[lectureId];if(!entry)return current;
+ const stems=new Set(items.map(q=>normalizedStem(q.stem)));
+ const questions=entry.questions.map(q=>stems.has(normalizedStem(q.stem))?{...q,checkpointAssignedAt:q.checkpointAssignedAt||at,checkpointSessionId:q.checkpointSessionId||sessionId}:q);
+ const next={...current,[lectureId]:{...entry,questions}};queuePersist(userId,next,current);return next;
 }
 
 /** Record reserve usage so future quizzes serve unseen questions first. */

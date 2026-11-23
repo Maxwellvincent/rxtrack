@@ -176,9 +176,9 @@ it('does not fill the whole set from cached questions for an already-filled obje
  expect(result.questions.flatMap(question=>question.objectiveIds)).toEqual(['o0','o1']);
  expect(generate.mock.calls[0][0].objectiveAllocation.map(target=>target.id)).toEqual(['o1']);
 });
-it('requires the confidence-earned third-order target for new and saved exam questions',async()=>{
+it('requires the application-earned third-order target for new and saved exam questions',async()=>{
  const storage=pool();storage.ready.mockResolvedValue([ownedQuestion('Stored lower-order question','o')]);
- const evidenceModel={objectives:{o:{attempts:1,correct:1,recent:[true],lastFreshAnswer:{correct:true,confidence:5,reasoningVerified:true,orderLevel:'second-order'}}}};
+ const evidenceModel={objectives:{o:{attempts:3,correct:3,recent:[true,true,true],orderLevels:{'second-order':{attempts:3,correct:3}}}}};
  generate.mockImplementation(async config=>({questions:[ownedQuestion('Fresh harder question','o',config.objectiveAllocation[0]._targetOrder)]}));
  const result=await generateExamQuestions({...args,allocation:{l1:1},objectivesByLecture:{l1:[{id:'o',objective:'Predict downstream consequences of altering a regulatory pathway'}]}},{pool:storage,evidenceModel});
  expect(result.cacheHits).toBe(0);
@@ -187,7 +187,7 @@ it('requires the confidence-earned third-order target for new and saved exam que
 });
 it('does not accept a lower-order generated substitute for the current target',async()=>{
  const storage=pool();
- const evidenceModel={objectives:{o:{attempts:1,correct:1,recent:[true],lastFreshAnswer:{correct:true,confidence:5,reasoningVerified:true,orderLevel:'second-order'}}}};
+ const evidenceModel={objectives:{o:{attempts:3,correct:3,recent:[true,true,true],orderLevels:{'second-order':{attempts:3,correct:3}}}}};
  generate.mockResolvedValue({questions:[ownedQuestion('Lower-order substitute','o')]});
  const result=await generateExamQuestions({...args,allocation:{l1:1},objectivesByLecture:{l1:[{id:'o',objective:'Predict downstream consequences of altering a regulatory pathway'}]}},{pool:storage,evidenceModel});
  expect(result.questions).toEqual([]);expect(storage.save).not.toHaveBeenCalled();

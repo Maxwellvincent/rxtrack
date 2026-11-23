@@ -19,3 +19,4 @@ it('prioritizes explicit lecture numbers without confusing week or block numbers
  expect(scheduleLectureCandidates({sourceSection:'NB 28 / NB 29',sourceTitle:'Week 12 NB2 Homework'},local).map(l=>l.id)).toEqual(['28','29']);
  expect(curriculumSourceContext({sourceTitle:'Week 12 NB2 Homework'}).lectureNumbers).toEqual([]);
 });
+it('keeps DLA identity separate from the same numbered lecture',()=>{const local=[{id:'lecture',lectureNumber:17,lectureTitle:'NB 17 Other topic'},{id:'dla',lectureType:'DLA',lectureTitle:'NB DLA 17 Sexual Dysfunctions - After NB 55'}];expect(scheduleLectureCandidates({sourceSectionTitle:'DLA 17'},local).map(l=>l.id)).toEqual(['dla']);expect(scheduleLectureCandidates({sourceSection:'NB 17'},local).map(l=>l.id)).toEqual(['lecture']);});

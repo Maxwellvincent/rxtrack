@@ -65,7 +65,7 @@ describe("evidence-driven objective progression", () => {
   });
   it("requests integration after successful separately reviewed application", () => {
     const [row] = objectivePracticePlan([{ id: "o1", bloom_level: 3 }], { objectives: { o1: {
-      attempts: 2, correct: 2, recent: [true,true], orderLevels: { "second-order": { attempts: 2, correct: 2 } },
+      attempts: 3, correct: 3, recent: [true,true,true], orderLevels: { "second-order": { attempts: 3, correct: 3 } },
     } } }).rows;
     expect(row.targetOrder).toBe("third-order");
     expect(row.demonstrated).toEqual(["second-order"]);
@@ -84,7 +84,7 @@ describe("evidence-driven objective progression", () => {
 });
 
 it('advances supported integration after recent recovery without erasing earlier misses',()=>{
- const [row]=objectivePracticePlan([{id:'o',bloom_level:3}],{objectives:{o:{attempts:10,correct:5,recent:[true,true,true,true,true],orderLevels:{'second-order':{attempts:10,correct:5}}}}}).rows;
+ const [row]=objectivePracticePlan([{id:'o',bloom_level:3}],{objectives:{o:{attempts:10,correct:5,recent:[true,true,true,true,true],recentFreshAnswers:Array.from({length:5},(_,i)=>({questionKey:`fresh-${i}`,correct:true,reasoningVerified:true,orderLevel:'second-order'})),orderLevels:{'second-order':{attempts:10,correct:5}}}}}).rows;
  expect(row.targetOrder).toBe('third-order');expect(row.ready).toBe(false);expect(row.accuracy).toBe(.5);
 });
 it('does not promote to integration on one correct application',()=>{
@@ -92,10 +92,10 @@ it('does not promote to integration on one correct application',()=>{
  expect(row.targetOrder).toBe('second-order');
 });
 
-it('boosts a fresh verified confident application without granting mastery',()=>{
+it('does not advance from one confident application without repeated independent evidence',()=>{
  const entry={attempts:1,correct:1,recent:[true],lastFreshAnswer:{correct:true,confidence:5,orderLevel:'second-order',reasoningVerified:true}};
  const plan=e=>objectivePracticePlan([{id:'boost',bloom_level:3}],{objectives:{boost:e}}).rows[0];
- expect(plan(entry)).toMatchObject({targetOrder:'third-order',ready:false});
+ expect(plan(entry)).toMatchObject({targetOrder:'second-order',ready:false});
  expect(plan({...entry,lastFreshAnswer:{...entry.lastFreshAnswer,correct:false}}).targetOrder).toBe('second-order');
  expect(plan({...entry,lastFreshAnswer:{...entry.lastFreshAnswer,reasoningVerified:false}}).targetOrder).toBe('second-order');
  expect(plan({...entry,lastFreshAnswer:{...entry.lastFreshAnswer,confidence:4}}).targetOrder).toBe('second-order');

@@ -1,8 +1,11 @@
+import {LectureCheckpoint} from './LectureCheckpoint.jsx';
+import {LectureProgression,useLectureProgressionNotice} from './LectureProgression.jsx';
+import {lecturePracticeTargets,lectureProgressionPlan} from './lecturePracticeTargets.js';
 import {ObjectiveConnections,connectionMapKey} from './ObjectiveConnections.jsx';
 import {objectivesWithConnectionGaps} from '../../../engine/objectiveConnections.js';
 import {UnfinishedLectureQuizzes} from "./UnfinishedLectureQuizzes.jsx";
 import {MissedQuestions} from '../../../ui/MissedQuestions.jsx';
-import {repairTransferPlan,repairTransferPrompt,repairTransferRequest} from "../../../engine/repairTransfer.js";
+import {repairTransferPlan,repairTransferPrompt} from "../../../engine/repairTransfer.js";
 import {isIndependentAttempt} from '../../../engine/practiceAssistance.js';
 import {ReviewSourceStatus} from './ReviewSourceStatus.jsx';
 import {attachReviewSources,reviewSourcePrompt} from '../../../engine/reviewSourceContext.js';
@@ -37,7 +40,7 @@ import { objectivesForWeakConcept, weakConceptsForLectureView } from "./lectureW
  * upload path survives here as the fallback for chunk-light lectures — which is
  * most of them, since only the active term keeps chunks in localStorage.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../../../ui/Button.jsx";
 import { callAIJSON } from "../../../aiClient.js";
 import { withDeadline } from "../../../asyncDeadline.js";
@@ -312,6 +315,8 @@ export function MentalModelOverview({ model, onAtomClick, children }) {
   </div>;
 }
 
+const CheckpointRunner=lazy(()=>import('../exam/ExamSessionRunner.jsx').then(module=>({default:module.ExamSessionRunner})));
+
 const pct = (value) => value == null ? "—" : `${Math.round(value * 100)}%`;
 const seconds = (ms) => ms == null ? "—" : `${Math.round(ms / 1000)}s`;
 
@@ -399,6 +404,8 @@ export function LectureStudyFlow({
   const [figures, setFigures] = useState(null); // in-review, not yet uploaded
   const [stage, setStage] = useState("loading"); // loading | upload | extract | quiz
   const [questions, setQuestions] = useState(null);
+  const [checkpointSession,setCheckpointSession]=useState(null);
+  const [checkpointPreparing,setCheckpointPreparing]=useState(false);
   // Completion belongs to a particular generated question set. A bare boolean can be written
   // by an older AtomQuiz after a replacement quiz has already started, which is how a fresh
   // question 1/10 could appear above the previous quiz's "complete" banner.
@@ -1385,6 +1392,10 @@ export function LectureStudyFlow({
       .sort((a, b) => rank(a) - rank(b));
   }, [lectureObjectives, focusObjectiveIds, learnerEvidence.data]);
 
+  const practiceTargets=useMemo(()=>lecturePracticeTargets(orderedObjectives,relationshipResource.data,learnerEvidence.data||{},connectionScope),[orderedObjectives,relationshipResource.data,learnerEvidence.data,connectionScope]);
+  const progressionPlan=useMemo(()=>lectureProgressionPlan(practiceTargets,learnerEvidence.data),[practiceTargets,learnerEvidence.data]);
+  const progressionNotice=useLectureProgressionNotice(progressionPlan,`${userId}:${lecture?.id}`,!learnerEvidence.loading&&!relationshipResource.loading);
+
   const [, setPreparationDetails] = useState(null);
   useEffect(() => { setPreparationDetails(readQuestionDiagnostics(userId, lecture?.id)); }, [userId, lecture?.id]);
   const preparationRunRef = useRef(0);
@@ -1412,10 +1423,10 @@ export function LectureStudyFlow({
   }, [lecture?.id, userId]);
 
   const runQuiz = useCallback(async (count, difficulty, startingQuestions = [], continueSession = false, retestObjectives = null, transferFocus = "") => {
+    if(checkpointPreparing)return;
     const connectionRows=repairTransferPlan(retestObjectives?.length?retestObjectives:orderedObjectives,learnerEvidence.data||{}).filter(row=>row.state!=="waiting");
-    const connectionOrders=new Map(repairTransferRequest(connectionRows).objectives.map(objective=>[objective.id,objective._transferOrder]));
     transferFocus=transferFocus||repairTransferPrompt(connectionRows.slice(0,3));
-    const quizObjectives = objectivesWithConnectionGaps((retestObjectives?.length ? objectivesWithPracticeEvidence(retestObjectives, learnerEvidence.data) : orderedObjectives),relationshipResource.data,learnerEvidence.data||{},connectionScope).map(objective=>!objective._connectionTargetIds?.length&&connectionOrders.has(objective.id)?{...objective,_transferOrder:connectionOrders.get(objective.id),_targetOrder:connectionOrders.get(objective.id)}:objective);
+    const quizObjectives = lecturePracticeTargets(retestObjectives?.length ? objectivesWithPracticeEvidence(retestObjectives,learnerEvidence.data) : orderedObjectives,relationshipResource.data,learnerEvidence.data||{},connectionScope);
     if (!quizObjectives.length && mismatchedLectureObjectives.length) {
       setError("This lecture needs its objective links reviewed before questions can be prepared. Open More → Admin diagnostics → Objective source and lecture links.");
       return;
@@ -1694,7 +1705,7 @@ export function LectureStudyFlow({
     } catch (error) {
       if (preparationRunRef.current === runId) { setBusy(""); setQuizPreparation(null); setError(error?.message || "Quiz preparation failed. Please retry."); }
     }
-  }, [orderedObjectives, title, text, blockId, atoms, userId, lecture?.id, logActivity, startQuizSession, schoolExemplars, schoolExamplesLoading, clinicalCorrelateLibrary, objectiveById, learnerEvidence.data, mismatchedLectureObjectives.length, questionBanksRes.data, questionBankMetaRes.data, lecture, connectionScope, relationshipResource.data]);
+  }, [checkpointPreparing, orderedObjectives, title, text, blockId, atoms, userId, lecture?.id, logActivity, startQuizSession, schoolExemplars, schoolExamplesLoading, clinicalCorrelateLibrary, objectiveById, learnerEvidence.data, mismatchedLectureObjectives.length, questionBanksRes.data, questionBankMetaRes.data, lecture, connectionScope, relationshipResource.data]);
 
   // Prepare at most one small reserve batch per active quiz, never on page load.
   // Background work only saves unseen questions; it does not create a session or grade answers.
@@ -1780,7 +1791,7 @@ export function LectureStudyFlow({
         </span>
       </span>
       <span className="font-mono text-[12px] text-text-3">browse</span>
-      <input type="file" multiple webkitdirectory="" directory="" className="hidden" disabled={!!busy}
+      <input type="file" multiple webkitdirectory="" directory="" className="hidden" disabled={!!busy||checkpointPreparing}
         onChange={(e) => { const f = [...(e.target.files || [])]; e.target.value = ""; onFigures(f); }} />
     </label>
   );
@@ -1874,7 +1885,7 @@ export function LectureStudyFlow({
           blockName={blockName}
           lectureNumber={lecture?.lectureNumber ?? lecture?.number ?? null}
           userId={userId}
-          objectiveReport={<ObjectiveLearningReport objectives={lectureObjectives} evidence={learnerEvidence.data || {}} records={completedQuizRecords} busy={!!busy}
+          objectiveReport={<ObjectiveLearningReport objectives={lectureObjectives} evidence={learnerEvidence.data || {}} records={completedQuizRecords} busy={!!busy||checkpointPreparing}
             onReviewNotes={() => { setQuestions(null); setQuizResumeState(null); }}
             onRetest={({count,objectives,focusNotes})=>runQuiz(count, "medium", [], false, objectives,focusNotes)} />}
           expectedCount={activeRequestedCount || questions.length}
@@ -1960,7 +1971,7 @@ export function LectureStudyFlow({
         <div className="mt-4 flex items-center gap-3">
           {hasNext ? (
             <>
-              <Button onClick={() => runRound(round + 1)} disabled={!!busy}>
+              <Button onClick={() => runRound(round + 1)} disabled={!!busy||checkpointPreparing}>
                 {busyLabel || `▸ Next round (${Math.min(ROUND_SIZE, atoms.length - (round + 1) * ROUND_SIZE)} atoms)`}
               </Button>
               <button onClick={() => setQuestions(null)} className="font-mono text-[12px] text-text-3 hover:text-text-1">
@@ -1979,6 +1990,8 @@ export function LectureStudyFlow({
       </div>
     );
   }
+
+  if(checkpointSession)return <main className="mx-auto max-w-[1120px] px-4 py-6"><Suspense fallback={<p>Loading independent checkpoint…</p>}><CheckpointRunner sessionId={checkpointSession} userId={userId} blockId={blockId} blockName={blockName} lectures={[lecture]} objectivesById={Object.fromEntries(lectureObjectives.map(o=>[o.id,o]))} lectureLabelsByLectureId={{[lecture.id]:title}} checkpointConnectionLabels={Object.fromEntries(relationshipRows.map(row=>[row.id,row.label]))} onExit={()=>setCheckpointSession(null)} /></Suspense></main>;
 
   const accuracyPct = qStats.accuracy == null ? 0 : Math.round(qStats.accuracy * 100);
 
@@ -2045,7 +2058,7 @@ export function LectureStudyFlow({
                   /* Resets only the in-session round bookmark (where the next Study pass picks
                      up) — atom mastery and question counts are the lecture's real history and
                      deliberately survive "start over", same as they always have. */
-                  disabled={!!busy}
+                  disabled={!!busy||checkpointPreparing}
                   className="font-mono text-[12px] text-text-3 underline decoration-dotted hover:text-text-1"
                 >
                   Restart study-round bookmark
@@ -2097,11 +2110,11 @@ export function LectureStudyFlow({
           </details>}
         </section>
       )}
-      {!questions && <UnfinishedLectureQuizzes sessions={savedLectureQuizzes} busy={!!busy} onResume={resumeLectureQuiz} onDiscard={session=>{lectureQuizSessionsStore.remove(userId,session.id);setSavedLectureQuizzes(lectureQuizSessionsStore.read(userId,lecture?.id,blockId).filter(item=>item.id!==session.id));}} />}
+      {!questions && <UnfinishedLectureQuizzes sessions={savedLectureQuizzes} busy={!!busy||checkpointPreparing} onResume={resumeLectureQuiz} onDiscard={session=>{lectureQuizSessionsStore.remove(userId,session.id);setSavedLectureQuizzes(lectureQuizSessionsStore.read(userId,lecture?.id,blockId).filter(item=>item.id!==session.id));}} />}
 
       </LecturePanel>
       <LecturePanel name="learn" workspace={workspace} visited={visitedWorkspaces} aria-label="Learn this lecture">
-      <ObjectiveConnections key={connectionMapKey(connectionScope)} userId={userId} catalog={relationshipResource.data||{}} evidence={learnerEvidence.data||{}} scope={connectionScope} loading={relationshipResource.loading||learnerEvidence.loading} error={relationshipResource.error} enabled={workspace==='learn'} busy={!!busy||!!questions} onPractice={({count,objectives,focusNotes})=>runQuiz(count,resolveDefaultDifficulty(qStats.accuracy),[],false,objectives,focusNotes)} />
+      <ObjectiveConnections key={connectionMapKey(connectionScope)} userId={userId} catalog={relationshipResource.data||{}} evidence={learnerEvidence.data||{}} scope={connectionScope} loading={relationshipResource.loading||learnerEvidence.loading} error={relationshipResource.error} enabled={workspace==='learn'} busy={!!busy||checkpointPreparing||!!questions} onPractice={({count,objectives,focusNotes})=>runQuiz(count,resolveDefaultDifficulty(qStats.accuracy),[],false,objectives,focusNotes)} />
       <details id="lecture-learn" open={tutorSession?.status === "active"} className="mt-4 rounded-xl border border-border bg-bg-elevated">
         <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-text-1">Guided tutor <span className="ml-2 font-normal text-text-3">{tutorSession?.status === "active" ? "In progress" : "Open to learn this lecture"}</span></summary>
       <div className="desk-tutor-launcher rounded-b-xl border-t border-accent/30 bg-accent/5 px-3 py-3 sm:flex sm:items-center sm:justify-between sm:gap-4">
@@ -2333,11 +2346,13 @@ export function LectureStudyFlow({
 
       </LecturePanel>
       <LecturePanel name="practice" workspace={workspace} visited={visitedWorkspaces} aria-label="Continue lecture practice">
-      {!savedLectureQuizzes.length && recentLearningRecords.length>0 && <div className="my-3"><ObjectiveLearningReport objectives={lectureObjectives} evidence={learnerEvidence.data || {}} records={recentLearningRecords} busy={!!busy} onRetest={({count,objectives,focusNotes})=>runQuiz(count,"medium",[],false,objectives,focusNotes)} /></div>}
+      {!savedLectureQuizzes.length && recentLearningRecords.length>0 && <div className="my-3"><ObjectiveLearningReport objectives={lectureObjectives} evidence={learnerEvidence.data || {}} records={recentLearningRecords} busy={!!busy||checkpointPreparing} onRetest={({count,objectives,focusNotes})=>runQuiz(count,"medium",[],false,objectives,focusNotes)} /></div>}
 
       </LecturePanel>
       <LecturePanel name="practice" workspace={workspace} visited={visitedWorkspaces} aria-label="Practice this lecture">
-      <MissedQuestions evidence={learnerEvidence.data || {}} blockId={blockId} lectureId={lecture?.id} lectures={[lecture]} busy={!!busy || !!questions} onReplay={items=>{setAdHocQuiz(true);startQuizSession(items);}} onStudy={()=>setWorkspace('learn')} />
+      <LectureProgression plan={progressionPlan} notice={progressionNotice} />
+      <LectureCheckpoint userId={userId} lecture={lecture} blockId={blockId} busy={!!busy||checkpointPreparing||!!questions||schoolExamplesLoading||learnerEvidence.loading} onOpenSession={setCheckpointSession} onWorkingChange={setCheckpointPreparing} config={{objectives:objectivesWithConnectionGaps(orderedObjectives,relationshipResource.data,learnerEvidence.data||{},connectionScope),evidenceModel:learnerEvidence.data,lectureText:text,sourcePages:connectionScope.pages,atoms,exemplars:schoolExemplars,difficulty:resolveDefaultDifficulty(qStats.accuracy)}} />
+      <MissedQuestions evidence={learnerEvidence.data || {}} blockId={blockId} lectureId={lecture?.id} lectures={[lecture]} busy={!!busy||checkpointPreparing || !!questions} onReplay={items=>{setAdHocQuiz(true);startQuizSession(items);}} onStudy={()=>setWorkspace('learn')} />
       <div className="my-3 flex flex-wrap justify-between gap-2"><h2 className="text-lg font-semibold">Test this lecture</h2><button type="button" className="text-sm font-semibold text-accent underline" onClick={()=>setWorkspace("learn")}>Study objective connections →</button><p className="text-sm text-text-3">{qStats.loading ? "Loading practice history…" : qStats.answered ? `${qStats.answered} answered · ${qStats.correct} correct · ${qStats.answered - qStats.correct} missed · ${accuracyPct}%` : "No questions answered yet"}</p></div>
       {lectureWeakConcepts.length > 0 && <section aria-label="Weak concepts in this lecture" className="my-4 rounded-xl border border-warn/40 bg-warn/5 p-4">
         <div className="flex flex-wrap items-start justify-between gap-2">
@@ -2354,7 +2369,7 @@ export function LectureStudyFlow({
                 <p className="mt-1 text-xs text-text-3">{concept.misses} missed · {concept.correct} correct{concept.lastOutcome ? ` · last ${concept.lastOutcome}` : ""}</p>
                 <p className="mt-1 text-xs text-text-3">Recovery: {Math.min(4, concept.consecutiveCorrect || 0)}/4 consecutive fresh answers without help. At 4, this leaves the active list; original misses stay in history.</p>
               </div>
-              <Button variant="outline" disabled={!!busy || !targets.length} onClick={() => runQuiz(5, resolveDefaultDifficulty(qStats.accuracy), [], false, targets, `Test this weak concept specifically: ${concept.concept}. Use fresh second- or third-order applications tied to this lecture's linked objectives.`)}>
+              <Button variant="outline" disabled={!!busy||checkpointPreparing || !targets.length} onClick={() => runQuiz(5, resolveDefaultDifficulty(qStats.accuracy), [], false, targets, `Test this weak concept specifically: ${concept.concept}. Use fresh second- or third-order applications tied to this lecture's linked objectives.`)}>
                 Quiz this concept · 5
               </Button>
               {!targets.length && <p className="w-full text-xs text-warn">This concept needs a current objective link before targeted questions can be generated.</p>}
@@ -2367,8 +2382,8 @@ export function LectureStudyFlow({
         <p className="mt-1 text-text-2">Your ready questions are saved. Finish or exit the current quiz before retrying the remaining {pendingQuiz.count - pendingQuiz.questions.length} slots, or choose a shorter quiz.</p>
         <details className="mt-2 text-xs text-text-3"><summary className="cursor-pointer">Why preparation stopped</summary><p className="mt-1">{pendingQuiz.reason}</p></details>
         <div className="mt-3 flex flex-wrap gap-2">
-          <Button onClick={() => runQuiz(pendingQuiz.count, pendingQuiz.difficulty, pendingQuiz.questions)} disabled={!!busy || !!questions}>Retry missing questions</Button>
-          <Button onClick={() => { setAdHocQuiz(true); startQuizSession(pendingQuiz.questions); setPendingQuiz(null); }} disabled={!!busy || !!questions}>Start with {pendingQuiz.questions.length}</Button>
+          <Button onClick={() => runQuiz(pendingQuiz.count, pendingQuiz.difficulty, pendingQuiz.questions)} disabled={!!busy||checkpointPreparing || !!questions}>Retry missing questions</Button>
+          <Button onClick={() => { setAdHocQuiz(true); startQuizSession(pendingQuiz.questions); setPendingQuiz(null); }} disabled={!!busy||checkpointPreparing || !!questions}>Start with {pendingQuiz.questions.length}</Button>
         </div>
       </div>}
       {objectiveNotice && <p role="status" className="my-2 text-sm text-good">{objectiveNotice}</p>}
@@ -2377,7 +2392,7 @@ export function LectureStudyFlow({
           <span className="text-sm text-text-2">{objectiveResource.loading ? "Syncing lecture objectives…" : mismatchedLectureObjectives.length
             ? "Some objective links need review before this lecture can be quizzed. Use More → Admin diagnostics → Objective source and lecture links."
             : "No objectives linked yet. Recover them from the saved lecture without replacing your atoms."}</span>
-          {!mismatchedLectureObjectives.length && <Button variant="outline" disabled={!!busy || objectiveResource.loading} onClick={async () => {
+          {!mismatchedLectureObjectives.length && <Button variant="outline" disabled={!!busy||checkpointPreparing || objectiveResource.loading} onClick={async () => {
             setBusy("Recovering lecture objectives…"); setError("");
             try { await recoverObjectives(text); }
             catch (e) { setError(e?.message || String(e)); }
@@ -2393,14 +2408,14 @@ export function LectureStudyFlow({
             No stored text for this lecture — choose its .md {busy ? "" : "(from pdf2md)"}
           </span>
           <span className="font-mono text-[12px] text-text-3">{busy || "browse"}</span>
-          <input type="file" accept=".md,.markdown,.txt" className="hidden" disabled={!!busy}
+          <input type="file" accept=".md,.markdown,.txt" className="hidden" disabled={!!busy||checkpointPreparing}
             onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; onFile(f); }} />
         </label>
       )}
 
       {stage === "extract" && (
         <div className="mb-4 flex items-center gap-3">
-          <Button onClick={() => runExtract(text)} disabled={!!busy}>
+          <Button onClick={() => runExtract(text)} disabled={!!busy||checkpointPreparing}>
             {busyLabel || "▸ Extract the signal"}
           </Button>
           <span className="text-[12px] text-text-3">definitions, mechanisms, relationships, results — fluff dropped</span>
@@ -2416,7 +2431,7 @@ export function LectureStudyFlow({
             <div className="flex flex-wrap items-center gap-3">
               <Button variant={savedLectureQuizzes.length || recentLearningRecords.length ? "outline" : "primary"}
                 onClick={() => { setQuizPreparation(null); setQuizPicker({ count: 15, difficulty: resolveDefaultDifficulty(qStats.accuracy) }); }}
-                disabled={!!busy}
+                disabled={!!busy||checkpointPreparing}
               >
                 {busyLabel || "▸ Quiz this lecture"}
               </Button>
@@ -2469,7 +2484,7 @@ export function LectureStudyFlow({
                     setQuizPicker(null);
                     runQuiz(count, difficulty);
                   }}
-                  disabled={!!busy}
+                  disabled={!!busy||checkpointPreparing}
                 >
                   {busyLabel || `Start adaptive ${quizPicker.count}-question quiz`}
                 </Button>
@@ -2490,7 +2505,7 @@ export function LectureStudyFlow({
                   <div className="mt-3 flex flex-wrap items-center gap-3">
                     <Button
                       variant="outline"
-                      disabled={!!busy}
+                      disabled={!!busy||checkpointPreparing}
                       onClick={() => {
                         const count = quizPicker.count;
                         setQuizPicker(null);
@@ -2538,7 +2553,7 @@ export function LectureStudyFlow({
           {/* Tagging */}
           {lectureObjectives.length > 0 && untagged > 0 && (
             <div className="flex items-center gap-3">
-              <Button variant="outline" onClick={runTagging} disabled={!!busy}>
+              <Button variant="outline" onClick={runTagging} disabled={!!busy||checkpointPreparing}>
                 ◇ Tag atoms to objectives
               </Button>
               <span className="text-[12px] text-text-3">
@@ -2600,7 +2615,7 @@ export function LectureStudyFlow({
           </summary>
           {!mentalModel && !generatingModel && (
             <div className="flex items-center gap-3">
-              <Button variant="outline" onClick={generateModel} disabled={!!busy}>
+              <Button variant="outline" onClick={generateModel} disabled={!!busy||checkpointPreparing}>
                 ◇ Build mental model
               </Button>
               <span className="text-[12px] text-text-3">
@@ -2616,7 +2631,7 @@ export function LectureStudyFlow({
               <ModelSection title="Model impact & review tracking">
                 <MentalModelImpact entry={impactEntry} onMarkReviewed={markModelReviewed} />
               </ModelSection>
-              <button onClick={generateModel} disabled={!!busy} className="mt-3 min-h-11 text-sm text-text-2 underline decoration-dotted">
+              <button onClick={generateModel} disabled={!!busy||checkpointPreparing} className="mt-3 min-h-11 text-sm text-text-2 underline decoration-dotted">
                 Regenerate reference model
               </button>
             </MentalModelOverview>

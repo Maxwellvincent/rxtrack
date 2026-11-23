@@ -3,15 +3,17 @@ import {lectureNumberOf} from './lectureIdentity.js';
 export function curriculumSourceContext(question = {}) {
  const labels=[question.sourceSectionTitle,question.sourceSection,question.sourceTitle,question.sourceFilename,question.sourceFile,question.filename,question.bankName].filter(Boolean).join(' ');
  const lectureNumbers=[...new Set((question.sourceLectureNumbers?.length ? question.sourceLectureNumbers : (question.sourceLectureNumber ? [question.sourceLectureNumber] : [...String(question.sourceSection || '').matchAll(/\b(?:NB|LEC|LECTURE)\s*0*(\d+)\b/gi)].map(m=>m[1]))).map(Number).filter(n=>Number.isInteger(n)&&n>0))];
+ const dlaNumbers=[...new Set([...String(question.sourceSectionTitle||question.sourceSection||'').matchAll(/\bDLA\s*0*(\d+)\b/gi)].map(m=>Number(m[1])))];
  const weeks=[...labels.matchAll(/\bweek\s*0*(\d+)\b/gi)].map(m=>Number(m[1]));
  if(question.weekNumber!=null)weeks.push(Number(question.weekNumber));
  const unique=[...new Set(weeks.filter(Number.isFinite))];
  const date=String(question.sourceLectureDate || question.lectureDate || '').slice(0,10);
- return {lectureNumbers,weekNumber:unique.length===1?unique[0]:null,lectureDate:/^\d{4}-\d{2}-\d{2}$/.test(date)?date:null,conflictingWeeks:unique.length>1};
+ return {lectureNumbers,dlaNumbers,weekNumber:unique.length===1?unique[0]:null,lectureDate:/^\d{4}-\d{2}-\d{2}$/.test(date)?date:null,conflictingWeeks:unique.length>1};
 }
 export function scheduleLectureCandidates(question,lectures=[]) {
  const context=curriculumSourceContext(question);
- if(context.lectureNumbers.length)return lectures.filter(l=>context.lectureNumbers.includes(lectureNumberOf(l)));
+ if(context.dlaNumbers.length)return lectures.filter(l=>{const label=l.lectureTitle||l.title||l.fileName||'';const number=String(label).match(/\bDLA\s*0*(\d+)\b/i)?.[1]||l.dlaNumber;return context.dlaNumbers.includes(Number(number))&&(/^DLA$/i.test(l.lectureType||'')||/\bDLA\b/i.test(label));});
+ if(context.lectureNumbers.length)return lectures.filter(l=>context.lectureNumbers.includes(lectureNumberOf(l))&&!/^DLA$/i.test(l.lectureType||'')&&!/\bDLA\b/i.test(l.lectureTitle||l.title||''));
  if(context.conflictingWeeks)return [];
  if(context.lectureDate)return lectures.filter(l=>String(l.lectureDate || '').slice(0,10)===context.lectureDate);
  if(context.weekNumber!=null)return lectures.filter(l=>l.weekNumber!=null && Number(l.weekNumber)===context.weekNumber);

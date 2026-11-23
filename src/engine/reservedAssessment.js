@@ -1,3 +1,4 @@
+export const isIndependentAssessment=session=>['reserved-assessment','lecture-checkpoint'].includes(session?.purpose);
 import {isEvaluationReserved,sourceItemId,emptySourceUse,stableRecordId} from './sourceUse.js';
 export const ASSESSMENT_POLICY='2026-11-03-reserved-assessment';
 const figureDigest=q=>stableRecordId([q.sourceImageUrl || q.sourceImageDataUrl || null,q.sourceFigureCropped===true],'figure');

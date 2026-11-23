@@ -1,3 +1,4 @@
+import {supplementaryObjective} from './objectives.js';
 import { curriculumSourceContext } from "../../engine/curriculumMappingContext.js";
 import { cleanLectureTitle } from "../../lectureTitle.js";
 // Local curriculum attribution. This does not validate a source key or certify
@@ -19,7 +20,7 @@ export function rankLectureContent(question, lectures = [], blockId) {
   const ocularFindings = [/\b(?:eye|eyes|ocular|orbital)\b/, /double vision|diplopia/, /adduct|abduct|extraocular|oculomotor/, /corneal reflex|pupillary reflex/].filter(pattern => pattern.test(stem)).length;
   const frequency = new Map();
   for (const word of query) frequency.set(word, (frequency.get(word) || 0) + 1);
-  const documents = lectures.filter(l => (!blockId || !l.blockId || l.blockId === blockId) && !/^(?:DLA|SG|TBL)$/i.test(l.lectureType || '')).map(lecture => {
+  const documents = lectures.filter(l => (!blockId || !l.blockId || l.blockId === blockId) && !supplementaryObjective(l)).map(lecture => {
     const cached = documentCache.get(lecture);
     if (cached) return cached;
     const map = lecture.teachingMap || {};

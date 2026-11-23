@@ -1,3 +1,4 @@
+import {supplementaryObjective} from '../../logic/objectives.js';
 import { curriculumMappingProvenance } from '../../../engine/curriculumMappingContext.js';
 import { automaticLectureContentMatch } from "../../logic/lectureContentMatch.js";
 import { cleanSchoolQuestion } from "../../../engine/schoolSourceText.js";
@@ -106,7 +107,7 @@ export function linkSourceLecture(question, lectures = [], blockId) {
   const groupedNumbers = question.sourceLectureNumbers || (/^NB\s*\d+(?:\s*\/\s*NB\s*\d+)+$/i.test(question.sourceSection || '') ? [...question.sourceSection.matchAll(/\d+/g)].map(m=>Number(m[0])) : []);
   if (groupedNumbers.length > 1) {
     const candidates = lectures.filter(l => {
-      if (l.blockId && l.blockId !== blockId || /^(?:DLA|SG|TBL)$/i.test(l.lectureType || '')) return false;
+      if (l.blockId && l.blockId !== blockId || supplementaryObjective(l)) return false;
       const number = l.lectureNumber ?? String(l.lectureTitle || l.title || '').match(/^(?:NB|LEC|LECTURE)\s*0*(\d+)\b/i)?.[1];
       return groupedNumbers.includes(Number(number));
     });
@@ -130,7 +131,7 @@ export function linkSourceLecture(question, lectures = [], blockId) {
   const expectedTitle = cleanTitle(clue.title);
   const candidates = lectures.filter(lecture => {
     if (lecture.blockId && lecture.blockId !== blockId) return false;
-    if (/^(?:DLA|SG|TBL)$/i.test(lecture.lectureType || "")) return false;
+    if (supplementaryObjective(lecture)) return false;
     const title = cleanLectureTitle(lecture.lectureTitle || lecture.title || lecture.fileName);
     const prefix = title.match(/^(?:lecture|lec|nb|n)\s*0*(\d+)\b/i);
     const number = lecture.lectureNumber ?? (prefix ? Number(prefix[1]) : null);
