@@ -25,9 +25,9 @@ Deployed on Vercel (project `rxtrack`). Single user/owner; Google sign-in.
 | OCR | local Marker server → Datalab (via `datalabConvert` function) → Mistral OCR |
 | Tests | Vitest + jsdom; `@firebase/rules-unit-testing` for rules |
 
-Supabase is **retired**. `src/supabase.js` keeps its old filename but is the
-Firebase data layer (auth, push/pull, kv, exam sessions, storage). The
-`supabase/` directory and `scripts/*supabase*` migration scripts are historical.
+Supabase is **retired** and its migrations, edge function, export/migration scripts and
+client package were removed (2026-11-24). `src/supabase.js` keeps its old filename but is
+the Firebase data layer (auth, push/pull, kv, exam sessions, storage).
 
 ## Architecture
 
