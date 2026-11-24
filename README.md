@@ -129,6 +129,9 @@ Core: `src/engine/mcq.js` (prompt assembly, review, repair). Routing:
   to each objective by exact school code or stored link. Within the same learner
   status, more-tested objectives get questions first (lecture quizzes and exam
   practice). Word overlap never counts as emphasis.
+- `QUESTION_CHOICE_CONTRACT` (every generation path) follows the template's option
+  count (A–H and beyond) and writes full laterality/modality/region grids when the
+  matching school item uses one; the five-letter JSON examples are shape only.
 - `schoolStyleSimilarity` scores each saved exam question's format fit
   (length, sentences, options, clinical/data, ending). It is displayed only; it
   does not gate acceptance.

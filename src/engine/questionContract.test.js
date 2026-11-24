@@ -24,3 +24,12 @@ it('preserves all source-supported choices through normalization beyond H',()=>{
  expect(Object.keys(normalized.choices)).toHaveLength(14);
  expect(normalized.choices[normalized.correct]).toBe('Structure 13');
 });
+
+it('does not let five-letter JSON examples anchor the option count, and teaches laterality grids', async () => {
+ const {QUESTION_CHOICE_CONTRACT}=await import('./questionContract.js');
+ const {buildMcqPrompt}=await import('./mcq.js');
+ expect(QUESTION_CHOICE_CONTRACT).toMatch(/JSON examples show five letters only/i);
+ expect(QUESTION_CHOICE_CONTRACT).toMatch(/ipsilateral\/contralateral/i);
+ const prompt=buildMcqPrompt({subject:'NB 45',objectives:[{id:'o1',objective:'Localize brainstem lesions'}],lectureText:'Medial lemniscus carries touch.',count:3});
+ expect(prompt).toMatch(/JSON examples show five letters only/i);
+});
