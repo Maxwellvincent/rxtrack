@@ -7,7 +7,7 @@ import {LectureDashboard} from './LectureDashboard.jsx';
  * `useToday`), so the two surfaces can never disagree about urgency or write
  * completion differently.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../../../ui/Button.jsx";
 import * as atomProgressStore from "../../../stores/atomProgress.js";
 import { useStoreResource } from "../../hooks/useStoreResource.js";
@@ -16,7 +16,6 @@ import { RenameLecture } from "../lectures/RenameLecture.jsx";
 import { useToday } from "../today/useToday.js";
 import { useLectureQuestionStats } from "../../hooks/useLectureQuestionStats.js";
 import { ACTIVITY_TYPES, buildLectureRows, lectureCounts, scoreLectures, FILTERS } from "./lectureRows.js";
-import { PreReadModal } from "../lectures/PreReadModal.jsx";
 import { deleteLectureFully, deleteLecturesFully } from "../../logic/deleteLecture.js";
 import { updateLectureDate } from "../../logic/lectureDate.js";
 import { multipartGroups } from "../../logic/multipartLectures.js";
@@ -293,6 +292,10 @@ function Row({ row, userId, stats, onStudy, onQuiz, onLog, onUpdateDate, onPreRe
     </div>
   );
 }
+
+// Loaded on demand: the pre-read pulls in the question engine and AI client,
+// which the lecture list itself does not need on first load.
+const PreReadModal = lazy(() => import("../lectures/PreReadModal.jsx").then((m) => ({ default: m.PreReadModal })));
 
 export function LectureList({
   blockId,
@@ -704,6 +707,7 @@ export function LectureList({
 
 
       {preReadTarget && (
+        <Suspense fallback={null}>
         <PreReadModal
           lecture={preReadTarget.lec}
           userId={userId}
@@ -714,6 +718,7 @@ export function LectureList({
             setPreReadTarget(null);
           }}
         />
+        </Suspense>
       )}
 
       {bulkDeleteTargets && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="presentation">

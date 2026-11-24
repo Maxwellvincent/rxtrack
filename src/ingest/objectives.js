@@ -15,7 +15,11 @@ import { lectureNumberOf } from "../engine/lectureIdentity.js";
  *   4. CPR blocks only: inline SOM codes on the slides
  * Nothing is guessed — a pass that finds nothing returns nothing.
  */
-import { callAI, callAIJSON } from "../aiClient.js";
+// The AI client is loaded only when extraction actually calls a model, so the
+// pure objective parsers here do not pull it into the app's first-load bundle.
+const loadAI = () => import("../aiClient.js");
+const callAI = async (...args) => (await loadAI()).callAI(...args);
+const callAIJSON = async (...args) => (await loadAI()).callAIJSON(...args);
 import { LECTURE_MARKDOWN_CONTEXT_FOR_AI, LECTURE_MARKDOWN_SYSTEM_INSTRUCTION } from "../aiPromptSnippets.js";
 import { getChunkBody } from "../lectureText.js";
 import { safeJSON } from "../lib/aiJson.js";
