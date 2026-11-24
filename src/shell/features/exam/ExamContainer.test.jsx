@@ -178,7 +178,7 @@ describe("ExamContainer", () => {
     act(()=>[...host.querySelectorAll('button')].find(button=>button.textContent==='Missed questions').click());
     expect(host.querySelector('[aria-label="Missed questions from all sources"]')).not.toBeNull();
     expect(localStorage.getItem('rxt-exam-page:b1')).toBe('missed');
-    act(()=>[...host.querySelectorAll('button')].find(button=>button.textContent==='Start & continue').click());
+    act(()=>[...host.querySelectorAll('button')].find(button=>button.textContent==='Start').click());
     expect(host.querySelector('[aria-label="Missed questions from all sources"]')).toBeNull();
     unmount();
   });
@@ -435,7 +435,7 @@ describe("ExamContainer", () => {
     expect(host.textContent).toMatch(/Integrated Exam/);
     expect(host.textContent).toMatch(/Start Integrated Exam/);
     expect(host.querySelector('[data-testid="exam-dashboard"]')).toBeFalsy();
-    const resultsTab = Array.from(host.querySelectorAll("button")).find((button) => button.textContent.includes("Results & weak lectures"));
+    const resultsTab = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Results");
     act(() => resultsTab.click());
     expect(host.querySelector('[data-testid="exam-dashboard"]')).toBeTruthy();
     expect(host.querySelector('[data-testid="session-runner"]')).toBeFalsy();

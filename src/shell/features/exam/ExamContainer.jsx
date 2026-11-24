@@ -1,3 +1,4 @@
+import { PracticeModeTabs } from "../lectures/PracticeModeTabs.jsx";
 import {SourceUseAdmin} from '../../SourceUseAdmin.jsx';
 import {MissedQuestions} from '../../../ui/MissedQuestions.jsx';
 import {ReadinessValidation} from './ReadinessValidation.jsx';
@@ -138,7 +139,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   const [examPageSection, setExamPageSection] = useState(() => {
     try {
       const saved = localStorage.getItem(`rxt-exam-page:${blockId}`);
-      return ["start", "banks", "results", "weak", "missed", "validation"].includes(saved) ? saved : "start";
+      return saved === "validation" ? "results" : ["start", "highyield", "banks", "results", "weak", "missed"].includes(saved) ? saved : "start";
     } catch { return "start"; }
   });
   const [bankStoreRevision, setBankStoreRevision] = useState(0);
@@ -838,46 +839,29 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
 
   return (
     <div className="desk-page desk-exam mx-auto w-full max-w-6xl p-4 sm:p-5">
-      <div className="desk-page-heading mb-5 flex flex-wrap items-center justify-between gap-4">
+      <div className="desk-page-heading mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-bold text-text-1">Integrated exam center</h2>
-          <p className="mt-1 text-sm text-text-3">School banks for faithful practice. Integrated exams for fresh readiness checks.</p>
-        </div>
-        <div className="desk-exam-overview" aria-label="Exam study overview">
-          <div><strong>{practiceHistory.loading ? "—" : completedQuestionTotal.toLocaleString()}</strong><span>study questions completed</span></div>
-          <div><strong>{questionReserve.loading ? "—" : questionReserve.ready.toLocaleString()}</strong><span>prepared questions</span></div>
-          <div><strong>{resumableSessions.length}</strong><span>in progress</span></div>
+          <h2 className="text-2xl font-bold text-text-1">Exam</h2>
+          <p className="mt-1 text-sm text-text-3" aria-label="Exam study overview">{practiceHistory.loading ? "—" : completedQuestionTotal.toLocaleString()} questions done · {questionReserve.loading ? "—" : questionReserve.ready.toLocaleString()} prepared and unused · {resumableSessions.length} in progress</p>
         </div>
         <div className="flex items-center gap-3">
-          <label className="flex items-center gap-1.5 font-mono text-[12px] text-text-3">
+          <label className="flex items-center gap-1.5 text-sm text-text-2">
             <input type="checkbox" checked={tutorModeEnabled} onChange={toggleTutorMode} />
             Tutor mode
           </label>
-          <Button
-            onClick={() => openExamLaunch()}
-          >
-            Start Integrated Exam
-          </Button>
+          <Button onClick={() => openExamLaunch()}>▸ Start Integrated Exam</Button>
         </div>
       </div>
 
-      <TopicPractice blockId={blockId} userId={userId} lectures={lectures} objectives={objectives} onPractice={openExamLaunch} />
-
-      <details className="mb-5 rounded-xl border border-border p-3"><summary className="cursor-pointer text-sm font-semibold">Optional school subject weighting</summary>
-      <BpmBlueprintDashboard blockId={blockId} userId={userId} objectivesByLecture={blueprintContext.objectivesByLecture} lectures={blueprintContext.lectures}
-        onReview={onNavigateToLecture} onStart={exam => openExamLaunch({ blueprint: exam })} />
-      </details>
-
-      <nav className="mb-5 flex flex-wrap gap-2 border-b border-border pb-3" aria-label="Exam center sections">
-        {[["start", "Start & continue"], ["banks", `Question banks${blockQuestionBanks.length ? ` · ${blockQuestionBanks.length}` : ""}`], ["results", "Results & weak lectures"], ["weak", "Weak concepts"], ["missed", "Missed questions"], ["validation", "Accuracy & 80% goal"]].map(([id, label]) => (
-          <button key={id} type="button" aria-current={examPageSection === id ? "page" : undefined}
-            onClick={() => selectExamPageSection(id)}
-            className={`rounded-lg border px-3 py-2 text-sm font-semibold ${examPageSection === id ? "border-accent bg-accent/10 text-accent-text" : "border-border text-text-2 hover:bg-panel"}`}>
-            {label}
-          </button>
-        ))}
-      </nav>
-      {examPageSection==='validation'&&<>{validationError&&<p role="alert">{validationError}</p>}<ReadinessValidation key={blockId} userId={userId} blockId={blockId} blockName={blockName} lectures={lectures} objectives={objectives} evidence={blueprintEvidenceRes.data||{}} ratings={questionRatingsRes.data?.ratings||{}} sessions={validationSessions} loading={validationLoading||!!validationError||lecturesRes.loading||!!lecturesRes.error||objectivesRes.loading||!!objectivesRes.error||blueprintEvidenceRes.loading||!!blueprintEvidenceRes.error||questionRatingsRes.loading||!!questionRatingsRes.error} onRefresh={refreshBankAttempts}/></>}
+      <div className="mb-4"><PracticeModeTabs ariaLabel="Exam center sections" value={examPageSection} onChange={selectExamPageSection} modes={[
+        { id: "start", label: "Start" },
+        { id: "highyield", label: "High yield" },
+        { id: "weak", label: "Weak concepts" },
+        { id: "missed", label: "Missed questions" },
+        { id: "results", label: "Results" },
+        { id: "banks", label: "Question banks", badge: blockQuestionBanks.length || null },
+      ]} /></div>
+      {examPageSection==='results'&&<>{validationError&&<p role="alert">{validationError}</p>}<ReadinessValidation key={blockId} userId={userId} blockId={blockId} blockName={blockName} lectures={lectures} objectives={objectives} evidence={blueprintEvidenceRes.data||{}} ratings={questionRatingsRes.data?.ratings||{}} sessions={validationSessions} loading={validationLoading||!!validationError||lecturesRes.loading||!!lecturesRes.error||objectivesRes.loading||!!objectivesRes.error||blueprintEvidenceRes.loading||!!blueprintEvidenceRes.error||questionRatingsRes.loading||!!questionRatingsRes.error} onRefresh={refreshBankAttempts}/></>}
       {examPageSection === 'missed' && <MissedQuestions evidence={blueprintEvidenceRes.data || {}} blockId={blockId} lectures={lectures} busy={!!bankLaunching} onReplay={questions=>handleBankLaunch({filename:'Missed questions · all sources',questions},'practice',questions)} onStudy={group=>onNavigateToLecture?.(group.lectureId,{focusObjectiveIds:[...new Set(group.questions.flatMap(q=>q.objectiveIds||[]))],weakConcept:group.concept})} />}
 
       {showLaunchModal && (
@@ -933,18 +917,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
         </div>)}</div>
       </section>}
 
-      <section className="mb-4 grid gap-3 rounded-xl border border-border bg-bg-elevated p-4 sm:grid-cols-[1fr_auto] sm:items-center">
-        <div>
-          <div className="text-sm font-bold text-text-1">Unused prepared questions</div>
-          <p className="mt-1 text-sm text-text-2">
-            {questionReserve.ready} unassigned questions across this block’s eligible lectures. This number decreases when questions are assigned to a started exam; completed named sets are listed below.
-          </p>
-        </div>
-        <div className="rounded-lg border border-border bg-panel px-4 py-3 text-center">
-          <div className="text-2xl font-bold text-text-1">{questionReserve.loading ? "…" : questionReserve.ready}</div>
-          <div className="font-mono text-[11px] uppercase tracking-wide text-text-3">unused questions</div>
-        </div>
-      </section>
+      <TopicPractice blockId={blockId} userId={userId} lectures={lectures} objectives={objectives} onPractice={openExamLaunch} />
 
       <section aria-label="Prepared exams to start" className="mb-4 rounded-xl border border-border bg-bg-elevated p-4">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -1046,6 +1019,10 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           </li>;
         })}</ul> : <p className="mt-2 text-sm text-text-3">No named sets prepared yet. Use the single “Start Integrated Exam” button above and choose Prepare for later.</p>}
       </section>
+      <details className="mb-5 rounded-xl border border-border p-3"><summary className="cursor-pointer text-sm font-semibold">Optional school subject weighting</summary>
+      <BpmBlueprintDashboard blockId={blockId} userId={userId} objectivesByLecture={blueprintContext.objectivesByLecture} lectures={blueprintContext.lectures}
+        onReview={onNavigateToLecture} onStart={exam => openExamLaunch({ blueprint: exam })} />
+      </details>
       </>}
 
       {examPageSection === "banks" && blockQuestionBanks.length > 0 && (
@@ -1128,21 +1105,23 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           They are intentionally not rendered in the block view; showing dozens of
           unrelated banks here made the current block feel like an archive browser. */}
 
-        {examPageSection === "results" && (
+        {examPageSection === "highyield" && (
           <HighYieldPanel blockId={blockId} blockName={blockName} lectures={lectures} objectives={objectives} banks={blockQuestionBanks} weakConcepts={weakConcepts || {}} evidence={blueprintEvidenceRes.data || null} onOpenLecture={onNavigateToLecture ? lectureId => onNavigateToLecture(lectureId) : null} />
         )}
 
-        {examPageSection === "results" && (
+        {examPageSection === "banks" && (
           <ScoreReportUpload userId={userId} blocks={[{ id: blockId, name: blockName }]} defaultBlockId={blockId} lectures={lectures} objectivesForBlock={() => objectives} />
         )}
 
         {examPageSection === "results" && (
+          <details className="mb-4 rounded-xl border border-border p-3"><summary className="cursor-pointer text-sm font-semibold">School-style alignment</summary>
           <SchoolAlignmentPanel
             blockId={blockId}
             userId={userId}
             sessions={practiceHistory.sessions}
             historyReady={!practiceHistory.loading && !practiceHistory.error}
           />
+          </details>
         )}
 
         {examPageSection === "results" && <ExamDashboard
