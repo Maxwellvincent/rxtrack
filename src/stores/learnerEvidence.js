@@ -129,7 +129,10 @@ function bumpObjective(bucket, id, event) {
   return { ...next, [id]: { ...entry, sessions, taskTypes, sources, questionKeys: nextQuestionKeys, orderLevels, recentFreshAnswers: questionKey ? [...(previous.recentFreshAnswers || []), {
     questionKey, correct:event.correct, at:event.at, sessionKey:event.sessionKey || null, taskType:event.taskType || null,
     orderLevel:event.orderLevel || null, reasoningVerified:event.reasoningVerified === true,
-  }].slice(-8) : previous.recentFreshAnswers || [], lastFreshAnswer: {correct:event.correct,confidence:event.confidence ?? null,orderLevel:event.orderLevel ?? null,reasoningVerified:event.reasoningVerified === true} } };
+    // Mastery ladder inputs: confidence (1-5), cross-lecture integration.
+    ...(Number.isFinite(Number(event.confidence)) ? { confidence:Number(event.confidence) } : {}),
+    ...(event.crossLecture ? { crossLecture:true } : {}),
+  }].slice(-12) : previous.recentFreshAnswers || [], lastFreshAnswer: {correct:event.correct,confidence:event.confidence ?? null,orderLevel:event.orderLevel ?? null,reasoningVerified:event.reasoningVerified === true} } };
 }
 
 export function applyEvidence(model, rawEvent) {

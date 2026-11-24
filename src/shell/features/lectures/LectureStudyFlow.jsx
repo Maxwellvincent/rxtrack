@@ -114,6 +114,7 @@ import { RenameLecture } from "./RenameLecture.jsx";
 import { ModelRepairs } from "./ModelRepairs.jsx";
 import { LectureRetrievalEnrollment } from "./LectureRetrievalEnrollment.jsx";
 import { ObjectiveCoverage } from "./ObjectiveCoverage.jsx";
+import { MasteryLadderPanel } from "./MasteryLadderPanel.jsx";
 import * as learnerEvidenceStore from "../../../stores/learnerEvidence.js";
 import { useStoreResource } from "../../hooks/useStoreResource.js";
 import { objectivePracticePlan, objectivesWithPracticeEvidence } from "../../../engine/objectivePractice.js";
@@ -2584,6 +2585,7 @@ export function LectureStudyFlow({
           <div className="grid items-start gap-4 lg:grid-cols-2">
             <ModelRepairs userId={userId} lectureId={lecture?.id} title={renamedTitle || title} atoms={atoms} objectives={lectureObjectives} chunks={lectureChunks} />
           </div>
+          <MasteryLadderPanel objectives={lectureObjectives} evidence={learnerEvidence.data || {}} examDate={(() => { const raw = examDates?.[blockId]?.examDate ?? examDates?.[blockId]; const ms = raw ? Date.parse(raw) : NaN; return Number.isFinite(ms) ? ms : null; })()} />
           <ObjectiveCoverage atoms={atoms} objectives={lectureObjectives} examples={schoolExemplars} lectureText={text} lecture={lecture} blockId={blockId} />
           {clinicalCorrelateLibrary.length > 0 && (
             <details className="rounded-lg border border-border bg-bg-elevated p-3">

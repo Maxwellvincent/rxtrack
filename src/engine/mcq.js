@@ -1,3 +1,4 @@
+import { ladderStepPrompt } from "./masteryLadder.js";
 import {thirdOrderConstructionPrompt,thirdOrderReviewPrompt,thirdOrderAIOptions} from './thirdOrderConstruction.js';
 import {connectionReviewPrompt,reviewedConnectionIds} from './connectionReview.js';
 import {questionReferencesVisual} from './questionVisual.js';
@@ -1747,7 +1748,7 @@ Issue codes: incorrect_key, ambiguous_key, unsupported_fact, objective_mismatch,
 }
 
 export function buildMcqPrompt(cfg = {}) {
-  return buildBaseMcqPrompt(cfg)+studyGuidePrompt(cfg.studyGuideRows)+reviewSourcePrompt(cfg.reviewSourceContext);
+  return buildBaseMcqPrompt(cfg)+ladderStepPrompt(cfg.objectives)+studyGuidePrompt(cfg.studyGuideRows)+reviewSourcePrompt(cfg.reviewSourceContext);
 }
 function buildBaseMcqPrompt(cfg = {}) {
   cfg = schoolCalibratedConfig(cfg);

@@ -1,8 +1,10 @@
 import { useMemo, useState } from "react";
 import { blockHighYield } from "../../../engine/blockHighYield.js";
+import { blockLadderSummary } from "../../../engine/masteryLadder.js";
+import { withSchoolEmphasis } from "../../../engine/schoolEmphasis.js";
 
 /** What this block's school questions and score reports say to focus on. */
-export function HighYieldPanel({ blockId, blockName = "", lectures = [], objectives = [], banks = [], weakConcepts = {}, onOpenLecture = null }) {
+export function HighYieldPanel({ blockId, blockName = "", lectures = [], objectives = [], banks = [], weakConcepts = {}, evidence = null, onOpenLecture = null }) {
   const [expanded, setExpanded] = useState(false);
   const result = useMemo(() => blockHighYield({
     blockId, lectures, objectives, weakConcepts,
@@ -10,6 +12,14 @@ export function HighYieldPanel({ blockId, blockName = "", lectures = [], objecti
     bankMeta: Object.fromEntries(banks.map(bank => [bank.filename, { filename: bank.filename, blockId, sourceKind: bank.sourceKind }])),
   }), [blockId, lectures, objectives, banks, weakConcepts]);
   const { coverage } = result;
+  // Readiness: share of school-emphasis-weighted objectives at Integration or above on the mastery ladder.
+  const ladder = useMemo(() => {
+    if (!evidence) return null;
+    const lectureIds = new Set(lectures.filter(lecture => lecture.blockId === blockId).map(lecture => lecture.id));
+    const scoped = objectives.filter(objective => lectureIds.has(objective.linkedLecId));
+    if (!scoped.length) return null;
+    return blockLadderSummary(withSchoolEmphasis(scoped, banks.flatMap(bank => bank.questions || [])), evidence);
+  }, [evidence, objectives, lectures, blockId, banks]);
   const linkedShare = coverage.schoolQuestions ? Math.round((coverage.linkedToObjective + coverage.linkedToLecture) / coverage.schoolQuestions * 100) : 0;
   const shown = expanded ? result.lectures : result.lectures.slice(0, 6);
   const objectiveText = id => result.objectives.find(row => row.id === id);
@@ -18,6 +28,7 @@ export function HighYieldPanel({ blockId, blockName = "", lectures = [], objecti
     <h2 className="text-lg font-semibold">High yield for {blockName || "this block"}</h2>
     <p className="mt-1 text-sm text-text-2">Ranked from your uploaded school questions (ESoft ×3, IMCQ ×2, homework ×1; clickers excluded), score-report weak areas and objectives you have not mastered.</p>
     {!coverage.schoolQuestions && <p className="mt-2 text-sm">◇ No school questions are uploaded for this block yet, so emphasis can’t be measured. Upload homework, IMCQs and ESoft quizzes under Banks.</p>}
+    {ladder && <p className="mt-2 text-sm"><strong>Ladder readiness: {Math.round(ladder.readyShare * 100)}%</strong> of school-weighted objectives at Integration or above · ✓ {ladder.counts[5]} mastered · ● {ladder.counts[4]} integration · ◕ {ladder.counts[3]} discrimination · ◑ {ladder.counts[2]} application · ◔ {ladder.counts[1]} recall · ○ {ladder.counts[0]} unseen</p>}
     {coverage.schoolQuestions > 0 && <p className={`mt-2 text-sm ${linkedShare < 60 ? "font-semibold" : ""}`}>
       {linkedShare < 60 ? "⚠" : "✓"} {coverage.linkedToObjective + coverage.linkedToLecture} of {coverage.schoolQuestions} school questions are linked ({linkedShare}%).
       {coverage.unlinked > 0 && ` ${coverage.unlinked} still unlinked — link one question per homework heading under Banks → “Assign questions to lectures” and the rest of that heading follows.`}

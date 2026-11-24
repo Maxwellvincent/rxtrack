@@ -1126,7 +1126,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           unrelated banks here made the current block feel like an archive browser. */}
 
         {examPageSection === "results" && (
-          <HighYieldPanel blockId={blockId} blockName={blockName} lectures={lectures} objectives={objectives} banks={blockQuestionBanks} weakConcepts={weakConcepts || {}} onOpenLecture={onNavigateToLecture ? lectureId => onNavigateToLecture(lectureId) : null} />
+          <HighYieldPanel blockId={blockId} blockName={blockName} lectures={lectures} objectives={objectives} banks={blockQuestionBanks} weakConcepts={weakConcepts || {}} evidence={blueprintEvidenceRes.data || null} onOpenLecture={onNavigateToLecture ? lectureId => onNavigateToLecture(lectureId) : null} />
         )}
 
         {examPageSection === "results" && (

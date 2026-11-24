@@ -1,6 +1,8 @@
 import {integrationConnectionTargets,planThirdOrderQuestions} from '../../../engine/thirdOrderConstruction.js';
 import {objectivesWithConnectionGaps} from '../../../engine/objectiveConnections.js';
 import { withSchoolEmphasis } from "../../../engine/schoolEmphasis.js";
+import { withLadderTargets } from "../../../engine/masteryLadder.js";
+import { objectiveOrderProfile as ladderOrderProfile } from "../../../engine/questionOrder.js";
 import {repairTransferPlan} from "../../../engine/repairTransfer.js";
 import { prepareLectureQuestionContext } from '../../../engine/lectureQuestionContext.js';
 import * as relationshipsStore from "../../../stores/sourceRelationships.js";
@@ -392,7 +394,7 @@ export function buildQuizConfig({
   sourcePages: suppliedSourcePages = null,
 }) {
   const learnerModel = evidenceModel || readLearnerEvidence(userId);
-  const pool = sortWeakestFirst(withSchoolEmphasis(connectionAwareObjectives(objectivesWithConceptGaps(objectivesWithPracticeEvidence(objectives, learnerModel), atoms, learnerModel),{lectures,lectureIdHint,lectureText:suppliedLectureText,sourcePages:suppliedSourcePages,blockId,userId},learnerModel), exemplars));
+  const pool = sortWeakestFirst(withLadderTargets(withSchoolEmphasis(connectionAwareObjectives(objectivesWithConceptGaps(objectivesWithPracticeEvidence(objectives, learnerModel), atoms, learnerModel),{lectures,lectureIdHint,lectureText:suppliedLectureText,sourcePages:suppliedSourcePages,blockId,userId},learnerModel), exemplars), learnerModel, { now: Date.now() }, objective => ladderOrderProfile(objective).allowed));
   const count = resolveQuestionCount(questionCount, Math.max(pool.length, 1));
 
   // When no objectives, fall through to atom/text-based generation

@@ -24,6 +24,8 @@ export function sessionEvidenceEvent(session, question, answer) {
     answerChanges: answer.answerChanges || 0, taskType: question.taskType || classifyLeadIn(question.stem),
     reasoningDepth: question.reasoningDepth || null, orderLevel: question.orderLevel || null,
     reasoningVerified: hasCurrentReasoningAudit(question),
+    ...(question.crossLecture ? { crossLecture: true } : {}),
+    ...(Number.isFinite(Number(answer.confidence)) ? { confidence: Number(answer.confidence) } : {}),
     questionNumber: session.questions.findIndex(q => q.questionId === question.questionId) + 1,
     at: answer.answeredAt || session.progressSavedAt || session.submittedAt || session.startedAt || Date.now(),
   };

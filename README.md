@@ -148,6 +148,16 @@ to per-objective retrieval (~2,800 characters per objective). Lecture quizzes an
 both load page-delimited text, and exam practice fetches the lecture text even when
 extracted facts already exist.
 
+**Mastery ladder** (`masteryLadder.js`): each objective climbs Recall → Application (2 in a
+row) → Discrimination (2 look-alike items, one confident) → Integration (two-step or cross-lecture)
+→ Mastered (a correct retest on a later day: 1 day apart within a week of the exam, else 2).
+Only independent answers with verified reasoning depth count; a miss drops one rung and the next
+item is a repair variant; a correct answer with confidence < 3 counts half. `withLadderTargets`
+points lecture quizzes and exam practice at each objective's next step (raising, never lowering,
+other depth targets) and `ladderStepPrompt` tells the writer how to build that step. Shown per
+objective in the lecture workspace (`MasteryLadderPanel`) and as school-weighted readiness on the
+Exam high-yield panel.
+
 **Reasoning depth and connections**
 
 - First/second/third order are internal labels. An independent review checks
@@ -253,6 +263,7 @@ is superseded.
 | Objective connection maps + third-order construction (within a lecture) | **Done** (2026-11-23) |
 | Lecture checkpoints, school alignment on exam results | **Done** (2026-11-23/24) |
 | Learned question links (headings + precedents), manual linking, score-report upload, high-yield panel | **Done** (2026-11-24) |
+| Mastery ladder (per-objective rungs, discrimination step, delayed retest, readiness) | **Done** (2026-11-24); live behaviour still to be observed |
 | NB Exam 2 scope + subject weighting, pre-test 80% validation | **Done**; live accuracy still being measured |
 | Cross-lecture integration questions (exam practice, 25% of each lecture's slots) | **Done** (2026-11-24); live yield not yet measured |
 
