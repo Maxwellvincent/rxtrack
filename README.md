@@ -57,7 +57,7 @@ Top tabs (`src/shell/TabBar.jsx`):
 | Today | `features/today` | daily plan, block practice card, school alignment, exam sprint, readiness, model retrieval |
 | Lectures | `features/lectures` | lecture workspace: pre-read, study flow, checkpoints, objective coverage/connections (incl. ✓/⚠ check that every slide objective code is uploaded, `objectiveCompleteness.js`), figures, question bank upload |
 | Objectives | `features/objectives` | objective tracker per block, PDF objective import, answer-history audit, quiz launch |
-| Exam | `features/exam` | timed/tutor exam sessions, prepared question sets, results (school alignment panel, dashboards, weak areas, calibration, blueprint coverage) |
+| Exam | `features/exam` | timed/tutor exam sessions, prepared question sets, results (high-yield ranking `HighYieldPanel` / `blockHighYield.js`, score-report upload, school alignment panel, dashboards, weak areas, calibration, blueprint coverage) |
 | Guide | `features/guide` | master study guide |
 | More | `Shell.jsx` `MoreTab` | Deep Learn, calibration, weak concepts, struggle tasks (`features/tracker`), diagnostics/admin |
 
@@ -247,6 +247,7 @@ is superseded.
 | Weak-concept repair loop, focused drills, delayed retests | **Done** |
 | Objective connection maps + third-order construction (within a lecture) | **Done** (2026-11-23) |
 | Lecture checkpoints, school alignment on exam results | **Done** (2026-11-23/24) |
+| Learned question links (headings + precedents), manual linking, score-report upload, high-yield panel | **Done** (2026-11-24) |
 | NB Exam 2 scope + subject weighting, pre-test 80% validation | **Done**; live accuracy still being measured |
 | Cross-lecture integration questions (exam practice, 25% of each lecture's slots) | **Done** (2026-11-24); live yield not yet measured |
 

@@ -13,6 +13,7 @@ import * as questionRatingsStore from "../../../stores/questionRatings.js";
 import {QuestionBankMappingStatus} from './QuestionBankMappingStatus.jsx';
 import { QuestionBankManualLinks } from "./QuestionBankManualLinks.jsx";
 import { ScoreReportUpload } from "./ScoreReportUpload.jsx";
+import { HighYieldPanel } from "./HighYieldPanel.jsx";
 import { blockBlueprintContext, blockBlueprintBanks } from "./blueprintScope.js";
 import { BpmBlueprintDashboard } from "./BpmBlueprintDashboard.jsx";
 import { recoverExamPreparation } from "./preparationRecovery.js";
@@ -1123,6 +1124,10 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
       {/* Other-block/comprehensive banks remain in Firestore as generation evidence.
           They are intentionally not rendered in the block view; showing dozens of
           unrelated banks here made the current block feel like an archive browser. */}
+
+        {examPageSection === "results" && (
+          <HighYieldPanel blockId={blockId} blockName={blockName} lectures={lectures} objectives={objectives} banks={blockQuestionBanks} weakConcepts={weakConcepts || {}} onOpenLecture={onNavigateToLecture ? lectureId => onNavigateToLecture(lectureId) : null} />
+        )}
 
         {examPageSection === "results" && (
           <ScoreReportUpload userId={userId} blocks={[{ id: blockId, name: blockName }]} defaultBlockId={blockId} lectures={lectures} objectivesForBlock={() => objectives} />
