@@ -33,3 +33,20 @@ it('rechecks completed unresolved questions and saves source lecture attribution
  expect(bank.f[0].objectiveIds).toBeUndefined();expect(bank.f[1].objectiveIds).toEqual(['existing']);
  expect(result).toMatchObject({linked:1,lectureLinked:1,unresolvedReasons:['Objective catalog evidence still unresolved']});
 });
+it('re-evaluates earlier unresolved questions when the lecture/objective catalog has changed',async()=>{
+ let bank={f:[{id:'q',stem:'Which EEG feature?',correct:'A',choices:{A:'Spindles',B:'Alpha'}},{id:'ok',correct:'A',curriculumLinkStatus:'evidence-verified',objectiveIds:['x']}]};
+ let metadata={m:{filename:'f',blockId:'b',mappingProgress:{status:'paused',version:6,completedQuestionKeys:['q','ok'],catalogSignature:'stale'}}};
+ const classify=vi.fn(async()=>({objectiveIds:['o61'],curriculumLinkStatus:'evidence-verified'}));
+ const deps={readBanks:()=>bank,writeBanks:async(_,v)=>{bank=v},readMeta:()=>metadata,writeMeta:async(_,v)=>{metadata=v},classify,bridgeAvailable:async()=>true,fetchLectureContent:async()=>({chunks:[{text:'Sleep spindles mark stage 2.'}]}),review:vi.fn()};
+ const args={userId:'u',blockId:'b',filename:'f',lectures:[{id:'l61',blockId:'b',lectureTitle:'NB 61 Sleep'}],objectives:[{id:'o61',linkedLecId:'l61',blockId:'b',objective:'Contrast sleep stages using EEG'}]};
+ const result=await resumeQuestionBankMapping(args,deps);
+ expect(classify).toHaveBeenCalledTimes(1);
+ expect(classify.mock.calls[0][0].id).toBe('q');
+ expect(result.status).toBe('complete');
+ expect(result.catalogSignature).not.toBe('stale');
+ classify.mockClear();
+ bank.f[0]={...bank.f[0],curriculumLinkStatus:undefined};
+ metadata.m.mappingProgress={...metadata.m.mappingProgress,status:'paused'};
+ await resumeQuestionBankMapping(args,deps);
+ expect(classify).not.toHaveBeenCalled();
+});

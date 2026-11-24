@@ -6,6 +6,12 @@ import {blockProgressProjection} from './blockProgress.js';
 const active=new Map();
 export const mappingFailureReason=error=>String(error?.message || error || 'Unknown mapping failure').replace(/\bsk-[A-Za-z0-9_-]+/g,'[redacted]').slice(0,2000);
 const identity=(q,i)=>String(q.id || q.questionId || `${i}:${q.stem}`);
+/** Stable fingerprint of the lectures and linked objectives a verdict was judged against. */
+export function catalogSignature(lectures=[],objectives=[]){
+ const parts=[...lectures.map(l=>`L:${l.id}`),...objectives.map(o=>`O:${o.id}:${o.linkedLecId||''}`)].sort().join('|');
+ let hash=2166136261;for(const char of parts)hash=Math.imul(hash^char.charCodeAt(0),16777619)>>>0;
+ return `${lectures.length}.${objectives.length}.${hash.toString(36)}`;
+}
 export function resumeQuestionBankMapping(args,deps={}){
  const lock=`${args.userId}:${args.blockId}:${args.filename}`;
  if(active.has(lock))return active.get(lock);
@@ -28,6 +34,13 @@ async function run({userId,blockId,filename,lectures=[],objectives=[],recheck=fa
  try{
   const source=readBanks(userId)?.[filename];if(!Array.isArray(source))throw Error('Saved question bank was not found.');
   state.total=source.length;await save();
+  const catalog=blockProgressProjection({blockId,lectures,catalog:objectives,evidence:{}}).linked;
+  // An unresolved verdict is only final for the curriculum it was judged
+  // against. When lectures or objectives change (for example objectives
+  // imported after a run), earlier unresolved questions are evaluated again.
+  const signature=catalogSignature(lectures.filter(l=>l.blockId===blockId),catalog);
+  if(state.catalogSignature!==signature)source.forEach((q,i)=>{if(eligible(q))completed.delete(identity(q,i));});
+  state.catalogSignature=signature;
   const pending=source.map((q,i)=>({q,key:identity(q,i)})).filter(({q,key})=>eligible(q)&&!completed.has(key));
   if(pending.length){
    const available=deps.bridgeAvailable || (await import('../../llmBridge.js')).bridgeAvailable;
@@ -37,7 +50,6 @@ async function run({userId,blockId,filename,lectures=[],objectives=[],recheck=fa
    for(const l of lectures.filter(l=>l.blockId===blockId)){
     const content=await fetch(userId,l.id);enriched.push({...content,...l,chunks:content?.chunks||l.chunks,id:l.id,blockId});
    }
-   const catalog=blockProgressProjection({blockId,lectures,catalog:objectives,evidence:{}}).linked;
    const review=deps.review || createCurriculumReviewer();
    for(const {q,key} of pending){
     state.currentQuestion=key;await save();
