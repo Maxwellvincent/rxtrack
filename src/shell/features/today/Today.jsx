@@ -8,13 +8,13 @@ import { SchoolReviewCard } from "./SchoolReviewCard.jsx";
 import { BlockReadinessDashboard } from "./BlockReadinessDashboard.jsx";
 import { ExamSprintCard } from "./ExamSprintCard.jsx";
 import { WeekCalendar } from "./WeekCalendar.jsx";
+import { PracticeModeTabs } from "../lectures/PracticeModeTabs.jsx";
 import { DailyQuestionScore } from "./DailyQuestionScore.jsx";
 import { CompactQuestionProgress } from "./BlockPracticeCard.jsx";
 import { PreReadModal } from "../lectures/PreReadModal.jsx";
 import { usePreReadPrefetch } from "../lectures/usePreReadPrefetch.js";
 import * as examDatesStore from "../../../stores/examDates.js";
 import * as termsStore from "../../../stores/terms.js";
-import { readTaskListCollapsed, writeTaskListCollapsed } from "../../navPrefs.js";
 import { buildResetFocusPlan, readChecked, writeChecked } from "./todayProgress.js";
 import { evidenceAwareObjectives } from "../../logic/schedule.js";
 
@@ -942,7 +942,7 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
   const [wakeTime, setWakeTime] = useState(() => readSleepWake(blockId).wakeTime ?? null);
   const [lecConfig, setLecConfig] = useState(() => readLecConfig(blockId));
   const [logFeedback, setLogFeedback] = useState(null);
-  const [taskListCollapsed, setTaskListCollapsed] = useState(readTaskListCollapsed);
+  const [todayView, setTodayView] = useState("focus");
   const completedQuizIds = useMemo(
     () => completedLectureQuizIdsToday(context?.lecturePerformance, todayKey),
     [context?.lecturePerformance, todayKey]
@@ -1167,38 +1167,31 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
   return (
     <div className="desk-today today-page flex flex-col gap-5">
       {storageNotice && <p role="status" className="text-sm text-text-2">{storageNotice}</p>}
-      <section className="today-hero">
-        <div className="today-hero-copy">
-          <div className="today-eyebrow">{dateStr} · {examCountdown}</div>
-          <h2 className="today-title">Make today count.</h2>
-          <p className="today-subtitle">{effectiveMode === "exam" ? "Final-pass mode: timed application, rapid repair, then protect sleep." : "One focused pass through the material, then stop. Your next best move is waiting below."}</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-2xl font-bold text-text-1">Today</h2>
+          <p className="mt-1 text-sm text-text-3">{dateStr} · {examCountdown} · {effectiveMode ? DAY_MODES.find((m) => m.id === effectiveMode)?.label : "No day type"}{!dayMode ? " (automatic)" : ""}</p>
         </div>
-        <div className="today-hero-actions">
-          <span className="today-mode-pill"><span className="today-mode-dot" style={{ background: MODE_COLORS[effectiveMode] }} />{effectiveMode ? DAY_MODES.find((m) => m.id === effectiveMode)?.label : "Set day type"}</span>
-          <button onClick={() => setModePickerOpen((open) => !open)} className="today-text-button">{modePickerOpen ? "Hide modes" : "Change mode"}</button>
-          {!dayMode && <span className="text-xs text-text-3">Automatic · based on schedule</span>}
-        </div>
-      </section>
+        <button onClick={() => setModePickerOpen((open) => !open)} className="rounded-lg border border-border px-3 py-1.5 text-sm text-text-2 hover:text-text-1">{modePickerOpen ? "Hide day types" : "Change day type"}</button>
+      </div>
+      {modePickerOpen && <div><DayModePicker mode={effectiveMode} onChange={handleDayMode} suggested={suggestedMode} />{dayMode && <button className="today-text-button mt-2" onClick={()=>handleDayMode(null)}>Use automatic day type</button>}</div>}
 
       <WeekCalendar lecScores={daily?.lecScores || []} completion={context?.completion || {}} blockId={blockId} examDate={examDate} objectivesFor={objectivesForTask} evidence={context?.learnerEvidence || {}} onStudy={onStudy} />
 
-      <ExamSprintCard key={blockId} context={context} userId={userId} daysLeft={daysLeft} onStudy={onStudy} onQuiz={onQuiz} busy={quizBusyLectureId} />
-      <details className="rounded-xl border border-border p-4"><summary className="cursor-pointer text-sm font-semibold">Readiness evidence</summary><BlockReadinessDashboard blockId={blockId} userId={userId} compact onStudyLecture={onStudy} /></details>
-
-      {modePickerOpen && <div><DayModePicker mode={effectiveMode} onChange={handleDayMode} suggested={suggestedMode} />{dayMode && <button className="today-text-button mt-2" onClick={()=>handleDayMode(null)}>Use automatic day type</button>}</div>}
-
-      <div className="today-layout">
-        <main className="today-main-column">
-          <section className="today-section-heading">
-            <div><div className="today-eyebrow">Your queue</div><h3>Today’s focus</h3></div>
-            <button onClick={() => { const next = !taskListCollapsed; setTaskListCollapsed(next); writeTaskListCollapsed(next); }} className="today-text-button">{taskListCollapsed ? "Show queue" : "Collapse queue"}</button>
-          </section>
+      <section aria-label="Today" className="flex flex-col gap-3 rounded-2xl border border-border bg-bg-elevated p-4 shadow-sm sm:p-5">
+        <PracticeModeTabs ariaLabel="Today views" value={todayView} onChange={setTodayView} modes={[
+          { id: "focus", label: "Focus", badge: focusPlanIds.length ? `${doneCount}/${focusPlanIds.length}` : null },
+          { id: "sprint", label: "Exam sprint" },
+          { id: "reviews", label: "Reviews" },
+          { id: "progress", label: "Progress" },
+        ]} />
+        <div hidden={todayView !== "focus"} className="flex flex-col gap-3">
           {focusPlanIds.length > 0 && <div className="today-progress-wrap"><ProgressBar done={doneCount} total={focusPlanIds.length} /></div>}
           {daily?.reviewsSuspended && <div className="today-note" role="status">Routine reviews paused: this block has ended. History and manual review remain available, along with comprehensive/CBSE practice.</div>}
           {logFeedback && <div className="today-feedback" role="status">{logFeedback}</div>}
           {todayReason === "urgency-fallback" && nextDay && <div className="today-note">Nothing is scheduled today — showing the highest-urgency work ahead of {nextDay.dateStr}.</div>}
 
-          {!taskListCollapsed && (filteredTasks.length === 0 ? (
+          {(filteredTasks.length === 0 ? (
         planComplete ? (
           <div className="rounded-sm border border-good/40 bg-good/5 p-4 text-sm text-text-2">
             <strong className="text-text-1">Today&apos;s planned focus is complete.</strong> New recommendations will wait unless you choose another set.
@@ -1258,29 +1251,6 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
         }}
         onPreRead={(ls) => setPreReadTarget(ls)}
           />
-        </main>
-
-        <aside className="today-side-column">
-          <section className="today-section-heading today-section-heading--side"><div><div className="today-eyebrow">Signals</div><h3>Study pulse</h3></div></section>
-          <DailyQuestionScore userId={userId} blockId={blockId} />
-          <CompactQuestionProgress userId={userId} blockId={blockId} />
-          <SchoolReviewCard blockId={blockId} userId={userId} examDate={examDate} onOpenExam={onOpenExam} />
-          <ModelRetrievalCard key={`${userId}:${blockId}`} userId={userId} blockId={blockId} examDate={examDate} objectivesForLecture={objectivesForTask} evidenceModel={context?.learnerEvidence} />
-          {effectiveMode && <RoutineSchedulePanel mode={effectiveMode} wakeTime={wakeTime} lecConfig={lecConfig} />}
-        </aside>
-      </div>
-
-      {preReadTarget && (
-        <PreReadModal
-          lecture={preReadTarget.lec}
-          userId={userId}
-          objectives={objectivesForTask(preReadTarget.lec.id)}
-          cached={cachedFor(preReadTarget.lec, objectivesForTask(preReadTarget.lec.id))}
-          onClose={() => setPreReadTarget(null)}
-          onComplete={onPreReadDone}
-        />
-      )}
-
       {planComplete && canExtendFocusPlan ? (
         <button
           onClick={startAnotherSet}
@@ -1302,6 +1272,30 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
         title="Rebuild today’s queue from unchecked recommendations. Completed checkmarks, quiz answers, and objective progress are preserved."
         className="self-start font-mono text-[12px] text-text-3 hover:text-text-1"
       >Reset today&apos;s set <span className="text-text-3">· keeps completed work and history</span></button>}
+          {effectiveMode && <details className="text-sm"><summary className="cursor-pointer text-text-2">Day schedule</summary><RoutineSchedulePanel mode={effectiveMode} wakeTime={wakeTime} lecConfig={lecConfig} /></details>}
+        </div>
+        <div hidden={todayView !== "sprint"}><ExamSprintCard key={blockId} context={context} userId={userId} daysLeft={daysLeft} onStudy={onStudy} onQuiz={onQuiz} busy={quizBusyLectureId} /></div>
+        <div hidden={todayView !== "reviews"} className="flex flex-col gap-3">
+          <SchoolReviewCard blockId={blockId} userId={userId} examDate={examDate} onOpenExam={onOpenExam} />
+          <ModelRetrievalCard key={`${userId}:${blockId}`} userId={userId} blockId={blockId} examDate={examDate} objectivesForLecture={objectivesForTask} evidenceModel={context?.learnerEvidence} />
+        </div>
+        <div hidden={todayView !== "progress"} className="flex flex-col gap-3">
+          <DailyQuestionScore userId={userId} blockId={blockId} />
+          <CompactQuestionProgress userId={userId} blockId={blockId} />
+          <BlockReadinessDashboard blockId={blockId} userId={userId} compact onStudyLecture={onStudy} />
+        </div>
+      </section>
+
+      {preReadTarget && (
+        <PreReadModal
+          lecture={preReadTarget.lec}
+          userId={userId}
+          objectives={objectivesForTask(preReadTarget.lec.id)}
+          cached={cachedFor(preReadTarget.lec, objectivesForTask(preReadTarget.lec.id))}
+          onClose={() => setPreReadTarget(null)}
+          onComplete={onPreReadDone}
+        />
+      )}
     </div>
   );
 }
