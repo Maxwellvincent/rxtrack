@@ -93,7 +93,7 @@ const LAB_REF = [
   { terms: ["anion gap"], name: "Anion Gap", low: 8, high: 12, unit: "mEq/L" },
 ];
 
-const UNIT_PAT = "(?:mEq\\/L|mmol\\/L|mg\\/dL|g\\/dL|μg\\/dL|ng\\/dL|ng\\/mL|pg\\/mL|U\\/L|IU\\/L|mIU\\/L|mmHg|mm\\/hr|mg\\/L|fL|mOsm(?:ol)?\\/kg(?:\\s*H2O)?|μIU\\/mL|ng\\/mL\\/hr|cells\\/μL|%|sec|°C|°F|/min|/mm(?:3|³)|/μL)?";
+const UNIT_PAT = "(?:mEq\\/L|mmol\\/L|mg\\/dL|g\\/dL|μg\\/dL|ng\\/dL|ng\\/mL|pg\\/mL|U\\/L|IU\\/L|mIU\\/L|mmHg|mm\\/hr|mg\\/L|fL|mOsm(?:ol)?\\/kg(?:\\s*H2O)?|μIU\\/mL|ng\\/mL\\/hr|cells\\/μL|%|sec|°C|°F|/min|/mm(?:3|³)|/μL)";
 const NUM_PAT = "[\\d,]+(?:\\.\\d+)?";
 // A vignette states a value as a report line ("Sodium: 107"), a bare space
 // ("Potassium 2.4"), or natural prose ("sodium of 126", "glucose is 20", "was
@@ -111,7 +111,9 @@ function buildRegex() {
   const termGroup = entries.map((e) => `(?:${e.term})`).join("|");
   // Capture: full match, term, number, optional unit
   return {
-    re: new RegExp(`(${termGroup})${SEP_PAT}(${NUM_PAT})\\s*${UNIT_PAT}`, "gi"),
+    // Whole-word lab names only ("AST", not the "ast" in "past"), and the space
+    // before a unit is consumed only when a unit follows the number.
+    re: new RegExp(`(?<![A-Za-z0-9])(${termGroup})(?![A-Za-z])${SEP_PAT}(${NUM_PAT})(?:\\s*${UNIT_PAT})?`, "gi"),
     entries,
   };
 }

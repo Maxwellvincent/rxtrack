@@ -94,3 +94,17 @@ describe("applyHighlights", () => {
     expect(applyHighlights(parts, undefined)).toBe(parts);
   });
 });
+
+describe("parseText — lab names inside ordinary words", () => {
+  const stem = "anxious over the past 5 1/2 months. The physician knows that the symptoms must be present for at least 6 months and will persist for at least 2 more weeks.";
+  it("does not read AST inside 'past' or 'least' as a lab value", () => {
+    expect(labParts(stem)).toHaveLength(0);
+    expect(parseText(stem).map((p) => p.content ?? p.raw).join("")).toBe(stem);
+  });
+  it("still annotates a real AST value and keeps the space after a unitless number", () => {
+    const parts = parseText("AST 250 and ALT 300 today");
+    expect(parts.filter((p) => p.type === "lab").map((p) => p.lab.name)).toEqual(["AST", "ALT"]);
+    expect(parts.map((p) => p.content ?? p.raw).join("")).toBe("AST 250 and ALT 300 today");
+    expect(parts.find((p) => p.type === "lab").raw).toBe("AST 250");
+  });
+});
