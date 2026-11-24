@@ -174,6 +174,11 @@ function QuestionMeta({ question, objectivesById = {}, lectureLabelsByLectureId 
       {["needs-review", "unsupported-by-lecture"].includes(question?.sourceKeyReviewStatus) && <span className="rounded border border-bad/40 bg-bad/5 px-1.5 py-0.5 text-bad" title={question.sourceKeyCritique || "This imported source key/rationale needs review"}>Source key needs review</span>}
       {uniqueQuestionLinks(question?.candidateLectureLinks).slice(0, 2).map((link, index) => <span key={`${question.questionId}-candidate-lecture-${index}`} className="max-w-full rounded border border-border px-1.5 py-0.5" title="Possible match based on uploaded question analysis; review before treating as a confirmed curriculum link">Possible lecture match: {link.label || link.id}</span>)}
       {uniqueQuestionLinks(question?.candidateObjectiveLinks).slice(0, 2).map((link, index) => <span key={`${question.questionId}-candidate-objective-${index}`} className="max-w-full rounded border border-border px-1.5 py-0.5" title="Candidate objective match for review; does not count as objective coverage evidence">Possible objective match: {link.label || link.id}</span>)}
+      {question?.crossLecture?.partnerTitle && (
+        <span className="rounded border border-accent/40 bg-accent/5 px-1.5 py-0.5" title="Integrates a reviewed rule from this lecture with a reviewed rule from a partner lecture">
+          Cross-lecture: + {question.crossLecture.partnerTitle}
+        </span>
+      )}
       {Number.isFinite(question?.schoolStyleScore) && (
         <span className="rounded border border-border px-1.5 py-0.5" title="Estimated structural fit against the aggregate shape of uploaded school questions; not a correctness or equivalence score">
           format fit (est.) {question.schoolStyleScore}%

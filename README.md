@@ -145,9 +145,14 @@ Core: `src/engine/mcq.js` (prompt assembly, review, repair). Routing:
 - Third-order items are built from two source-quoted rules joined through one
   hidden intermediate (`thirdOrderConstruction.js`), anchored on reviewed
   objective connections (`objectiveConnections.js`, `sourceRelationships.js`).
-- **Connections are within one lecture.** Relationships are keyed to a single
-  `lectureId`, and exam sets allocate questions per lecture and generate each
-  lecture's share separately. There is no cross-lecture integration item type yet.
+- **Cross-lecture items (exam practice).** Each lecture in a set is paired with a
+  same-week partner (`crossLecture.js`); about 25% of its slots are written with
+  both lectures' text and an integration contract (rule 1 from the primary
+  lecture, rule 2 from the partner, joined through a hidden intermediate). An
+  item counts only if its reviewed quotes (reasoning audit / key-blind solve)
+  include text unique to each lecture; otherwise the slot refills normally.
+  Ownership stays one objective in the primary lecture. Lecture quizzes and saved
+  source relationships remain single-lecture.
 
 Pipeline details and live-run notes: [docs/question-preparation-pipeline.md](docs/question-preparation-pipeline.md),
 [docs/question-writing-standard.md](docs/question-writing-standard.md),
@@ -218,7 +223,7 @@ is superseded.
 | Objective connection maps + third-order construction (within a lecture) | **Done** (2026-11-23) |
 | Lecture checkpoints, school alignment on exam results | **Done** (2026-11-23/24) |
 | NB Exam 2 scope + subject weighting, pre-test 80% validation | **Done**; live accuracy still being measured |
-| Cross-lecture integration questions | **Not started** |
+| Cross-lecture integration questions (exam practice, 25% of each lecture's slots) | **Done** (2026-11-24); live yield not yet measured |
 
 ## Other docs
 

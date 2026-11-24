@@ -17,6 +17,7 @@ import { getLecText } from "../../../lectureText.js";
 import { loadExamLectureEvidence } from "./lectureEvidence.js";
 import { objectiveOrderProfile } from "../../../engine/questionOrder.js";
 import { buildStyleProfile } from "../../../engine/styleProfile.js";
+import { crossLecturePartners, crossLectureCount, combinedLectureText, crossLectureFocusNotes, verifiedCrossLectureQuotes } from "./crossLecture.js";
 
 const MAX_ATTEMPTS = 3;
 // Local Ollama completions for large, school-style prompts routinely take a little over
@@ -73,6 +74,24 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
   const total = lectureIds.reduce((n, id) => n + allocation[id], 0);
   const history = [...(deps.pool ? await deps.pool.history() : []),...existingQuestions];
   let nextIndex = 0, cacheHits = 0, stopError = null;
+  // Cross-lecture integration (IMCQ/ESoft style): each lecture borrows a second
+  // taught rule from a same-week partner for about a quarter of its slots.
+  const partners = deps.crossLecture === false || deps.savedOnly
+    ? new Map() : crossLecturePartners(lectureIds.map(id => readSlot(id).lectureId), lecturesById || {});
+  const partnerEvidence = new Map();
+  const loadPartner = partnerId => {
+    if (!partnerEvidence.has(partnerId)) partnerEvidence.set(partnerId, (async () => {
+      const partnerLecture = lecturesById?.[partnerId];
+      if (!partnerLecture) return null;
+      try {
+        const loaded = await withDeadline(() => loadExamLectureEvidence(partnerLecture, atomsByLecture?.[partnerId] || [], {
+          userId, fetchContent: deps.fetchLectureContent || fetchLectureContent,
+        }), deps.contentTimeoutMs || 30000, deps.signal, "Loading partner lecture content");
+        return loaded?.lectureText ? { id: partnerId, title: partnerLecture.lectureTitle || partnerLecture.fileName || partnerId, text: loaded.lectureText } : null;
+      } catch { return null; }
+    })());
+    return partnerEvidence.get(partnerId);
+  };
   let completedLectures = 0;
   const activities = new Map();
   const coverageByLecture = {};
@@ -169,24 +188,32 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
       progress(`Loaded saved questions: ${lectureTitle}`);
     }
     if (sourceError) errorMessage = sourceError;
-    while (obtained < requested && attempt < Math.max(MAX_ATTEMPTS, Math.ceil(requested / 3) + 2) && !stopError && !sourceError) {
+    const partner = partners.has(lectureId) && !sourceError ? await loadPartner(partners.get(lectureId)) : null;
+    const crossNeeded = partner ? crossLectureCount(requested) : 0;
+    let crossObtained = lectureQuestions().filter(q => q.crossLecture).length, crossAttempts = 0;
+    while (obtained < requested && attempt < Math.max(MAX_ATTEMPTS, Math.ceil(requested / 3) + 2) + crossAttempts && !stopError && !sourceError) {
       if (deps.savedOnly) break;
       await waitForConnection();
       attempt++;
-      progress(`Writing questions: ${lectureTitle}${attempt > 1 ? ` · retry ${attempt - 1}` : ""}`, lectureId);
+      const crossTurn = Boolean(partner) && crossObtained < crossNeeded && crossAttempts < 2;
+      if (crossTurn) crossAttempts++;
+      const batchSize = crossTurn ? Math.min(3, crossNeeded - crossObtained, requested - obtained) : Math.min(3, requested - obtained);
+      const batchLectureText = crossTurn ? combinedLectureText(lectureText, partner) : lectureText;
+      const batchFocusNotes = crossTurn ? [adaptiveFocusNotes, crossLectureFocusNotes(lectureTitle, partner.title)].filter(Boolean).join("\n\n") : adaptiveFocusNotes;
+      progress(`Writing ${crossTurn ? `cross-lecture questions (${lectureTitle} + ${partner.title})` : `questions: ${lectureTitle}`}${attempt > 1 ? ` · retry ${attempt - 1}` : ""}`, lectureId);
       let result;
       try {
         const requestTimeout=deps.requestTimeoutMs || REQUEST_TIMEOUT_MS;
         const deadline=Date.now()+requestTimeout;
         result = await withDeadline(signal => {
           const boundedAdapter=adapter=>boundedAIAdapter(adapter,{signal,deadline,bridgeTimeoutMs:LOCAL_BRIDGE_TIMEOUT_MS,label:"Exam question preparation",onRequest:args=>progress(`${/independent|audit|solve/i.test(String(args[0])) ? "Reviewing accuracy" : "Writing questions"}: ${lectureTitle}`,lectureId)});
-          const batchAllocation = remainingPlan(Math.min(3, requested - obtained));
+          const batchAllocation = remainingPlan(batchSize);
           return startObjectiveQuiz({objectives,lectureTitle,lectureIdHint:lectureId,blockId,lectures,exemplars:generationExemplars,styleProfile,atoms,
-            lectureText,studyMode,focusNotes:adaptiveFocusNotes,difficulty,userId,clinicalCorrelateLibrary,
+            lectureText:batchLectureText,studyMode,focusNotes:batchFocusNotes,difficulty,userId,clinicalCorrelateLibrary,
             generationVersion:"v2", evidenceModel, objectiveAllocation:batchAllocation.length ? batchAllocation : null,
             conceptCoverageQuestions:lectureQuestions(),
-            avoidStems:[...history,...accepted].map(q=>q.stem).filter(Boolean).slice(-100),questionCount:Math.min(3,requested-obtained)}, {
-            ...deps,maxTokens:Math.min(8000,Math.max(2000,Math.min(3,requested-obtained)*1100)),
+            avoidStems:[...history,...accepted].map(q=>q.stem).filter(Boolean).slice(-100),questionCount:batchSize}, {
+            ...deps,maxTokens:Math.min(8000,Math.max(2000,batchSize*1100)),
             callAIJSON:boundedAdapter(deps.callAIJSON),reviewAIJSON:boundedAdapter(deps.reviewAIJSON),repairAIJSON:boundedAdapter(deps.repairAIJSON),
           });
         },requestTimeout,deps.signal,"Exam question preparation");
@@ -211,7 +238,11 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
         }
         const qualityIssues = questionQualityIssues(q, objectives);
         if (!isValidPoolQuestion(q) || (enforceQuality && (qualityIssues.length || !questionMatchesObjectiveDomain(reviewedCandidate, { objectives, atoms }) || alreadyUsed(q, [...history, ...accepted])))) continue;
-        const stamped = { ...q, ...(subject ? { blueprintSlot: allocationId, blueprintSubject: subject, sourceBlockId } : {}), difficulty, questionId: crypto.randomUUID(), blockId, lectureId,
+        if (crossTurn && !verifiedCrossLectureQuotes(q, lectureText, partner.text)) {
+          errorMessage = "A cross-lecture draft was not grounded in reviewed quotes from both lectures and was not counted.";
+          continue;
+        }
+        const stamped = { ...q, ...(crossTurn ? { crossLecture: { partnerLectureId: partner.id, partnerTitle: partner.title } } : {}), ...(subject ? { blueprintSlot: allocationId, blueprintSubject: subject, sourceBlockId } : {}), difficulty, questionId: crypto.randomUUID(), blockId, lectureId,
           taskType: studyMode === "repair" ? repairTaskForIndex(obtained) : (q.taskType || null),
           objectiveIds,
           fingerprint: questionFingerprint(q), schoolStyleScore: schoolStyleSimilarity(q, exemplars),
@@ -221,6 +252,7 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
         const saved = deps.pool ? await deps.pool.save(stamped, bucket, generationId) : stamped;
         if (!saved) continue;
         questions.push(saved); obtained++;
+        if (crossTurn) crossObtained++;
         await deps.onQuestionReady?.(saved);
         progress(`Saved ${questions.length}/${total} questions · ${cacheHits} from your prepared pool`);
       }

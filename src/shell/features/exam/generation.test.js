@@ -345,3 +345,44 @@ it('never reassigns a saved question from another subject to a sole target objec
  expect(result.questions).toHaveLength(0);
  expect(result.errors[0].lectureId).toBe('lec1::bpm::anatomy');
 });
+
+describe("cross-lecture integration items", () => {
+  const brainstem = "The medial lemniscus carries touch and vibration from the contralateral body after the internal arcuate fibers cross. ".repeat(3);
+  const vascular = "The anterior spinal artery supplies the medial medulla including the pyramid and the medial lemniscus. ".repeat(3);
+  const crossLectures = [
+    { id: "nb45", blockId: "b1", weekNumber: 9, lectureNumber: 45, lectureTitle: "NB 45 Brainstem", chunks: [{ markdown: brainstem }] },
+    { id: "nb46", blockId: "b1", weekNumber: 9, lectureNumber: 46, lectureTitle: "NB 46 Brainstem Vasculature", chunks: [{ markdown: vascular }] },
+  ];
+  const byId = { nb45: crossLectures[0], nb46: crossLectures[1] };
+  const objectives = { nb45: [{ id: "o45", objective: "Localize medullary lesions" }], nb46: [{ id: "o46", objective: "Describe medullary blood supply" }] };
+  const crossItem = (stem, quotes) => ({ ...mcq(stem), objectiveIds: ["o45"], reasoningAudit: { sourceQuotes: quotes } });
+
+  it("sends both lectures with the integration contract and refills an unverified cross slot normally", async () => {
+    const callAIJSON = vi.fn(async (_system, prompt) => /CROSS-LECTURE INTEGRATION/.test(prompt)
+      ? { questions: [crossItem("An occluded vessel causes loss of vibration in one limb. Which deficit pattern follows?", [
+          "The anterior spinal artery supplies the medial medulla including the pyramid",
+          "The medial lemniscus carries touch and vibration from the contralateral body"])] }
+      : { questions: [mcq(`Which structure is involved in finding ${callAIJSON.mock.calls.length}?`)] });
+    const result = await generateExamQuestions({ allocation: { nb45: 4, nb46: 1 }, lecturesById: byId, objectivesByLecture: objectives,
+      atomsByLecture: {}, blockId: "b1", lectures: crossLectures, weakConceptAccuracyByLecture: {}, userId: null }, { callAIJSON, skipQuestionAudit: true });
+    const crossPrompt = callAIJSON.mock.calls.map(call => call[1]).find(prompt => /CROSS-LECTURE INTEGRATION/.test(prompt));
+    expect(crossPrompt).toContain("PARTNER LECTURE — NB 46 Brainstem Vasculature");
+    expect(crossPrompt).toContain(vascular.trim().slice(0, 60));
+    // Writer-claimed quotes are not review evidence; only the independent audit
+    // adds reasoningAudit, so this skip-review run cannot verify the item and
+    // the lecture's remaining slots are filled with ordinary questions.
+    expect(result.questions.filter(q => q.crossLecture)).toHaveLength(0);
+    expect(result.questions.filter(q => q.lectureId === "nb45")).toHaveLength(4);
+  });
+
+  it("does not count a cross-lecture draft grounded in only one lecture", async () => {
+    const callAIJSON = vi.fn(async (_system, prompt) => /CROSS-LECTURE INTEGRATION/.test(prompt)
+      ? { questions: [crossItem("A lesion causes loss of vibration in one limb. Which tract is involved?", [
+          "The medial lemniscus carries touch and vibration from the contralateral body"])] }
+      : { questions: [mcq(`Which structure is involved in finding ${callAIJSON.mock.calls.length}?`)] });
+    const result = await generateExamQuestions({ allocation: { nb45: 4, nb46: 1 }, lecturesById: byId, objectivesByLecture: objectives,
+      atomsByLecture: {}, blockId: "b1", lectures: crossLectures, weakConceptAccuracyByLecture: {}, userId: null }, { callAIJSON, skipQuestionAudit: true });
+    expect(result.questions.some(q => q.crossLecture)).toBe(false);
+    expect(result.questions.some(q => /Which tract is involved/.test(q.stem))).toBe(false);
+  });
+});

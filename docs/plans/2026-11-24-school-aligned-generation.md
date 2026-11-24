@@ -66,7 +66,7 @@ One shared style profile (no per-format split).
 |---|--------|--------|
 | A1 | School-emphasis ranking of objectives (exact code / stored link counts) in lecture-quiz and exam-practice objective plans | **done** (`engine/schoolEmphasis.js`) |
 | A2 | Choice-format contract: 4–8 options and grids when templates use them | **done** (`QUESTION_CHOICE_CONTRACT`) |
-| A3 | Cross-lecture integration items in exam practice (25%, two-lecture two-rule check) | not started |
+| A3 | Cross-lecture integration items in exam practice (25%, two-lecture two-rule check) | **done** (`exam/crossLecture.js`); live yield unmeasured |
 | A4 | Format-fit flag in generation diagnostics | not started |
 | B1 | Diagnostic session: explanation-before-reveal + reasoning grader contract | not started |
 | B2 | Error taxonomy with quoted evidence + dispute re-grade | not started |
