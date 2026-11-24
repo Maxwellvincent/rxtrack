@@ -63,3 +63,15 @@ it('keeps a lecture the learner pinned and only accepts objective links within i
  expect(bank.f[0].curriculumMappingReview.reason).toMatch(/your assigned lecture/i);
  expect(bank.f[1]).toMatchObject({lectureId:'l55',lectureLinkBasis:'user-assigned',curriculumLinkStatus:'evidence-verified',objectiveIds:['o55']});
 });
+it('applies headings learned from the learner across the block and passes similar precedents to the reviewer',async()=>{
+ let bank={hw15:[
+  {id:'mine',stem:'Patient with depersonalization episodes. Diagnosis?',correct:'A',choices:{A:'x',B:'y'},sourceSectionTitle:'Dissociative Disorders',lectureId:'l58',lectureLabel:'NB 58',lectureLinkBasis:'user-assigned',curriculumLinkStatus:'user-confirmed',objectiveIds:['o58']},
+  {id:'open',stem:'Patient with dissociative amnesia after trauma. Diagnosis?',correct:'A',choices:{A:'x',B:'y'},sourceSectionTitle:'Dissociative Disorders'}],
+  other:[{id:'x',stem:'Unrelated',correct:'A',choices:{A:'x'},sourceSectionTitle:'Dissociative Disorders',lectureId:'l58',lectureLinkBasis:'user-assigned',curriculumLinkStatus:'user-lecture-only',objectiveIds:[]}]};
+ let metadata={m:{filename:'hw15',blockId:'b'},n:{filename:'other',blockId:'b'}};
+ const classify=vi.fn(async(q,{precedents})=>{expect(q.lectureId).toBe('l58');expect(q.lectureLinkBasis).toBe('learned-heading');expect(precedents[0]).toMatchObject({lectureId:'l58',objectiveIds:['o58']});return null;});
+ const deps={readBanks:()=>bank,writeBanks:async(_,v)=>{bank=v},readMeta:()=>metadata,writeMeta:async(_,v)=>{metadata=v},classify,bridgeAvailable:async()=>true,fetchLectureContent:async()=>({}),review:vi.fn()};
+ await resumeQuestionBankMapping({userId:'u',blockId:'b',filename:'hw15',lectures:[{id:'l58',blockId:'b',lectureTitle:'NB 58'}],objectives:[]},deps);
+ expect(classify).toHaveBeenCalledTimes(1);
+ expect(bank.hw15[1]).toMatchObject({lectureId:'l58',lectureLinkBasis:'learned-heading',curriculumLinkStatus:'user-lecture-only'});
+});

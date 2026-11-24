@@ -102,3 +102,18 @@ it('links an integrated question to one objective in each of two lectures when e
  const context=objectiveMappingContext({...q,mappingQuery:'anterior cerebral artery prefrontal'},lecs,objs,'NB',{expanded:true,requestedLectureIds:['nb55','nb40']});
  expect(validateObjectiveMapping({decision:'objective',links:[links[0],{...links[1],sourceQuote:fear}]},context)).toBeNull();
 });
+
+it('shows the reviewer the learner precedents and retrieves their lectures, without treating them as evidence',async()=>{
+ const sleep='Stage 2 sleep is characterized by sleep spindles and K-complexes on the EEG.';
+ const lecs=[{id:'nb61',blockId:'NB',lectureTitle:'NB 61 Sleep',chunks:[{text:sleep}]},{id:'nb60',blockId:'NB',lectureTitle:'NB 60 Biological Rhythms',chunks:[{text:'Circadian rhythms are entrained by light.'}]}];
+ const objs=[{id:'o61',blockId:'NB',linkedLecId:'nb61',objective:'Contrast sleep stages through the use of electroencephalography'}];
+ const q={stem:'An EEG shows spindles. Which stage?',choices:{A:'NREM stage 2'},correct:'A'};
+ const precedents=[{stem:'Polysomnography shows K complexes. Which stage?',lectureId:'nb61',lectureLabel:'NB 61 Sleep',objectiveIds:['o61'],sameHeading:true}];
+ const review=vi.fn().mockResolvedValue({decision:'objective',links:[{objectiveId:'o61',objectiveText:objs[0].objective,lectureId:'nb61',sourceQuote:sleep,testedRelationship:'Stage 2 EEG features identify the stage'}]});
+ const result=await classifyObjectiveMapping(q,{lectures:lecs,objectives:objs,blockId:'NB',review,precedents});
+ const sent=JSON.parse(review.mock.calls[0][1]);
+ expect(sent.learnerPrecedents).toEqual(precedents);
+ expect(sent.candidates.some(c=>c.lectureId==='nb61')).toBe(true);
+ expect(review.mock.calls[0][0]).toMatch(/learner-confirmed precedents/i);
+ expect(result.objectiveIds).toEqual(['o61']);
+});

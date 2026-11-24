@@ -3,6 +3,7 @@ import * as meta from '../../stores/questionBankMeta.js';
 import {classifyObjectiveMapping,createCurriculumReviewer,MAPPING_VERSION} from '../../engine/semanticObjectiveMapping.js';
 import {linkSourceLecture} from '../features/exam/questionBankLinks.js';
 import {blockProgressProjection} from './blockProgress.js';
+import {applyLearnedHeadings,learnedHeadingMap,similarPrecedents} from '../../engine/learnedLinks.js';
 const active=new Map();
 export const mappingFailureReason=error=>String(error?.message || error || 'Unknown mapping failure').replace(/\bsk-[A-Za-z0-9_-]+/g,'[redacted]').slice(0,2000);
 const identity=(q,i)=>String(q.id || q.questionId || `${i}:${q.stem}`);
@@ -32,7 +33,13 @@ async function run({userId,blockId,filename,lectures=[],objectives=[],recheck=fa
  };
  const eligible=q=>q.correct&&q.answerKeyVerified!==false&&!['user-confirmed','evidence-verified'].includes(q.curriculumLinkStatus);
  try{
-  const source=readBanks(userId)?.[filename];if(!Array.isArray(source))throw Error('Saved question bank was not found.');
+  let source=readBanks(userId)?.[filename];if(!Array.isArray(source))throw Error('Saved question bank was not found.');
+  // Learn from the learner's own links across every bank in this block.
+  const blockFiles=new Set(Object.values(readMeta(userId)||{}).filter(m=>m?.blockId===blockId).map(m=>m.filename).concat(filename));
+  const blockQuestions=()=>Object.entries(readBanks(userId)||{}).filter(([name])=>blockFiles.has(name)).flatMap(([,list])=>Array.isArray(list)?list:[]);
+  const learned=applyLearnedHeadings(source,learnedHeadingMap(blockQuestions()));
+  if(learned.applied){const all=readBanks(userId)||{};await writeBanks(userId,{...all,[filename]:learned.questions});source=learned.questions;state.learnedHeadingLinks=(state.learnedHeadingLinks||0)+learned.applied;}
+  const precedentPool=blockQuestions().filter(item=>item?.curriculumLinkStatus==='user-confirmed');
   state.total=source.length;await save();
   const catalog=blockProgressProjection({blockId,lectures,catalog:objectives,evidence:{}}).linked;
   // An unresolved verdict is only final for the curriculum it was judged
@@ -56,12 +63,12 @@ async function run({userId,blockId,filename,lectures=[],objectives=[],recheck=fa
     let evaluation;
     // A lecture the learner assigned is authoritative: mapping may only add
     // objective credit within it, never move the question elsewhere.
-    const pinned=q.lectureLinkBasis==='user-assigned'&&q.lectureId?q:null;
+    const pinned=['user-assigned','learned-heading'].includes(q.lectureLinkBasis)&&q.lectureId?q:null;
     const attributed=pinned||linkSourceLecture({...q,sourceTitle:filename},enriched,blockId);
-    let patch=await classify(attributed,{lectures:enriched,objectives:catalog,blockId,review,onEvaluation:async value=>{evaluation=value;}});
+    let patch=await classify(attributed,{lectures:enriched,objectives:catalog,blockId,review,precedents:similarPrecedents(q,precedentPool),onEvaluation:async value=>{evaluation=value;}});
     if(pinned&&patch){
      if(patch.lectureId!==pinned.lectureId){evaluation={...(evaluation||{}),decision:'unresolved',reason:`Automatic mapping proposed ${patch.lectureLabel||patch.lectureId}, not your assigned lecture; your assignment was kept. Choose an objective manually if it fits.`};patch=null;}
-     else patch={...patch,lectureId:pinned.lectureId,lectureLabel:pinned.lectureLabel,lectureLinkBasis:'user-assigned'};
+     else patch={...patch,lectureId:pinned.lectureId,lectureLabel:pinned.lectureLabel,lectureLinkBasis:pinned.lectureLinkBasis};
     }
     state.lastSearch=patch?.curriculumMapping?.retrieval||evaluation?.retrieval||state.lastSearch;
     const current=readBanks(userId),list=current[filename];if(!Array.isArray(list))throw Error('Saved bank changed during mapping. Resume after it finishes saving.');

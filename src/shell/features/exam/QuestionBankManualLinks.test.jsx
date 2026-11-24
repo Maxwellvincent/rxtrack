@@ -29,3 +29,19 @@ it("lists unresolved questions with their reason and saves a lecture + objective
   expect(saved["Week 15 NB NSCI"][1].lectureId).toBe("nb61");
   root.unmount();
 });
+
+it("links unlinked questions under the same heading after you assign one", async () => {
+  bank["Week 15 NB BEHS"] = [
+    { id: "d1", num: 1, stem: "Depersonalization episodes. Diagnosis?", correct: "A", choices: { A: "x" }, sourceSectionTitle: "Dissociative Disorders" },
+    { id: "d2", num: 2, stem: "Dissociative amnesia after trauma. Diagnosis?", correct: "A", choices: { A: "x" }, sourceSectionTitle: "Dissociative Disorders" },
+  ];
+  const lectures58 = [...lectures, { id: "nb58", blockId: "b", lectureNumber: 58, lectureType: "LEC", lectureTitle: "NB 58 Trauma and Dissociative Disorders" }];
+  const host = document.createElement("div"), root = createRoot(host);
+  await act(async () => root.render(<QuestionBankManualLinks userId="u" blockId="b" filename="Week 15 NB BEHS" questions={bank["Week 15 NB BEHS"]} lectures={lectures58} objectives={objectives} blockBankFilenames={["Week 15 NB BEHS", "Week 15 NB NSCI"]} />));
+  const select = host.querySelector("select");
+  await act(async () => { select.value = "nb58"; select.dispatchEvent(new Event("change", { bubbles: true })); });
+  await act(async () => { [...host.querySelectorAll("button")].find(b => b.textContent === "Save link").click(); });
+  expect(saved["Week 15 NB BEHS"][1]).toMatchObject({ lectureId: "nb58", lectureLinkBasis: "learned-heading", curriculumLinkStatus: "user-lecture-only" });
+  expect(host.textContent).toMatch(/Also linked 1 unlinked question under “Dissociative Disorders”/);
+  root.unmount();
+});

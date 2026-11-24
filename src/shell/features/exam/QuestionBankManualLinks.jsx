@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import * as questionBanksStore from "../../../stores/questionBanks.js";
 import { assignQuestionToLecture } from "./questionBankLinks.js";
 import { formatLectureLabel } from "../../../lectureTitle.js";
+import { applyLearnedHeadings, headingKey, learnedHeadingMap } from "../../../engine/learnedLinks.js";
 
 const identity = (question, index) => String(question.id || question.questionId || `${index}:${question.stem}`);
 const objectiveText = objective => objective.objective || objective.text || objective.content || objective.id;
@@ -11,11 +12,12 @@ function linkStatus(question) {
   if (question.curriculumLinkStatus === "user-confirmed") return { symbol: "✓", label: `Linked by you to ${lecture}`, linked: true };
   if (question.curriculumLinkStatus === "evidence-verified") return { symbol: "✓", label: `Verified link to ${lecture}`, linked: true };
   if (question.lectureLinkBasis === "user-assigned") return { symbol: "◆", label: `Lecture pinned by you: ${lecture} · objective not chosen yet`, linked: false };
+  if (question.lectureLinkBasis === "learned-heading") return { symbol: "◆", label: `Lecture learned from your links (same heading): ${lecture} · objective not chosen yet`, linked: false };
   return { symbol: "◇", label: question.curriculumMappingReview?.reason ? `Unresolved: ${String(question.curriculumMappingReview.reason).slice(0, 220)}` : "Not linked yet", linked: false };
 }
 
 /** Learner-controlled lecture/objective assignment for uploaded school questions. */
-export function QuestionBankManualLinks({ userId, blockId, filename, questions = [], lectures = [], objectives = [] }) {
+export function QuestionBankManualLinks({ userId, blockId, filename, questions = [], lectures = [], objectives = [], blockBankFilenames = [] }) {
   const [showAll, setShowAll] = useState(false);
   const [drafts, setDrafts] = useState({});
   const [message, setMessage] = useState("");
@@ -35,9 +37,20 @@ export function QuestionBankManualLinks({ userId, blockId, filename, questions =
     if (!updated) { setMessage("Choose a lecture in this block and at most two of its objectives."); return; }
     setSavingKey(row.key);
     try {
-      await questionBanksStore.writeAwait(userId, { ...current, [filename]: list.map((item, index) => identity(item, index) === row.key && item.stem === row.question.stem ? updated : item) });
+      const banks = { ...current, [filename]: list.map((item, index) => identity(item, index) === row.key && item.stem === row.question.stem ? updated : item) };
+      // Teach the rest of the block: unlinked questions under a heading you have
+      // consistently assigned follow your choice (lecture only, no objective credit).
+      const names = [...new Set([filename, ...blockBankFilenames])].filter(name => Array.isArray(banks[name]));
+      const learned = learnedHeadingMap(names.flatMap(name => banks[name]));
+      let followed = 0;
+      if (lectureId) for (const name of names) {
+        const result = applyLearnedHeadings(banks[name], learned);
+        if (result.applied) { banks[name] = result.questions; followed += result.applied; }
+      }
+      await questionBanksStore.writeAwait(userId, banks);
       setDrafts(previous => { const next = { ...previous }; delete next[row.key]; return next; });
-      setMessage(lectureId ? `Saved Q${row.question.num || row.index + 1}.` : `Cleared Q${row.question.num || row.index + 1}.`);
+      const heading = row.question.sourceSectionTitle || row.question.sourceSection;
+      setMessage(lectureId ? `Saved Q${row.question.num || row.index + 1}.${followed ? ` Also linked ${followed} unlinked question${followed === 1 ? "" : "s"}${heading && learned.get(headingKey(row.question)) ? ` under “${heading}”` : ""} to the same lecture.` : ""}` : `Cleared Q${row.question.num || row.index + 1}.`);
     } catch (error) {
       setMessage(`Not saved: ${error.message}`);
     } finally { setSavingKey(null); }
@@ -50,7 +63,7 @@ export function QuestionBankManualLinks({ userId, blockId, filename, questions =
     <label className="mt-1 flex items-center gap-2"><input type="checkbox" checked={showAll} onChange={event => setShowAll(event.target.checked)} /> Show linked questions too</label>
     {message && <p className="mt-1 font-semibold" role="status">{message}</p>}
     <ul className="mt-2 space-y-2">{visible.map(row => {
-      const draft = drafts[row.key] || { lectureId: row.question.lectureLinkBasis === "user-assigned" ? row.question.lectureId : "", secondLectureId: "", objectiveIds: row.question.curriculumLinkStatus === "user-confirmed" ? row.question.objectiveIds || [] : [] };
+      const draft = drafts[row.key] || { lectureId: ["user-assigned", "learned-heading"].includes(row.question.lectureLinkBasis) ? row.question.lectureId : "", secondLectureId: "", objectiveIds: row.question.curriculumLinkStatus === "user-confirmed" ? row.question.objectiveIds || [] : [] };
       const update = patch => setDrafts(previous => ({ ...previous, [row.key]: { ...draft, ...patch } }));
       const choices = objectives.filter(objective => objective.linkedLecId && [draft.lectureId, draft.secondLectureId].includes(objective.linkedLecId));
       const toggle = id => update({ objectiveIds: draft.objectiveIds.includes(id) ? draft.objectiveIds.filter(value => value !== id) : [...draft.objectiveIds, id].slice(-2) });
@@ -71,7 +84,7 @@ export function QuestionBankManualLinks({ userId, blockId, filename, questions =
         </label>)}</fieldset>}
         <div className="mt-1 flex gap-2">
           <button type="button" disabled={!draft.lectureId || savingKey === row.key} onClick={() => save(row, draft.lectureId, draft.objectiveIds)} className="rounded border border-border px-2 py-0.5 font-semibold disabled:opacity-50">{savingKey === row.key ? "Saving…" : "Save link"}</button>
-          {(row.question.lectureLinkBasis === "user-assigned") && <button type="button" disabled={savingKey === row.key} onClick={() => save(row, null, [])} className="rounded border border-border px-2 py-0.5">Clear my link</button>}
+          {["user-assigned", "learned-heading"].includes(row.question.lectureLinkBasis) && <button type="button" disabled={savingKey === row.key} onClick={() => save(row, null, [])} className="rounded border border-border px-2 py-0.5">Clear my link</button>}
         </div>
       </li>;
     })}</ul>

@@ -172,6 +172,12 @@ You can also assign questions yourself (Exam → Banks → "Assign questions to
 lectures", `QuestionBankManualLinks.jsx`): lecture plus up to two objectives is a
 `user-confirmed` link; lecture only is `user-lecture-only` and automatic mapping may
 then add objectives only inside that pinned lecture.
+**Learning from your links** (`learnedLinks.js`): a homework section heading you have
+consistently assigned to one lecture is learned for the block; unlinked questions under
+that heading are pinned to it (`lectureLinkBasis: "learned-heading"`, no objective credit)
+when you save a link and at the start of each mapping run. Automatic linking also sends
+the reviewer up to 3 of your most similar objective-confirmed questions as
+`learnerPrecedents` (hints only; the lecture quote is still required).
 
 Pipeline details and live-run notes: [docs/question-preparation-pipeline.md](docs/question-preparation-pipeline.md),
 [docs/question-writing-standard.md](docs/question-writing-standard.md),
