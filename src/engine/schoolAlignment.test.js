@@ -150,3 +150,13 @@ it('retains a substantive phrase match rather than banning all common modifiers'
  const objective={id:'c',objective:'Describe the signs and symptoms associated with cerebellar lesions sites.'};const example={id:'real',sourceKind:'homework',stem:'Cerebellar lesions produce which coordination finding?',choices:{A:'Dysmetria',B:'Loss of primary sensation'},correct:'A'};
  expect(buildSchoolTemplatePlan({objectives:[objective],examples:[example]})[0].example.sourceQuestionId).toBe('real');
 });
+
+it('sends a whole 50,000-character lecture rather than keyword snippets, and still caps runaway documents',()=>{
+ const pages=Array.from({length:40},(_,index)=>`Slide ${index+1}: `+'Mood episode criteria, duration thresholds and drug side effects. '.repeat(19));
+ const text=pages.join('\f');
+ expect(text.length).toBeGreaterThan(48000);
+ const complete=completeLectureEvidence(text);
+ expect(complete).toContain('Slide 1:');
+ expect(complete).toContain('Slide 40:');
+ expect(completeLectureEvidence(Array.from({length:80},()=> 'x'.repeat(1000)).join('\f'))).toBeNull();
+});

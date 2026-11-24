@@ -141,6 +141,13 @@ Core: `src/engine/mcq.js` (prompt assembly, review, repair). Routing:
   (length, sentences, options, clinical/data, ending). It is displayed only; it
   does not gate acceptance.
 
+**Lecture evidence:** the writer, the independent reviewer and the key-blind solve receive the
+whole lecture (slide pages separated by `\f`, objective-inventory slides dropped) up to
+`COMPLETE_LECTURE_BUDGET` = 60,000 characters (`schoolAlignment.js`); above that they fall back
+to per-objective retrieval (~2,800 characters per objective). Lecture quizzes and exam practice
+both load page-delimited text, and exam practice fetches the lecture text even when
+extracted facts already exist.
+
 **Reasoning depth and connections**
 
 - First/second/third order are internal labels. An independent review checks

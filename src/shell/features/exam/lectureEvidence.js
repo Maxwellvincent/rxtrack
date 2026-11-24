@@ -1,11 +1,18 @@
 import { getLecText } from "../../../lectureText.js";
+import { lectureTextFrom } from "../lectures/lectureStudy.js";
+
+// Page-delimited text (\f between slides) lets the writer and reviewer receive
+// the whole lecture instead of keyword snippets; fall back to the flat text.
+const evidenceText = lecture => lectureTextFrom(lecture) || getLecText(lecture);
 
 /** Resolve a lightweight library record without writing large text to localStorage. */
 export async function loadExamLectureEvidence(lecture, atoms = [], { userId, fetchContent } = {}) {
   let resolved = lecture || {};
-  let lectureText = getLecText(resolved);
+  let lectureText = evidenceText(resolved);
   let facts = atoms.length ? atoms : (Array.isArray(resolved.atoms) ? resolved.atoms : []);
-  if (lectureText.trim().length < 150 && !facts.length && fetchContent && userId && resolved.id) {
+  // Extracted facts are not a substitute for the lecture itself: fetch the text
+  // whenever it is missing locally, even if facts are already available.
+  if (lectureText.trim().length < 150 && fetchContent && userId && resolved.id) {
     let remote;
     try { remote = await fetchContent(userId, resolved.id); }
     catch (error) {
@@ -13,8 +20,8 @@ export async function loadExamLectureEvidence(lecture, atoms = [], { userId, fet
     }
     if (remote) {
       resolved = { ...resolved, ...(remote.meta || {}), ...remote, id: lecture.id, blockId: lecture.blockId };
-      lectureText = getLecText(resolved);
-      facts = Array.isArray(remote.atoms) ? remote.atoms : [];
+      lectureText = evidenceText(resolved);
+      if (!facts.length) facts = Array.isArray(remote.atoms) ? remote.atoms : [];
     }
   }
   if (lectureText.trim().length < 150 && !facts.length) {

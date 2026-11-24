@@ -22,3 +22,19 @@ it("supports facts-only cloud extraction and distinguishes missing content from 
   await expect(loadExamLectureEvidence(lecture, [], { userId: "u", fetchContent: async () => null })).rejects.toThrow("No usable lecture text");
   await expect(loadExamLectureEvidence(lecture, [], { userId: "u", fetchContent: async () => { throw new Error("offline"); } })).rejects.toThrow("re-uploading is not required");
 });
+
+it("keeps slide/page boundaries so whole-lecture evidence can be used", async () => {
+  const lecture = { id: "nb59", blockId: "nb3", chunks: [{ markdown: "Slide one: major depressive episode criteria. ".repeat(5) }, { markdown: "Slide two: bipolar I versus bipolar II durations. ".repeat(5) }] };
+  const result = await loadExamLectureEvidence(lecture, [{ term: "MDD", content: "2 weeks" }], {});
+  expect(result.lectureText).toContain("\f");
+  expect(result.lectureText).toContain("Slide two");
+});
+
+it("loads the lecture text even when extracted facts are already available", async () => {
+  const lecture = { id: "nb56", blockId: "nb3", lectureTitle: "Anxiety" };
+  const fetchContent = vi.fn(async () => ({ chunks: [{ markdown: "Panic disorder requires one month of worry. ".repeat(6) }, { markdown: "GAD lasts six months. ".repeat(8) }] }));
+  const result = await loadExamLectureEvidence(lecture, [{ term: "GAD", content: "6 months" }], { userId: "user", fetchContent });
+  expect(fetchContent).toHaveBeenCalledWith("user", "nb56");
+  expect(result.lectureText).toContain("Panic disorder");
+  expect(result.atoms).toEqual([{ term: "GAD", content: "6 months" }]);
+});

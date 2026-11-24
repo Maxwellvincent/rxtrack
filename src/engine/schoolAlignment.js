@@ -39,7 +39,11 @@ export function schoolEvidencePrompt(examples, objectives, atoms) {
 
 /** Keep a bounded lecture intact so pathway tables and neighboring distinctions
  * are available to both the writer and independent reviewers. */
-export function completeLectureEvidence(text, budget = 26000) {
+// Whole-lecture evidence up to ~60k characters (~15k tokens): every NB 3 lecture
+// (largest ~52k) reaches the writer and reviewer intact instead of as keyword
+// snippets, while a runaway document still falls back to per-objective retrieval.
+export const COMPLETE_LECTURE_BUDGET = 60000;
+export function completeLectureEvidence(text, budget = COMPLETE_LECTURE_BUDGET) {
   const pages = String(text || '').split(/\f/);
   if (pages.length < 2) return null;
   const factual = pages.map((text, index) => ({ text, index }))
