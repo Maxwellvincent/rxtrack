@@ -11,8 +11,16 @@ export function MasteryLadderPanel({ objectives = [], evidence = {}, examDate = 
   const summary = useMemo(() => blockLadderSummary(objectives, evidence, { now, examDate }), [objectives, evidence, now, examDate]);
   if (!objectives.length) return null;
   const mastered = summary.counts[5], integrated = summary.counts[4] + summary.counts[5];
-  return <details className="w-full rounded-xl border border-border bg-bg-elevated p-4 shadow-sm" open>
-    <summary className="cursor-pointer py-2 font-semibold">Mastery ladder · {mastered}/{objectives.length} mastered · {integrated}/{objectives.length} at Integration or above</summary>
+  const repairs = summary.rows.filter(row => row.ladder.repairDue).length;
+  const due = summary.rows.filter(row => row.ladder.retestDue).length;
+  return <details className="my-3 w-full rounded-xl border border-border bg-bg-elevated px-4 py-2 shadow-sm">
+    <summary className="cursor-pointer py-1 text-sm">
+      <span className="font-semibold">Mastery ladder</span>
+      <span className="ml-2 font-mono text-xs text-text-2">✓ {mastered} · ● {integrated - mastered} · ◕ {summary.counts[3]} · ◑ {summary.counts[2]} · ◔ {summary.counts[1]} · ○ {summary.counts[0]}</span>
+      {repairs > 0 && <span className="ml-2 text-xs">⚠ {repairs} to repair</span>}
+      {due > 0 && <span className="ml-2 text-xs">⏰ {due} retest{due === 1 ? "" : "s"} due</span>}
+      <span className="sr-only"> — {mastered} of {objectives.length} mastered</span>
+    </summary>
     <p className="my-2 text-sm text-text-2">Recall → Application (2 in a row) → Discrimination (2, one confident) → Integration → Mastered after a correct retest on a later day. Only independent answers count; a miss drops one rung and the next quiz repairs it.</p>
     <ul className="space-y-2 text-sm">{summary.rows.sort((a, b) => a.ladder.rung - b.ladder.rung).map(({ objective, ladder }) => <li key={objective.id} className="border-t border-border pt-2">
       <div className="flex flex-wrap items-baseline justify-between gap-2">

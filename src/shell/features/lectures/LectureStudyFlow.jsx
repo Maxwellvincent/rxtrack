@@ -2351,6 +2351,7 @@ export function LectureStudyFlow({
 
       </LecturePanel>
       <LecturePanel name="practice" workspace={workspace} visited={visitedWorkspaces} aria-label="Practice this lecture">
+      <MasteryLadderPanel objectives={lectureObjectives} evidence={learnerEvidence.data || {}} examDate={(() => { const raw = examDates?.[blockId]?.examDate ?? examDates?.[blockId]; const ms = raw ? Date.parse(raw) : NaN; return Number.isFinite(ms) ? ms : null; })()} />
       <LectureProgression plan={progressionPlan} notice={progressionNotice} />
       <LectureCheckpoint userId={userId} lecture={lecture} blockId={blockId} busy={!!busy||checkpointPreparing||!!questions||schoolExamplesLoading||learnerEvidence.loading} onOpenSession={setCheckpointSession} onWorkingChange={setCheckpointPreparing} config={{objectives:objectivesWithConnectionGaps(orderedObjectives,relationshipResource.data,learnerEvidence.data||{},connectionScope),evidenceModel:learnerEvidence.data,lectureText:text,sourcePages:connectionScope.pages,atoms,exemplars:schoolExemplars,difficulty:resolveDefaultDifficulty(qStats.accuracy)}} />
       <MissedQuestions evidence={learnerEvidence.data || {}} blockId={blockId} lectureId={lecture?.id} lectures={[lecture]} busy={!!busy||checkpointPreparing || !!questions} onReplay={items=>{setAdHocQuiz(true);startQuizSession(items);}} onStudy={()=>setWorkspace('learn')} />
@@ -2551,9 +2552,10 @@ export function LectureStudyFlow({
             </div>
           )}
 
-          {/* Tagging */}
+          {/* Tagging (maintenance) */}
           {lectureObjectives.length > 0 && untagged > 0 && (
-            <div className="flex items-center gap-3">
+            <details className="text-sm"><summary className="cursor-pointer text-text-2">Lecture maintenance</summary>
+            <div className="mt-2 flex items-center gap-3">
               <Button variant="outline" onClick={runTagging} disabled={!!busy||checkpointPreparing}>
                 ◇ Tag atoms to objectives
               </Button>
@@ -2561,6 +2563,7 @@ export function LectureStudyFlow({
                 {untagged} of {atoms.length} untagged · {lectureObjectives.length} objectives
               </span>
             </div>
+            </details>
           )}
           {images.length > 0 && (
             <span className="text-[12px] text-text-3">{images.length} figures attached</span>
@@ -2569,7 +2572,7 @@ export function LectureStudyFlow({
       )}
 
       </LecturePanel>
-      <LecturePanel name="sources" workspace={workspace} visited={visitedWorkspaces} aria-label="Lecture figure tools">{figuresPrompt}</LecturePanel>
+      <LecturePanel name="sources" workspace={workspace} visited={visitedWorkspaces} aria-label="Lecture figure tools">{figuresPrompt}<div className="mt-4"><ObjectiveCoverage atoms={atoms} objectives={lectureObjectives} examples={schoolExemplars} lectureText={text} lecture={lecture} blockId={blockId} /></div></LecturePanel>
 
       <LecturePanel name="learn" workspace={workspace} visited={visitedWorkspaces} id="lecture-reference" sectionRef={referenceDetailsRef} className="mt-5 rounded-xl border border-border bg-bg-elevated p-3">
         <h2 className="px-1 py-1 text-sm font-semibold text-text-2">Lecture reference <span className="ml-2 font-normal text-text-3">Models, guide &amp; lecture facts</span></h2>
@@ -2585,8 +2588,6 @@ export function LectureStudyFlow({
           <div className="grid items-start gap-4 lg:grid-cols-2">
             <ModelRepairs userId={userId} lectureId={lecture?.id} title={renamedTitle || title} atoms={atoms} objectives={lectureObjectives} chunks={lectureChunks} />
           </div>
-          <MasteryLadderPanel objectives={lectureObjectives} evidence={learnerEvidence.data || {}} examDate={(() => { const raw = examDates?.[blockId]?.examDate ?? examDates?.[blockId]; const ms = raw ? Date.parse(raw) : NaN; return Number.isFinite(ms) ? ms : null; })()} />
-          <ObjectiveCoverage atoms={atoms} objectives={lectureObjectives} examples={schoolExemplars} lectureText={text} lecture={lecture} blockId={blockId} />
           {clinicalCorrelateLibrary.length > 0 && (
             <details className="rounded-lg border border-border bg-bg-elevated p-3">
               <summary className="cursor-pointer text-sm font-semibold text-text-1">
