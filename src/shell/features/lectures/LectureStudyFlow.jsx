@@ -2356,28 +2356,25 @@ export function LectureStudyFlow({
       <LectureCheckpoint userId={userId} lecture={lecture} blockId={blockId} busy={!!busy||checkpointPreparing||!!questions||schoolExamplesLoading||learnerEvidence.loading} onOpenSession={setCheckpointSession} onWorkingChange={setCheckpointPreparing} config={{objectives:objectivesWithConnectionGaps(orderedObjectives,relationshipResource.data,learnerEvidence.data||{},connectionScope),evidenceModel:learnerEvidence.data,lectureText:text,sourcePages:connectionScope.pages,atoms,exemplars:schoolExemplars,difficulty:resolveDefaultDifficulty(qStats.accuracy)}} />
       <MissedQuestions evidence={learnerEvidence.data || {}} blockId={blockId} lectureId={lecture?.id} lectures={[lecture]} busy={!!busy||checkpointPreparing || !!questions} onReplay={items=>{setAdHocQuiz(true);startQuizSession(items);}} onStudy={()=>setWorkspace('learn')} />
       <div className="my-3 flex flex-wrap justify-between gap-2"><h2 className="text-lg font-semibold">Test this lecture</h2><button type="button" className="text-sm font-semibold text-accent underline" onClick={()=>setWorkspace("learn")}>Study objective connections →</button><p className="text-sm text-text-3">{qStats.loading ? "Loading practice history…" : qStats.answered ? `${qStats.answered} answered · ${qStats.correct} correct · ${qStats.answered - qStats.correct} missed · ${accuracyPct}%` : "No questions answered yet"}</p></div>
-      {lectureWeakConcepts.length > 0 && <section aria-label="Weak concepts in this lecture" className="my-4 rounded-xl border border-warn/40 bg-warn/5 p-4">
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <div><h3 className="font-semibold">Weak concepts in this lecture</h3><p className="mt-1 text-xs text-text-3">These use the same lecture objectives and saved question history as every other lecture quiz.</p></div>
-          <span className="font-mono text-xs text-text-3">{lectureWeakConcepts.length} active</span>
-        </div>
-        <ul className="mt-3 space-y-2">
-          {lectureWeakConcepts.map((concept) => {
-            const targets = objectivesForWeakConcept(concept, lectureObjectives);
-            const focused = examRepairContext?.weakConcept && String(examRepairContext.weakConcept).toLowerCase() === String(concept.concept).toLowerCase();
-            return <li key={concept.id || concept.concept} className={`flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3 ${focused ? "border-accent bg-accent-soft" : "border-border bg-bg-elevated"}`}>
-              <div>
-                <p className="text-sm font-semibold">{concept.concept || concept.description}</p>
-                <p className="mt-1 text-xs text-text-3">{concept.misses} missed · {concept.correct} correct{concept.lastOutcome ? ` · last ${concept.lastOutcome}` : ""}</p>
-                <p className="mt-1 text-xs text-text-3">Recovery: {Math.min(4, concept.consecutiveCorrect || 0)}/4 consecutive fresh answers without help. At 4, this leaves the active list; original misses stay in history.</p>
-              </div>
-              <Button variant="outline" disabled={!!busy||checkpointPreparing || !targets.length} onClick={() => runQuiz(5, resolveDefaultDifficulty(qStats.accuracy), [], false, targets, `Test this weak concept specifically: ${concept.concept}. Use fresh second- or third-order applications tied to this lecture's linked objectives.`)}>
-                Quiz this concept · 5
-              </Button>
-              {!targets.length && <p className="w-full text-xs text-warn">This concept needs a current objective link before targeted questions can be generated.</p>}
-            </li>;
-          })}
-        </ul>
+      {lectureWeakConcepts.length > 0 && <section aria-label="Weak concepts in this lecture" className="my-3">
+        <details open={lectureWeakConcepts.length <= 3 || !!examRepairContext?.weakConcept} className="rounded-xl border border-border bg-bg-elevated px-4 py-2">
+          <summary className="cursor-pointer py-1 text-sm"><span className="font-semibold">⚠ Weak concepts</span><span className="ml-2 font-mono text-xs text-text-2">{lectureWeakConcepts.length} active</span></summary>
+          <ul className="mb-1 mt-1 divide-y divide-border">
+            {lectureWeakConcepts.map((concept) => {
+              const targets = objectivesForWeakConcept(concept, lectureObjectives);
+              const focused = examRepairContext?.weakConcept && String(examRepairContext.weakConcept).toLowerCase() === String(concept.concept).toLowerCase();
+              const recovery = Math.min(4, concept.consecutiveCorrect || 0);
+              return <li key={concept.id || concept.concept} className={`flex flex-wrap items-center justify-between gap-2 py-2 ${focused ? "font-semibold" : ""}`}>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm">{focused ? "▸ " : ""}{concept.concept || concept.description}</p>
+                  <p className="text-xs text-text-3" title="Recovery counts consecutive fresh answers without help. At 4/4 the concept leaves this list; the original misses stay in history.">✕ {concept.misses} missed · ✓ {concept.correct} correct · recovery {recovery}/4</p>
+                  {!targets.length && <p className="text-xs">◇ Needs an objective link before targeted questions.</p>}
+                </div>
+                <Button variant="outline" className="px-3 py-1 text-xs" disabled={!!busy||checkpointPreparing || !targets.length} onClick={() => runQuiz(5, resolveDefaultDifficulty(qStats.accuracy), [], false, targets, `Test this weak concept specifically: ${concept.concept}. Use fresh second- or third-order applications tied to this lecture's linked objectives.`)}>Quiz · 5</Button>
+              </li>;
+            })}
+          </ul>
+        </details>
       </section>}
       {pendingQuiz && <div role="status" className="my-3 rounded-lg border border-border bg-panel p-3 text-sm">
         <strong>{pendingQuiz.questions.length}/{pendingQuiz.count} questions ready</strong>

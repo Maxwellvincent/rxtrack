@@ -20,13 +20,15 @@ export function LectureProgression({plan={rows:[]},notice=''}){
  const rows=plan.rows||[];
  if(!rows.length)return null;
  const totals=['first-order','second-order','third-order'].map(order=>({order,attempts:rows.reduce((n,r)=>n+(r.orderLevels?.[order]?.attempts||0),0),correct:rows.reduce((n,r)=>n+(r.orderLevels?.[order]?.correct||0),0)}));
- return <section aria-label="Lecture learning progression" className="my-4 rounded-xl border border-border bg-bg-elevated p-4">
-  <h2 className="text-lg font-semibold">Recognition → Application → Integration</h2>
-  <p className="mt-1 text-sm text-text-2">Your next target is set per objective. Difficulty such as “medium” is separate from reasoning depth. Application does not require completing every recognition question first.</p>
-  {notice&&<p role="status" className="mt-2 text-sm font-semibold text-accent">{notice}</p>}
-  <div className="mt-3 grid gap-2 sm:grid-cols-3">{totals.map((row,i)=><div key={row.order} className="rounded border border-border p-3"><h3 className="font-semibold">{['Recognize the concept','Apply a connection','Integrate connections'][i]}</h3><p className="mt-1 text-sm">{row.attempts?`${row.correct}/${row.attempts} independently correct`:'Not separately tested yet'}</p><p className="mt-1 text-xs text-text-3">{['Identify or distinguish a taught fact.','Use a taught relationship to interpret a new case.','Connect two necessary relationships to predict a new result.'][i]}</p></div>)}</div>
-  <ul className="mt-3 space-y-2">{(all?rows:rows.slice(0,4)).map(row=><li key={row.id} className="border-t border-border pt-2 text-sm"><p className="font-semibold">{row.text}</p><p>Next: <strong>{row.targetOrder==='third-order'?'Integration':'Application'}</strong>{row.state==='struggling'?' · repair needed':''}</p><p className="text-xs text-text-3">{row.progressionReason}</p></li>)}</ul>
-  {rows.length>4&&<button type="button" className="mt-2 text-sm underline" onClick={()=>setAll(!all)}>{all?'Show fewer objectives':`Show all ${rows.length} objectives`}</button>}
-  <p className="mt-3 text-xs text-text-3">Counts are objective-linked evidence and can overlap. Hints and repeated questions do not count as fresh independent evidence. Advancement is a practice target, not a mastery claim.</p>
+ const short=['Recognize','Apply','Integrate'];
+ return <section aria-label="Lecture learning progression" className="my-3">
+  {notice&&<p role="status" className="mb-2 text-sm font-semibold">↑ {notice}</p>}
+  <details className="rounded-xl border border-border bg-bg-elevated px-4 py-2">
+   <summary className="cursor-pointer py-1 text-sm"><span className="font-semibold">Recognition → Application → Integration</span><span className="ml-2 font-mono text-xs text-text-2">{totals.map((row,i)=>`${short[i]} ${row.attempts?`${row.correct}/${row.attempts}`:'—'}`).join(' · ')}</span></summary>
+   <div className="mt-2 grid gap-2 sm:grid-cols-3">{totals.map((row,i)=><div key={row.order} className="rounded border border-border p-2"><h3 className="text-sm font-semibold">{['Recognize the concept','Apply a connection','Integrate connections'][i]}</h3><p className="mt-1 text-sm">{row.attempts?`${row.correct}/${row.attempts} independently correct`:'Not separately tested yet'}</p><p className="mt-1 text-xs text-text-3">{['Identify or distinguish a taught fact.','Use a taught relationship to interpret a new case.','Connect two necessary relationships to predict a new result.'][i]}</p></div>)}</div>
+   <ul className="mt-2 space-y-2">{(all?rows:rows.slice(0,4)).map(row=><li key={row.id} className="border-t border-border pt-2 text-sm"><p>{row.text}</p><p className="text-xs text-text-2" title={row.progressionReason||''}>Next: <strong>{row.targetOrder==='third-order'?'Integration':'Application'}</strong>{row.state==='struggling'?' · ⚠ repair needed':''}</p></li>)}</ul>
+   {rows.length>4&&<button type="button" className="mt-2 text-sm underline" onClick={()=>setAll(!all)}>{all?'Show fewer objectives':`Show all ${rows.length} objectives`}</button>}
+   <p className="my-2 text-xs text-text-3">Only fresh, unhinted answers count. Advancement is a practice target, not a mastery claim.</p>
+  </details>
  </section>;
 }
