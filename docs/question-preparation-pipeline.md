@@ -1,3 +1,5 @@
+> **Routing update (verified 2026-11-24):** question preparation now tries Ollama Cloud DeepSeek first, then Codex, then local Ollama (`src/questionPreparation.js`). Exam launches disable the Codex fallback (`launchExam.js`). The Codex-first description below is historical. Current summary: [README → Question generation](../README.md#question-generation).
+
 # Lecture question preparation
 
 Local Ollama stays serial because competing drafts otherwise queue ahead of review.

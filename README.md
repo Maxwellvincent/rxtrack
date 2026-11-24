@@ -20,7 +20,8 @@ Deployed on Vercel (project `rxtrack`). Single user/owner; Google sign-in.
 |-------|------|
 | UI | React 19, Vite 7, Tailwind 4, lucide-react |
 | Backend | Firebase — Auth (Google), Firestore, Storage, Cloud Functions (Node 22) |
-| AI | llm-bridge on `127.0.0.1:4319` first, then the `aiComplete` Cloud Function (Anthropic / Gemini, keys server-side) |
+| AI — question prep | llm-bridge on `127.0.0.1:4319`: Ollama Cloud **DeepSeek** first → Codex fallback (never for exam launches) → local Ollama last. Never falls through to paid APIs. See [Question generation](#question-generation). |
+| AI — other calls | llm-bridge first, then the `aiComplete` Cloud Function (Anthropic / Gemini, keys server-side) |
 | OCR | local Marker server → Datalab (via `datalabConvert` function) → Mistral OCR |
 | Tests | Vitest + jsdom; `@firebase/rules-unit-testing` for rules |
 
@@ -93,6 +94,58 @@ Secrets (`firebase functions:secrets:set`): `ANTHROPIC_API_KEY`,
 `GEMINI_API_KEY`, `DATALAB_API_KEY`. Optional env: `ALLOWED_UIDS`,
 `ANTHROPIC_MODEL`, `ANTHROPIC_BASE_URL`, `GEMINI_MODEL`, `DATALAB_URL`.
 
+## Question generation
+
+Core: `src/engine/mcq.js` (prompt assembly, review, repair). Routing:
+`src/questionPreparation.js`. Exam sets: `src/shell/features/exam/generation.js`
++ `launchExam.js`. Lecture quizzes: `src/shell/features/objectives/quizLaunch.js`.
+
+**Inputs, in priority order**
+
+1. **Objectives** set scope; **lecture excerpts** establish factual truth.
+2. **School questions** (uploaded banks, classified by `exemplarSourceTier`:
+   `examsoft`, `imcq`, `homework`, `clicker`, `school`) set wording and
+   difficulty. Keyed, trusted ones are also factual evidence. Reserved banks
+   (`sourceUse`) are kept out of generation for honest timed assessments.
+3. **Step 1 editorial standard** (`step1WritingStandard.js`) improves clarity
+   and distractors but never overrides school difficulty.
+
+**How school style is applied**
+
+- `buildSchoolTemplatePlan` assigns each objective its best concept-matching
+  school question as a template (rank: ExamSoft → school → homework → IMCQ →
+  clicker) plus up to one supporting example per other source kind. The writer
+  must record `templateId`, `retainedPattern` and `changedRelationship`.
+- `styleProfilePrompt` adds aggregate stem length, sentence count, option-count
+  distribution and lead-in/task-ending mix from the persisted style profile
+  (`rxt-question-style-profile-v1`). ExamSoft, IMCQ and unlabelled school items
+  are pooled into one `officialStyle`; homework and clicker are profiled
+  separately.
+- `SCHOOL_DIFFICULTY_CONTRACT` (default policy `school`) matches the inferential
+  burden of relevant school examples; IMCQs are a task pattern, not a difficulty
+  floor. Excess inference is rejected as `school_style_mismatch`. The
+  `challenge` policy or an assigned `targetOrder` can require more depth.
+- `schoolStyleSimilarity` scores each saved exam question's format fit
+  (length, sentences, options, clinical/data, ending). It is displayed only; it
+  does not gate acceptance.
+
+**Reasoning depth and connections**
+
+- First/second/third order are internal labels. An independent review checks
+  the shortest choice-visible route, a unique key and the closest alternative
+  (`questionDiscrimination.js`); a separate key-blind solve is required for
+  objective quizzes.
+- Third-order items are built from two source-quoted rules joined through one
+  hidden intermediate (`thirdOrderConstruction.js`), anchored on reviewed
+  objective connections (`objectiveConnections.js`, `sourceRelationships.js`).
+- **Connections are within one lecture.** Relationships are keyed to a single
+  `lectureId`, and exam sets allocate questions per lecture and generate each
+  lecture's share separately. There is no cross-lecture integration item type yet.
+
+Pipeline details and live-run notes: [docs/question-preparation-pipeline.md](docs/question-preparation-pipeline.md),
+[docs/question-writing-standard.md](docs/question-writing-standard.md),
+[docs/quality/](docs/quality/).
+
 ## Environment variables (client)
 
 Copy `.env.example` → `.env.local`.
@@ -140,11 +193,25 @@ account. Seed fixtures straight into the emulator's REST API at the paths in
 
 ## Roadmap status
 
-| Item | Status |
+Current direction: the [Learning Hub plan](docs/plans/2026-09-21-learning-hub-architecture.md)
+(lecture → objective → mechanism → patient reasoning → retrieval → transfer →
+spaced repair), driven in practice by exam readiness: NB Exam 2 toward an
+80% per-test goal. The original SP0–SP3 roadmap
+([med-teach-cycle design](docs/superpowers/specs/2026-07-18-med-teach-cycle-design.md))
+is superseded.
+
+| Area | Status |
 |------|--------|
-| SP1 — strangle monolith into shell ([PLAN.md](PLAN.md)) | **Done** for `App.jsx` / `Tracker.jsx` (deleted). `DeepLearn.jsx` still legacy. PLAN.md is historical reference. |
-| Supabase → Firebase migration | **Done** |
-| School alignment on exam results | **Done** (2026-11-24) |
+| Firebase backend (was SP0) | **Done** |
+| Modular shell, monolith removed (was SP1, [PLAN.md](PLAN.md), historical) | **Done**; `DeepLearn.jsx` still legacy |
+| Source-grounded question prep: review, blind solve, discrimination, repair | **Done**, under continuous tuning (`docs/quality/question-baseline.md`) |
+| School-style calibration (templates, style profile, difficulty contract) | **Done**; ExamSoft and IMCQ pooled into one style profile |
+| Integrated exam tab: prepared sets, reserve refill, timed 72 s/question, tutor mode, persisted choice elimination | **Done** |
+| Weak-concept repair loop, focused drills, delayed retests | **Done** |
+| Objective connection maps + third-order construction (within a lecture) | **Done** (2026-11-23) |
+| Lecture checkpoints, school alignment on exam results | **Done** (2026-11-23/24) |
+| NB Exam 2 scope + subject weighting, pre-test 80% validation | **Done**; live accuracy still being measured |
+| Cross-lecture integration questions | **Not started** |
 
 ## Other docs
 
