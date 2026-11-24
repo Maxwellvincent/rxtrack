@@ -53,7 +53,7 @@ Top tabs (`src/shell/TabBar.jsx`):
 
 | Tab | Feature dir | What |
 |-----|-------------|------|
-| Today | `features/today` | daily plan, block practice card, school alignment, exam sprint, readiness, model retrieval |
+| Today | `features/today` | week calendar (lectures on the day given + reviews due), daily plan, block practice card, school alignment, exam sprint, readiness, model retrieval |
 | Lectures | `features/lectures` | lecture workspace: pre-read, study flow, checkpoints, objective coverage/connections (incl. ✓/⚠ check that every slide objective code is uploaded, `objectiveCompleteness.js`), figures, question bank upload |
 | Objectives | `features/objectives` | objective tracker per block, PDF objective import, answer-history audit, quiz launch |
 | Exam | `features/exam` | timed/tutor exam sessions, **Practice a topic** (`TopicPractice.jsx` / `topicFocus.js`: type e.g. "PICA vs AICA, medial medulla"; matches objectives, key facts and on-demand lecture text in the block, case-sensitive abbreviations, then launches a focused repair set that follows the mastery ladder), prepared question sets, results (high-yield ranking `HighYieldPanel` / `blockHighYield.js`, score-report upload, school alignment panel, dashboards, weak areas, calibration, blueprint coverage) |
@@ -197,6 +197,23 @@ the reviewer up to 3 of your most similar objective-confirmed questions as
 Pipeline details and live-run notes: [docs/question-preparation-pipeline.md](docs/question-preparation-pipeline.md),
 [docs/question-writing-standard.md](docs/question-writing-standard.md),
 [docs/quality/](docs/quality/).
+
+## Review spacing
+
+Lecture reviews are exam-aware (`src/engine/examSpacing.js`). With an exam date
+set, the longest gap between reviews is about a third of the days left (7 days
+out → every 1–2 days; 30 days out → up to 10), and the last review lands on the
+day before the exam. This applies to activity logs (`completionLog.computeReviewDates`),
+slides-and-notes model reviews (`modelRetrieval.gradeModel` / `selectDailyModels`,
+which also pull older stored dates forward), and the lecture dashboard's
+"next review" (`lectureReviewTiming`). Without an exam date the old fixed
+1/3/7/14/30-day spacing still applies.
+
+The Today tab opens with a Monday-first week calendar (`features/today/WeekCalendar.jsx`,
+logic in `weekCalendar.js`): each day lists the lectures given that day with
+first-pass status (✓ done · ◐ in progress · ○ not started) and the exam-aware
+reviews due (↻). ‹ › pages between weeks; "Go through" opens the day's first
+unfinished lecture.
 
 ## Environment variables (client)
 

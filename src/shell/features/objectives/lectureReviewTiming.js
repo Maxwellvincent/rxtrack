@@ -26,7 +26,12 @@ export function lectureReviewTiming(row, blockId, completion = {}, evidence = {}
  const scheduled = entries.filter(entry => (timestamp(entry.lastActivityDate) ?? -1) >= lastReviewedAt)
   .flatMap(entry => entry.reviewDates || []).filter(date => /^\d{4}-\d{2}-\d{2}$/.test(date) && date >= lastDay).sort();
  const confidence = row.st > 0 ? "low" : row.m === row.total ? "good" : "okay";
- const nextReview = scheduled[0] || localDateString(computeReviewDates(lastDay, confidence, null)[0]);
+ const examDate = blockMeta?.examDate || blockMeta?.endDate || null;
+ // Stored dates from before exam-aware spacing can sit past the exam; the earlier date wins.
+ const examAware = examDate ? computeReviewDates(lastDay, confidence, examDate)[0] : null;
+ const fallback = computeReviewDates(lastDay, confidence, null)[0];
+ const candidates = [scheduled[0], examAware && localDateString(examAware)].filter(Boolean).sort();
+ const nextReview = candidates[0] || localDateString(fallback);
  return { lastReviewedAt, nextReview, status: nextReview <= today ? "due" : "upcoming" };
 }
 export function reviewDateLabel(value) {

@@ -7,6 +7,7 @@ import { ModelRetrievalCard } from "./ModelRetrievalCard.jsx";
 import { SchoolReviewCard } from "./SchoolReviewCard.jsx";
 import { BlockReadinessDashboard } from "./BlockReadinessDashboard.jsx";
 import { ExamSprintCard } from "./ExamSprintCard.jsx";
+import { WeekCalendar } from "./WeekCalendar.jsx";
 import { DailyQuestionScore } from "./DailyQuestionScore.jsx";
 import { CompactQuestionProgress } from "./BlockPracticeCard.jsx";
 import { PreReadModal } from "../lectures/PreReadModal.jsx";
@@ -1178,6 +1179,8 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
           {!dayMode && <span className="text-xs text-text-3">Automatic · based on schedule</span>}
         </div>
       </section>
+
+      <WeekCalendar lecScores={daily?.lecScores || []} completion={context?.completion || {}} blockId={blockId} examDate={examDate} objectivesFor={objectivesForTask} evidence={context?.learnerEvidence || {}} onStudy={onStudy} />
 
       <ExamSprintCard key={blockId} context={context} userId={userId} daysLeft={daysLeft} onStudy={onStudy} onQuiz={onQuiz} busy={quizBusyLectureId} />
       <details className="rounded-xl border border-border p-4"><summary className="cursor-pointer text-sm font-semibold">Readiness evidence</summary><BlockReadinessDashboard blockId={blockId} userId={userId} compact onStudyLecture={onStudy} /></details>

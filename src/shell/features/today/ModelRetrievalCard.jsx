@@ -55,7 +55,7 @@ export function ModelRetrievalCard({userId,blockId,examDate,objectivesForLecture
       const budget=selectDailyModels(Object.values(current.models).map(project),current.settings,at,blockId,examDate);
       if(!model || budget.slotsLeft<1 || model.minutes>budget.minutesLeft || model.history.some(h=>reviewDayKey(h)===dayKey(at))) throw new Error('Today’s retrieval budget is complete. No extra review is needed.');
       const {notesAdvice:_notesAdvice,...projected}=project(model);
-      saved={...current,models:{...current.models,[activeId]:gradeModel(projected,value,at,eventId)}};
+      saved={...current,models:{...current.models,[activeId]:gradeModel(projected,value,at,eventId,examDate)}};
       return saved;
     },{lectureId:active?.lectureId,at,eventId});
     if(ok){

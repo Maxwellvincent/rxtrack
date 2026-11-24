@@ -1,3 +1,4 @@
+import { examAwareReviewDays } from "../../engine/examSpacing.js";
 import { studyDayKey } from "../../studyDay.js";
 /**
  * SP1 T4.3 — logging study activity, ported from App's logActivityToCompletion.
@@ -48,6 +49,8 @@ export function getNextSaturday(fromDate) {
 export function computeReviewDates(completedDate, confidenceRating, examDate) {
   const base = startOfDay(completedDate);
   const exam = examDate ? startOfDay(examDate) : null;
+  // Exam ahead: gaps shrink with exam distance and end the day before it.
+  if (exam && exam > base) return examAwareReviewDays(base, confidenceRating, examDate);
 
   const firstIntervalDays = confidenceRating === "good" ? 2 : confidenceRating === "okay" ? 1 : 0;
   const first = addDays(base, firstIntervalDays);

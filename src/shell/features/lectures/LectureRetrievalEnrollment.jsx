@@ -8,7 +8,7 @@ import { retrievalStore, recordCombinedLectureReview } from '../../../stores/mod
 import { gradeModel, selectDailyModels, dayKey, reviewDayKey } from '../../../engine/modelRetrieval.js';
 import { recordLectureNotes, lectureNotesRecommendation, modelWithNotesEvidence } from '../../../engine/lectureNotesReview.js';
 
-export function LectureRetrievalEnrollment({userId,blockId,lectureId,title,reference='',rows=[],evidenceModel={}}) {
+export function LectureRetrievalEnrollment({userId,blockId,lectureId,title,reference='',rows=[],evidenceModel={},examDate=null}) {
   const resource=useStoreResource(retrievalStore,userId);
   const completion=useStoreResource(completionStore,userId);
   const reviewHistory=lectureReviewStats(completion.data?.[completionKey(lectureId,blockId)]);
@@ -25,7 +25,7 @@ export function LectureRetrievalEnrollment({userId,blockId,lectureId,title,refer
   const save=async (transform, session)=>{
     if(saving.current || resource.loading || resource.error)return;
     saving.current=true;setBusy(true);setNotice('');
-    try {let nextModel;await (session ? (uid,fn)=>recordCombinedLectureReview(uid,{blockId,lectureId},fn,session.at,session.eventId) : retrievalStore.update)(userId,data=>{const next=transform(data);nextModel=Object.values(next.models).find(m=>m.lectureId===lectureId&&m.blockId===blockId);return next;});setSavedModel(nextModel);return true;}
+    try {let nextModel;await (session ? (uid,fn)=>recordCombinedLectureReview(uid,{blockId,lectureId,examDate},fn,session.at,session.eventId) : retrievalStore.update)(userId,data=>{const next=transform(data);nextModel=Object.values(next.models).find(m=>m.lectureId===lectureId&&m.blockId===blockId);return next;});setSavedModel(nextModel);return true;}
     catch(error){setNotice(`Could not save: ${error.message}. Please try again.`);return false;}
     finally{saving.current=false;setBusy(false);}
   };
@@ -39,10 +39,10 @@ export function LectureRetrievalEnrollment({userId,blockId,lectureId,title,refer
     const at=Date.now(),eventId=crypto.randomUUID();
     if(await save(data=>{
       const current=Object.values(data.models).find(m=>m.lectureId===lectureId&&m.blockId===blockId);
-      const budget=selectDailyModels(Object.values(data.models),data.settings,at,blockId);
+      const budget=selectDailyModels(Object.values(data.models),data.settings,at,blockId,examDate);
       if(!current || budget.slotsLeft<1 || current.minutes>budget.minutesLeft || current.history.some(h=>reviewDayKey(h)===dayKey(at)))throw Error('Today’s review budget is complete. Continue tomorrow.');
       const {notesAdvice:_,...projected}=modelWithNotesEvidence(current,rows,evidenceModel,at,data.settings?.questionEvidence!==false);
-      return {...data,models:{...data.models,[current.id]:gradeModel(projected,value,at,eventId)}};
+      return {...data,models:{...data.models,[current.id]:gradeModel(projected,value,at,eventId,examDate)}};
     },{at,eventId})) {setReviewing(false);setChecked(false);setNotice('Review recorded. Fresh questions will show whether the objective is improving.');}
   };
   return <section aria-label="Lecture notes and mental model" className="my-4 rounded-xl border border-border bg-bg-elevated p-4">

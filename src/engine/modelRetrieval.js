@@ -1,4 +1,5 @@
 import { studyDayDate } from "../studyDay.js";
+import { capIntervalForExam } from "./examSpacing.js";
 export const DAY = 86400000;
 export const DEFAULT_SETTINGS = { minutes: 10, cap: 2, sameDay: false, questionEvidence: true, ankiEvidence: true, weekend: false };
 export function settingsFor(settings = {}) {
@@ -28,7 +29,14 @@ export function createRetrievalModel(input, now, settings = {}) {
     status: 'New', solidStreak: 0, priority: Math.max(1,Math.min(3,Number(input.priority)||1)),
     minutes: Math.max(2,Math.min(5,Number(input.minutes)||3)), history: [], evidence: [], };
 }
-export function gradeModel(model, grade, now, eventId) {
+/** A stored review date pulled forward so the gap since the last review fits before the exam. */
+export function effectiveNextReviewAt(model, examDate) {
+  const next = model?.nextReviewAt, last = model?.lastReviewedAt;
+  if (next == null || last == null || !examDate) return next ?? null;
+  const gap = Math.max(0, Math.round((next - last) / DAY));
+  return Math.min(next, last + capIntervalForExam(gap, last, examDate) * DAY);
+}
+export function gradeModel(model, grade, now, eventId, examDate = null) {
   if (!['broken','shaky','solid'].includes(grade)) throw new Error('Choose Broken, Shaky, or Solid.');
   if (model.history.some(h => h.id === eventId)) return model;
   const early = model.lastReviewedAt != null && model.nextReviewAt != null && now < model.nextReviewAt;
@@ -43,6 +51,7 @@ export function gradeModel(model, grade, now, eventId) {
     status = streak>=4 && longTerm ? 'Released' : streak>=2 ? 'Stable' : 'Learning';
     nextReviewAt = status==='Released' ? null : now + ([7,14,30][Math.min(streak-1,2)])*DAY;
   }
+  if (nextReviewAt != null && !early) nextReviewAt = effectiveNextReviewAt({ nextReviewAt, lastReviewedAt: now }, examDate);
   return {...model, status, solidStreak:streak, nextReviewAt, lastReviewedAt:now,
     lastSolidAt:grade==='solid' && !early ? now : model.lastSolidAt,
     history:[...model.history,{id:eventId,at:now,day:dayKey(now),grade,minutes:model.minutes,nextReviewAt,early}]};
@@ -76,7 +85,7 @@ export function selectDailyModels(models, settings, now, blockId, examDate) {
   let slotsLeft=Math.max(0,prefs.cap-done.length);
   const selected=[];
   const weekend=prefs.weekend && new Date(now).getDay()===6;
-  const candidates=models.filter(m=>m.blockId===blockId && m.status!=='Released' && (m.nextReviewAt<=now || weekend) && !(m.history||[]).some(h=>reviewDayKey(h)===today))
+  const candidates=models.filter(m=>m.blockId===blockId && m.status!=='Released' && (effectiveNextReviewAt(m,examDate)<=now || weekend) && !(m.history||[]).some(h=>reviewDayKey(h)===today))
     .sort((a,b)=>priorityScore(b,now,examDate)-priorityScore(a,now,examDate)||a.createdAt-b.createdAt||a.id.localeCompare(b.id));
   for(const model of candidates) if(slotsLeft>0 && model.minutes<=minutesLeft) { selected.push(model); minutesLeft-=model.minutes;slotsLeft--; }
   return {selected,done:done.length,spent:done.reduce((n,h)=>n+h.minutes,0),minutesLeft:Math.max(0,prefs.minutes-done.reduce((n,h)=>n+h.minutes,0)),slotsLeft:Math.max(0,prefs.cap-done.length)};
