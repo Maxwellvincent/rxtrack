@@ -12,13 +12,13 @@ function mount(ui) {
   const root = createRoot(host); act(() => root.render(ui));
   return { host, close() { act(() => root.unmount()); host.remove(); } };
 }
-it("keeps all six workspace destinations with a labeled active state", () => {
+it("keeps all five workspace destinations with a labeled active state", () => {
   const onChange = vi.fn(); const view = mount(<TabBar active="lectures" onChange={onChange} />);
   expect(view.host.querySelector('[aria-current="page"]').textContent).toBe("Lectures");
   const buttons = [...view.host.querySelectorAll("button")];
-  expect(buttons).toHaveLength(6);
+  expect(buttons).toHaveLength(5);
   buttons.forEach((b) => act(() => b.click()));
-  expect(onChange.mock.calls.flat()).toEqual(["today", "lectures", "objectives", "exam", "guide", "more"]);
+  expect(onChange.mock.calls.flat()).toEqual(["today", "lectures", "objectives", "exam", "more"]);
   view.close();
 });
 it("keeps integrations available and closes the tools menu with Escape", () => {

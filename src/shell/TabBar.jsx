@@ -1,11 +1,10 @@
-import { CalendarDays, Library, Target, ClipboardCheck, BookOpen, LayoutGrid } from "lucide-react";
-const ICONS = { today: CalendarDays, lectures: Library, objectives: Target, exam: ClipboardCheck, guide: BookOpen, more: LayoutGrid };
+import { CalendarDays, Library, Target, ClipboardCheck, LayoutGrid } from "lucide-react";
+const ICONS = { today: CalendarDays, lectures: Library, objectives: Target, exam: ClipboardCheck, more: LayoutGrid };
 const TABS = [
   { id: "today", label: "Today" },
   { id: "lectures", label: "Lectures" },
   { id: "objectives", label: "Objectives" },
   { id: "exam", label: "Exam" },
-  { id: "guide", label: "Guide" },
   { id: "more", label: "More" },
 ];
 

@@ -17,7 +17,7 @@ import { useExamDates } from "./hooks/useExamDates.js";
 import { touchBlock } from "../stores/blockObjectives.js";
 import { defaultBlockId, readCollapsedTerms, readLastView, writeLastView } from "./navPrefs.js";
 
-const VALID_TABS = ["today", "lectures", "objectives", "exam", "guide", "more"];
+const VALID_TABS = ["today", "lectures", "objectives", "exam", "more"];
 const VALID_MORE_VIEWS = ["weak", "struggle", "diagnostics"];
 import { Sidebar } from "./Sidebar.jsx";
 import { Header } from "./Header.jsx";
@@ -58,7 +58,6 @@ import { formatLectureLabel } from "../lectureTitle.js";
 
 const LectureStudyFlow = lazy(() => import("./features/lectures/LectureStudyFlow.jsx").then((m) => ({ default: m.LectureStudyFlow })));
 const QuestionBankModal = lazy(() => import("./features/lectures/QuestionBankModal.jsx").then((m) => ({ default: m.QuestionBankModal })));
-const MasterGuide = lazy(() => import("./features/guide/MasterGuide.jsx").then((m) => ({ default: m.MasterGuide })));
 const CbseDashboard = lazy(() => import("./features/cbse/CbseDashboard.jsx").then(m => ({ default: m.CbseDashboard })));
 const ExamContainer = lazy(() => import("./features/exam/ExamContainer.jsx").then((m) => ({ default: m.ExamContainer })));
 
@@ -492,12 +491,6 @@ function ShellMain({ theme, toggle, userId }) {
                 switchTab("lectures");
                 onStudyLecture(lectureId, { focusObjectiveIds: repairContext?.focusObjectiveIds, repairContext });
               }}
-            />
-          ) : tab === "guide" && activeBlockId ? (
-            <MasterGuide
-              blockId={activeBlockId}
-              userId={userId}
-              lectures={(allLectures.data || []).filter((l) => l.blockId === activeBlockId)}
             />
           ) : tab === "objectives" && activeBlockId ? (
             <ObjectivesView
