@@ -34,6 +34,20 @@ export async function loadPDFJS() {
   });
 }
 
+/** Drop a running header line (e.g. "BPM1 | MSK | IMCQ1") repeated atop most slides. */
+export function stripRepeatedSlideHeaders(pages = []) {
+  const firstLines = (pages || []).map((page) => String(page?.text || "").split("\n")[0].trim());
+  const counts = new Map();
+  for (const line of firstLines) if (line && line.length <= 60) counts.set(line, (counts.get(line) || 0) + 1);
+  const headers = new Set([...counts].filter(([, count]) => count >= 4 && count >= (pages || []).length * 0.5).map(([line]) => line));
+  if (!headers.size) return pages;
+  return pages.map((page, index) => headers.has(firstLines[index])
+    ? { ...page, text: String(page.text || "").split("\n").slice(1).join("\n").trim() }
+    : page);
+}
+const slideSignature = (text) => String(text || "").replace(/\s+/g, " ").trim().toLowerCase().slice(0, 140);
+const slideHasChoices = (text) => (String(text || "").match(/(?:^|\n)\s*[A-J][.)]\s+\S/g) || []).length >= 2;
+
 export function detectFormat(pages, fullText) {
   if (/\bMy Score\b/i.test(fullText || "") && /\bAverage Score\b/i.test(fullText || "")) {
     return "report";
@@ -54,6 +68,14 @@ export function detectFormat(pages, fullText) {
     (n, i) => n && numericPageLabels[i + 1] === n
   ).length;
   if (pairedNumericSlides >= 3) return "pairedkey";
+  // Same deck shape behind a running header, or with unnumbered items: the
+  // keyed slide repeats the question slide's opening text.
+  const headerless = stripRepeatedSlideHeaders(pages || []);
+  const repeatedSlides = headerless.filter((page, i) => {
+    const signature = slideSignature(page?.text);
+    return signature.length >= 60 && slideHasChoices(page?.text) && signature === slideSignature(headerless[i + 1]?.text);
+  }).length;
+  if (repeatedSlides >= 3) return "pairedkey";
   // Slide deck with numbered QUESTION labels spanning pages
   const slideLabels = fullText.match(/QUESTION\s+\d+/gi) || [];
   const uniqueNums = new Set(slideLabels.map((s) => s.match(/\d+/)[0]));
@@ -85,13 +107,27 @@ function parseSlideQuestionText(text) {
   const stemLines = [];
   const choices = {};
   let letter = null;
+  let inObjective = false;
   for (const raw of lines) {
     const line = raw.trim();
-    if (!line || /^SOM\.[A-Z0-9.]+\s+/i.test(line)) continue;
+    if (!line) continue;
+    // A school objective (and its wrapped continuation lines) follows the
+    // choices on key slides; it is never part of the last answer choice.
+    if (/^SOM\.[A-Z0-9.]+\s+/i.test(line)) { inObjective = true; letter = null; continue; }
     const choice = line.match(/^([A-Z])[.)]\s*(.*)$/);
+    if (inObjective) {
+      // Wrapped objective text is skipped until the next choice in sequence.
+      const lastLetter = Object.keys(choices).pop();
+      const expected = lastLetter ? String.fromCharCode(lastLetter.charCodeAt(0) + 1) : "A";
+      if (!choice || choice[1].toUpperCase() !== expected) continue;
+      inObjective = false;
+    }
     if (choice) {
       letter = choice[1].toUpperCase();
-      choices[letter] = choice[2].trim();
+      // An objective printed beside a choice on the keyed slide ends the choices.
+      const inlineObjective = choice[2].search(/\s+SOM\.[A-Z]{2}\./);
+      choices[letter] = (inlineObjective >= 0 ? choice[2].slice(0, inlineObjective) : choice[2]).trim();
+      if (inlineObjective >= 0) { inObjective = true; letter = null; }
     } else if (letter) {
       choices[letter] = `${choices[letter]} ${line}`.trim();
     } else {
@@ -109,13 +145,17 @@ function parseSlideQuestionText(text) {
  * parser deliberately returns the deduplicated structure and lets the visual
  * AI pass determine `correct` from both rendered pages.
  */
-export function groupPairedKeySlides(pages) {
+export function groupPairedKeySlides(rawPages) {
+  const pages = stripRepeatedSlideHeaders(rawPages || []);
   const groups = [];
   for (let i = 0; i < (pages || []).length; i++) {
     const parsed = parseSlideQuestionText(pages[i]?.text);
     if (!parsed || Object.keys(parsed.choices).length < 2) continue;
     const next = parseSlideQuestionText(pages[i + 1]?.text);
-    const answerPage = next?.num === parsed.num ? pages[i + 1] : null;
+    const sameItem = parsed.num != null
+      ? next?.num === parsed.num
+      : !!next && next.num == null && slideSignature(next.stem) === slideSignature(parsed.stem);
+    const answerPage = sameItem ? pages[i + 1] : null;
     const objectiveMatch = String(answerPage?.text || pages[i]?.text || "").match(
       /\b(SOM\.[A-Z0-9.]+)\s+([^\n]+)/i
     );
@@ -131,7 +171,26 @@ export function groupPairedKeySlides(pages) {
   // Some IMCQ exports omit numeric labels entirely and place the objective code
   // only on the final duplicate slide. Recover those by unique stem text and
   // assign stable sequential numbers; the companion breakdown supplies keys.
-  if (groups.length < 16) {
+  // In a numbered key deck, an unnumbered slide (title, recap) is not an item.
+  if (groups.filter((group) => group.num != null).length >= 3) {
+    for (let index = groups.length - 1; index >= 0; index--) if (groups[index].num == null && !groups[index].answerPage) groups.splice(index, 1);
+  }
+  // Unnumbered items (whole D&M decks, or a few CPR slides) take their position
+  // so every item keeps a unique number.
+  if (groups.some((group) => group.num == null) && groups.filter((group) => group.answerPage).length >= 3) {
+    const used = new Set(groups.map((group) => group.num).filter((num) => num != null));
+    let next = 1;
+    groups.forEach((group, index) => {
+      if (group.num != null) return;
+      let candidate = index + 1;
+      if (used.has(candidate)) { while (used.has(next)) next++; candidate = next; }
+      group.num = candidate; used.add(candidate);
+    });
+  }
+  // NB keys run 14–15 items, so "fewer than 16" alone does not mean pairing
+  // failed. Only fall back when most items lack their keyed slide.
+  const pairedShare = groups.length ? groups.filter((group) => group.answerPage).length / groups.length : 0;
+  if (groups.length < 16 && pairedShare < 0.8) {
     const recovered = [];
     const seen = new Set();
     for (let pageIndex = 0; pageIndex < (pages || []).length; pageIndex++) {
@@ -181,11 +240,14 @@ async function parsePairedKeyFormat(pages, onProgress, examTitle = "") {
       '{"correct":"A","explanation":"brief reason or null","topic":"specific topic","type":"clinicalVignette|mechanismBased|laboratory|anatomy"}. ' +
       "Do not infer a different key from medical knowledge when the slide visibly marks one.";
     let visual = {};
-    try {
-      const raw = (await callAIWithImages(null, prompt, images, 1200, 0.1)).trim().replace(/^```json\s*/i, "").replace(/```$/i, "").trim();
-      visual = JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1));
-    } catch (e) {
-      console.warn(`Paired key question ${group.num} visual parse failed:`, e.message);
+    // One retry: a transient bridge/provider failure must not leave the key blank.
+    for (let attempt = 1; attempt <= 2 && !(visual.correct && group.choices[visual.correct]); attempt++) {
+      try {
+        const raw = (await callAIWithImages(null, prompt, images, 1200, 0.1)).trim().replace(/^```json\s*/i, "").replace(/```$/i, "").trim();
+        visual = JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1));
+      } catch (e) {
+        console.warn(`Paired key question ${group.num} visual parse attempt ${attempt} failed:`, e.message);
+      }
     }
     questions.push({
       id: `q${group.num}`,
@@ -205,7 +267,15 @@ async function parsePairedKeyFormat(pages, onProgress, examTitle = "") {
     });
     onProgress?.(`🔑 Reading school key ${i + 1} of ${groups.length}…`);
   }
+  assertPairedKeysRead(questions, examTitle);
   return questions;
+}
+
+/** A key deck saved with unread answers silently drops out of practice; refuse it instead. */
+export function assertPairedKeysRead(questions = [], title = "this key") {
+  const missing = questions.filter((question) => !question.correct).map((question) => question.num);
+  if (!missing.length) return;
+  throw new Error(`Could not read the marked answer on the key slide for question${missing.length === 1 ? "" : "s"} ${missing.join(", ")} of ${title}. Nothing from this file was saved. Answer marks are read by the AI image reader — check that the local AI bridge is running, then upload the file again.`);
 }
 
 /** Mad Cow DES decks repeat: question/choices, keyed duplicate, explanation. */

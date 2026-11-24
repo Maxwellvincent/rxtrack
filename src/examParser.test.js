@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildExamExtractionPrompt, normalizeParsedExamQuestion, attachImagesToExamQuestions, attachAdjacentVisualPages, detectFormat, mergePdfQuestionCandidates, parseExamPDF, parseNumberedQuestionBankText, groupPairedKeySlides, parseMadcowPages, expectedQuestionCountFromAnswerKey, pdfItemsToLayoutText, parseExamSoftReportQuestions } from "./examParser.js";
+import { assertPairedKeysRead, buildExamExtractionPrompt, normalizeParsedExamQuestion, attachImagesToExamQuestions, attachAdjacentVisualPages, detectFormat, mergePdfQuestionCandidates, parseExamPDF, parseNumberedQuestionBankText, groupPairedKeySlides, parseMadcowPages, expectedQuestionCountFromAnswerKey, pdfItemsToLayoutText, parseExamSoftReportQuestions } from "./examParser.js";
 
 describe("adjacent source visuals", () => {
   it("attaches an isolated next-page exhibit when the question explicitly needs a visual", () => {
@@ -162,6 +162,58 @@ describe("paired school answer-key slides", () => {
     expect(groups[0].choices).toEqual({ A: "Alpha", B: "Beta", C: "Gamma", D: "Delta" });
     expect(groups[0].schoolObjectiveCode).toBe("SOM.MK.I.BPM2.2.ER.1.HCB.1010");
     expect(groups[0].schoolObjective).toContain("hormone production");
+  });
+});
+
+describe("NB IMCQ keys with fewer than 16 questions", () => {
+  // NB keys run 14–15 items; key slides add a green check image plus objective
+  // text whose wrapped second line has no SOM prefix.
+  const question = (n) => `${n}. A ${20 + n}-year-old patient has finding ${n}. Which structure is most likely damaged in this patient?\nA.   Alpha site\nB.   Beta site\nC.   Gamma site\nD.   Delta site`;
+  const keyed = (n) => `${question(n)}\nSOM.MK.II.BPM2.4.NB.2.NSCI.0173 Characterize lesions of the cell \nbodies or axons forming part of the motor unit`;
+  const pages = [{ num: 1, text: "NB IMCQ 6", imgCount: 0 },
+    ...Array.from({ length: 14 }, (_, i) => [{ num: 2 + i * 2, text: question(i + 1), imgCount: 1 }, { num: 3 + i * 2, text: keyed(i + 1), imgCount: 1 }]).flat(),
+    { num: 30, text: "Review. A 30-year-old patient has a recap finding. Which structure is most likely damaged?\nA. One\nB. Two", imgCount: 0 }];
+
+  it("keeps each question paired with its keyed slide instead of falling back to unpaired recovery", () => {
+    const groups = groupPairedKeySlides(pages);
+    expect(groups).toHaveLength(14);
+    expect(groups.every((group) => group.answerPage && group.answerPage !== group.questionPage)).toBe(true);
+    expect(groups[0].answerPage.num).toBe(3);
+  });
+
+  it("does not let wrapped objective text leak into the last answer choice", () => {
+    const groups = groupPairedKeySlides(pages.map((page, index) => index === 2 ? { ...page } : page));
+    expect(groups[0].choices).toEqual({ A: "Alpha site", B: "Beta site", C: "Gamma site", D: "Delta site" });
+    const keyedOnly = groupPairedKeySlides([{ num: 1, text: keyed(1), imgCount: 1 }, { num: 2, text: keyed(2), imgCount: 1 }, { num: 3, text: keyed(3), imgCount: 1 }]);
+    expect(keyedOnly[0].choices.D).toBe("Delta site");
+    const inline = groupPairedKeySlides([1, 2, 3].map((n) => ({ text: `${n}. Stem for item ${n} that is long enough to parse as a question here?\nA. Left thalamus\nB. Left subthalamus SOM.MK.I.BPM2.1.NB.1.NSCI.0202 Describe cerebellar signs\nC. Right pons` })));
+    expect(inline[0].choices).toEqual({ A: "Left thalamus", B: "Left subthalamus", C: "Right pons" });
+  });
+});
+
+describe("key decks with slide headers or no question numbers", () => {
+  const body = (n) => `A ${30 + n}-year-old man comes to the physician with finding ${n}. Which of the following is the most likely cause?\nA. First cause\nB. Second cause\nC. Third cause`;
+  it("recognizes header-prefixed numbered pairs (MSK style)", () => {
+    const pages = [{ text: "IMCQ 1 Basic Principles" }, ...[1, 2, 3, 4].flatMap((n) => [{ text: `BPM1 | MSK | IMCQ1 \n${n}. ${body(n)}` }, { text: `BPM1 | MSK | IMCQ1 \n${n}. ${body(n)}\nSOM.MK.I.BPM1.MSK.0001 Objective` }])];
+    expect(detectFormat(pages, pages.map((p) => p.text).join("\n"))).toBe("pairedkey");
+    const groups = groupPairedKeySlides(pages);
+    expect(groups).toHaveLength(4);
+    expect(groups[0].stem.startsWith("A 31-year-old")).toBe(true);
+    expect(groups.every((g) => g.answerPage && g.answerPage !== g.questionPage)).toBe(true);
+  });
+  it("recognizes unnumbered repeated question/key slides (D&M style)", () => {
+    const pages = [{ text: "BPM501 DM Module IMCQ - 3" }, ...[1, 2, 3, 4].flatMap((n) => [{ text: body(n) }, { text: `${body(n)}\nSOM.MK.I.BPM2.DM.0002 Objective` }])];
+    expect(detectFormat(pages, pages.map((p) => p.text).join("\n"))).toBe("pairedkey");
+    const groups = groupPairedKeySlides(pages);
+    expect(groups).toHaveLength(4);
+    expect(groups.map((g) => g.num)).toEqual([1, 2, 3, 4]);
+  });
+});
+
+describe("assertPairedKeysRead", () => {
+  it("refuses a key deck with unread answers and names the questions", () => {
+    expect(() => assertPairedKeysRead([{ num: 1, correct: "B" }, { num: 2, correct: null }, { num: 3, correct: null }], "NB IMCQ 06")).toThrow(/questions 2, 3 of NB IMCQ 06.*Nothing from this file was saved/);
+    expect(() => assertPairedKeysRead([{ num: 1, correct: "B" }], "NB IMCQ 06")).not.toThrow();
   });
 });
 
