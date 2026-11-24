@@ -208,3 +208,74 @@ describe("analyzeExamReportWeakConcepts", () => {
     expect(r.entries[0].linkedLecIds).toEqual(["lec1"]);
   });
 });
+
+// NB main-exam "Strengths and Improvement Opportunities" reports list only My
+// Score and correct/total (no class average). Text order follows pdftotext.
+const MAIN_EXAM_REPORT = `Louis Maxwell; Username: lmaxwell
+
+Strengths and Improvement Opportunities
+
+BPM2_NB2_GD_main_F26
+Course: 2026-08-BPM501-GD-0-Basic Principles of Med II-(12010) - Main Exam • Instructor: Dr. Chitterman & Tarek • 11/16/2026 •
+Questions: 150
+
+70.00%
+My Score
+(91/130)
+
+CATEGORY
+
+MY SCORE
+
+CORRECT
+
+65.56%
+
+59/90
+
+5.2.03 Cerebrovascular disease
+54.55%
+
+12/22
+
+5.1.2.2 brain stem
+55.56%
+
+5/9
+
+Behavioral Sciences
+80.00%
+
+32/40`;
+
+describe("main-exam reports without a class average", () => {
+  it("recognizes the report and saves the overall score", async () => {
+    const { looksLikeExamReport, parseExamReportSummary } = await import("./examReportWeakConcepts.js");
+    expect(looksLikeExamReport(MAIN_EXAM_REPORT)).toBe(true);
+    expect(parseExamReportSummary(MAIN_EXAM_REPORT, { blockId: "nb2" })).toMatchObject({
+      name: "BPM2_NB2_GD_main_F26", date: "2026-11-16", kind: "exam", percent: 70, correct: 91, total: 130,
+    });
+  });
+
+  it("keeps categories without an average and judges them against the 80% goal", async () => {
+    const { normalizeCategoryScores, isWeakCategory, buildWeakConceptEntriesFromReport } = await import("./examReportWeakConcepts.js");
+    const categories = normalizeCategoryScores({ categories: [
+      { category: "Cerebrovascular disease", myScore: 54.55, average: null, correct: 12, total: 22 },
+      { category: "Behavioral Sciences", myScore: 80, average: null, correct: 32, total: 40 },
+      { category: "Musculoskeletal", myScore: 0, correct: 0, total: 1 },
+    ] });
+    expect(categories).toHaveLength(3);
+    expect(isWeakCategory(categories[0])).toBe(true);
+    expect(isWeakCategory(categories[1])).toBe(false);
+    expect(isWeakCategory(categories[2])).toBe(false); // one question is too little evidence
+    const [entry] = buildWeakConceptEntriesFromReport({ categories, lectures: [], objectives: [], blockId: "nb2" });
+    expect(entry).toMatchObject({ concept: "Cerebrovascular disease", reportScore: 54.55, reportClassAverage: null, missCount: 10 });
+    expect(entry.reportGap).toBeCloseTo(25.45, 1);
+    expect(entry.description).toMatch(/80% goal/);
+  });
+
+  it("asks the extractor to return a null average when the report has none", async () => {
+    const { buildCategoryScorePrompt } = await import("./examReportWeakConcepts.js");
+    expect(buildCategoryScorePrompt(MAIN_EXAM_REPORT)).toMatch(/"average":null/);
+  });
+});

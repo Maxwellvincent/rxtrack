@@ -61,6 +61,13 @@ Top tabs (`src/shell/TabBar.jsx`):
 | Guide | `features/guide` | master study guide |
 | More | `Shell.jsx` `MoreTab` | Deep Learn, calibration, weak concepts, struggle tasks (`features/tracker`), diagnostics/admin |
 
+**Score reports:** ExamSoft "Strengths and Improvement Opportunities" PDFs (ESoft quiz
+or NB main exam) are uploaded from CBSE Prep or Exam → Results (`ScoreReportUpload.jsx`,
+`scoreReportImport.js`). The overall score goes to `rxt-school-results`; categories
+below the class average — or, for NB reports that have no average, below the 80%
+goal on ≥3 questions — become exam-report weak concepts that weight exam allocation
+and CBSE "weak" practice.
+
 Other feature dirs: `features/cbse` (CBSE prep dashboard), `features/recognition`
 (patient-recognition vignettes), `features/deeplearn` (container around
 `DeepLearn.jsx`). Admin screens (`QuestionDiagnosticsAdmin`, `SourceUseAdmin`,

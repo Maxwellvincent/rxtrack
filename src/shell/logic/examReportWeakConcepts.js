@@ -12,38 +12,50 @@
 const CATEGORY_ROW_RE = /(\d{1,3}(?:\.\d{1,2})?)%\s+(\d{1,3}(?:\.\d{1,2})?)%\s+(\d+)\s*\/\s*(\d+)/g;
 
 /** Cheap heuristic: is this text a score-table report, not a plain exam key? */
+/** School goal used when a report has no class average to compare against. */
+export const REPORT_TARGET_PERCENT = 80;
+const NO_AVERAGE_ROW_RE = /\d{1,3}(?:\.\d{1,2})?%\s+\d+\s*\/\s*\d+/g;
+
 export function looksLikeExamReport(text) {
   const t = String(text || "");
   const rows = t.match(CATEGORY_ROW_RE) || [];
-  return rows.length >= 3 && /average/i.test(t);
+  if (rows.length >= 3 && /average/i.test(t)) return true;
+  // NB main-exam reports list only My Score and correct/total per category.
+  return /Strengths and Improvement Opportunities/i.test(t) && (t.match(NO_AVERAGE_ROW_RE) || []).length >= 3;
 }
 
 /** Deterministic overall result used by the practice-to-school comparison. */
 export function parseExamReportSummary(text, { blockId } = {}) {
   const source = String(text || "");
-  if (!blockId || !/\bMy Score\b/i.test(source) || !/\bAverage Score\b/i.test(source)) return null;
+  if (!blockId || !/\bMy Score\b/i.test(source)) return null;
+  if (!/\bAverage Score\b/i.test(source) && !/Strengths and Improvement Opportunities/i.test(source)) return null;
   const percent = Number(source.match(/(\d{1,3}(?:\.\d+)?)%\s+My Score/i)?.[1]);
   const dateParts = source.match(/\b(\d{1,2})\/(\d{1,2})\/(\d{4})\b/);
-  const name = source.match(/Strengths and Improvement Opportunities\s*\n\s*([^\n]+)/i)?.[1]?.trim();
+  // The report name follows the heading on its own line (pdftotext) or, in
+  // pdf.js text without line breaks, runs up to "Course:".
+  const name = (source.match(/Strengths and Improvement Opportunities\s*\n\s*([^\n]+)/i)?.[1]
+    || source.match(/Strengths and Improvement Opportunities\s+(.+?)\s+Course:/i)?.[1])?.trim();
   if (!Number.isFinite(percent) || percent < 0 || percent > 100 || !dateParts || !name) return null;
   const date = `${dateParts[3]}-${dateParts[1].padStart(2, "0")}-${dateParts[2].padStart(2, "0")}`;
   const kind = /quiz/i.test(name) ? "quiz" : "exam";
   const id = encodeURIComponent(`${blockId}:${kind}:${date}:${name.toLowerCase()}`);
-  return { id, blockId, name, date, kind, percent, source: "uploaded ExamSoft report" };
+  const fraction = source.match(/My Score\s*\(\s*(\d+)\s*\/\s*(\d+)\s*\)/i);
+  return { id, blockId, name, date, kind, percent, ...(fraction ? { correct: Number(fraction[1]), total: Number(fraction[2]) } : {}), source: "uploaded ExamSoft report" };
 }
 
 export function buildCategoryScorePrompt(text) {
   return (
-    "This is a student's exam performance report. It lists categories/topics with the student's score, the class " +
+    "This is a student's exam performance report. It lists categories/topics with the student's score, usually the class " +
     "average, and correct/total questions for that category — often three numbers together like " +
-    '"20.00%  46.04%  2/10" near a category name label.\n' +
+    '"20.00%  46.04%  2/10" near a category name label. Main-exam reports may show only the student score and ' +
+    'correct/total (e.g. "54.55%  12/22"); then return "average":null for every row. Never invent an average.\n' +
     "Extract ONLY the actual studyable topic/subject rows. Skip generic umbrella rows that are just containers, not " +
     "topics — e.g. \"SCHOOL OF MEDICINE\", \"BASIC SCIENCES\", \"CONTENT OUTLINE / SYSTEMS\", \"DISCIPLINES\", " +
     "\"PHYSICIAN TASKS / COMPETENCIES\", a bare course code, or a numbered code row (e.g. \"13.2.08 Traumatic and " +
     "mechanical disorders\") when a plainer human-readable topic name already covers the same row (e.g. prefer " +
     '"Nutrition and aging" over its numeric code).\n' +
     "Return ONLY valid JSON:\n" +
-    '{"categories":[{"category":"Nutrition and aging","myScore":0,"average":39.49,"correct":0,"total":2}]}\n\n' +
+    '{"categories":[{"category":"Nutrition and aging","myScore":0,"average":39.49,"correct":0,"total":2},{"category":"Cerebrovascular disease","myScore":54.55,"average":null,"correct":12,"total":22}]}\n\n' +
     "TEXT:\n" +
     String(text || "").slice(0, 12000)
   );
@@ -61,19 +73,22 @@ export function normalizeCategoryScores(raw) {
     const key = category.toLowerCase();
     if (seen.has(key)) continue;
     const myScore = Number(c.myScore);
-    const average = Number(c.average);
+    const average = c.average == null || c.average === "" ? null : Number(c.average);
     const total = Number(c.total);
     const correctRaw = Number(c.correct);
-    if (!Number.isFinite(myScore) || !Number.isFinite(average) || !Number.isFinite(total) || total <= 0) continue;
+    if (!Number.isFinite(myScore) || (average !== null && !Number.isFinite(average)) || !Number.isFinite(total) || total <= 0) continue;
     seen.add(key);
     out.push({ category, myScore, average, correct: Number.isFinite(correctRaw) ? correctRaw : 0, total });
   }
   return out;
 }
 
-/** Meaningfully below class average, not just noise around it. */
-export function isWeakCategory(c, { gapThreshold = 10 } = {}) {
-  return !!c && c.total > 0 && c.average - c.myScore >= gapThreshold;
+/** Meaningfully below class average; without an average, below the 80% goal
+ * on at least three questions (one or two items are too little evidence). */
+export function isWeakCategory(c, { gapThreshold = 10, targetPercent = REPORT_TARGET_PERCENT } = {}) {
+  if (!c || !(c.total > 0)) return false;
+  if (Number.isFinite(c.average)) return c.average - c.myScore >= gapThreshold;
+  return c.total >= 3 && c.myScore < targetPercent;
 }
 
 const STOPWORDS = new Set([
@@ -180,7 +195,9 @@ export function buildWeakConceptEntriesFromReport({
     entries.push({
       id: `examcat-${blockId}-${slug(c.category)}`,
       concept: c.category,
-      description: `Exam report: scored ${Math.round(c.myScore)}% vs class average ${Math.round(c.average)}% (${c.correct}/${c.total} correct).`,
+      description: Number.isFinite(c.average)
+        ? `Exam report: scored ${Math.round(c.myScore)}% vs class average ${Math.round(c.average)}% (${c.correct}/${c.total} correct).`
+        : `Exam report: scored ${Math.round(c.myScore)}% (${c.correct}/${c.total} correct), below the ${REPORT_TARGET_PERCENT}% goal.`,
       angle: "general",
       blockId,
       blockName,
@@ -192,9 +209,9 @@ export function buildWeakConceptEntriesFromReport({
       objectiveMappingScores: objectiveMatches.map(({ id, score }) => ({ id, score })),
       missCount: Math.max(c.total - c.correct, 1),
       reportScore: c.myScore,
-      reportClassAverage: c.average,
+      reportClassAverage: Number.isFinite(c.average) ? c.average : null,
       reportSampleSize: c.total,
-      reportGap: Math.max(0, c.average - c.myScore),
+      reportGap: Math.max(0, (Number.isFinite(c.average) ? c.average : REPORT_TARGET_PERCENT) - c.myScore),
       lastMissed: now,
       lastCorrect: null,
       consecutiveCorrect: 0,
