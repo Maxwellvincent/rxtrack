@@ -33,3 +33,12 @@ it('does not let five-letter JSON examples anchor the option count, and teaches 
  const prompt=buildMcqPrompt({subject:'NB 45',objectives:[{id:'o1',objective:'Localize brainstem lesions'}],lectureText:'Medial lemniscus carries touch.',count:3});
  expect(prompt).toMatch(/JSON examples show five letters only/i);
 });
+
+it('names the keyed answer with the lecture\'s main term, not a once-mentioned synonym', async () => {
+ const {QUESTION_CHOICE_CONTRACT}=await import('./questionContract.js');
+ const {buildMcqPrompt}=await import('./mcq.js');
+ expect(QUESTION_CHOICE_CONTRACT).toMatch(/term the lecture uses most often/i);
+ expect(QUESTION_CHOICE_CONTRACT).toMatch(/GABAergic VLPO neurons/);
+ const prompt=buildMcqPrompt({subject:'NB 61',objectives:[{id:'o1',objective:'Describe age-related changes to sleep'}],lectureText:'VLPO GABA neurons.',count:2});
+ expect(prompt).toMatch(/term the lecture uses most often/i);
+});

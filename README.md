@@ -100,6 +100,8 @@ Secrets (`firebase functions:secrets:set`): `ANTHROPIC_API_KEY`,
 
 ## Question generation
 
+Answer-choice terminology (`QUESTION_CHOICE_CONTRACT` in `engine/questionContract.js`): the keyed answer and its comparable distractors use the term the lecture uses most often for a concept, not a once-mentioned synonym, so difficulty comes from reasoning rather than unfamiliar wording.
+
 Core: `src/engine/mcq.js` (prompt assembly, review, repair). Routing:
 `src/questionPreparation.js`. Exam sets: `src/shell/features/exam/generation.js`
 + `launchExam.js`. Lecture quizzes: `src/shell/features/objectives/quizLaunch.js`.
