@@ -640,7 +640,7 @@ export function LectureStudyFlow({
     transferFocus=transferFocus||repairTransferPrompt(connectionRows.slice(0,3));
     const quizObjectives = lecturePracticeTargets(retestObjectives?.length ? objectivesWithPracticeEvidence(retestObjectives,learnerEvidence.data) : orderedObjectives,relationshipResource.data,learnerEvidence.data||{},connectionScope);
     if (!quizObjectives.length && mismatchedLectureObjectives.length) {
-      setError("This lecture needs its objective links reviewed before questions can be prepared. Open More → Admin diagnostics → Objective source and lecture links.");
+      setError("This lecture needs its objective links reviewed before questions can be prepared. Open More → Admin → Objective source and lecture links.");
       return;
     }
     const continuing = continueSession && !!quizMetaRef.current;
@@ -1341,7 +1341,7 @@ export function LectureStudyFlow({
       {stage !== "loading" && !lectureObjectives.length && text.trim().length >= 200 && (
         <div className="my-3 flex flex-wrap items-center gap-3 rounded border border-warn/40 p-3">
           <span className="text-sm text-text-2">{objectiveResource.loading ? "Syncing lecture objectives…" : mismatchedLectureObjectives.length
-            ? "Some objective links need review before this lecture can be quizzed. Use More → Admin diagnostics → Objective source and lecture links."
+            ? "Some objective links need review before this lecture can be quizzed. Use More → Admin → Objective source and lecture links."
             : "No objectives linked yet. Recover them from the saved lecture without replacing your atoms."}</span>
           {!mismatchedLectureObjectives.length && <Button variant="outline" disabled={!!busy||checkpointPreparing || objectiveResource.loading} onClick={async () => {
             setBusy("Recovering lecture objectives…"); setError("");

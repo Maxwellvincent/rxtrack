@@ -150,9 +150,9 @@ export function StruggleTasks({ userId, lectures = [], onBack }) {
 
   return (
     <div className="p-5">
-      <button onClick={onBack} className="mb-3 font-mono text-xs text-text-3 hover:text-text-1">
+      {onBack && <button onClick={onBack} className="mb-3 font-mono text-xs text-text-3 hover:text-text-1">
         ← back
-      </button>
+      </button>}
       <h2 className="text-sm font-bold text-text-1">Struggle Tracker tasks</h2>
       <div className="mb-3 font-mono text-[12px] text-text-3">
         {total} synced from Anki · {done} done today

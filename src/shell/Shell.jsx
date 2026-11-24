@@ -18,7 +18,7 @@ import { touchBlock } from "../stores/blockObjectives.js";
 import { defaultBlockId, readCollapsedTerms, readLastView, writeLastView } from "./navPrefs.js";
 
 const VALID_TABS = ["today", "lectures", "objectives", "exam", "more"];
-const VALID_MORE_VIEWS = ["weak", "struggle", "diagnostics"];
+const VALID_MORE_VIEWS = ["weak", "struggle", "calibrate", "adaptive", "diagnostics"];
 import { Sidebar } from "./Sidebar.jsx";
 import { Header } from "./Header.jsx";
 import { TabBar } from "./TabBar.jsx";
@@ -27,6 +27,7 @@ import { CommandPalette } from "../ui/CommandPalette.jsx";
 const EngineSession=lazy(()=>import("../engine/EngineSession.jsx").then(m=>({default:m.EngineSession})));
 const CalibrationSession=lazy(()=>import("../engine/CalibrationSession.jsx").then(m=>({default:m.CalibrationSession})));
 import { Button } from "../ui/Button.jsx";
+import { PracticeModeTabs } from "./features/lectures/PracticeModeTabs.jsx";
 import { signInWithGoogle, signOut, onAuthChange, completeRedirectSignIn, pullAllDataFromCloud } from "../firebaseData.js";
 const AnkiSyncModal=lazy(()=>import("../AnkiSyncModal.jsx"));
 const ScheduleImportModal=lazy(()=>import("./ScheduleImportModal.jsx").then(m=>({default:m.ScheduleImportModal})));
@@ -503,25 +504,15 @@ function ShellMain({ theme, toggle, userId }) {
               onReExtractAll={() => setShowReExtractAll(true)}
             />
           ) : tab === "more" && activeBlockId ? (
-            moreView === "diagnostics" && canViewQuestionDiagnostics(userId) ? (
-              <QuestionDiagnosticsAdmin userId={userId} lectures={allLectures.data || []} onBack={() => setMoreView(null)} />
-            ) : moreView === "weak" ? (
-              <WeakConcepts blockId={activeBlockId} userId={userId} onBack={() => setMoreView(null)} />
-            ) : moreView === "struggle" ? (
-              <StruggleTasks
-                userId={userId}
-                lectures={(allLectures.data || []).filter((l) => l.blockId === activeBlockId)}
-                onBack={() => setMoreView(null)}
-              />
-            ) : (
-              <MoreTab
-                onDiagnostics={canViewQuestionDiagnostics(userId) ? () => setMoreView("diagnostics") : null}
-                onContinue={onContinue}
-                onCalibrate={onCalibrate}
-                onWeak={() => setMoreView("weak")}
-                onStruggle={() => setMoreView("struggle")}
-              />
-            )
+            <MoreTab
+              view={moreView}
+              onView={setMoreView}
+              onContinue={onContinue}
+              onCalibrate={onCalibrate}
+              weak={<WeakConcepts blockId={activeBlockId} userId={userId} />}
+              struggle={<StruggleTasks userId={userId} lectures={(allLectures.data || []).filter((l) => l.blockId === activeBlockId)} />}
+              admin={canViewQuestionDiagnostics(userId) ? <QuestionDiagnosticsAdmin userId={userId} lectures={allLectures.data || []} /> : null}
+            />
           ) : (
             // Default: Today tab (also shown when tab === "today" or no block-specific tab)
             <div className="mx-auto flex w-full max-w-6xl flex-col gap-0">
@@ -630,26 +621,33 @@ function ShellMain({ theme, toggle, userId }) {
   );
 }
 
-function MoreTab({ onContinue, onCalibrate, onWeak, onStruggle, onDiagnostics }) {
-  const items = [
-    { label: "▸ Continue learning", desc: "adaptive session — teaches, shows a case, then checks you", action: onContinue },
-    { label: "◎ Calibrate", desc: "rate confidence before each answer — surfaces sure-but-wrong gaps", action: onCalibrate },
-    { label: "⚠ Weak concepts", desc: "what you keep missing, landmines first", action: onWeak },
-    { label: "🔴 Struggle Tracker", desc: "deep/persistent + buried cards synced in from Anki", action: onStruggle },
+function MoreTab({ view, onView, onContinue, onCalibrate, weak, struggle, admin }) {
+  const modes = [
+    { id: "weak", label: "Weak concepts" },
+    { id: "struggle", label: "Anki struggles" },
+    { id: "calibrate", label: "Calibrate" },
+    { id: "adaptive", label: "Adaptive session" },
+    ...(admin ? [{ id: "diagnostics", label: "Admin" }] : []),
   ];
-  if (onDiagnostics) items.push({ label: "Admin diagnostics", desc: "Question reports and objective/source tools", action: onDiagnostics });
+  const current = modes.some((mode) => mode.id === view) ? view : "weak";
+  const launcher = (title, text, label, action) => <div className="flex flex-col items-start gap-3">
+    <p className="max-w-2xl text-sm text-text-2"><strong className="text-text-1">{title}</strong> — {text}</p>
+    <Button onClick={action}>{label}</Button>
+  </div>;
   return (
-    <div className="mx-auto grid w-full max-w-5xl grid-cols-1 gap-3 p-4 sm:grid-cols-2 sm:p-5">
-      {items.map((item) => (
-        <button
-          key={item.label}
-          onClick={item.action}
-          className="flex min-h-24 flex-col items-start justify-center rounded-lg border border-border bg-bg-elevated px-4 py-3 text-left transition-colors hover:border-accent/40 hover:bg-panel"
-        >
-          <span className="font-condensed text-sm font-semibold uppercase tracking-wide text-text-1">{item.label}</span>
-          <span className="mt-0.5 font-mono text-[12px] normal-case tracking-normal text-text-3">{item.desc}</span>
-        </button>
-      ))}
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 p-4 sm:p-5">
+      <div>
+        <h2 className="text-2xl font-bold text-text-1">More</h2>
+        <p className="mt-1 text-sm text-text-3">Cross-source weak concepts, Anki struggles, calibration and admin tools.</p>
+      </div>
+      <section aria-label="More" className="flex flex-col gap-3 rounded-2xl border border-border bg-bg-elevated p-4 shadow-sm sm:p-5">
+        <PracticeModeTabs ariaLabel="More views" value={current} onChange={onView} modes={modes} />
+        {current === "weak" && weak}
+        {current === "struggle" && struggle}
+        {current === "calibrate" && launcher("Calibrate", "rate your confidence before each answer to surface the things you are sure about but get wrong.", "▸ Start calibration", onCalibrate)}
+        {current === "adaptive" && launcher("Adaptive session", "teaches a concept, shows a case, then checks you.", "▸ Start adaptive session", onContinue)}
+        {current === "diagnostics" && admin && <Suspense fallback={<p className="text-sm text-text-3">Loading admin tools…</p>}>{admin}</Suspense>}
+      </section>
     </div>
   );
 }

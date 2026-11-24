@@ -45,7 +45,7 @@ export function QuestionDiagnosticsAdmin({ userId, lectures = [], onBack }) {
   if (!canViewQuestionDiagnostics(userId)) return null;
   const reports = lectures.map(lecture => ({ lecture, report: readQuestionDiagnostics(userId, lecture.id) })).filter(row => row.report);
   return <section className="mx-auto max-w-5xl p-5">
-    <button onClick={onBack} className="mb-4 text-sm text-text-2">← More</button>
+    {onBack && <button onClick={onBack} className="mb-4 text-sm text-text-2">← More</button>}
     <h2 className="text-xl font-semibold">Question generation diagnostics</h2>
     <p className="mb-5 text-sm text-text-2">Admin tools · recent runs from this browser session.</p>
     <BaselineExport userId={userId} lectures={lectures} />
