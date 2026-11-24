@@ -1,3 +1,5 @@
+> **Historical reference.** SP1 is done for `App.jsx` / `Tracker.jsx` (both deleted); only `src/DeepLearn.jsx` remains legacy. Current state lives in [README.md](README.md).
+
 # SP1 — Strangle the RXTrack monolith into the modular shell
 _Round 2 — revised after two Codex adversarial rounds_
 
