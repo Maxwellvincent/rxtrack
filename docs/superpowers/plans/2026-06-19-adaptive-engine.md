@@ -1,3 +1,5 @@
+> **Historical reference.** The adaptive session (`EngineSession.jsx`) was removed on 2026-11-24; the mastery, selection and session modules survive only as the engine behind Calibrate. See README for what is built.
+
 # Adaptive Learning Engine Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
