@@ -498,7 +498,6 @@ function ShellMain({ theme, toggle, userId }) {
               userId={userId}
               termColor={active?.termColor}
               T={legacyTheme}
-              onBack={() => switchTab("today")}
               onStartObjectiveQuiz={onStartObjectiveQuiz}
               onStudyLecture={onStudyLecture}
               onImportObjectives={() => setShowImportObjectives(true)}
@@ -661,7 +660,7 @@ function MoreTab({ onContinue, onCalibrate, onWeak, onStruggle, onDiagnostics })
  * (one runner — see docs/plans/2026-08-23-unify-quiz-study-rounds.md), which shows its own
  * generation/error state on its own screen, so there's nothing to render here anymore.
  */
-function ObjectivesView({ blockId, userId, termColor, T, onBack, onStartObjectiveQuiz, onStudyLecture, onImportObjectives, onReExtractAll }) {
+function ObjectivesView({ blockId, userId, termColor, T, onStartObjectiveQuiz, onStudyLecture, onImportObjectives, onReExtractAll }) {
   return (
     <div className="w-full">
       <ObjectivesContainer
@@ -672,16 +671,9 @@ function ObjectivesView({ blockId, userId, termColor, T, onBack, onStartObjectiv
         onStartObjectiveQuiz={onStartObjectiveQuiz}
         onStudyLecture={onStudyLecture}
         headerActions={
-          <div className="flex items-center gap-3">
-            <button onClick={onBack} className="font-mono text-xs text-text-3 hover:text-text-1">
-              ← block
-            </button>
-            <button onClick={onReExtractAll} className="font-mono text-xs text-text-3 hover:text-text-1">
-              ↺ Re-extract all
-            </button>
-            <button onClick={onImportObjectives} className="font-mono text-xs text-accent hover:text-accent-text">
-              + Import objectives PDF
-            </button>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={onImportObjectives} className="rounded border border-border px-3 py-1.5 text-sm hover:border-accent">+ Import objectives PDF</button>
+            <button onClick={onReExtractAll} className="rounded border border-border px-3 py-1.5 text-sm hover:border-accent">↺ Re-extract all</button>
           </div>
         }
       />

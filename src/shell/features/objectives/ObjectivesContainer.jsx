@@ -14,7 +14,6 @@ import { useMemo, useState } from "react";
 import ObjectiveTracker from "./ObjectiveTracker.jsx";
 import { useObjectivesController } from "./useObjectivesController.js";
 import { useLectureQuestionStats } from "../../hooks/useLectureQuestionStats.js";
-import { blockProgressProjection } from "../../logic/blockProgress.js";
 
 export function ObjectivesContainer({
   blockId,
@@ -45,11 +44,6 @@ export function ObjectivesContainer({
   const blockMeta=useMemo(()=>{const block=resolveBlockMeta(terms.data,blockId) || {};return {...block,examDate:examDates.data?.[blockId] || block.examDate};},[terms.data,examDates.data,blockId]);
   const questionStats = useLectureQuestionStats(userId);
   const completion = useCompletion(userId);
-  const activeObjectiveCount = useMemo(
-    () => blockProgressProjection({ blockId, lectures: blockLectures, catalog: objectives, evidence: learnerEvidence }).counts.total,
-    [blockId, objectives, blockLectures, learnerEvidence]
-  );
-  const sourceOnlyCount = Math.max(0, objectives.length - activeObjectiveCount);
   const practice = useMemo(() => (blockLectures || []).reduce((out, lecture) => {
     const row = questionStats.data?.[lecture.id];
     out.answered += row?.answered || 0;
@@ -63,21 +57,11 @@ export function ObjectivesContainer({
 
   return (
     <div className="desk-page desk-objectives-page mx-auto w-full max-w-6xl p-4 sm:p-5">
-      <div className="desk-page-heading mb-4">
-        <div className="today-eyebrow">Study map</div>
-        <h2 className="text-2xl font-bold text-text-1">Objectives</h2>
-        <p className="mt-1 text-sm text-text-3">
-          {activeObjectiveCount} active objectives across {blockLectures.length} lectures.
-          {sourceOnlyCount > 0 ? ` Supplementary sources are optional and excluded from lecture progress.` : ""}
-          {" "}Use the command center to choose your next question set, then inspect the underlying evidence.
-        </p>
-      </div>
       {error && (
         <div role="alert" className="mb-3 rounded-lg border border-bad/40 bg-bg-elevated px-3 py-2 text-[13px] text-bad">
           Objectives could not sync: {error?.message || String(error)}
         </div>
       )}
-      <AnswerHistoryAudit userId={userId} blockId={blockId} objectives={objectives} lectures={blockLectures} loading={loading} />
       <ObjectiveTracker
       blockMeta={blockMeta}
       blockId={blockId}
@@ -89,6 +73,7 @@ export function ObjectivesContainer({
       termColor={termColor}
       T={T}
       headerActions={headerActions}
+      tools={<AnswerHistoryAudit userId={userId} blockId={blockId} objectives={objectives} lectures={blockLectures} loading={loading} />}
       focusUnlinkedTabKey={focusUnlinkedTabKey}
       editingLecId={editingLecId}
       setEditingLecId={setEditingLecId}

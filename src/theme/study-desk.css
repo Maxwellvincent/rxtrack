@@ -141,32 +141,6 @@
 .desk-lecture-focus-bar span { color: var(--text-3); font-size: .74rem; }
 .desk-lecture-focus-toggle { min-height: 40px; flex-shrink: 0; padding: 8px 12px; border: 1px solid var(--accent); border-radius: 9px; background: var(--bg-elevated); color: var(--accent-text); font-size: .78rem; font-weight: 750; }
 .desk-lecture-focus-toggle:hover { background: var(--accent-soft); }
-.desk-objective-tabs { padding: 6px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-elevated); }
-.desk-objective-tabs > button { min-height: 44px; border-radius: 9px !important; padding: 9px 14px !important; font-family: var(--font-sans) !important; }
-.desk-objectives > div:not(.desk-objective-tabs) > div { box-shadow: none; }
-.desk-objective-actions { display: flex; justify-content: flex-end; min-height: 44px; }
-.desk-objective-actions > div { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px !important; }
-.desk-objective-actions button { min-height: 40px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--bg-elevated); font-family: var(--font-sans) !important; font-size: .8125rem !important; }
-.desk-objective-actions button:hover { border-color: var(--border-strong); background: var(--panel); }
-.desk-objectives-hero { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 22px 24px; border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border)); border-radius: 18px; background: radial-gradient(circle at 88% 0%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 42%), var(--bg-elevated); }
-.desk-objectives-hero-copy { max-width: 650px; }
-.desk-objectives-hero-copy h3 { margin-top: 5px; color: var(--text-1); font-size: clamp(1.45rem, 3vw, 2.15rem); font-weight: 800; letter-spacing: -.055em; line-height: 1.05; }
-.desk-objectives-hero-copy p { margin-top: 10px; color: var(--text-2); font-size: .86rem; line-height: 1.55; }
-.desk-objectives-hero-meta { min-width: 170px; padding: 12px 14px; border-radius: 12px; background: var(--panel); }
-.desk-objectives-hero-meta strong { display: block; color: var(--text-1); font-size: 1.7rem; letter-spacing: -.05em; }
-.desk-objectives-hero-meta span, .desk-objectives-hero-meta small { display: block; color: var(--text-3); font-size: .7rem; }
-.desk-objectives-hero-progress { height: 6px; margin: 10px 0 6px; overflow: hidden; border-radius: 999px; background: var(--border); }
-.desk-objectives-hero-progress span { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
-.desk-objective-focus { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
-.desk-objective-focus-card { display: flex; min-height: 138px; flex-direction: column; align-items: flex-start; padding: 16px; border: 1px solid var(--border); border-radius: 14px; background: var(--bg-elevated); color: var(--text-1); text-align: left; transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease; }
-.desk-objective-focus-card:hover { border-color: var(--border-strong); box-shadow: 0 10px 24px color-mix(in srgb, var(--text-1) 7%, transparent); transform: translateY(-1px); }
-.desk-objective-focus-card > span { color: var(--text-3); font-size: .7rem; font-weight: 750; letter-spacing: .04em; text-transform: uppercase; }
-.desk-objective-focus-card > strong { margin-top: 8px; font-size: 1.8rem; letter-spacing: -.05em; }
-.desk-objective-focus-card > small { color: var(--text-2); font-size: .76rem; }
-.desk-objective-focus-card > em { margin-top: auto; color: var(--accent-text); font-size: .74rem; font-style: normal; font-weight: 700; }
-.desk-objective-focus-card--repair { border-top: 3px solid var(--bad); }
-.desk-objective-focus-card--first { border-top: 3px solid var(--status-amber); }
-.desk-objective-focus-card--coverage { border-top: 3px solid var(--status-blue); }
 .desk-objective-library-copy { display: flex; min-width: 210px; flex-direction: column; gap: 2px; }
 .desk-objective-library-copy strong { color: var(--text-1); font-size: .82rem; }
 .desk-objective-library-copy span { color: var(--text-3); font-size: .72rem; }
@@ -179,17 +153,6 @@
 .desk-objective-lecture-index .desk-objective-lecture-trigger > span:first-child { min-width: 38px !important; font-size: 11px !important; }
 .desk-objective-lecture-index .desk-objective-lecture-trigger > span:nth-child(2) { display: none; }
 .desk-objective-lecture-index .desk-objective-lecture-trigger .desk-objective-count { font-size: .68rem !important; }
-.desk-objective-summary { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
-.desk-objective-metric { min-height: 118px; padding: 14px; border: 1px solid var(--border); border-radius: 14px; background: var(--bg-elevated); color: var(--text-1); text-align: left; transition: border-color .16s ease, transform .16s ease; }
-.desk-objective-metric:hover { border-color: var(--border-strong); transform: translateY(-1px); }
-.desk-objective-metric > span { display: block; color: var(--text-3); font-size: .75rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
-.desk-objective-metric > strong { display: block; margin-top: 4px; font-size: 1.75rem; line-height: 1.1; letter-spacing: -.04em; }
-.desk-objective-metric > small { display: block; margin-top: 8px; color: var(--text-3); font-size: .75rem; line-height: 1.25; }
-.desk-objective-metric--needs-repair { border-left: 4px solid var(--bad); }
-.desk-objective-metric--untested { border-left: 4px solid var(--border-strong); }
-.desk-objective-metric--developing { border-left: 4px solid var(--status-amber); }
-.desk-objective-metric--mastered { border-left: 4px solid var(--status-blue); }
-.desk-objective-metric--unlinked { border-left: 4px solid var(--status-purple); }
 .desk-objective-lecture { margin-bottom: 10px !important; border-color: var(--border) !important; border-radius: 14px !important; background: var(--bg-elevated); }
 .desk-objective-lecture-trigger { min-height: 74px !important; padding: 14px 16px !important; background: var(--bg-elevated) !important; }
 .desk-objective-lecture-trigger:hover { background: var(--panel) !important; }
@@ -245,9 +208,6 @@
   .desk-sidebar { width: 214px; }
   .desk-header, .desk-tabs { padding-inline: 20px; }
   .desk-tab { padding-inline: 12px; }
-  .desk-objective-summary { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .desk-objectives-hero { align-items: flex-start; flex-direction: column; }
-  .desk-objectives-hero-meta { width: 100%; }
   .today-layout { grid-template-columns: minmax(0, 1.2fr) minmax(280px, .8fr); }
 }
 @media (max-width: 760px) {
@@ -275,18 +235,10 @@
   .desk-page-heading { margin-inline: 0; padding: 16px; border-radius: 12px; }
   .desk-toolbar > input { width: 100%; margin-left: 0; }
   .desk-toolbar > select { flex: 1; }
-  .desk-objective-tabs { overflow-x: auto; flex-wrap: nowrap !important; }
-  .desk-objective-tabs > button { white-space: nowrap; }
-  .desk-objective-actions { justify-content: stretch; }
-  .desk-objective-actions > div { width: 100%; justify-content: flex-start; }
-  .desk-objective-actions button { flex: 1 1 auto; }
-  .desk-objective-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .desk-objective-focus { grid-template-columns: 1fr; }
   .desk-objective-lecture-index { grid-template-columns: 1fr; }
   .desk-lecture-focus-bar { align-items: flex-start; flex-direction: column; }
   .desk-lecture-focus-toggle { width: 100%; }
   .desk-exam-overview { width: 100%; min-width: 0; }
-  .desk-objective-metric { min-height: 104px; padding: 12px; }
   .desk-objective-lecture-trigger { flex-wrap: wrap; gap: 8px !important; }
   .desk-objective-lecture-trigger > div:nth-of-type(1) { flex-basis: calc(100% - 110px); }
   .desk-objective-lecture-trigger > button { min-height: 40px; }

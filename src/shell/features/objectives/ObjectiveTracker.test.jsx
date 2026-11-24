@@ -55,8 +55,8 @@ it("organizes objectives into an actionable readiness summary", () => {
     />
   );
 
-  expect(view.host.querySelector('[aria-label="Objective readiness summary"]')).not.toBeNull();
-  expect(view.host.textContent).toContain("Active objectives2");
+  expect(view.host.querySelector('[aria-label="Objective views"]')).not.toBeNull();
+  expect(view.host.textContent).toContain("2 objectives · 1 lectures");
   expect(view.host.textContent).toContain("Needs repair1");
   expect(view.host.textContent).toContain("No answer evidence1");
   expect(view.host.textContent).toContain("Reference sources");
@@ -64,7 +64,7 @@ it("organizes objectives into an actionable readiness summary", () => {
   expect(view.host.textContent).not.toContain("need lecture match");
   expect(view.host.textContent).toContain("Not quizzed");
 
-  const repairMetric = [...view.host.querySelectorAll(".desk-objective-metric")]
+  const repairMetric = [...view.host.querySelectorAll('[role="tab"]')]
     .find((button) => button.textContent.includes("Needs repair"));
   act(() => repairMetric.click());
   expect(view.host.textContent).toContain("Showing 1 struggling objectives");
@@ -119,10 +119,10 @@ it("uses the same totals and evidence states as Today, excluding conflicting lec
  const counts = blockProgressCounts({ blockId: "NB", lectures, objectives: { NB: objectives }, evidence });
  const view = mount(<ObjectiveTracker blockId="NB" blockLectures={lectures} objectives={objectives} learnerEvidence={evidence} onSelfRate={vi.fn()} onStartObjectiveQuiz={vi.fn()} />);
  expect(counts).toMatchObject({ total: 2, inprogress: 1, untested: 1, unlinked: 1 });
- expect(view.host.textContent).toContain(`Active objectives${counts.total}`);
+ expect(view.host.textContent).toContain(`${counts.total} objectives · 1 lectures`);
  expect(view.host.textContent).toContain(`Developing${counts.inprogress}`);
  expect(view.host.textContent).toContain(`No answer evidence${counts.untested}`);
- expect(view.host.textContent).toContain("1 of 2 linked objectives seen");
+ expect(view.host.textContent).toContain("1 of 2 with question evidence");
  expect(view.host.textContent).toContain("Reference sources");
  view.close();
 });

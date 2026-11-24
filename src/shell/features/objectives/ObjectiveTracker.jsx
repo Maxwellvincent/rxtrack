@@ -1,3 +1,4 @@
+import { PracticeModeTabs } from "../lectures/PracticeModeTabs.jsx";
 import {ObjectiveLectureDashboard} from "./ObjectiveLectureDashboard.jsx";
 import { LectureProgressDashboard } from "./LectureProgressDashboard.jsx";
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
@@ -731,6 +732,7 @@ export default function ObjectiveTracker({
   termColor,
   T: TProp,
   headerActions = null,
+  tools = null,
   focusUnlinkedTabKey = 0,
   onAssignObjectiveToLecture = null,
   onAssignAllVisibleObjectives = null,
@@ -1050,92 +1052,30 @@ export default function ObjectiveTracker({
   return (
     <div className="desk-objectives" style={{ display: "flex", flexDirection: "column", gap: 16, padding: "0 4px 24px" }}>
       <style>{`@keyframes rxtObjSpin { to { transform: rotate(360deg); } }`}</style>
-      {headerActions && <div className="desk-objective-actions">{headerActions}</div>}
-      <section className="desk-objectives-hero" aria-labelledby="objective-command-title">
-        <div className="desk-objectives-hero-copy">
-          <div className="today-eyebrow">Objective command center</div>
-          <h3 id="objective-command-title">Your lecture review map.</h3>
-          <p>Focus on lecture objectives: review weak concepts, cover new material, then test yourself again. Supplementary sources do not affect these totals.</p>
-          <p aria-label="Study coverage">Study coverage: <strong>{studyCoveredCount} of {totalAll}</strong> lecture objectives · {testedCount} with question evidence · {reviewedOnlyCount} reviewed without questions · {totalAll-studyCoveredCount} not yet recorded. Mark an individual objective reviewed after studying it; this does not change question accuracy or mastery.</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-2xl font-bold text-text-1">Objectives</h2>
+          <p aria-label="Study coverage" className="mt-1 text-sm text-text-3">{totalAll} objectives · {byLecture.length} lectures · {testedCount} of {totalAll} with question evidence ({coveragePercent}%){reviewedOnlyCount ? ` · ${reviewedOnlyCount} reviewed only` : ""} · {practiceAnswered.toLocaleString()} answered{practiceAccuracy == null ? "" : ` · ${Math.round(practiceAccuracy * 100)}% correct`}</p>
         </div>
-        <div className="desk-objectives-hero-meta">
-          <strong>{focusCount}</strong>
-          <span>priority objectives</span>
-          <div className="desk-objectives-hero-progress"><span style={{ width: `${coveragePercent}%` }} /></div>
-          <small>{coveragePercent}% question coverage</small>
-        </div>
-      </section>
-      <section className="desk-objective-focus" aria-label="Objective study paths">
-        <button type="button" className="desk-objective-focus-card desk-objective-focus-card--repair" onClick={() => { setSubView("status"); setStatusFilter("struggling"); }}>
-          <span>01 · Repair</span><strong>{countStruggling}</strong><small>Missed or unstable objectives</small><em>Open repair queue →</em>
-        </button>
-        <button type="button" className="desk-objective-focus-card desk-objective-focus-card--first" onClick={() => { setSubView("status"); setStatusFilter("untested"); }}>
-          <span>02 · Question gaps</span><strong>{countUntested}</strong><small>No linked question answers; not a completion score</small><em>Inspect question gaps →</em>
-        </button>
-        <button type="button" className="desk-objective-focus-card desk-objective-focus-card--coverage" onClick={() => setSubView("coverage")}>
-          <span>03 · Coverage</span><strong>{coveragePercent}%</strong><small>{testedCount} of {totalAll} linked objectives seen</small><em>Inspect lecture coverage →</em>
-        </button>
-      </section>
-      <section className="desk-objective-summary" aria-label="Objective readiness summary">
-        {[
-          { label: "Active objectives", value: totalAll, note: `${byLecture.length} lectures`, view: "lecture" },
-          { label: "Needs repair", value: countStruggling, note: "Missed or struggling", view: "status", filter: "struggling" },
-          { label: "No answer evidence", value: countUntested, note: "No linked question answers", view: "status", filter: "untested" },
-          { label: "Developing", value: countInprogress, note: "Building consistency", view: "status", filter: "inprogress" },
-          { label: "Mastered", value: countMastered, note: "Current evidence", view: "status", filter: "mastered" },
-          { label: "Practice questions", value: practiceAnswered.toLocaleString(), note: practiceAccuracy == null ? "No quiz evidence yet" : `${Math.round(practiceAccuracy * 100)}% accuracy`, view: "lecture" },
-        ].map((metric) => (
-          <button
-            key={metric.label}
-            type="button"
-            className={`desk-objective-metric desk-objective-metric--${metric.label.toLowerCase().replace(/\s+/g, "-")}`}
-            onClick={() => {
-              setSubView(metric.view);
-              if (metric.filter) setStatusFilter(metric.filter);
-            }}
-          >
-            <span>{metric.label}</span>
-            <strong>{metric.value}</strong>
-            <small>{metric.note}</small>
-          </button>
-        ))}
-      </section>
-      <div className="desk-objective-tabs" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-        {pills.map((p) => {
-          const active = subView === p.key;
-          const isUn = p.key === "unlinked" && p.amber;
-          const style = isUn
-            ? {
-                background: "#FAEEDA",
-                border: "1px solid #EF9F27",
-                color: "#633806",
-                boxShadow: active ? "0 0 0 1px #EF9F27" : "none",
-              }
-            : {
-                background: active ? color + "22" : T.inputBg,
-                border: "1px solid " + (active ? color : T.border1),
-                color: active ? color : T.text3,
-              };
-          return (
-            <button
-              key={p.key}
-              type="button"
-              onClick={() => setSubView(p.key)}
-              style={{
-                ...style,
-                padding: "8px 14px",
-                borderRadius: 8,
-                cursor: "pointer",
-                fontFamily: MONO,
-                fontSize: 13,
-                fontWeight: 600,
-              }}
-            >
-              {p.label}
-            </button>
-          );
-        })}
+        {(headerActions || tools) && <details className="relative text-sm">
+          <summary className="cursor-pointer list-none rounded-lg border border-border px-3 py-1.5 font-semibold text-text-2 hover:text-text-1">⋯ Tools</summary>
+          <div className="absolute right-0 z-20 mt-2 flex w-[min(28rem,90vw)] flex-col gap-3 rounded-xl border border-border bg-bg-elevated p-3 shadow-lg">
+            {headerActions}
+            {tools}
+          </div>
+        </details>}
       </div>
+      <PracticeModeTabs ariaLabel="Objective views" value={subView === "status" ? `status:${statusFilter}` : subView} onChange={(next) => {
+        if (next.startsWith("status:")) { setSubView("status"); setStatusFilter(next.slice(7)); } else setSubView(next);
+      }} modes={[
+        { id: "lecture", label: "By lecture", badge: byLecture.length || null },
+        { id: "status:struggling", label: "Needs repair", badge: countStruggling || null },
+        { id: "status:untested", label: "No answer evidence", badge: countUntested || null },
+        { id: "status:inprogress", label: "Developing", badge: countInprogress || null },
+        { id: "status:mastered", label: "Mastered", badge: countMastered || null },
+        { id: "coverage", label: "Coverage" },
+        ...(unlinkedCount > 0 ? [{ id: "unlinked", label: "Reference sources" }] : []),
+      ]} />
 
       {subView === "lecture" && (
         <div style={{ display: "flex", flexDirection: "column" }}>
@@ -1719,48 +1659,6 @@ export default function ObjectiveTracker({
 
       {subView === "status" && (
         <div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-            {[
-              { key: "struggling", label: "⚠ Struggling", n: countStruggling, a: { bg: "#FCEBEB", color: "#A32D2D", border: "#F09595" } },
-              { key: "inprogress", label: "△ In progress", n: countInprogress, a: { bg: "#FAEEDA", color: "#633806", border: "#EF9F27" } },
-              {
-                key: "untested",
-                label: "○ No answer evidence",
-                n: countUntested,
-                a: { bg: "var(--color-background-secondary, " + T.inputBg + ")", color: T.text2, border: T.border1 },
-              },
-              { key: "mastered", label: "✓ Mastered", n: countMastered, a: { bg: "#EAF3DE", color: "#27500A", border: "#97C459" } },
-              {
-                key: "all",
-                label: "All",
-                n: totalAll,
-                a: { bg: "var(--color-background-secondary, " + T.inputBg + ")", color: T.text2, border: T.border1 },
-              },
-            ].map((p) => {
-              const active = statusFilter === p.key;
-              const st = active ? p.a : { bg: T.inputBg, color: T.text3, border: T.border1 };
-              return (
-                <button
-                  key={p.key}
-                  type="button"
-                  onClick={() => setStatusFilter(p.key)}
-                  style={{
-                    fontFamily: MONO,
-                    fontSize: 12,
-                    padding: "6px 10px",
-                    borderRadius: "var(--border-radius-md, 8px)",
-                    border: "1px solid " + st.border,
-                    background: st.bg,
-                    color: st.color,
-                    cursor: "pointer",
-                    fontWeight: active ? 700 : 500,
-                  }}
-                >
-                  {p.label} ({p.n})
-                </button>
-              );
-            })}
-          </div>
           <div
             style={{
               fontSize: 11,
