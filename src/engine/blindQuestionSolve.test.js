@@ -41,3 +41,25 @@ it('rejects the live cortical-to-body shortcut even when the solver claims a lon
  expect(blindSolveIssue({...solved,answerRoute:route},question,{lectureText:source})).toBe('insufficient_reasoning_depth');
  expect(blindSolveIssue({...solved,answerRoute:{...route,stemClue:'right precentral gyrus lesion'}},{...question,stem:'A patient has a right precentral gyrus lesion. Which cerebellar hemisphere receives the indirect input?',choices:{A:'Left cerebellar hemisphere',B:'Right cerebellar hemisphere'}},{lectureText:source})).toBeNull();
 });
+
+it('does not accept an objective-list line as the only lecture evidence', () => {
+ const objectiveLine='SOM.MK.I.BPM2.4.NB.4.BEHS.0189 Clinically differentiate the depressive disorders from other conditions';
+ const objectives=[{id:'o1',objective:'Clinically differentiate the depressive disorders from other conditions'}];
+ const fact='Normal grief: self-esteem unaffected; guilt linked to self-blame related to the loss.';
+ const lectureText=`Learning Objectives\n${objectiveLine}\n\f\n${fact}\n`+'Supporting slide text about mood disorders. '.repeat(4);
+ const question={stem:'A widow has waves of sadness. Diagnosis?',choices:{A:'Normal grief',B:'Major depressive disorder'},correct:'A',orderLevel:'first-order'};
+ const review=quotes=>({unique:true,answer:'A',reasoning:{sourceQuotes:quotes}});
+ expect(blindSolveIssue(review([objectiveLine]),question,{lectureText,objectives})).toBe('unverified_blind_solution');
+ expect(blindSolveIssue(review([objectiveLine,fact]),question,{lectureText,objectives})).toBeNull();
+ expect(blindSolveIssue(review([fact]),question,{lectureText,objectives})).toBeNull();
+});
+
+it('keeps an excerpt that contains a SOM code alongside real lecture facts', () => {
+ const objective={id:'o1',objective:'Clinically differentiate the depressive disorders from other conditions'};
+ const excerpt='SOM.MK.I.BPM2.4.NB.4.BEHS.0189 Grief versus depression: in normal grief self-esteem is unaffected and guilt is linked to self-blame related to the loss.';
+ const lectureText=`${excerpt}\n`+'Supporting slide text about mood disorders. '.repeat(4);
+ const question={stem:'A widow has waves of sadness. Diagnosis?',choices:{A:'Normal grief',B:'Major depressive disorder'},correct:'A',orderLevel:'first-order'};
+ expect(blindSolveIssue({unique:true,answer:'A',reasoning:{sourceQuotes:[excerpt]}},question,{lectureText,objectives:[objective]})).toBeNull();
+ const objectiveOnly='SOM.MK.I.BPM2.4.NB.4.BEHS.0189 Clinically differentiate the depressive disorders from other conditions';
+ expect(blindSolveIssue({unique:true,answer:'A',reasoning:{sourceQuotes:[objectiveOnly]}},question,{lectureText:`${objectiveOnly}\n${lectureText}`,objectives:[objective]})).toBe('unverified_blind_solution');
+});

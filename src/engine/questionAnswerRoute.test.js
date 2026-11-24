@@ -27,3 +27,13 @@ it('does not credit parallel somatotopy coordinates as third-order integration',
  expect(answerRouteIssue(answerRoute(item.stem),item)).toBe('insufficient_reasoning_depth');
  expect(answerRouteIssue(answerRoute(item.stem),{...item,orderLevel:'second-order'})).toBeNull();
 });
+
+it('accepts a stem clue made of exact stem fragments joined by an ellipsis, but not paraphrase', () => {
+ const question={orderLevel:'second-order',stem:'A 27-year-old woman comes to the physician because of a 2-week history of low mood, anhedonia, and fatigue. She reports that 3 months ago she had a 5-day period of elevated mood, increased energy, and decreased need for sleep, but she continued to function well at work and at home. Which of the following is the most likely diagnosis?'};
+ const route=clue=>({kind:'relationship-application',outcomeRestatement:false,choiceShortcut:false,stemClue:clue,
+  requiredRelationship:'Hypomania lasts at least 4 days without marked functional impairment.',whyNotRestatement:'The duration and preserved function must be applied to distinguish bipolar II from bipolar I.'});
+ expect(answerRouteIssue(route('5-day period of elevated mood...continued to function well'),question,{requireReasoningAudit:true})).toBeNull();
+ expect(answerRouteIssue(route('5-day period of elevated mood … continued to function well'),question,{requireReasoningAudit:true})).toBeNull();
+ expect(answerRouteIssue(route('5-day period of elevated mood...kept working normally'),question,{requireReasoningAudit:true})).toBe('unverified_answer_route');
+ expect(answerRouteIssue(route('5-day period...ab'),question,{requireReasoningAudit:true})).toBe('unverified_answer_route');
+});
