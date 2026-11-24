@@ -125,6 +125,10 @@ Core: `src/engine/mcq.js` (prompt assembly, review, repair). Routing:
   burden of relevant school examples; IMCQs are a task pattern, not a difficulty
   floor. Excess inference is rejected as `school_style_mismatch`. The
   `challenge` policy or an assigned `targetOrder` can require more depth.
+- `withSchoolEmphasis` (`schoolEmphasis.js`) counts uploaded school questions tied
+  to each objective by exact school code or stored link. Within the same learner
+  status, more-tested objectives get questions first (lecture quizzes and exam
+  practice). Word overlap never counts as emphasis.
 - `schoolStyleSimilarity` scores each saved exam question's format fit
   (length, sentences, options, clinical/data, ending). It is displayed only; it
   does not gate acceptance.

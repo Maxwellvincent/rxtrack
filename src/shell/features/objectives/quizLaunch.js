@@ -1,5 +1,6 @@
 import {integrationConnectionTargets,planThirdOrderQuestions} from '../../../engine/thirdOrderConstruction.js';
 import {objectivesWithConnectionGaps} from '../../../engine/objectiveConnections.js';
+import { withSchoolEmphasis } from "../../../engine/schoolEmphasis.js";
 import {repairTransferPlan} from "../../../engine/repairTransfer.js";
 import { prepareLectureQuestionContext } from '../../../engine/lectureQuestionContext.js';
 import * as relationshipsStore from "../../../stores/sourceRelationships.js";
@@ -71,6 +72,9 @@ export function sortWeakestFirst(objectives) {
   return [...(objectives || [])].sort((a, b) =>
     (Number(a?._focusPriority) || 0) - (Number(b?._focusPriority) || 0)
       || rank(a) - rank(b)
+      // Within the same learner status, objectives the school actually tests
+      // (exact code / stored link counts) come first.
+      || (Number(b?._schoolEmphasis) || 0) - (Number(a?._schoolEmphasis) || 0)
       || (a?.consecutiveCorrect || 0) - (b?.consecutiveCorrect || 0)
       || (Number(a?.attempts) || 0) - (Number(b?.attempts) || 0)
   );
@@ -388,7 +392,7 @@ export function buildQuizConfig({
   sourcePages: suppliedSourcePages = null,
 }) {
   const learnerModel = evidenceModel || readLearnerEvidence(userId);
-  const pool = sortWeakestFirst(connectionAwareObjectives(objectivesWithConceptGaps(objectivesWithPracticeEvidence(objectives, learnerModel), atoms, learnerModel),{lectures,lectureIdHint,lectureText:suppliedLectureText,sourcePages:suppliedSourcePages,blockId,userId},learnerModel));
+  const pool = sortWeakestFirst(withSchoolEmphasis(connectionAwareObjectives(objectivesWithConceptGaps(objectivesWithPracticeEvidence(objectives, learnerModel), atoms, learnerModel),{lectures,lectureIdHint,lectureText:suppliedLectureText,sourcePages:suppliedSourcePages,blockId,userId},learnerModel), exemplars));
   const count = resolveQuestionCount(questionCount, Math.max(pool.length, 1));
 
   // When no objectives, fall through to atom/text-based generation
