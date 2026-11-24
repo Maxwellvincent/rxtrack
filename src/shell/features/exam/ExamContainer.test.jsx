@@ -20,6 +20,7 @@ const poolPreparedSetsMock = vi.fn(async () => []);
 const updatePreparedSetMetadataMock = vi.fn(async () => ({ ok: true }));
 const deletePreparedSetMock = vi.fn(async () => ({ ok: true, removed: 3, preserved: 0 }));
 const listExamSessionsMock = vi.fn(async () => []);
+vi.mock("../today/SchoolAlignmentPanel.jsx", () => ({ SchoolAlignmentPanel: () => null }));
 vi.mock("./launchExam.js", () => ({
   launchExamSession: (...args) => launchExamSessionMock(...args),
 }));

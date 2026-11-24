@@ -6,6 +6,7 @@ import {isEvaluationReserved} from '../../../engine/sourceUse.js';
 import {subscribeExamSessionChanges} from "../../../examSessionChanges.js";
 import {MissedPracticeActions} from "./MissedPracticeActions.jsx";
 import {useQuestionPractice} from "../../hooks/useQuestionPractice.js";
+import {SchoolAlignmentPanel} from "../today/SchoolAlignmentPanel.jsx";
 import {questionProgress} from "./questionProgress.js";
 import {missedBankQuestions} from "./missedBankQuestions.js";
 import * as questionRatingsStore from "../../../stores/questionRatings.js";
@@ -1119,6 +1120,15 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
       {/* Other-block/comprehensive banks remain in Firestore as generation evidence.
           They are intentionally not rendered in the block view; showing dozens of
           unrelated banks here made the current block feel like an archive browser. */}
+
+        {examPageSection === "results" && (
+          <SchoolAlignmentPanel
+            blockId={blockId}
+            userId={userId}
+            sessions={practiceHistory.sessions}
+            historyReady={!practiceHistory.loading && !practiceHistory.error}
+          />
+        )}
 
         {examPageSection === "results" && <ExamDashboard
           blockId={blockId}
