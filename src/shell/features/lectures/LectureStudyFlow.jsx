@@ -1057,7 +1057,7 @@ export function LectureStudyFlow({
             }}
             className="font-mono text-xs text-text-3 hover:text-text-1"
           >
-            ← back to atoms
+            ← back to lecture
           </button>
           <div className="text-right font-mono text-[13px] text-text-3">
             <div>
