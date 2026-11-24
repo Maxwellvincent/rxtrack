@@ -14,12 +14,12 @@ import { sourceLabel } from "../../logic/questionBankAnalysis.js";
 import { processQuestionBankFiles } from "../../logic/questionBankImport.js";
 import { startBackgroundJob } from "../../backgroundJobs.js";
 
-export function QuestionBankModal({ blockId, blockName = "", lectures = [], objectives = [], userId = null, onClose, onUploaded }) {
+export function QuestionBankModal({ blockId, blockName = "", defaultSourceKind = "school", lectures = [], objectives = [], userId = null, onClose, onUploaded }) {
   const banksRes = useQuestionBanks(userId);
   const schoolResultsRes = useStoreResource(schoolResultsStore, userId);
   const banks = banksRes.data;
   const [wrongOnly, setWrongOnly] = useState(false);
-  const [sourceKind, setSourceKind] = useState("school");
+  const [sourceKind, setSourceKind] = useState(defaultSourceKind);
   const [useLlm, setUseLlm] = useState(false);
   const [reserveForEvaluation,setReserveForEvaluation]=useState(false);
   const sourceUse=useStoreResource(sourceUseStore,userId);

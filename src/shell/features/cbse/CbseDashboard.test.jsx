@@ -31,3 +31,14 @@ it("renders a dashboard with vertical concept bars and launches saved original q
   expect(fixture.created.questions.every(q=>q.blockId==='b1' && q.sourceFile==='ExamSoft.pdf')).toBe(true);
   expect(host.textContent).toContain("Saved session:");
 });
+it("offers an upload for CBSE-owned banks and practices them alongside school banks", async () => {
+  const nbme=Array.from({length:3},(_,i)=>({ id:`n${i}`, stem:`NBME sample question ${i} about renal physiology`, choices:{ A:"One", B:"Two" }, correct:"B", questionId:`n${i}` }));
+  fixture.banks={"NBME sample - Physiology.pdf":nbme}; fixture.reads={"rxt-question-bank-meta":{n:{filename:"NBME sample - Physiology.pdf",blockId:"cbse-prep",sourceKind:"supplemental"}}};
+  fixture.terms=[{id:"cbse",name:"CBSE",blocks:[{id:"cbse-prep",name:"CBSE Prep"}]}]; fixture.sessions=[]; fixture.created=null;
+  const onUploadBanks=vi.fn();
+  const host=document.createElement("div");document.body.append(host);root=createRoot(host);
+  await act(async()=>root.render(<CbseDashboard userId="test" block={{examDate:"2026-12-09"}} onReviewLecture={()=>{}} onManageSources={()=>{}} onUploadBanks={onUploadBanks} />));
+  expect(host.textContent).toContain("3 eligible original questions");
+  act(()=>[...host.querySelectorAll('button')].find(button=>button.textContent==='Upload CBSE question banks').click());
+  expect(onUploadBanks).toHaveBeenCalled();
+});

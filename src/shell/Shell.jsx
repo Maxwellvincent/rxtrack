@@ -388,10 +388,7 @@ function ShellMain({ theme, toggle, userId }) {
           onImportSchedule={() => setShowImport(true)}
           onAddLecture={activeBlockId ? () => setShowAddLecture(true) : null}
           onBulkImport={activeBlockId ? () => setShowBulkImport(true) : null}
-          onQuestionBanks={() => {
-            if (activeBlockId === CBSE_BLOCK_ID) { const node = document.getElementById("cbse-sources"); if (node) { node.open = true; node.scrollIntoView({ behavior: "smooth" }); } }
-            else setShowQuestionBanks(true);
-          }}
+          onQuestionBanks={() => setShowQuestionBanks(true)}
           onRoutine={() => setShowRoutine(true)}
           onDailyPlanSettings={activeBlockId ? () => setShowDailyPlanSettings(true) : null}
           onApiKeySettings={() => setShowApiKeyModal(true)}
@@ -445,7 +442,7 @@ function ShellMain({ theme, toggle, userId }) {
               />
             </div>
           ) : activeBlockId === CBSE_BLOCK_ID ? (
-            <CbseDashboard userId={userId} block={active} onReviewLecture={id => { switchTab("lectures"); onStudyLecture(id); }} onManageSources={id => { setSelectedBlockId(id); setShowQuestionBanks(true); }} />
+            <CbseDashboard userId={userId} block={active} onReviewLecture={id => { switchTab("lectures"); onStudyLecture(id); }} onManageSources={id => { setSelectedBlockId(id); setShowQuestionBanks(true); }} onUploadBanks={() => setShowQuestionBanks(true)} />
           ) : tab === "lectures" && activeBlockId ? (
             <LectureList
               blockId={activeBlockId}
@@ -559,6 +556,7 @@ function ShellMain({ theme, toggle, userId }) {
         <QuestionBankModal
           blockId={activeBlockId}
           blockName={active?.name}
+          defaultSourceKind={activeBlockId === CBSE_BLOCK_ID ? "supplemental" : "school"}
           lectures={(allLectures.data || []).filter((l) => l.blockId === activeBlockId)}
           objectives={allObjectives.data?.[activeBlockId] || []}
           userId={userId}

@@ -59,6 +59,8 @@ Top tabs (`src/shell/TabBar.jsx`):
 | Exam | `features/exam` | one stats line + tabs Start (resume, Practice a topic, prepared sets, optional subject weighting) · High yield · Weak concepts · Missed questions · Results (80% goal validation, dashboards, school-style alignment) · Question banks (bank uploads + score-report upload); timed/tutor exam sessions, **Practice a topic** (`TopicPractice.jsx` / `topicFocus.js`: type e.g. "PICA vs AICA, medial medulla"; matches objectives, key facts and on-demand lecture text in the block, case-sensitive abbreviations, then launches a focused repair set that follows the mastery ladder), prepared question sets, results (high-yield ranking `HighYieldPanel` / `blockHighYield.js`, score-report upload, school alignment panel, dashboards, weak areas, calibration, blueprint coverage) |
 | More | `Shell.jsx` `MoreTab` | one card with tabs Anki struggles (Struggle Tracker) · Admin (question diagnostics, allow-listed users only). Weak concepts live on the Exam tab and per lecture; the adaptive session, the calibration session and BlockHome were removed (saved calibration history is still read by readiness views) |
 
+CBSE question banks: the ⋯ menu's Question banks item and the CBSE Prep page's "Upload CBSE question banks" link open the bank uploader filed under the `cbse-prep` block, defaulting to the supplemental source kind. `buildCbsePool` pools them with every block's school banks, while high-yield school emphasis ignores them.
+
 **Score reports:** ExamSoft "Strengths and Improvement Opportunities" PDFs (ESoft quiz
 or NB main exam) are uploaded from CBSE Prep or Exam → Results (`ScoreReportUpload.jsx`,
 `scoreReportImport.js`). The overall score goes to `rxt-school-results`; categories
