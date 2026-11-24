@@ -2584,7 +2584,7 @@ export function LectureStudyFlow({
           <div className="grid items-start gap-4 lg:grid-cols-2">
             <ModelRepairs userId={userId} lectureId={lecture?.id} title={renamedTitle || title} atoms={atoms} objectives={lectureObjectives} chunks={lectureChunks} />
           </div>
-          <ObjectiveCoverage atoms={atoms} objectives={lectureObjectives} examples={schoolExemplars} />
+          <ObjectiveCoverage atoms={atoms} objectives={lectureObjectives} examples={schoolExemplars} lectureText={text} lecture={lecture} blockId={blockId} />
           {clinicalCorrelateLibrary.length > 0 && (
             <details className="rounded-lg border border-border bg-bg-elevated p-3">
               <summary className="cursor-pointer text-sm font-semibold text-text-1">
