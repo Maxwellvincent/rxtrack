@@ -161,6 +161,10 @@ integrated IMCQ/ESoft item may link one objective in each of two lectures
 (`secondaryLectureIds`, `curriculumMapping.crossLecture`), each quote from its
 own lecture. Progress stores a fingerprint of the block's lectures and objectives;
 if it changes, earlier unresolved questions are evaluated again on Resume.
+You can also assign questions yourself (Exam → Banks → "Assign questions to
+lectures", `QuestionBankManualLinks.jsx`): lecture plus up to two objectives is a
+`user-confirmed` link; lecture only is `user-lecture-only` and automatic mapping may
+then add objectives only inside that pinned lecture.
 
 Pipeline details and live-run notes: [docs/question-preparation-pipeline.md](docs/question-preparation-pipeline.md),
 [docs/question-writing-standard.md](docs/question-writing-standard.md),

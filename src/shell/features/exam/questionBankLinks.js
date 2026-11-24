@@ -92,6 +92,37 @@ export function confirmQuestionBankCurriculumLinks(question, analysisItem, { obj
   };
 }
 
+/**
+ * The learner's own assignment of an uploaded school question to a lecture.
+ * With objectives it is a confirmed link (full objective credit, never re-run
+ * by automatic mapping); with a lecture only it pins the lecture and leaves
+ * objective credit to source-verified mapping. Pass lectureId null to clear.
+ */
+export function assignQuestionToLecture(question, { lectureId = null, objectiveIds = [] } = {}, { lectures = [], objectives = [] } = {}) {
+  if (!lectureId) {
+    const cleared = { ...question, objectiveIds: [] };
+    for (const field of ["lectureId", "lectureLabel", "lectureLinkBasis", "curriculumLinkStatus", "curriculumLinkConfirmedAt", "secondaryLectureIds", "curriculumMapping"]) delete cleared[field];
+    return cleared;
+  }
+  const lecture = lectures.find(item => String(item.id) === String(lectureId));
+  const ids = [...new Set((objectiveIds || []).map(String))];
+  if (!lecture || ids.length > 2) return null;
+  const chosen = ids.map(id => objectives.find(objective => String(objective.id) === id));
+  if (chosen.some(objective => !objective || !lectures.some(item => item.id === objective.linkedLecId))) return null;
+  const secondaryLectureIds = [...new Set(chosen.map(objective => objective.linkedLecId))].filter(id => id !== lecture.id);
+  const { secondaryLectureIds: _previous, ...rest } = question;
+  return {
+    ...rest,
+    lectureId: lecture.id,
+    lectureLabel: formatLectureLabel(lecture),
+    lectureLinkBasis: "user-assigned",
+    objectiveIds: ids,
+    ...(secondaryLectureIds.length ? { secondaryLectureIds } : {}),
+    curriculumLinkStatus: ids.length ? "user-confirmed" : "user-lecture-only",
+    curriculumLinkConfirmedAt: Date.now(),
+  };
+}
+
 export function scoreAnsweredQuestions(session) {
   const questions = new Map((session?.questions || []).map((question) => [question.questionId, question]));
   const answers = session?.answers || [];

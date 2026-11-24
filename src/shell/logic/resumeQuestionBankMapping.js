@@ -54,8 +54,15 @@ async function run({userId,blockId,filename,lectures=[],objectives=[],recheck=fa
    for(const {q,key} of pending){
     state.currentQuestion=key;await save();
     let evaluation;
-    const attributed=linkSourceLecture({...q,sourceTitle:filename},enriched,blockId);
-    const patch=await classify(attributed,{lectures:enriched,objectives:catalog,blockId,review,onEvaluation:async value=>{evaluation=value;}});
+    // A lecture the learner assigned is authoritative: mapping may only add
+    // objective credit within it, never move the question elsewhere.
+    const pinned=q.lectureLinkBasis==='user-assigned'&&q.lectureId?q:null;
+    const attributed=pinned||linkSourceLecture({...q,sourceTitle:filename},enriched,blockId);
+    let patch=await classify(attributed,{lectures:enriched,objectives:catalog,blockId,review,onEvaluation:async value=>{evaluation=value;}});
+    if(pinned&&patch){
+     if(patch.lectureId!==pinned.lectureId){evaluation={...(evaluation||{}),decision:'unresolved',reason:`Automatic mapping proposed ${patch.lectureLabel||patch.lectureId}, not your assigned lecture; your assignment was kept. Choose an objective manually if it fits.`};patch=null;}
+     else patch={...patch,lectureId:pinned.lectureId,lectureLabel:pinned.lectureLabel,lectureLinkBasis:'user-assigned'};
+    }
     state.lastSearch=patch?.curriculumMapping?.retrieval||evaluation?.retrieval||state.lastSearch;
     const current=readBanks(userId),list=current[filename];if(!Array.isArray(list))throw Error('Saved bank changed during mapping. Resume after it finishes saving.');
     const next=list.map((item,i)=>identity(item,i)===key&&JSON.stringify(item.choices)===JSON.stringify(q.choices)&&item.correct===q.correct&&item.stem===q.stem&&eligible(item)?{...item,...(attributed.lectureId?{lectureId:attributed.lectureId,lectureLabel:attributed.lectureLabel,lectureLinkBasis:attributed.lectureLinkBasis,curriculumLinkStatus:attributed.curriculumLinkStatus,curriculumMapping:attributed.curriculumMapping}:{}),...(evaluation?{curriculumMappingReview:evaluation}:{}),...(patch||{})}:item);

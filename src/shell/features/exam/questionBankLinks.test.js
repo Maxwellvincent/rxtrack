@@ -102,3 +102,36 @@ it('preserves separately numbered source questions even with similar stems',()=>
  const result=prepareBankQuestionSet([{id:'a',sourceSection:'NB 28',sourceQuestionNumber:1,stem},{id:'b',sourceSection:'NB 28',sourceQuestionNumber:2,stem}]);
  expect(result.questions).toHaveLength(2);expect(result.removedDuplicateCount).toBe(0);
 });
+
+import { assignQuestionToLecture } from "./questionBankLinks.js";
+describe("assignQuestionToLecture", () => {
+  const lectures = [{ id: "nb55", blockId: "b", lectureNumber: 55, lectureType: "LEC", lectureTitle: "NB 55 Emotions" }, { id: "nb40", blockId: "b", lectureTitle: "NB 40 Blood Supply" }];
+  const objectives = [{ id: "o55", linkedLecId: "nb55", blockId: "b", objective: "Fear and extinction circuitry" }, { id: "o40", linkedLecId: "nb40", blockId: "b", objective: "Cerebral artery territories" }];
+  const question = { id: "q4", stem: "Fear returns after stroke.", correct: "A", choices: { A: "ACA" }, curriculumMappingReview: { decision: "unresolved" } };
+
+  it("confirms a lecture with chosen objectives as a user-confirmed link", () => {
+    const linked = assignQuestionToLecture(question, { lectureId: "nb55", objectiveIds: ["o55", "o40"] }, { lectures, objectives });
+    expect(linked).toMatchObject({ lectureId: "nb55", lectureLinkBasis: "user-assigned", curriculumLinkStatus: "user-confirmed", objectiveIds: ["o55", "o40"], secondaryLectureIds: ["nb40"] });
+    expect(linked.lectureLabel).toMatch(/NB 55/);
+    expect(linked.curriculumMappingReview).toEqual(question.curriculumMappingReview);
+  });
+
+  it("pins only the lecture when no objective is chosen, leaving objective credit to verification", () => {
+    const linked = assignQuestionToLecture(question, { lectureId: "nb55" }, { lectures, objectives });
+    expect(linked).toMatchObject({ lectureId: "nb55", lectureLinkBasis: "user-assigned", curriculumLinkStatus: "user-lecture-only", objectiveIds: [] });
+  });
+
+  it("rejects unknown lectures, foreign objectives and more than two objectives", () => {
+    expect(assignQuestionToLecture(question, { lectureId: "other" }, { lectures, objectives })).toBeNull();
+    expect(assignQuestionToLecture(question, { lectureId: "nb55", objectiveIds: ["foreign"] }, { lectures, objectives })).toBeNull();
+    expect(assignQuestionToLecture(question, { lectureId: "nb55", objectiveIds: ["o55", "o40", "o55x"] }, { lectures, objectives })).toBeNull();
+  });
+
+  it("clears a manual link back to unlinked", () => {
+    const linked = assignQuestionToLecture(question, { lectureId: "nb55", objectiveIds: ["o55"] }, { lectures, objectives });
+    const cleared = assignQuestionToLecture(linked, { lectureId: null }, { lectures, objectives });
+    expect(cleared.lectureId).toBeUndefined();
+    expect(cleared.curriculumLinkStatus).toBeUndefined();
+    expect(cleared.objectiveIds).toEqual([]);
+  });
+});

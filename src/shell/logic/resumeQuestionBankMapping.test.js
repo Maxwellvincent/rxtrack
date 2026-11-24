@@ -50,3 +50,16 @@ it('re-evaluates earlier unresolved questions when the lecture/objective catalog
  await resumeQuestionBankMapping(args,deps);
  expect(classify).not.toHaveBeenCalled();
 });
+it('keeps a lecture the learner pinned and only accepts objective links within it',async()=>{
+ let bank={f:[{id:'a',stem:'Pinned elsewhere',correct:'A',choices:{A:'x',B:'y'},lectureId:'l55',lectureLabel:'NB 55',lectureLinkBasis:'user-assigned',curriculumLinkStatus:'user-lecture-only',objectiveIds:[]},
+  {id:'b',stem:'Pinned same',correct:'A',choices:{A:'x',B:'y'},lectureId:'l55',lectureLabel:'NB 55',lectureLinkBasis:'user-assigned',curriculumLinkStatus:'user-lecture-only',objectiveIds:[]}]};
+ let metadata={m:{filename:'f',blockId:'b'}};
+ const classify=vi.fn(async q=>{expect(q.lectureId).toBe('l55');return q.id==='a'
+  ?{lectureId:'l40',lectureLabel:'NB 40',objectiveIds:['o40'],curriculumLinkStatus:'evidence-verified',lectureLinkBasis:'two-pass-source-verified'}
+  :{lectureId:'l55',lectureLabel:'NB 55',objectiveIds:['o55'],curriculumLinkStatus:'evidence-verified',lectureLinkBasis:'two-pass-source-verified'};});
+ const deps={readBanks:()=>bank,writeBanks:async(_,v)=>{bank=v},readMeta:()=>metadata,writeMeta:async(_,v)=>{metadata=v},classify,bridgeAvailable:async()=>true,fetchLectureContent:async()=>({}),review:vi.fn()};
+ await resumeQuestionBankMapping({userId:'u',blockId:'b',filename:'f',lectures:[{id:'l55',blockId:'b',lectureTitle:'NB 55'},{id:'l40',blockId:'b',lectureTitle:'NB 40'}],objectives:[]},deps);
+ expect(bank.f[0]).toMatchObject({lectureId:'l55',lectureLinkBasis:'user-assigned',curriculumLinkStatus:'user-lecture-only',objectiveIds:[]});
+ expect(bank.f[0].curriculumMappingReview.reason).toMatch(/your assigned lecture/i);
+ expect(bank.f[1]).toMatchObject({lectureId:'l55',lectureLinkBasis:'user-assigned',curriculumLinkStatus:'evidence-verified',objectiveIds:['o55']});
+});
