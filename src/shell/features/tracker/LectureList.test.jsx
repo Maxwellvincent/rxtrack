@@ -186,30 +186,30 @@ describe("LectureList focusLectureId (Task 12, Part B2)", () => {
   });
 
   it("restores the selected lecture status filter after leaving and reopening the list", () => {
-    const props = { blockId: BLOCK, userId: "u1", onStudyLecture: vi.fn(), onStartObjectiveQuiz: vi.fn(), onBack: vi.fn() };
+    const props = { blockId: BLOCK, userId: "u1", onStudyLecture: vi.fn(), onStartObjectiveQuiz: vi.fn() };
     const first = render(<LectureList {...props} />);
-    const allFilter = Array.from(first.host.querySelectorAll("button")).find((button) => /^all \(/i.test(button.textContent));
-    act(() => allFilter.click());
-    expect(allFilter.getAttribute("aria-pressed")).toBe("true");
+    act(() => Array.from(first.host.querySelectorAll('[role="tab"]')).find((tab) => tab.textContent.startsWith("Library")).click());
+    const select = first.host.querySelector('select[aria-label="Status filter"]');
+    act(() => { select.value = "all"; select.dispatchEvent(new window.Event("change", { bubbles: true })); });
+    expect(select.value).toBe("all");
     first.unmount();
 
     const reopened = render(<LectureList {...props} />);
-    const restored = Array.from(reopened.host.querySelectorAll("button")).find((button) => /^all \(/i.test(button.textContent));
-    expect(restored.getAttribute("aria-pressed")).toBe("true");
+    expect(reopened.host.querySelector('select[aria-label="Status filter"]').value).toBe("all");
     reopened.unmount();
   });
 
-  it("restores the selected school-week tab after leaving and reopening the list", () => {
-    const props = { blockId: BLOCK, userId: "u1", onStudyLecture: vi.fn(), onStartObjectiveQuiz: vi.fn(), onBack: vi.fn() };
+  it("restores the selected school-week filter after leaving and reopening the list", () => {
+    const props = { blockId: BLOCK, userId: "u1", onStudyLecture: vi.fn(), onStartObjectiveQuiz: vi.fn() };
     const first = render(<LectureList {...props} />);
-    const unscheduled = Array.from(first.host.querySelectorAll("button")).find((button) => /^Unscheduled \(/.test(button.textContent));
-    act(() => unscheduled.click());
-    expect(unscheduled.getAttribute("aria-pressed")).toBe("true");
+    act(() => Array.from(first.host.querySelectorAll('[role="tab"]')).find((tab) => tab.textContent.startsWith("Library")).click());
+    const select = first.host.querySelector('select[aria-label="School week filter"]');
+    const unscheduled = Array.from(select.options).find((option) => /^Unscheduled/.test(option.textContent));
+    act(() => { select.value = unscheduled.value; select.dispatchEvent(new window.Event("change", { bubbles: true })); });
     first.unmount();
 
     const reopened = render(<LectureList {...props} />);
-    const restored = Array.from(reopened.host.querySelectorAll("button")).find((button) => /^Unscheduled \(/.test(button.textContent));
-    expect(restored.getAttribute("aria-pressed")).toBe("true");
+    expect(reopened.host.querySelector('select[aria-label="School week filter"]').value).toBe(unscheduled.value);
     reopened.unmount();
   });
 
@@ -234,16 +234,16 @@ describe("LectureList focusLectureId (Task 12, Part B2)", () => {
     unmount();
   });
 
-  it("restores Browse all after opening a lecture and reopening the list", () => {
-    const props = { blockId: BLOCK, userId: "u1", onStudyLecture: vi.fn(), onStartObjectiveQuiz: vi.fn(), onBack: vi.fn() };
+  it("restores the Library tab after opening a lecture and reopening the list", () => {
+    const props = { blockId: BLOCK, userId: "u1", onStudyLecture: vi.fn(), onStartObjectiveQuiz: vi.fn() };
     const first = render(<LectureList {...props} />);
-    act(() => Array.from(first.host.querySelectorAll("button")).find((button) => /Browse all/.test(button.textContent)).click());
-    expect(first.host.textContent).toContain("Lecture library");
+    act(() => Array.from(first.host.querySelectorAll('[role="tab"]')).find((tab) => tab.textContent.startsWith("Library")).click());
+    expect(first.host.querySelector('[aria-label="Lecture library grouped by week"]')).toBeTruthy();
     first.unmount();
 
     const reopened = render(<LectureList {...props} />);
-    expect(reopened.host.textContent).toContain("Lecture library");
-    expect(Array.from(reopened.host.querySelectorAll("button")).some((button) => /Return to focus queue/.test(button.textContent))).toBe(true);
+    expect(reopened.host.querySelector('[aria-label="Lecture library grouped by week"]')).toBeTruthy();
+    expect(Array.from(reopened.host.querySelectorAll('[role="tab"]')).find((tab) => tab.textContent.startsWith("Library")).getAttribute("aria-selected")).toBe("true");
     reopened.unmount();
   });
 
@@ -251,7 +251,7 @@ describe("LectureList focusLectureId (Task 12, Part B2)", () => {
     const { host, unmount } = render(
       <LectureList blockId={BLOCK} userId="u1" onStudyLecture={vi.fn()} onStartObjectiveQuiz={vi.fn()} onBack={vi.fn()} />
     );
-    act(() => Array.from(host.querySelectorAll("button")).find((button) => /Browse all/.test(button.textContent)).click());
+    act(() => Array.from(host.querySelectorAll('[role="tab"]')).find((tab) => tab.textContent.startsWith("Library")).click());
     const selectAll = host.querySelector('input[aria-label="Select all 2 lectures in this view"]');
     act(() => selectAll.click());
     expect(host.textContent).toMatch(/2 selected/);
@@ -271,7 +271,7 @@ describe("LectureList focusLectureId (Task 12, Part B2)", () => {
     const { host, unmount } = render(
       <LectureList blockId={BLOCK} userId="u1" onStudyLecture={vi.fn()} onStartObjectiveQuiz={vi.fn()} onBack={vi.fn()} />
     );
-    act(() => Array.from(host.querySelectorAll("button")).find((button) => /Browse all/.test(button.textContent)).click());
+    act(() => Array.from(host.querySelectorAll('[role="tab"]')).find((tab) => tab.textContent.startsWith("Library")).click());
     act(() => host.querySelector('input[aria-label="Select all 2 lectures in this view"]').click());
     act(() => Array.from(host.querySelectorAll("button")).find((button) => /Delete selected/.test(button.textContent)).click());
     const confirm = Array.from(host.querySelectorAll('[role="dialog"] button')).find((button) => /Confirm delete 2/.test(button.textContent));

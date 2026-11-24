@@ -108,25 +108,7 @@
   .desk-tutor-phase { flex: 1; justify-content: center; }
 }
 .desk-page-heading { padding: 18px 20px; border: 1px solid var(--border); border-radius: 16px; background: var(--bg-elevated); }
-.desk-count-summary { padding: 9px 12px; border-radius: 10px; background: var(--panel); }
-.desk-filter-strip { padding: 4px; }
-.desk-filter-strip button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-text); font-weight: 700; }
-.desk-toolbar { box-shadow: 0 8px 24px color-mix(in srgb, var(--text-1) 5%, transparent); }
 .desk-lecture-list { overflow: hidden; }
-.desk-lecture-filters { border: 1px solid var(--border); border-radius: 12px; background: var(--bg-elevated); }
-.desk-lecture-filters > summary { min-height: 44px; padding: 11px 14px; cursor: pointer; color: var(--text-1); font-size: .8rem; font-weight: 750; list-style: none; }
-.desk-lecture-filters > summary::-webkit-details-marker { display: none; }
-.desk-lecture-filters > summary::before { content: "＋"; display: inline-block; width: 18px; color: var(--accent-text); }
-.desk-lecture-filters[open] > summary::before { content: "−"; }
-.desk-lecture-filters > summary span { margin-left: 6px; color: var(--text-3); font-size: .72rem; font-weight: 500; }
-.desk-lecture-filters[open] { padding-bottom: 10px; }
-.desk-lecture-filters[open] > div { margin-inline: 10px; }
-.desk-lecture-focus-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 12px; padding: 14px 16px; border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border)); border-radius: 14px; background: linear-gradient(110deg, color-mix(in srgb, var(--accent) 9%, var(--bg-elevated)), var(--bg-elevated)); }
-.desk-lecture-focus-bar > div { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
-.desk-lecture-focus-bar strong { color: var(--text-1); font-size: .92rem; }
-.desk-lecture-focus-bar span { color: var(--text-3); font-size: .74rem; }
-.desk-lecture-focus-toggle { min-height: 40px; flex-shrink: 0; padding: 8px 12px; border: 1px solid var(--accent); border-radius: 9px; background: var(--bg-elevated); color: var(--accent-text); font-size: .78rem; font-weight: 750; }
-.desk-lecture-focus-toggle:hover { background: var(--accent-soft); }
 .desk-objective-library-copy { display: flex; min-width: 210px; flex-direction: column; gap: 2px; }
 .desk-objective-library-copy strong { color: var(--text-1); font-size: .82rem; }
 .desk-objective-library-copy span { color: var(--text-3); font-size: .72rem; }
@@ -215,11 +197,7 @@
   .desk-task > div:first-child { padding: 14px; }
   .desk-task > div:first-child > div:last-child > div:first-child > div:first-child { flex-basis: 100%; }
   .desk-page-heading { margin-inline: 0; padding: 16px; border-radius: 12px; }
-  .desk-toolbar > input { width: 100%; margin-left: 0; }
-  .desk-toolbar > select { flex: 1; }
   .desk-objective-lecture-index { grid-template-columns: 1fr; }
-  .desk-lecture-focus-bar { align-items: flex-start; flex-direction: column; }
-  .desk-lecture-focus-toggle { width: 100%; }
   .desk-exam-overview { width: 100%; min-width: 0; }
   .desk-objective-lecture-trigger { flex-wrap: wrap; gap: 8px !important; }
   .desk-objective-lecture-trigger > div:nth-of-type(1) { flex-basis: calc(100% - 110px); }

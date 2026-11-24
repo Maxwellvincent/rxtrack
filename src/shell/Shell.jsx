@@ -479,7 +479,6 @@ function ShellMain({ theme, toggle, userId }) {
               onStudyLecture={onStudyLecture}
               onStartObjectiveQuiz={onStartObjectiveQuiz}
               focusLectureId={examFocusLectureId}
-              onBack={() => { switchTab("today"); setExamFocusLectureId(null); }}
             />
           ) : tab === "exam" && activeBlockId ? (
             <ExamContainer

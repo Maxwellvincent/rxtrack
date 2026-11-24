@@ -1,5 +1,5 @@
 import {contextBlockReviewPolicy} from '../../../engine/blockReviewPolicy.js';
-import {LectureDashboard} from './LectureDashboard.jsx';
+import { PracticeModeTabs } from "../lectures/PracticeModeTabs.jsx";
 /**
  * SP1 T4.4 — every lecture in the block, not just Today's six.
  *
@@ -131,96 +131,65 @@ function Row({ row, userId, stats, onStudy, onQuiz, onLog, onUpdateDate, onPreRe
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
+  const pct = row.total ? Math.round((100 * practiced) / row.total) : 0;
 
   return (
     <div
       ref={rowRef}
       className={
-        "desk-lecture-row flex flex-col gap-1.5 border-b border-border py-2 last:border-b-0 transition-colors" +
+        "desk-lecture-row flex flex-col gap-1 border-b border-border py-2.5 last:border-b-0 transition-colors" +
         (focused ? " -mx-2 rounded bg-accent/10 px-2" : "")
       }
     >
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <div className="flex min-w-0 items-start gap-2">
-          {selectable && <input
-            type="checkbox"
-            checked={selected}
-            onChange={() => onToggleSelected(row.lectureId)}
-            aria-label={`Select ${row.title}`}
-            className="mt-1 h-4 w-4 shrink-0 accent-accent"
-          />}
-        <div className="min-w-0">
-          <span className="font-mono text-[12px] text-text-3">
-            <span className="rounded bg-panel px-1.5 py-0.5 font-bold text-text-2">{row.type} {row.number ?? ""}</span>
-          </span>{" "}
-          <button
-            className="cursor-pointer text-sm text-text-1 hover:underline"
-            onClick={() => onStudy(row.lectureId)}
-          >
-            {row.studyMode?.icon} {row.title}
-          </button>
-          <div className="mt-1 flex flex-wrap items-center gap-1.5 font-mono text-[12px] text-text-3">
-            {row.scheduledToday && <span className="rounded bg-accent/15 px-1.5 py-0.5 font-bold text-accent-text">scheduled today</span>}
-            {row.completedToday && <span className="rounded bg-good/10 px-1.5 py-0.5 font-bold text-good">studied today</span>}
-            {row.total === 0 && <span>No objectives linked</span>}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-baseline gap-2">
+            {selectable && <input type="checkbox" checked={selected} onChange={() => onToggleSelected(row.lectureId)} aria-label={`Select ${row.title}`} className="self-center" />}
+            <span className="shrink-0 rounded bg-panel px-1.5 py-0.5 font-mono text-[12px] font-bold text-text-2">{row.type} {row.number ?? ""}</span>
+            <button type="button" onClick={() => onStudy(row.lectureId)} title={`Next: ${nextStudyStep(row)}`} className="min-w-0 truncate text-left font-semibold text-text-1 hover:text-accent">
+              {row.studyMode?.icon} {row.title}
+            </button>
+            {row.scheduledToday && <span className="shrink-0 text-xs font-semibold text-accent-text">● today</span>}
+            {row.completedToday && <span className="shrink-0 text-xs font-semibold">✓ studied today</span>}
           </div>
-          <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-text-2">
-            {row.total > 0 && <div className="min-w-44 flex-1 max-w-xs">
-              <div className="mb-1 flex justify-between gap-3"><span><strong>{practiced}/{row.total}</strong> objectives practiced</span><span>{Math.round(100 * practiced / row.total)}%</span></div>
-              <div role="img" aria-label={`${practiced} of ${row.total} objectives practiced`} className="h-1.5 overflow-hidden rounded-full bg-border"><div className="h-full bg-accent" style={{ width: `${100 * practiced / row.total}%` }} /></div>
-            </div>}
-            <span>{answered ? <><strong>{answered}</strong> questions · <strong>{accuracy}%</strong> correct</> : "No questions answered yet"}</span>
-            {stats?.slideReviews > 0 && <span>{stats.slideReviews} slide {stats.slideReviews === 1 ? "review" : "reviews"}</span>}
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-2">
+            {row.total > 0 ? <span className="flex items-center gap-1.5">
+              <span role="img" aria-label={`${practiced} of ${row.total} objectives practiced`} className="inline-block h-1.5 w-16 overflow-hidden rounded-full bg-border"><span className="block h-full bg-accent" style={{ width: `${pct}%` }} /></span>
+              {practiced}/{row.total} practiced
+            </span> : <span>No objectives linked</span>}
+            <span>{answered ? `${answered} q · ${accuracy}%` : "No questions yet"}</span>
+            {row.struggling > 0 && <span>⚠ {row.struggling} weak</span>}
+            {row.mastered > 0 && <span>✓ {row.mastered} ready</span>}
+            {row.repairCount > 0 && <span>◈ {row.repairCount} repairs</span>}
+            {!row.reviewsSuspended && row.nextReview && <span>↻ {row.nextReview}</span>}
           </div>
-          {row.total > 0 && <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-3">
-            {row.struggling > 0 && <span className="text-bad">{row.struggling} need attention</span>}
-            {row.inprogress > 0 && <span>{row.inprogress} developing</span>}
-            {row.total > practiced && <span>{row.total - practiced} not yet practiced</span>}
-            <span title="Readiness requires at least 3 distinct questions, 80% accuracy, a correct latest answer, 2 sessions and 2 question types.">{row.mastered > 0 ? `${row.mastered} ready` : "Readiness still building"}</span>
-          </div>}
-          <div className="mt-2 text-xs text-text-2"><strong className="text-accent-text">Next:</strong> {nextStudyStep(row)}</div>
-          {showDetails && <div className="desk-lecture-details">
-            <DateEdit row={row} onUpdateDate={onUpdateDate} />
-            {row.lastActivityDate && <span>Last studied {row.lastActivityDate}</span>}
-            {row.reviewsSuspended ? <span>Routine reviews paused</span> : row.nextReview && <span>Review {row.nextReview}</span>}
-            {row.sessions > 0 && <span>{row.sessions} study sessions</span>}
-          </div>}
-          {showDetails && row.topWeakConcepts.length > 0 && (
-            <div className="mt-0.5 font-mono text-[12px] text-bad" title="Your weakest concepts tied to this lecture">
-              ⚠ review: {row.topWeakConcepts.join(" · ")}
-            </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {row.preReadOpen && row.sessions === 0 && !row.hasPreRead && (
+            <Button variant="outline" onClick={() => onPreRead(row)} title="Five prediction questions before you study — surfaces what you don't know yet.">Pre-read</Button>
           )}
-          {row.repairCount > 0 && <div className="mt-1 text-xs font-semibold text-status-purple">◈ {row.repairCount} model repairs</div>}
-        </div>
-        </div>
-        <div className="flex shrink-0 flex-wrap gap-1.5">
+          <Button onClick={() => onStudy(row.lectureId)}>Study →</Button>
+          <Button variant="outline" onClick={() => onQuiz(row)} disabled={busy === row.lectureId}>{busy === row.lectureId ? "Generating…" : "Quiz"}</Button>
           <div className="relative">
             <button
               onClick={() => { setMenuOpen((v) => !v); setConfirmDelete(false); }}
               aria-label={`More actions for ${row.title}`}
-              className="rounded px-2 font-mono text-[14px] text-text-3 hover:bg-panel hover:text-text-1"
+              className="rounded px-2 py-1 font-mono text-[14px] text-text-3 hover:bg-panel hover:text-text-1"
             >
               ⋯
             </button>
             {menuOpen && (
-              <div className="absolute right-0 top-7 z-20 min-w-44 rounded border border-border bg-bg p-2 shadow-lg">
+              <div className="absolute right-0 top-8 z-20 flex min-w-48 flex-col gap-0.5 rounded border border-border bg-bg p-2 shadow-lg">
+                <button type="button" onClick={() => { setLogging("review"); setMenuOpen(false); }} className="rounded px-2 py-1.5 text-left text-[13px] hover:bg-panel">Log study…</button>
+                <button type="button" onClick={() => { setShowDetails((value) => !value); setMenuOpen(false); }} className="rounded px-2 py-1.5 text-left text-[13px] hover:bg-panel">{showDetails ? "Hide details" : "Date & details"}</button>
                 <RenameLecture userId={userId} lectureId={row.lectureId} title={row.title} onRenamed={() => setMenuOpen(false)} />
                 {!confirmDelete ? (
-                  <button
-                    onClick={() => setConfirmDelete(true)}
-                    className="w-full rounded px-2 py-1.5 text-left text-[13px] text-bad hover:bg-bad/10"
-                  >
-                    Delete lecture…
-                  </button>
+                  <button onClick={() => setConfirmDelete(true)} className="w-full rounded px-2 py-1.5 text-left text-[13px] text-bad hover:bg-bad/10">Delete lecture…</button>
                 ) : (
                   <div className="space-y-2">
                     <p className="text-[12px] leading-snug text-text-2">Delete this lecture and its extracted content? This cannot be undone.</p>
                     <div className="flex gap-1.5">
-                      <button
-                        onClick={() => onDelete(row)}
-                        disabled={deleting === row.lectureId}
-                        className="rounded bg-bad px-2 py-1 text-[12px] font-bold text-white disabled:opacity-50"
-                      >
+                      <button onClick={() => onDelete(row)} disabled={deleting === row.lectureId} className="rounded bg-bad px-2 py-1 text-[12px] font-bold text-white disabled:opacity-50">
                         {deleting === row.lectureId ? "Deleting…" : "Confirm delete"}
                       </button>
                       <button onClick={() => setConfirmDelete(false)} className="px-2 py-1 text-[12px] text-text-3">Cancel</button>
@@ -230,63 +199,31 @@ function Row({ row, userId, stats, onStudy, onQuiz, onLog, onUpdateDate, onPreRe
               </div>
             )}
           </div>
-          <button onClick={() => setLogging(logging ? null : "review")} className="font-mono text-[12px] text-text-3 hover:text-text-1">
-            log
-          </button>
-          <button type="button" onClick={() => setShowDetails((value) => !value)} className="font-mono text-[12px] text-text-3 hover:text-text-1">
-            {showDetails ? "less" : "details"}
-          </button>
-          {/* Study leads — see the note in Today.jsx's TaskCard. */}
-          {row.preReadOpen && row.sessions === 0 && !row.hasPreRead && (
-            <Button
-              variant="outline"
-              onClick={() => onPreRead(row)}
-              title="Five prediction questions before you study — surfaces what you don't know yet."
-            >
-              Pre-read
-            </Button>
-          )}
-          <Button
-            onClick={() => onStudy(row.lectureId)}
-            title="Work through this lecture in rounds of five. Remembers where you stopped."
-          >
-            Study →
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => onQuiz(row)}
-            disabled={busy === row.lectureId}
-            title="One-off questions across this lecture's objectives. No rounds, no resume."
-          >
-            {busy === row.lectureId ? "Generating…" : "Quiz"}
-          </Button>
         </div>
       </div>
+
+      {showDetails && <div className="desk-lecture-details text-xs">
+        <DateEdit row={row} onUpdateDate={onUpdateDate} />
+        {row.lastActivityDate && <span>Last studied {row.lastActivityDate}</span>}
+        {row.sessions > 0 && <span>{row.sessions} study sessions</span>}
+        {stats?.slideReviews > 0 && <span>{stats.slideReviews} slide {stats.slideReviews === 1 ? "review" : "reviews"}</span>}
+        {row.topWeakConcepts.length > 0 && <span>⚠ review: {row.topWeakConcepts.join(" · ")}</span>}
+      </div>}
 
       {logging && (
         <div className="flex flex-wrap items-center gap-2">
           {["review", "anki", "questions"].map((type) => (
-            <button
-              key={type}
-              onClick={() => setLogging(type)}
-              className={
-                "rounded border px-2 py-0.5 text-[13px] " +
-                (logging === type ? "border-accent text-text-1" : "border-border text-text-3")
-              }
-            >
+            <button key={type} onClick={() => setLogging(type)} className={"rounded border px-2 py-0.5 text-[13px] " + (logging === type ? "border-accent text-text-1" : "border-border text-text-3")}>
               {type}
             </button>
           ))}
           <span className="font-mono text-[12px] text-text-3">how did it go?</span>
           {CONFIDENCE.map((c) => (
-            <button
-              key={c.key}
-              onClick={() => { onLog(row.lectureId, logging, c.key); setLogging(null); }}
-              className="rounded border border-border px-2 py-0.5 text-[13px] text-text-2 hover:text-text-1"
-            >
+            <button key={c.key} onClick={() => { onLog(row.lectureId, logging, c.key); setLogging(null); }} className="rounded border border-border px-2 py-0.5 text-[13px] text-text-2 hover:text-text-1">
               {c.label}
             </button>
           ))}
+          <button type="button" onClick={() => setLogging(null)} className="text-[13px] text-text-3">Cancel</button>
         </div>
       )}
     </div>
@@ -303,7 +240,6 @@ export function LectureList({
   onStudyLecture,
   onStartObjectiveQuiz,
   quizBusyLectureId = null,
-  onBack,
   focusLectureId = null,
 }) {
   const { context, logActivity, logPreRead, objectivesForTask } = useToday(blockId, userId);
@@ -539,138 +475,87 @@ export function LectureList({
 
   return (
     <div className="desk-page desk-lectures mx-auto w-full max-w-6xl p-4 sm:p-5">
-      <div className="desk-page-heading mb-4 flex flex-wrap items-end justify-between gap-3">
+      <div className="desk-page-heading mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <button onClick={onBack} className="mb-1 font-mono text-xs text-text-3 hover:text-text-1">← block</button>
           <h2 className="text-2xl font-bold text-text-1">Lectures</h2>
-          <div className="text-sm text-text-3">Find the next useful lecture, not another endless list.</div>
+          <p className="mt-1 text-sm text-text-3">{allRows.filter(r=>r.total>0 && r.done).length}/{allRows.filter(r=>r.total>0).length} through first pass · {questionTotals.answered.toLocaleString()} questions{questionAccuracy == null ? "" : ` · ${questionAccuracy}% correct`}</p>
         </div>
-        <div className="desk-count-summary text-sm text-text-2"><strong>{allRows.filter(r=>r.total>0 && r.done).length}</strong> complete · {allRows.filter(r=>r.total>0).length} lectures with objectives · {counts.all} resources · <strong>{questionTotals.answered.toLocaleString()}</strong> lecture-linked answers{questionAccuracy == null ? "" : ` · ${questionAccuracy}% accuracy`}</div>
+        <input
+          aria-label="Search lectures"
+          value={search}
+          onInput={(e) => { setSearch(e.target.value); saveFilterPrefs(blockId, { search: e.target.value }); }}
+          onChange={(e) => { setSearch(e.target.value); saveFilterPrefs(blockId, { search: e.target.value }); }}
+          placeholder="Search lectures…"
+          className="min-w-[12rem] rounded border border-border bg-bg px-3 py-1.5 text-sm"
+        />
       </div>
 
       {logged && <div className="mb-2 font-mono text-[12px] text-good">{logged}</div>}
+      {reviewsSuspended && <p role="status" className="mb-3 rounded-xl border border-border p-3 text-sm">Routine reviews paused for this finished block. Browse the library for manual review.</p>}
 
-      <details className="desk-lecture-filters mb-4">
-        <summary>Filters & sort <span>· {filter} · {week === "all" ? "all weeks" : week} · {activityType} · {SORT_LABELS[sort]}</span></summary>
-      <div className="desk-filter-strip mb-3 flex flex-wrap items-center gap-2" aria-label="Lecture status filters">
-        {FILTERS.map((f) => (
-          <button
-            key={f}
-            onClick={() => { setFilter(f); saveFilterPrefs(blockId, { filter: f, ...(f === "repairs" ? { sort: "repairs" } : {}) }); if (f === "repairs") setSort("repairs"); }}
-            aria-pressed={filter === f}
-            className={
-              "rounded border px-3 py-2 text-sm " +
-              (filter === f ? "border-accent text-text-1" : "border-border text-text-3 hover:text-text-2")
-            }
-          >
-            {f === "repairs" ? "Model repairs" : f} {counts[f] != null ? `(${counts[f]})` : ""}
-          </button>
-        ))}
-      </div>
+      <section aria-label="Lectures" className="flex flex-col gap-3 rounded-2xl border border-border bg-bg-elevated p-4 shadow-sm sm:p-5">
+        <PracticeModeTabs ariaLabel="Lecture views" value={showAllLectures ? "library" : "focus"} onChange={(next) => {
+          const all = next === "library";
+          setShowAllLectures(all); saveFilterPrefs(blockId, { showAllLectures: all }); setVisibleCount(18);
+        }} modes={[
+          { id: "focus", label: "Focus", badge: priorityRows.length || null },
+          { id: "library", label: "Library", badge: counts.all || null },
+        ]} />
 
-      <div className="desk-filter-strip mb-3 flex flex-wrap items-center gap-2" aria-label="School week filters">
-        <button
-          onClick={() => { setWeek("all"); saveFilterPrefs(blockId, { week: "all" }); }}
-          aria-pressed={week === "all"}
-          className={"rounded border px-3 py-2 text-sm " + (week === "all" ? "border-accent text-text-1" : "border-border text-text-3 hover:text-text-2")}
-        >
-          All weeks ({rows.length})
-        </button>
-        {weeks.map((item) => (
-          <button
-            key={item.key}
-            onClick={() => { setWeek(item.key); saveFilterPrefs(blockId, { week: item.key }); }}
-            aria-pressed={week === item.key}
-            className={"rounded border px-3 py-2 text-sm " + (week === item.key ? "border-accent text-text-1" : "border-border text-text-3 hover:text-text-2")}
-            title={item.range ? `${item.label} · ${item.range}` : item.label}
-          >
-            {item.label}{item.range ? ` · ${item.range}` : ""} ({item.count})
-          </button>
-        ))}
-      </div>
+        {!showAllLectures && (priorityRows.length === 0
+          ? <p className="text-sm text-text-3">No released lectures need focus right now.</p>
+          : <div>
+            <p className="mb-1 text-xs text-text-3">{priorityRows.length} next lectures to consider · ranked by the same urgency as Today</p>
+            <div className="desk-lecture-list">{priorityRows.map((row) => <Row
+                  key={row.lectureId}
+                  row={row}
+                  stats={{ ...questionStats.data?.[row.lectureId], slideReviews: lectureReviewStats(context.completion?.[`${row.lectureId}__${blockId}`]).count }}
+                  busy={quizBusyLectureId}
+                  onStudy={onStudyLecture}
+                  onQuiz={onQuiz}
+                  onLog={onLog}
+                  onUpdateDate={onUpdateDate}
+                  userId={userId}
+                  onPreRead={setPreReadTarget}
+                  onDelete={onDelete}
+                  deleting={deletingLectureId}
+                  focused={row.lectureId === highlightId}
+                  rowRef={row.lectureId === highlightId ? focusRowRef : undefined}
+                />)}</div>
+          </div>)}
 
-      <div className="desk-toolbar mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-bg-elevated p-3">
-        <span className="mr-1 text-xs font-semibold uppercase tracking-wide text-text-3">Type</span>
-        {ACTIVITY_TYPES.filter((type) => type === "all" || typeCounts[type] > 0).map((type) => (
-          <button
-            key={type}
-            onClick={() => { setActivityType(type); saveFilterPrefs(blockId, { activityType: type }); }}
-            className={"rounded-lg px-3 py-2 text-sm " + (activityType === type ? "bg-accent text-bg" : "text-text-3 hover:bg-panel hover:text-text-1")}
-          >
-            {type === "all" ? "All types" : type} ({typeCounts[type]})
-          </button>
-        ))}
-        <input
-          value={search}
-          onChange={(e) => { setSearch(e.target.value); saveFilterPrefs(blockId, { search: e.target.value }); }}
-          placeholder="Search lectures"
-          aria-label="Search lectures"
-          className="ml-auto min-h-11 min-w-52 rounded-lg border border-border bg-panel px-3 text-sm text-text-1"
-        />
-        <select
-          value={sort}
-          onChange={(e) => {
-            setSort(e.target.value);
-            saveFilterPrefs(blockId, { sort: e.target.value });
-          }}
-          aria-label="Sort lectures"
-          className="min-h-11 rounded-lg border border-border bg-panel px-3 text-sm text-text-2"
-        >
-          {Object.entries(SORT_LABELS).map(([key, label]) => (
-            <option key={key} value={key}>{label}</option>
-          ))}
-        </select>
-      </div>
-      </details>
-
-      {reviewsSuspended && <p role="status" className="mb-3 rounded-xl border border-border p-3 text-sm">Routine reviews paused for this finished block. Browse the lecture library for manual review; history remains available for comprehensive/CBSE practice.</p>}
-      <section className="desk-lecture-focus-bar" aria-label="Lecture focus queue">
-        <div>
-          <div className="today-eyebrow">{showAllLectures ? "Lecture library" : "Focus queue"}</div>
-          <strong>{showAllLectures ? `${weekRows.length} lectures in this view` : `${priorityRows.length} next lectures to consider`}</strong>
-          <span>{showAllLectures ? "Use the filters above to narrow the library." : "Ranked by the same evidence-aware urgency as Today. Filters and custom sorting apply in the full library."}</span>
-        </div>
-        <button type="button" className="desk-lecture-focus-toggle" onClick={() => {
-          setShowAllLectures((value) => {
-            const next = !value;
-            saveFilterPrefs(blockId, { showAllLectures: next });
-            return next;
-          });
-          setVisibleCount(18);
-        }}>
-          {showAllLectures ? "Return to focus queue" : `Browse all ${weekRows.length} lectures`}
-        </button>
-      </section>
-
-
-
-      {displayRows.length === 0 ? (
-        <div className="rounded-lg border border-border p-3 text-xs text-text-3">{showAllLectures ? "Nothing matches that filter." : "No released lectures need focus right now."}</div>
-      ) : showAllLectures ? (
-        <div>
-        <LectureDashboard key={[blockId,filter,activityType,search,sort,week].join(":")} rows={weekRows} allRows={allRows} stats={questionStats.data || {}} onStudy={onStudyLecture} onQuiz={onQuiz} busy={quizBusyLectureId} focusedLectureId={highlightId} rowRef={focusRowRef}/>
-        <details className="mt-4 rounded-xl border border-border p-3"><summary className="cursor-pointer font-semibold">Manage lecture dates, logs and selection</summary>
-      {showAllLectures && weekRows.length > 0 && <div className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-border bg-bg-elevated p-3">
-        <label className="flex items-center gap-2 text-sm text-text-2">
-          <input type="checkbox" checked={weekRows.every((row) => selectedLectureIds.has(row.lectureId))} onChange={selectAllInView} aria-label={`Select all ${weekRows.length} lectures in this view`} className="h-4 w-4 accent-accent" />
-          Select all {weekRows.length} in this view
-        </label>
-        <span className="font-mono text-xs text-text-3">{selectedLectureIds.size} selected</span>
-        <button type="button" disabled={!selectedLectureIds.size} onClick={() => setBulkDeleteTargets(allRows.filter((row) => selectedLectureIds.has(row.lectureId)))} className="rounded-lg border border-bad px-3 py-2 text-sm font-semibold text-bad hover:bg-bad/10 disabled:cursor-not-allowed disabled:opacity-50">
-          Delete selected…
-        </button>
-        {selectedLectureIds.size > 0 && <button type="button" onClick={() => setSelectedLectureIds(new Set())} className="text-sm text-text-3 hover:text-text-1">Clear selection</button>}
-      </div>}
-        <div className="space-y-3" aria-label="Lecture library grouped by week">
-          {libraryGroups.map((group) => {
-            const readyCount = group.rows.filter((row) => row.total > 0 && row.mastered >= row.total).length;
-            const attentionCount = group.rows.filter((row) => row.struggling > 0 || row.untested > 0).length;
-            return <details key={group.key} open className="overflow-hidden rounded-xl border border-border bg-bg-elevated">
-              <summary className="flex cursor-pointer flex-wrap items-center justify-between gap-x-4 gap-y-1 px-4 py-3 text-sm">
+        {showAllLectures && <>
+          <div className="flex flex-wrap items-center gap-2" aria-label="Lecture library filters">
+            <select aria-label="Status filter" value={filter} onChange={(e) => { const f = e.target.value; setFilter(f); saveFilterPrefs(blockId, { filter: f, ...(f === "repairs" ? { sort: "repairs" } : {}) }); if (f === "repairs") setSort("repairs"); }} className="min-h-9 rounded border border-border bg-bg px-2 text-sm">
+              {FILTERS.map((f) => <option key={f} value={f}>{f === "repairs" ? "Model repairs" : f}{counts[f] != null ? ` (${counts[f]})` : ""}</option>)}
+            </select>
+            <select aria-label="Activity type filter" value={activityType} onChange={(e) => { setActivityType(e.target.value); saveFilterPrefs(blockId, { activityType: e.target.value }); }} className="min-h-9 rounded border border-border bg-bg px-2 text-sm">
+              {ACTIVITY_TYPES.filter((type) => type === "all" || typeCounts[type] > 0).map((type) => <option key={type} value={type}>{type === "all" ? "All types" : type} ({typeCounts[type]})</option>)}
+            </select>
+            <select aria-label="School week filter" value={week} onChange={(e) => { setWeek(e.target.value); saveFilterPrefs(blockId, { week: e.target.value }); }} className="min-h-9 rounded border border-border bg-bg px-2 text-sm">
+              <option value="all">All weeks</option>
+              {weeks.map((item) => <option key={item.key} value={item.key}>{item.label}{item.range ? ` · ${item.range}` : ""} ({item.count})</option>)}
+            </select>
+            <select aria-label="Sort lectures" value={sort} onChange={(e) => { setSort(e.target.value); saveFilterPrefs(blockId, { sort: e.target.value }); }} className="min-h-9 rounded border border-border bg-bg px-2 text-sm">
+              {Object.entries(SORT_LABELS).map(([key, label]) => <option key={key} value={key}>Sort: {label}</option>)}
+            </select>
+            {weekRows.length > 0 && <label className="ml-auto flex items-center gap-2 text-sm text-text-2">
+              <input type="checkbox" checked={weekRows.every((row) => selectedLectureIds.has(row.lectureId))} onChange={selectAllInView} aria-label={`Select all ${weekRows.length} lectures in this view`} />
+              Select
+            </label>}
+          </div>
+          {selectedLectureIds.size > 0 && <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border p-2">
+            <span className="font-mono text-xs text-text-3">{selectedLectureIds.size} selected</span>
+            <button type="button" onClick={() => setBulkDeleteTargets(allRows.filter((row) => selectedLectureIds.has(row.lectureId)))} className="rounded-lg border border-bad/40 px-3 py-1 text-sm font-semibold text-bad">Delete selected…</button>
+            <button type="button" onClick={() => setSelectedLectureIds(new Set())} className="text-sm text-text-3 hover:text-text-1">Clear selection</button>
+          </div>}
+          {weekRows.length === 0 ? <p className="text-sm text-text-3">Nothing matches that filter.</p> : <div className="space-y-2" aria-label="Lecture library grouped by week">
+            {libraryGroups.map((group) => <details key={group.key} open className="rounded-lg border border-border">
+              <summary className="flex cursor-pointer flex-wrap items-center justify-between gap-x-4 gap-y-1 px-3 py-2 text-sm">
                 <span className="font-semibold text-text-1">{group.label}{group.range ? ` · ${group.range}` : ""}</span>
-                <span className="font-mono text-xs text-text-3">{group.rows.length} lecture{group.rows.length === 1 ? "" : "s"} · {readyCount} ready · {attentionCount} need practice</span>
+                <span className="font-mono text-xs text-text-3">{group.rows.length} lecture{group.rows.length === 1 ? "" : "s"}</span>
               </summary>
-              <div className="desk-lecture-list border-t border-border bg-bg-elevated px-4">
+              <div className="desk-lecture-list border-t border-border px-3">
                 {group.visibleRows.map((row) => <Row
                   key={row.lectureId}
                   row={row}
@@ -685,26 +570,21 @@ export function LectureList({
                   onDelete={onDelete}
                   deleting={deletingLectureId}
                   focused={row.lectureId === highlightId}
-                  rowRef={undefined}
+                  rowRef={row.lectureId === highlightId ? focusRowRef : undefined}
                   selectable
                   selected={selectedLectureIds.has(row.lectureId)}
                   onToggleSelected={toggleSelected}
                 />)}
               </div>
-            </details>;
-          })}
-        </div>
-      {showAllLectures && visibleCount < weekRows.length && (
-        <button onClick={() => setVisibleCount((n) => n + 30)} className="mt-3 w-full rounded-lg border border-border py-2 font-mono text-[12px] text-text-2 hover:border-accent hover:text-text-1">
-          Show next 30 · {weekRows.length - visibleCount} remaining
-        </button>
-      )}
-        </details>
-        </div>
-      ) : (
-        <LectureDashboard rows={priorityRows} allRows={allRows} stats={questionStats.data || {}} onStudy={onStudyLecture} onQuiz={onQuiz} busy={quizBusyLectureId} focusedLectureId={highlightId} rowRef={focusRowRef} />
-      )}
-
+            </details>)}
+          </div>}
+          {visibleCount < weekRows.length && (
+            <button onClick={() => setVisibleCount((n) => n + 30)} className="w-full rounded-lg border border-border py-2 font-mono text-[12px] text-text-2 hover:border-accent hover:text-text-1">
+              Show next 30 · {weekRows.length - visibleCount} remaining
+            </button>
+          )}
+        </>}
+      </section>
 
       {preReadTarget && (
         <Suspense fallback={null}>
