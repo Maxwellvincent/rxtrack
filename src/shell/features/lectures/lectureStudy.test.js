@@ -6,7 +6,6 @@ import {
   extractAtoms,
   quizFromAtoms,
   roundDifficulty,
-  topicsToAutoCheck,
   selectAtomsForQuiz,
   isActiveQuizComplete,
   prioritizeAtomRounds,
@@ -197,51 +196,6 @@ describe("roundDifficulty", () => {
   });
 });
 
-describe("topicsToAutoCheck", () => {
-  const atoms = [
-    { term: "Herring bodies", content: "Axonal dilations storing hormone and neurophysin in the posterior pituitary." },
-    { term: "Prolactin", content: "Dopamine inhibits its secretion from lactotrophs." },
-  ];
-  const topics = [
-    { id: "t1", text: "posterior pituitary hormone storage", checked: false },
-    { id: "t2", text: "dopamine inhibition of prolactin secretion", checked: false },
-    { id: "t3", text: "unrelated topic about the kidney", checked: false },
-  ];
-
-  it("checks the topic matching a correctly-answered question's concept", () => {
-    const records = [{ concept: "Prolactin", correct: true }];
-    expect(topicsToAutoCheck(records, atoms, topics)).toEqual(["t2"]);
-  });
-
-  it("does not check anything for a wrong answer", () => {
-    const records = [{ concept: "Prolactin", correct: false }];
-    expect(topicsToAutoCheck(records, atoms, topics)).toEqual([]);
-  });
-
-  it("skips a topic that's already checked", () => {
-    const alreadyChecked = topics.map((t) => (t.id === "t2" ? { ...t, checked: true } : t));
-    const records = [{ concept: "Prolactin", correct: true }];
-    expect(topicsToAutoCheck(records, atoms, alreadyChecked)).toEqual([]);
-  });
-
-  it("falls back to the bare concept string when the atom isn't found", () => {
-    const records = [{ concept: "dopamine inhibition of prolactin secretion", correct: true }];
-    expect(topicsToAutoCheck(records, [], topics)).toEqual(["t2"]);
-  });
-
-  it("returns nothing when no correct answer clears the match threshold", () => {
-    const records = [{ concept: "Herring bodies", correct: true }];
-    expect(topicsToAutoCheck(records, atoms, [{ id: "t9", text: "unrelated topic about the kidney", checked: false }])).toEqual([]);
-  });
-
-  it("dedupes when two correct answers match the same topic", () => {
-    const records = [
-      { concept: "Prolactin", correct: true },
-      { concept: "dopamine inhibition of prolactin secretion", correct: true },
-    ];
-    expect(topicsToAutoCheck(records, atoms, topics)).toEqual(["t2"]);
-  });
-});
 
 describe("selectAtomsForQuiz", () => {
   const a = (term) => ({ type: "definition", term, content: "x" });

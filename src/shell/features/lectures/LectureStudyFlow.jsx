@@ -79,13 +79,8 @@ import {
 import { PREPARE_BATCH_SIZE, buildAdaptiveObjectivePlan, prepareObjectiveQuiz, readClinicalAnalysesForBlock, resolveDefaultDifficulty, selectClinicalExamplesForBlock, selectExemplarsForBlock } from "../objectives/quizLaunch.js";
 import { useQuestionBanks } from "../../hooks/useQuestionBanks.js";
 import { useQuestionBankMeta } from "../../hooks/useQuestionBankMeta.js";
-import { generateStudyGuide } from "../../../engine/studyGuide.js";
-import * as studyGuideStore from "../../../stores/studyGuide.js";
-import * as masterGuideStore from "../../../stores/masterGuide.js";
-import { generateMentalModel } from "../../../engine/mentalModel.js";
 import * as mentalModelStore from "../../../stores/mentalModel.js";
-import * as mentalModelImpactStore from "../../../stores/mentalModelImpact.js";
-import { ROUND_SIZE, prioritizeAtomRounds, extractAtoms, isActiveQuizComplete, loadLecture, quizFromAtoms, roundDifficulty, roundLabel, topicsToAutoCheck } from "./lectureStudy.js";
+import { ROUND_SIZE, prioritizeAtomRounds, extractAtoms, isActiveQuizComplete, loadLecture, quizFromAtoms, roundDifficulty, roundLabel } from "./lectureStudy.js";
 import {
   clearRoundProgress,
   readRoundProgress,
@@ -121,258 +116,8 @@ import { useStoreResource } from "../../hooks/useStoreResource.js";
 import { objectivePracticePlan, objectivesWithPracticeEvidence } from "../../../engine/objectivePractice.js";
 import { buildTeachingBlocks, lectureModelFromBlocks } from "../../../engine/lectureTutorPlan.js";
 
-const TYPE_META = {
-  definition: { label: "Definitions", hint: "what it is", accent: "border-l-accent" },
-  mechanism: { label: "Mechanisms", hint: "how it works", accent: "border-l-good" },
-  relationship: { label: "Relationships", hint: "how things relate", accent: "border-l-accent" },
-  result: { label: "Results", hint: "the outcome", accent: "border-l-bad" },
-};
-
-const TIER_META = {
-  anchor: { label: "Anchor", className: "border-accent/40 bg-accent/10 text-accent-text" },
-  core: { label: "Core", className: "border-good/40 bg-good/10 text-good" },
-  supporting: { label: "Supporting", className: "border-border bg-bg-muted text-text-3" },
-  discriminator: { label: "Exam discriminator", className: "border-bad/40 bg-bad/10 text-bad" },
-};
-
-/**
- * One chip per objective an atom serves. Objectives without a SOM code fall
- * back to their text, and chips are deduped by label because this data has
- * duplicate objective rows sharing a code — four identical chips on one atom
- * says nothing useful.
- */
-function objectiveChips(objectiveIds, objectiveById) {
-  const seen = new Map();
-  for (const id of objectiveIds) {
-    const objective = objectiveById.get(id);
-    const text = objective ? objective.objective || objective.text || "" : "";
-    const label = objective?.code || (text ? `${text.slice(0, 26)}${text.length > 26 ? "…" : ""}` : "objective");
-    if (!seen.has(label)) seen.set(label, { key: id, label, title: text || id });
-  }
-  return [...seen.values()];
-}
-
-/** Clickable terms under a framework node — jumps to that atom in the review list below. */
-function AtomChips({ terms, onAtomClick }) {
-  if (!terms?.length) return null;
-  return (
-    <div className="mt-1 flex flex-wrap gap-1">
-      {terms.map((term) => (
-        <button
-          key={term}
-          onClick={() => onAtomClick(term)}
-          className="rounded border border-border px-1.5 py-0.5 font-mono text-[12px] text-text-3 hover:border-accent hover:text-accent"
-        >
-          {term}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-/**
- * A reasoning framework, not a summary — big picture -> components -> relationships ->
- * mechanisms -> cause/effect -> clinical application -> easily-confused pairs. Every node that
- * traces to real atoms shows them as chips so the atoms attach onto the structure instead of
- * sitting beside it.
- */
-export function ModelSection({ title, children, count }) {
-  return <details className="rounded-lg border border-border bg-bg-elevated p-3">
-    <summary className="min-h-11 cursor-pointer rounded py-2 text-base font-semibold text-text-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent">
-      {title}{count != null && <span className="ml-2 text-sm font-normal text-text-2">({count})</span>}
-    </summary>
-    <div className="mt-2 text-sm leading-relaxed">{children}</div>
-  </details>;
-}
-
-export function MentalModelView({ model, onAtomClick }) {
-  const {
-    bigPicture, components = [], relationships = [], mechanisms = [],
-    causeEffect = [], clinicalApplication = [], confusedPairs = [], reasoningLadders = [],
-  } = model;
-
-  return (
-    <div className="mt-3 flex flex-col gap-4">
-      {bigPicture && (
-        <ModelSection title="Big picture">
-          <p className="text-sm text-text-1">{bigPicture}</p>
-        </ModelSection>
-      )}
-
-      {components.length > 0 && (
-        <ModelSection title="Components" count={components.length}>
-          <div className="flex flex-col gap-1.5">
-            {components.map((c, i) => (
-              <ModelSection key={i} title={c.name}>
-                {c.role && <span className="text-text-2"> — {c.role}</span>}
-                <AtomChips terms={c.atomTerms} onAtomClick={onAtomClick} />
-              </ModelSection>
-            ))}
-          </div>
-        </ModelSection>
-      )}
-
-      {relationships.length > 0 && (
-        <ModelSection title="Relationships" count={relationships.length}>
-          <div className="flex flex-col gap-1.5">
-            {relationships.map((r, i) => (
-              <ModelSection key={i} title={`${r.from} → ${r.to}`}>
-                {r.connection && <span className="text-text-2"> — {r.connection}</span>}
-                {r.why && <div className="mt-1 text-text-3">why: {r.why}</div>}
-                <AtomChips terms={r.atomTerms} onAtomClick={onAtomClick} />
-              </ModelSection>
-            ))}
-          </div>
-        </ModelSection>
-      )}
-
-      {mechanisms.length > 0 && (
-        <ModelSection title="Mechanisms & flows" count={mechanisms.length}>
-          <div className="flex flex-col gap-1.5">
-            {mechanisms.map((m, i) => (
-              <ModelSection key={i} title={m.name}>
-                {m.steps?.length > 0 && (
-                  <ol className="mt-1 list-decimal pl-4 text-text-2">
-                    {m.steps.map((s, j) => <li key={j}>{s}</li>)}
-                  </ol>
-                )}
-                <AtomChips terms={m.atomTerms} onAtomClick={onAtomClick} />
-              </ModelSection>
-            ))}
-          </div>
-        </ModelSection>
-      )}
-
-      {causeEffect.length > 0 && (
-        <ModelSection title="Cause & effect" count={causeEffect.length}>
-          <div className="flex flex-col gap-1.5">
-            {causeEffect.map((ce, i) => (
-              <ModelSection key={i} title={ce.cause}>
-                <span className="text-text-2"> ⇒ {ce.effect}</span>
-                {ce.why && <div className="mt-1 text-text-3">why: {ce.why}</div>}
-                <AtomChips terms={ce.atomTerms} onAtomClick={onAtomClick} />
-              </ModelSection>
-            ))}
-          </div>
-        </ModelSection>
-      )}
-
-      {clinicalApplication.length > 0 && (
-        <ModelSection title="Clinical application" count={clinicalApplication.length}>
-          <div className="flex flex-col gap-1.5">
-            {clinicalApplication.map((c, i) => (
-              <ModelSection key={i} title={c.scenario}>
-                {c.connection && <span className="text-text-2"> — {c.connection}</span>}
-                <AtomChips terms={c.atomTerms} onAtomClick={onAtomClick} />
-              </ModelSection>
-            ))}
-          </div>
-        </ModelSection>
-      )}
-
-      {confusedPairs.length > 0 && (
-        <ModelSection title="Easily confused" count={confusedPairs.length}>
-          <div className="flex flex-col gap-1.5">
-            {confusedPairs.map((p, i) => (
-              <ModelSection key={i} title={`${p.a} vs ${p.b}`}>
-                {p.distinction && <div className="mt-1 text-text-2">{p.distinction}</div>}
-              </ModelSection>
-            ))}
-          </div>
-        </ModelSection>
-      )}
-
-      {reasoningLadders.length > 0 && (
-        <ModelSection title="Objective reasoning ladders" count={reasoningLadders.length}>
-          <p className="mb-2 text-xs text-text-3">Move from recognition to relationship-based application, then integrate only when the objective and lecture facts support it.</p>
-          <div className="flex flex-col gap-2">
-            {reasoningLadders.map((ladder, i) => (
-              <div key={`${ladder.objectiveId || "objective"}-${i}`} className="rounded border border-border bg-panel p-2.5">
-                <div className="text-sm font-semibold text-text-1">{ladder.objective || ladder.objectiveId || `Objective ${i + 1}`}</div>
-                <div className="mt-2 grid gap-2 text-xs sm:grid-cols-3">
-                  {[['1st', ladder.firstOrder], ['2nd', ladder.secondOrder], ['3rd', ladder.thirdOrder]].map(([label, text]) => (
-                    <div key={label} className="rounded border border-border bg-bg p-2">
-                      <div className="font-mono font-bold text-accent-text">{label} order</div>
-                      <div className="mt-1 text-text-2">{text || "Not supported by the supplied evidence."}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        </ModelSection>
-      )}
-    </div>
-  );
-}
-
-export function MentalModelOverview({ model, onAtomClick, children }) {
-  return <div className="mt-3 space-y-3">
-    <p className="text-base leading-relaxed text-text-1">
-      {model.bigPicture || "No overview paragraph was saved for this model. Supporting details are available below."}
-    </p>
-    <p className="text-xs text-text-3">Use the sections below as optional lookup material, not a checklist.</p>
-    <MentalModelView model={{ ...model, bigPicture: null }} onAtomClick={onAtomClick} />
-    {children}
-  </div>;
-}
-
 const CheckpointRunner=lazy(()=>import('../exam/ExamSessionRunner.jsx').then(module=>({default:module.ExamSessionRunner})));
 
-const pct = (value) => value == null ? "—" : `${Math.round(value * 100)}%`;
-const seconds = (ms) => ms == null ? "—" : `${Math.round(ms / 1000)}s`;
-
-function MentalModelImpact({ entry, onMarkReviewed }) {
-  const impact = mentalModelImpactStore.impactFor(entry);
-  if (impact.state === "not-started") {
-    return (
-      <div className="mt-4 rounded-lg border border-border bg-bg-elevated p-4">
-        <div className="text-sm font-semibold text-text-1">Measure whether this model works</div>
-        <p className="mt-1 text-[13px] leading-relaxed text-text-2">
-          Explain the framework aloud without looking, then mark it reviewed. RXtrack will compare your existing baseline with new, timed questions.
-        </p>
-        <Button variant="outline" onClick={onMarkReviewed} className="mt-3">Start impact tracking</Button>
-      </div>
-    );
-  }
-
-  const labels = {
-    collecting: "Collecting evidence",
-    working: "Working",
-    partial: "Partially working",
-    "not-working": "Not improving yet",
-    mixed: "Mixed result",
-  };
-  const statusClass = impact.state === "working" ? "text-good" : impact.state === "not-working" ? "text-bad" : "text-accent";
-  const metric = (label, value, detail) => (
-    <div className="rounded border border-border bg-bg p-3">
-      <div className="font-mono text-[11px] uppercase tracking-wide text-text-3">{label}</div>
-      <div className="mt-1 text-lg font-bold text-text-1">{value}</div>
-      <div className="font-mono text-[11px] text-text-3">{detail}</div>
-    </div>
-  );
-  return (
-    <div className="mt-4 rounded-lg border border-border bg-bg-elevated p-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <div className="text-sm font-semibold text-text-1">Mental Model Impact</div>
-          <div className={`font-mono text-[12px] font-bold ${statusClass}`}>{labels[impact.state]}</div>
-        </div>
-        <button onClick={onMarkReviewed} className="font-mono text-[11px] text-text-3 underline">log another review</button>
-      </div>
-      <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-5">
-        {metric("Baseline", pct(impact.baseline.accuracy), `${impact.baseline.count} questions`)}
-        {metric("After model", pct(impact.post.accuracy), `${impact.post.count}/10 needed`)}
-        {metric("Hard / expert", pct(impact.transfer.accuracy), `${impact.transfer.count} transfer Qs`)}
-        {metric("24h+ retention", pct(impact.delayed24h.accuracy), `${impact.delayed24h.count} delayed Qs`)}
-        {metric("Median speed", seconds(impact.post.medianMs), impact.baseline.medianMs == null ? "new tracking" : `was ${seconds(impact.baseline.medianMs)}`)}
-      </div>
-      <p className="mt-3 font-mono text-[11px] leading-relaxed text-text-3">
-        A verdict appears after ≥5 baseline and ≥10 post-model questions. Seven-day retention: {pct(impact.retained7d.accuracy)} ({impact.retained7d.count}).
-      </p>
-    </div>
-  );
-}
 
 function TutorCountdown({ remainingSeconds, active }) {
   const [seconds, setSeconds] = useState(Math.max(0, Number(remainingSeconds) || 0));
@@ -514,8 +259,8 @@ export function LectureStudyFlow({
   const [tutorReviewing, setTutorReviewing] = useState(false);
   const [pendingTutorTurn, setPendingTutorTurn] = useState(null);
   const tutorCaseGenerationRef = useRef(null);
-  const [mentalModel, setMentalModel] = useState(() => mentalModelStore.read(userId, lecture?.id));
-  const [generatingModel, setGeneratingModel] = useState(false);
+  // Saved frameworks from the retired mental-model view still seed the tutor opening.
+  const [mentalModel] = useState(() => mentalModelStore.read(userId, lecture?.id));
   const tutorSessionRef = useRef(tutorSession);
   const tutorSessionSummaryValue = useMemo(() => tutorSessionSummary(tutorSession), [tutorSession]);
   const tutorPacing = useMemo(() => tutorPacingContext(tutorSession), [tutorSession]);
@@ -1014,93 +759,11 @@ export function LectureStudyFlow({
     setCompletedQuizSessionId(null);
   }, []);
 
-  // Atom key to scroll to + pulse-highlight once the atoms list is back on screen — set by a
-  // "review this atom" click from a quiz Summary, cleared once the highlight has had its moment.
-  const [reviewAtomKey, setReviewAtomKey] = useState(null);
-  const atomsDetailsRef = useRef(null);
   const referenceDetailsRef = useRef(null);
-
-  // Study guide — auto-generated searchable topic list, one per lecture mount
-  const [studyGuide, setStudyGuide] = useState(null);
-  const [generatingGuide, setGeneratingGuide] = useState(false);
-  const guideGenRef = useRef(false);
-
-  // Mental model — the reasoning framework built from this lecture's atoms. Built on demand
-  // (not auto, like the study guide) since it costs more tokens per call; cached per lecture.
-  const [impactEntry, setImpactEntry] = useState(() => mentalModelImpactStore.read(userId)[lecture?.id] || null);
-
-  useEffect(() => {
-    setImpactEntry(mentalModelImpactStore.read(userId)[lecture?.id] || null);
-    return mentalModelImpactStore.subscribe(() => {
-      setImpactEntry(mentalModelImpactStore.read(userId)[lecture?.id] || null);
-    });
-  }, [userId, lecture?.id]);
 
   // Keep busy states useful without presenting elapsed time in two different places. The
   // preparation card owns progress; buttons should only say what is happening.
   const busyLabel = busy || "";
-
-  // Runs once `questions` has cleared and the atoms list is actually in the DOM (a Summary
-  // "review this atom" click sets reviewAtomKey the same tick it exits the quiz, so this has to
-  // wait a render rather than act synchronously). Expands the collapsed <details>, scrolls to the
-  // card, and leaves it highlighted for a few seconds — a highlight nobody has time to notice is
-  // as useless as no highlight.
-  useEffect(() => {
-    if (!reviewAtomKey || questions) return;
-    if(workspace!=="learn"){setWorkspace("learn");return;}
-    setLearnMode('facts');
-    const el = document.getElementById(`atom-${reviewAtomKey}`);
-    for (let parent = el?.parentElement; parent; parent = parent.parentElement) { if (parent.tagName === "DETAILS") parent.open = true; }
-    el?.scrollIntoView({ behavior: "smooth", block: "center" });
-    const t = setTimeout(() => setReviewAtomKey(null), 3000);
-    return () => clearTimeout(t);
-  }, [reviewAtomKey, questions,workspace,setWorkspace]);
-
-  const generateGuide = useCallback(async (currentAtoms, currentObjectives) => {
-    setGeneratingGuide(true);
-    const result = await generateStudyGuide(
-      { objectives: currentObjectives, atoms: currentAtoms, subject: title },
-      { callAIJSON }
-    );
-    setGeneratingGuide(false);
-    if (!result.topics?.length) return;
-    const guide = {
-      topics: result.topics.map((text, i) => ({ id: `t${i}`, text, checked: false })),
-      generated: Date.now(),
-    };
-    studyGuideStore.write(userId, lecture?.id, guide);
-    setStudyGuide(guide);
-  }, [title, userId, lecture?.id]);
-
-  const generateModel = useCallback(async () => {
-    setGeneratingModel(true); setError("");
-    const result = await generateMentalModel({ atoms, objectives: lectureObjectives, examples: schoolExemplars, subject: title, userId }, { callAIJSON });
-    setGeneratingModel(false);
-    if (result.error) { setError(result.error); return; }
-    mentalModelStore.write(userId, lecture?.id, result.model);
-    setMentalModel(result.model);
-  }, [atoms, lectureObjectives, schoolExemplars, title, userId, lecture?.id]);
-
-  const markModelReviewed = useCallback(() => {
-    const next = mentalModelImpactStore.markReviewed(userId, lecture?.id, qStats);
-    setImpactEntry(next);
-  }, [userId, lecture?.id, qStats]);
-
-  // Jump to an atom referenced by the framework — same target the quiz Summary's
-  // "review this atom" link uses, so the highlight/scroll behavior is shared.
-  const jumpToAtomTerm = useCallback((term) => {
-    setLearnMode('facts');
-    setReviewAtomKey(normAtomKey(term));
-  }, []);
-
-  // Auto-trigger: load cached guide or generate when atoms first populate
-  useEffect(() => {
-    if (!atoms.length || guideGenRef.current) return;
-    guideGenRef.current = true;
-    const stored = studyGuideStore.read(userId, lecture?.id);
-    if (stored?.topics?.length) { setStudyGuide(stored); return; }
-    generateGuide(atoms, lectureObjectives);
-  }, [atoms]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // atomMastery is computed against the CURRENT atom list, so it has to recompute whenever atoms
   // themselves load or change (initial async load, a re-extraction) — not just at round/quiz end.
@@ -1209,15 +872,6 @@ export function LectureStudyFlow({
 
   const untagged = atoms.filter((a) => !a.objectiveIds?.length).length;
 
-  // Annotate display atoms with cross-lecture recurrence from the term index
-  const annotatedAtoms = useMemo(() => {
-    const termIndex = atomTermIndex.read(userId, blockId) || {};
-    return atoms.map((a) => {
-      const entry = termIndex[normAtomKey(a.term)];
-      const count = entry?.count ?? 1;
-      return count >= 2 ? { ...a, isHighYield: true, crossCount: count } : a;
-    });
-  }, [atoms, userId, blockId]);
 
   /**
    * Tag atoms to the objectives they serve. This is the join SP2's learner
@@ -1905,7 +1559,6 @@ export function LectureStudyFlow({
             loggedQuizActivityRef.current = quizSessionId;
             logActivity?.({ lectureId: lecture?.id, activityType: "deep_learn", confidenceRating: null });
           }}
-          onReviewAtom={(atomKey) => { preparationRunRef.current += 1; setBusy(""); setQuizPreparation(null); setActiveRequestedCount(null); setQuestions(null); setQuizResumeState(null); setReviewAtomKey(atomKey); }}
           onDone={({ correct = 0, total = 0, avgConfidence = 0, hasLandmines = false, records = [], allRecords = records } = {}) => {
             setCompletedQuizRecords(allRecords.filter(record => !questionRatingsStore.isExcluded(userId, record, "objective")));
             setCompletedQuizSessionId(quizSessionId);
@@ -1930,20 +1583,6 @@ export function LectureStudyFlow({
               window.dispatchEvent(new CustomEvent("rxt-lecture-quiz-complete", {
                 detail: { lectureId: lecture.id, total, correct },
               }));
-            }
-
-            // A correctly-answered question earns its atom's matching study-guide topic a
-            // check, same as ticking it by hand — a wrong answer never checks anything.
-            if (studyGuide?.topics?.length) {
-              const toCheck = topicsToAutoCheck(records.filter(isIndependentAttempt), atoms, studyGuide.topics);
-              if (toCheck.length) {
-                let guide = studyGuide;
-                for (const topicId of toCheck) {
-                  guide = studyGuideStore.setTopicChecked(userId, lecture?.id, topicId, true);
-                  masterGuideStore.syncFromLectureTopic(userId, blockId, lecture?.id, topicId, true);
-                }
-                setStudyGuide(guide);
-              }
             }
 
             // Signal Today to auto-check once ≥60% of rounds are complete
@@ -2125,9 +1764,6 @@ export function LectureStudyFlow({
         <PracticeModeTabs ariaLabel="Learn mode" value={learnMode} onChange={setLearnMode} modes={[
           { id: "connections", label: "Connections" },
           { id: "tutor", label: "Tutor", badge: tutorSession?.status === "active" ? "●" : null },
-          { id: "model", label: "Mental model" },
-          { id: "guide", label: "Study guide", badge: studyGuide?.topics?.length ? `${studyGuide.topics.filter((t) => t.checked).length}/${studyGuide.topics.length}` : null },
-          { id: "facts", label: "Facts", badge: atoms.length || null },
           { id: "repairs", label: "Repairs" },
         ]} />
       </div>
@@ -2558,167 +2194,6 @@ export function LectureStudyFlow({
           )}
         </div>
       </div>
-      {/* Mental model — the reasoning framework this lecture's atoms attach to. Not a summary:
-          big picture -> components -> relationships -> mechanisms -> cause/effect -> clinical
-          application, each node linked back to the atoms that support it. */}
-      {stage === "quiz" && atoms.length > 0 && (
-        <div hidden={learnMode !== "model"}>
-          <h3 className="mb-2 text-base font-semibold text-text-1">Mental model <span className="text-sm font-normal text-text-2">· {generatingModel ? "building…" : mentalModel ? "saved framework" : "not built yet"}</span></h3>
-          {!mentalModel && !generatingModel && (
-            <div className="flex items-center gap-3">
-              <Button variant="outline" onClick={generateModel} disabled={!!busy||checkpointPreparing}>
-                ◇ Build mental model
-              </Button>
-              <span className="text-[12px] text-text-3">
-                a big-picture paragraph, with optional reference details
-              </span>
-            </div>
-          )}
-          {generatingModel && (
-            <span className="font-mono text-[12px] text-text-3">reasoning through the atoms…</span>
-          )}
-          {mentalModel && !generatingModel && (
-            <MentalModelOverview model={mentalModel} onAtomClick={jumpToAtomTerm}>
-              <ModelSection title="Model impact & review tracking">
-                <MentalModelImpact entry={impactEntry} onMarkReviewed={markModelReviewed} />
-              </ModelSection>
-              <button onClick={generateModel} disabled={!!busy||checkpointPreparing} className="mt-3 min-h-11 text-sm text-text-2 underline decoration-dotted">
-                Regenerate reference model
-              </button>
-            </MentalModelOverview>
-          )}
-        </div>
-      )}
-
-      {/* The atom list is reference, not the session. Reading it is the passive habit this
-          screen used to force; it stays one click away for when you actually want it. */}
-      {/* Study guide — auto-generated searchable topics, checkable */}
-      {(studyGuide || generatingGuide) && (
-        <div hidden={learnMode !== "guide"}>
-          <h3 className="mb-2 text-base font-semibold text-text-1">Study guide
-              {studyGuide && !generatingGuide && (
-                <span className="ml-1.5 text-sm text-text-2 font-normal">
-                  · {studyGuide.topics.filter((t) => t.checked).length}/{studyGuide.topics.length} complete
-                </span>
-              )}
-              {generatingGuide && <span role="status" className="ml-1.5 text-sm font-normal text-text-2">· building…</span>}</h3>
-          <div className="mt-2">
-            {!generatingGuide && studyGuide && (
-              <button
-                onClick={() => { guideGenRef.current = false; generateGuide(atoms, lectureObjectives); }}
-                className="font-mono text-[11px] text-text-3 underline decoration-dotted hover:text-text-1"
-              >
-                regenerate
-              </button>
-            )}
-          </div>
-          {generatingGuide && (
-            <span className="font-mono text-[12px] text-text-3">building study guide…</span>
-          )}
-          {studyGuide && (
-            <div className="flex flex-col gap-1.5">
-              {studyGuide.topics.map((t) => (
-                <label key={t.id} className="flex w-fit max-w-full cursor-pointer items-start gap-2.5 rounded py-2 group">
-                  <input
-                    type="checkbox"
-                    checked={t.checked || false}
-                    className="mt-0.5 accent-accent shrink-0"
-                    onChange={(e) => {
-                      const next = studyGuideStore.setTopicChecked(userId, lecture?.id, t.id, e.target.checked);
-                      setStudyGuide(next);
-                      masterGuideStore.syncFromLectureTopic(userId, blockId, lecture?.id, t.id, e.target.checked);
-                    }}
-                  />
-                  <span className={[
-                    "text-sm leading-snug",
-                    t.checked ? "text-text-3 line-through" : "text-text-1",
-                  ].join(" ")}>
-                    {t.text}
-                  </span>
-                </label>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-      {learnMode === "model" && !(stage === "quiz" && atoms.length > 0) && <p className="text-sm text-text-3">◇ The mental model builds once this lecture&apos;s facts are extracted.</p>}
-      {learnMode === "guide" && !studyGuide && !generatingGuide && <p className="text-sm text-text-3">◇ No study guide yet — it builds from this lecture&apos;s facts once they are extracted.</p>}
-
-      {atoms.length > 0 && (
-        <div ref={atomsDetailsRef} hidden={learnMode !== "facts"}>
-          <h3 className="mb-2 text-base font-semibold text-text-1">Lecture facts <span className="text-sm font-normal text-text-3">· {atoms.length} supporting facts</span></h3>
-          <div className="mt-3 space-y-4">
-          {Array.from(new Set(annotatedAtoms.map(a => a.objectiveIds?.[0] || a.parentTerm || a.type))).map((groupKey) => {
-            const list = annotatedAtoms.filter(a => (a.objectiveIds?.[0] || a.parentTerm || a.type) === groupKey);
-            const objective = objectiveById.get(groupKey);
-            const groupTitle = objective?.objective || objective?.text || objective?.title || list[0]?.parentTerm || TYPE_META[list[0]?.type]?.label || 'Supporting facts';
-            return (
-              <details key={groupKey} className="rounded-lg border border-border p-3">
-                <summary className="cursor-pointer text-sm font-semibold text-text-1">
-                  {groupTitle} <span className="font-normal text-text-3">· {list.length} supporting facts</span>
-                </summary>
-                <div className="flex flex-col gap-1.5">
-                  {list.map((a, i) => {
-                    const meta = TYPE_META[a.type] || TYPE_META.definition;
-                    const atomKey = normAtomKey(a.term);
-                    const isTarget = reviewAtomKey === atomKey;
-                    return (
-                    <div
-                      key={i}
-                      id={`atom-${atomKey}`}
-                      className={
-                        "rounded-lg border-l-2 bg-bg-elevated px-3 py-2 text-xs transition-colors duration-500 " +
-                        meta.accent +
-                        (isTarget ? " ring-2 ring-accent bg-accent-soft" : "")
-                      }
-                    >
-                      <span className="font-semibold text-text-1">{a.term}</span>
-                      {a.importanceTier && TIER_META[a.importanceTier] && (
-                        <span className={`ml-1.5 rounded border px-1 py-0.5 text-[10px] font-semibold ${TIER_META[a.importanceTier].className}`} title={a.parentTerm ? `Parent: ${a.parentTerm}` : ""}>
-                          {TIER_META[a.importanceTier].label}
-                        </span>
-                      )}
-                      {a.parentTerm && (
-                        <span className="ml-1.5 text-[10px] text-text-3">↳ {a.parentTerm}</span>
-                      )}
-                      {a.isHighYield && (
-                        <span className="ml-1.5 rounded bg-accent/15 px-1 font-mono text-[13px] text-accent" title={`Appears in ${a.crossCount} lectures`}>
-                          ⭐ ×{a.crossCount}
-                        </span>
-                      )}
-                      <span className="text-text-2"> — {a.content}</span>
-                      {(a.clinicalCorrelate || a.clinicalCues?.length || a.buzzwords?.length || a.inheritancePattern) && (
-                        <div className="mt-2 rounded border border-accent/30 bg-accent/5 px-2 py-1.5 text-[11px] text-text-2">
-                          <div className="font-semibold text-accent-text">Clinical recognition</div>
-                          {a.clinicalCorrelate && <div>{a.clinicalCorrelate}</div>}
-                          {a.clinicalCues?.length > 0 && <div className="text-text-3">Cues: {a.clinicalCues.join(" · ")}</div>}
-                          {a.buzzwords?.length > 0 && <div className="text-text-3">Lecture buzzwords: {a.buzzwords.join(" · ")}</div>}
-                          {a.inheritancePattern && <div className="text-text-3">Inheritance: {a.inheritancePattern}</div>}
-                        </div>
-                      )}
-                      {a.objectiveIds?.length > 0 && (
-                        <div className="mt-1.5 flex flex-wrap gap-1">
-                          {objectiveChips(a.objectiveIds, objectiveById).map((chip) => (
-                            <span
-                              key={chip.key}
-                              title={chip.title}
-                              className="rounded border border-border px-1.5 py-0.5 font-mono text-[13px] text-text-3"
-                            >
-                              {chip.label}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                    );
-                  })}
-                </div>
-              </details>
-            );
-          })}
-          </div>
-        </div>
-      )}
         </div>
       </LecturePanel>
     </main>

@@ -29,10 +29,6 @@ import { analyzeLecture } from "../../../ingest/teachingMap.js";
 import { createObjectiveCommands, selectBlockObjectives } from "../../logic/objectives.js";
 import { extractAtoms as extractAtomsForLecture, MIN_TEXT } from "./lectureStudy.js";
 import { callAIJSON } from "../../../aiClient.js";
-import { generateStudyGuide } from "../../../engine/studyGuide.js";
-import { generateMentalModel } from "../../../engine/mentalModel.js";
-import * as studyGuideStore from "../../../stores/studyGuide.js";
-import * as mentalModelStore from "../../../stores/mentalModel.js";
 import {
   buildLectureRecord,
   buildLectureFromExtraction,
@@ -71,7 +67,6 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
   const [objectiveResult, setObjectiveResult] = useState("");
   const [mapResult, setMapResult] = useState("");
   const [atomsResult, setAtomsResult] = useState("");
-  const [assetsResult, setAssetsResult] = useState("");
   const [lastFiles, setLastFiles] = useState([]);
   const [combinedTitle, setCombinedTitle] = useState("");
 
@@ -270,34 +265,6 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
     [saved, userId]
   );
 
-  const buildStudyAssets = useCallback(async (lecture, objectives, atoms) => {
-    if (!atoms?.length) return;
-    setProgress("Building the study guide and mental map…");
-    try {
-      const subject = lecture?.lectureTitle || lecture?.title || "this lecture";
-      const [guideResult, modelResult] = await Promise.all([
-        generateStudyGuide({ objectives, atoms, subject }, { callAIJSON }),
-        generateMentalModel({ atoms, objectives, subject }, { callAIJSON }),
-      ]);
-      const made = [];
-      if (guideResult.topics?.length) {
-        studyGuideStore.write(userId, lecture.id, {
-          topics: guideResult.topics.map((text, i) => ({ id: `t${i}`, text, checked: false })),
-          generated: Date.now(),
-        });
-        made.push("study guide");
-      }
-      if (modelResult.model) {
-        mentalModelStore.write(userId, lecture.id, modelResult.model);
-        made.push("mental map");
-      }
-      setAssetsResult(made.length ? `${made.join(" + ")} ready.` : "⚠ Study assets could not be generated.");
-    } catch (e) {
-      setAssetsResult("⚠ Study assets failed: " + (e?.message || String(e)));
-    } finally {
-      setProgress("");
-    }
-  }, [userId]);
 
   /**
    * Save, then pull everything out of the lecture without being asked. Each AI
@@ -306,7 +273,7 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
    */
   const addAndProcess = useCallback(async () => {
     if (!preview) return;
-    setBusy(true); setError(""); setObjectiveResult(""); setAtomsResult(""); setAssetsResult("");
+    setBusy(true); setError(""); setObjectiveResult(""); setAtomsResult("");
     try {
       const incoming = { ...preview.lecture, lectureDate: lectureDate || null };
       const current = lecturesStore.read(userId) || [];
@@ -368,12 +335,6 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
           update(`Mapped ${objectives.length} objectives · extracting supporting facts…`);
           update("Extracting high-yield atoms…");
           const atoms = await extractAtomsStep(lecture, false, update);
-          if (atoms.length) {
-            update(`${atoms.length} supporting facts · building optional study assets…`);
-            await buildStudyAssets(lecture, objectives, atoms);
-          } else {
-            setAssetsResult("Skipped — objective-based quiz generation can still use the lecture content.");
-          }
           onAdded?.(lecture);
           return `${objectives.length} objectives · ${atoms.length} supporting facts`;
         },
@@ -390,7 +351,7 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
       setBusy(false);
       setProgress("");
     }
-  }, [preview, lectureDate, userId, onAdded, onClose, extractObjectives, extractAtomsStep, buildStudyAssets, targetLecture]);
+  }, [preview, lectureDate, userId, onAdded, onClose, extractObjectives, extractAtomsStep, targetLecture]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => { if (!busy) onClose?.(); }}>
@@ -479,9 +440,6 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
             </div>
             <div className={`mt-1 font-mono text-[13px] ${atomsResult.startsWith("⚠") ? "text-warn" : "text-good"}`}>
               ◆ {atomsResult || (busy ? "extracting high-yield atoms…" : "—")}
-            </div>
-            <div className={`mt-1 font-mono text-[13px] ${assetsResult.startsWith("⚠") ? "text-warn" : "text-good"}`}>
-              ◉ {assetsResult || (busy ? "building study guide + mental map…" : "—")}
             </div>
             <div className="mt-2 flex flex-wrap gap-2">
               <Button variant="outline" onClick={() => extractObjectives()} disabled={busy}>
