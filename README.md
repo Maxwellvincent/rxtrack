@@ -154,6 +154,14 @@ Core: `src/engine/mcq.js` (prompt assembly, review, repair). Routing:
   Ownership stays one objective in the primary lecture. Lecture quizzes and saved
   source relationships remain single-lecture.
 
+**Linking uploaded school questions** (`semanticObjectiveMapping.js`, run from the
+question-bank screen): two agreeing AI reviews on Ollama Cloud (DeepSeek first)
+must cite an exact excerpt from the lecture and an objective linked to it. An
+integrated IMCQ/ESoft item may link one objective in each of two lectures
+(`secondaryLectureIds`, `curriculumMapping.crossLecture`), each quote from its
+own lecture. Progress stores a fingerprint of the block's lectures and objectives;
+if it changes, earlier unresolved questions are evaluated again on Resume.
+
 Pipeline details and live-run notes: [docs/question-preparation-pipeline.md](docs/question-preparation-pipeline.md),
 [docs/question-writing-standard.md](docs/question-writing-standard.md),
 [docs/quality/](docs/quality/).

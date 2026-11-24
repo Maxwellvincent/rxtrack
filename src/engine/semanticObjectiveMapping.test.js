@@ -84,3 +84,21 @@ it('shows the whole curriculum directory and honors a source request beyond the 
  const review=vi.fn().mockResolvedValueOnce({decision:'unresolved',requestedLectureIds:['l13']}).mockResolvedValue(accepted);
  const mapped=await classifyObjectiveMapping(q,{lectures:local,objectives:[target],blockId:'NB',review});expect(mapped?.lectureId).toBe('l13');expect(review).toHaveBeenCalledTimes(3);
 });
+
+it('links an integrated question to one objective in each of two lectures when each quote comes from its own lecture',async()=>{
+ const fear='The ventromedial prefrontal cortex down-regulates amygdala firing during formation of extinction memory.';
+ const vessel='The anterior cerebral artery supplies the medial and orbital surfaces of the frontal lobe including prefrontal cortex.';
+ const lecs=[{id:'nb55',blockId:'NB',lectureTitle:'NB 55 Emotions',chunks:[{text:fear}]},{id:'nb40',blockId:'NB',lectureTitle:'NB 40 Cerebral Blood Supply',chunks:[{text:vessel}]}];
+ const objs=[{id:'o55',blockId:'NB',linkedLecId:'nb55',objective:'Understand fear and extinction learning circuitry'},{id:'o40',blockId:'NB',linkedLecId:'nb40',objective:'Describe the territories of the cerebral arteries'}];
+ const q={stem:'After an ischemic stroke, a previously extinguished fear of flying returns. Occlusion of which artery best explains this?',choices:{A:'Anterior cerebral artery',B:'Posterior cerebral artery'},correct:'A',sourceSectionTitle:'NB 55 Emotions'};
+ const links=[{objectiveId:'o55',objectiveText:objs[0].objective,lectureId:'nb55',sourceQuote:fear,testedRelationship:'vmPFC loss releases amygdala from extinction memory'},
+  {objectiveId:'o40',objectiveText:objs[1].objective,lectureId:'nb40',sourceQuote:vessel,testedRelationship:'ACA territory includes the prefrontal cortex'}];
+ const review=vi.fn().mockResolvedValue({decision:'objective',links});
+ const result=await classifyObjectiveMapping(q,{lectures:lecs,objectives:objs,blockId:'NB',review});
+ expect(result.lectureId).toBe('nb55');
+ expect(result.objectiveIds).toEqual(['o55','o40']);
+ expect(result.secondaryLectureIds).toEqual(['nb40']);
+ expect(result.curriculumMapping.crossLecture).toBe(true);
+ const context=objectiveMappingContext({...q,mappingQuery:'anterior cerebral artery prefrontal'},lecs,objs,'NB',{expanded:true,requestedLectureIds:['nb55','nb40']});
+ expect(validateObjectiveMapping({decision:'objective',links:[links[0],{...links[1],sourceQuote:fear}]},context)).toBeNull();
+});
