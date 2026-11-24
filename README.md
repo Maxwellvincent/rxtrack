@@ -106,6 +106,8 @@ Secrets (`firebase functions:secrets:set`): `ANTHROPIC_API_KEY`,
 
 ## Question generation
 
+Objective ownership: on strict reviews the reviewer names the source objective a draft actually tests. If that is another objective in the same quiz, the draft is re-filed there (`refileToReviewedObjective`, `refiledFromObjectiveId`) instead of being rejected; only an owner outside the quiz is still `objective_mismatch`.
+
 Answer reveal (lecture quizzes, practice and exam review): each choice's reasoning shows directly under that choice (`choiceNotes` / `ChoiceNote` in `ui/QuestionExplanation.jsx`) — "✓ Why this is right", "✕ Why your answer is wrong", or "Why not" — and the block below the choices keeps only the general explanation.
 
 Answer-choice terminology (`QUESTION_CHOICE_CONTRACT` in `engine/questionContract.js`): the keyed answer and its comparable distractors use the term the lecture uses most often for a concept, not a once-mentioned synonym, so difficulty comes from reasoning rather than unfamiliar wording.

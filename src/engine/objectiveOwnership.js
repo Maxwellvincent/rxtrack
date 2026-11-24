@@ -2,6 +2,26 @@ import { lectureSourceObjectives } from "./sourceObjectiveScope.js";
 
 const normalize = value => String(value || "").toLowerCase().replace(/\s+/g, " ").trim();
 
+const codeKey = value => String(value || "").replace(/\s/g, "").toUpperCase();
+
+/**
+ * When the reviewer independently names a different objective that is also in
+ * this quiz, the question is sound but mis-filed: move it to that objective
+ * rather than discarding it. Objectives outside the quiz stay a mismatch.
+ */
+export function refileToReviewedObjective(review, question, cfg = {}) {
+  const chosen = codeKey(review?.objectiveAlignment?.bestSourceObjectiveCode);
+  const assigned = (cfg.objectives || []).find(o => (question?.objectiveIds || []).includes(String(o.id || o.code)));
+  if (!chosen || !assigned || codeKey(assigned.code) === chosen) return { question, review };
+  const owner = (cfg.objectives || []).find(o => codeKey(o.code) === chosen);
+  if (!owner || !String(review?.objectiveAlignment?.whyAssignedOverNeighbor || "").trim()) return { question, review };
+  const ownerId = String(owner.id || owner.code);
+  return {
+    question: { ...question, objectiveIds: [ownerId], refiledFromObjectiveId: String(assigned.id || assigned.code) },
+    review: { ...review, objectiveAligned: true, objectiveAlignment: { ...review.objectiveAlignment, objectiveId: ownerId, refiled: true } },
+  };
+}
+
 /** Explicit verdict and optional clause evidence, not a keyword-based remapper. */
 export function objectiveAlignmentIssue(review, question, cfg = {}) {
   if (!(cfg.objectives || []).length) return null;
@@ -21,6 +41,9 @@ export function objectiveAlignmentIssue(review, question, cfg = {}) {
     }
   }
   if (!claim) return null; // Older reviewers retain their explicit aligned verdict.
+  // A re-filed question was placed by the reviewer's own inventory choice; its
+  // clause was written for the original objective, so only the owner is checked.
+  if (claim.refiled && question.refiledFromObjectiveId) return String(claim.objectiveId) === String((question.objectiveIds || [])[0]) && String(claim.testedRelationship || "").trim() ? null : "unverified_objective_alignment";
   const ids = question.objectiveIds || [];
   const objective = ids.length === 1 && cfg.objectives.find(row => String(row.id || row.code) === String(ids[0]));
   const target = normalize(objective?.objective || objective?.text);

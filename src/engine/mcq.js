@@ -17,7 +17,7 @@ import { buildBlindSolvePrompt, blindSolveIssue } from "./blindQuestionSolve.js"
 import { buildLocalMcqPrompt, buildLocalAuditPrompt } from "./localQuestionPrompts.js";
 import { discriminationIssue, verifiedDiscrimination, DISCRIMINATION_REVIEW_CONTRACT } from "./questionDiscrimination.js";
 import { QUESTION_REUSE_REVIEW_POLICY } from "./questionReuse.js";
-import { objectiveAlignmentIssue, objectiveOwnershipPrompt } from "./objectiveOwnership.js";
+import { objectiveAlignmentIssue, objectiveOwnershipPrompt, refileToReviewedObjective } from "./objectiveOwnership.js";
 import { usableSchoolExemplar, requiresSchoolFigure } from "./schoolSourceIntegrity.js";
 import { preparationErrorMessage } from "../preparationError.js";
 import { QUESTION_CLARITY_CONTRACT, questionClarityIssues } from "./questionClarity.js";
@@ -1407,6 +1407,15 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
     if(blindWork){const failure=await blindWork;if(failure)return failure;}
     const reviews = Array.isArray(raw?.reviews) ? raw.reviews : [];
     const byIndex = new Map(reviews.map((review) => [Number(review?.index), review]));
+    // A sound draft the reviewer places under another objective of this quiz is
+    // re-filed there; only an owner outside the quiz remains objective_mismatch.
+    questions = questions.map((question, index) => {
+      const review = byIndex.get(index);
+      if (!review) return question;
+      const refiled = refileToReviewedObjective(review, question, cfg);
+      if (refiled.question !== question) byIndex.set(index, refiled.review);
+      return refiled.question;
+    });
     const rejectionRows = questions.map((question, index) => {
       const structuralIssues=questionAdmissionIssues(question);
       if(structuralIssues.length)return [{objectiveIds:question.objectiveIds || [],issues:structuralIssues,rationale:"Incomplete question structure cannot enter a new set."}];
