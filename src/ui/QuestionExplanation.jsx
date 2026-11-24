@@ -46,6 +46,8 @@ function condensedSourcePoint(text, correctText = "") {
   return summary;
 }
 
+const CHOICE_STOPWORDS = new Set(["which", "following", "other", "about", "their", "there", "these", "those", "would", "could", "should", "being", "after", "before"]);
+
 /** Per-choice reasoning for showing directly under each answer choice, plus the general lead. */
 export function choiceNotes({ text, whyWrong, choices = {}, correctLetter, sourceType = null } = {}) {
   const parsed = parsedBullets(text);
@@ -57,14 +59,27 @@ export function choiceNotes({ text, whyWrong, choices = {}, correctLetter, sourc
     const condensed = condensedSourcePoint(text, choices[correctLetter]);
     if (condensed) notes[correctLetter] = condensed;
   }
+  // A source rationale often names a distractor in passing ("Although
+  // benzodiazepines can be used…"); that sentence belongs under that choice.
+  if (text) {
+    const sentences = (cleanText(text).match(/[^.!?]+[.!?]+|[^.!?]+$/g) || []).map((part) => part.replace(/^\s*Explanation:\s*/i, "").trim());
+    for (const [letter, value] of Object.entries(choices)) {
+      if (notes[letter] || letter === correctLetter || typeof value !== "string") continue;
+      const words = value.toLowerCase().match(/[a-z]{5,}/g)?.filter((word) => !CHOICE_STOPWORDS.has(word)) || [];
+      if (!words.length) continue;
+      const stems = words.map((word) => word.slice(0, Math.max(5, word.length - 2)));
+      const hit = sentences.find((sentence) => { const lower = sentence.toLowerCase(); return stems.every((stem) => lower.includes(stem)); });
+      if (hit) notes[letter] = hit;
+    }
+  }
   return { notes, lead: parsed.lead };
 }
 
 /** The reasoning note rendered under one answer choice after reveal (symbols + text, never color alone). */
-export function ChoiceNote({ note, letter, correctLetter, pickedLetter }) {
+export function ChoiceNote({ note, letter, correctLetter, pickedLetter, aiWritten = false }) {
   if (!note) return null;
   const correct = letter === correctLetter, picked = letter === pickedLetter;
-  const label = correct ? "✓ Why this is right" : picked ? "✕ Why your answer is wrong" : "Why not";
+  const label = (correct ? "✓ Why this is right" : picked ? "✕ Why your answer is wrong" : "Why not") + (aiWritten ? " (AI)" : "");
   return <div data-testid={`choice-note-${letter}`} className={`border-t px-3 py-2 text-[13px] leading-relaxed ${correct ? "border-good/30 text-text-1" : picked ? "border-bad/30 text-text-1" : "border-border text-text-2"}`}>
     <span className="mr-1 font-semibold">{label}:</span><LabAnnotatedText text={note} />
   </div>;

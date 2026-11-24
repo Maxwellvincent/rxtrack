@@ -22,3 +22,10 @@ it('carries the saved source figure into the lecture quiz renderer',()=>{
  const result=schoolContinuationQuestions({...args,banks:{'Homework.pdf':[{...question(3),hasImage:true,sourceImageUrl:'https://example.com/crop.jpg'}]}});
  expect(result[0].image.url).toBe('https://example.com/crop.jpg');
 });
+it('skips school questions already answered in any earlier quiz',async()=>{
+ const {quizAnswerKey}=await import('../../../engine/questionHistory.js');
+ const {questionEvidenceKey}=await import('../../../stores/learnerEvidence.js');
+ const answered=new Set([questionEvidenceKey(quizAnswerKey({...question(1),sourceRepresentation:'original-school-question'}))]);
+ const result=schoolContinuationQuestions({...args,answeredKeys:answered});
+ expect(result.map(q=>q.id)).toEqual(['q2']);
+});

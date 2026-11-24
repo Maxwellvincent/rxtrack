@@ -46,6 +46,7 @@ import { Button } from "../../../ui/Button.jsx";
 import { advanceOnEnter } from "../../../ui/nextQuestion.js";
 import { QuestionStem } from "../../../ui/QuestionStem.jsx";
 import { QuestionExplanation, ChoiceNote, choiceNotes } from "../../../ui/QuestionExplanation.jsx";
+import { ExplainOtherChoicesButton, mergeAiChoiceNotes } from "../../../ui/ExplainOtherChoices.jsx";
 import { ChoiceValue, hasTableChoices } from "../../../ui/ChoiceValue.jsx";
 import { QuestionQualityRating } from "../../../ui/QuestionQualityRating.jsx";
 import { useExamSessionController } from "./useExamSessionController.js";
@@ -267,7 +268,7 @@ function SyncIndicator({ status }) {
 function ChoiceList({questionId,...props}) {
   return <QuestionChoices key={questionId} {...props}/>;
 }
-function QuestionChoices({ choices, picked, revealed, correct, onPick, onCrossedChange, crossedChoices = [], locked = false, choiceColumns = [], choiceLayout = null, notes = null }) {
+function QuestionChoices({ choices, picked, revealed, correct, onPick, onCrossedChange, crossedChoices = [], locked = false, choiceColumns = [], choiceLayout = null, notes = null, aiLetters = null }) {
   const crossedKey = crossedChoices.join("|");
   const [localCrossed,setCrossed]=useState(()=>({key:crossedKey,letters:new Set(crossedChoices)}));
   const crossed=localCrossed.key===crossedKey?localCrossed.letters:new Set(crossedChoices);
@@ -314,7 +315,7 @@ function QuestionChoices({ choices, picked, revealed, correct, onPick, onCrossed
             onCrossedChange?.([...next].sort());
           }} className="w-10 shrink-0 border-l border-border text-text-3 hover:bg-bg-2 hover:text-text-1 sm:w-11">{isCrossed ? "↩" : "×"}</button>}
           </div>
-          {revealed && <ChoiceNote note={notes?.[letter]} letter={letter} correctLetter={correct} pickedLetter={picked} />}
+          {revealed && <ChoiceNote note={notes?.[letter]} letter={letter} correctLetter={correct} pickedLetter={picked} aiWritten={!!aiLetters?.has(letter)} />}
           </div>
         );
       })}
@@ -543,10 +544,12 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
   const toolsRef = useRef(null);
   const [textToolsTarget, setTextToolsTarget] = useState(null);
   const [reasonFirst, setReasonFirst] = useState(false);
+  const [, setChoiceNotesRevision] = useState(0);
   const isCorrect = revealed && !!q?.correct && picked === q.correct;
   const [diagnostics, setDiagnostics] = useState({});
   const diagnosed = !!diagnostics[q?.questionId];
   const showAnswer = revealed && (!reasonFirst || diagnosed);
+  const practiceNotes = showAnswer && q ? mergeAiChoiceNotes(q, choiceNotes({ text: q.explanation, whyWrong: q.whyWrong, choices: q.choices, correctLetter: q.correct, sourceType: q.sourceType || session.sourceType }).notes) : { notes: null, aiLetters: null };
   if (!q) return null; // Preparation status is shown once above the question area.
 
   return (
@@ -605,7 +608,8 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
           revealed={showAnswer}
           locked={revealed && !showAnswer}
           correct={q.correct}
-          notes={showAnswer ? choiceNotes({ text: q.explanation, whyWrong: q.whyWrong, choices: q.choices, correctLetter: q.correct, sourceType: q.sourceType || session.sourceType }).notes : null}
+          notes={practiceNotes.notes}
+          aiLetters={practiceNotes.aiLetters}
           onPick={letter => answerQuestion(q.questionId, letter, { revealed: false })}
           onCrossedChange={letters => setEliminatedChoices?.(q.questionId, letters)}
         />
@@ -633,6 +637,7 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
 
         {showAnswer && (
           <div className="mt-3 space-y-2">
+            <ExplainOtherChoicesButton question={q} notes={practiceNotes.notes} onDone={() => setChoiceNotesRevision((value) => value + 1)} />
             <div data-testid="practice-reveal" className={"text-xs " + (isCorrect ? "text-good" : "text-bad")}>
               {!q.correct ? "Unscored · source key needs verification" : isCorrect ? "✓ Correct" : "✕ Incorrect"}
             </div>
@@ -686,6 +691,7 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, object
   // for focused remediation after the full set is visible.
   const [filter, setFilter] = useState("all");
   const [worksheetError, setWorksheetError] = useState("");
+  const [, setReviewNotesRevision] = useState(0);
   const answered = questions.filter((q) => pickedFor(session, q.questionId) != null);
   const scoreableAnswered = answered.filter(q => !questionRatingsStore.isExcluded(userId, q) && !(session.scoringExcludedQuestionIds||[]).includes(q.questionId));
   const correctCount = scoreableAnswered.filter((q) => pickedFor(session, q.questionId) === q.correct).length;
@@ -779,6 +785,7 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, object
           return objective?.objective || objective?.text || objective?.code || objective?.objectiveCode || id;
         }).filter(Boolean).join("; ");
         const context = [lectureLabel, objectiveLabel].filter(Boolean).join(" · ");
+        const reviewNotes = mergeAiChoiceNotes(q, choiceNotes({ text: q.explanation, whyWrong: q.whyWrong, choices: q.choices, correctLetter: q.correct, sourceType: q.sourceType || session.sourceType }).notes);
         return (
           <article key={q.questionId} data-testid="review-question" className="rounded-lg border border-border bg-bg-elevated p-3">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
@@ -788,7 +795,8 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, object
             <QuestionMeta question={q} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} />
             <QuestionStem text={q.stem} questionId={q.questionId} />
             <SchoolQuestionFigure question={q} userId={userId} />
-            <ChoiceList questionId={q.questionId} choices={q.choices} choiceColumns={q.choiceColumns} choiceLayout={q.choiceLayout} picked={picked} crossedChoices={(session.answers || []).find(answer => answer.questionId === q.questionId)?.eliminatedChoices || []} revealed correct={q.correct} notes={choiceNotes({ text: q.explanation, whyWrong: q.whyWrong, choices: q.choices, correctLetter: q.correct, sourceType: q.sourceType || session.sourceType }).notes} onPick={() => {}} />
+            <ChoiceList questionId={q.questionId} choices={q.choices} choiceColumns={q.choiceColumns} choiceLayout={q.choiceLayout} picked={picked} crossedChoices={(session.answers || []).find(answer => answer.questionId === q.questionId)?.eliminatedChoices || []} revealed correct={q.correct} notes={reviewNotes.notes} aiLetters={reviewNotes.aiLetters} onPick={() => {}} />
+            <div className="mt-2"><ExplainOtherChoicesButton question={q} notes={reviewNotes.notes} onDone={() => setReviewNotesRevision((value) => value + 1)} /></div>
             {(q.explanation || Object.keys(q.whyWrong || {}).length > 0) ? (
               <div className="mt-3">
                 <QuestionExplanation notesInline selectedLetter={picked} text={q.explanation} correctLetter={q.correct} whyWrong={q.whyWrong} choices={q.choices} sourceType={q.sourceType || session.sourceType} />

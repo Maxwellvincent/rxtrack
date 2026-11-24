@@ -70,3 +70,16 @@ describe("inline answer-choice notes", () => {
     act(() => root.unmount());
   });
 });
+
+describe("notes for wrong choices from the source rationale", () => {
+  it("attaches the rationale sentence that names a distractor to that distractor", async () => {
+    const { choiceNotes } = await import("./QuestionExplanation.jsx");
+    const text = "Explanation: The best initial treatment for somebody with an anxiety disorder is cognitive behavioral therapy. Although benzodiazepines can be used to manage anxiety, it is not the ideal first step given the risk of addiction.";
+    const { notes } = choiceNotes({ text, sourceType: "question-bank", correctLetter: "D",
+      choices: { A: "Benzodiazepines", B: "Antipsychotics", C: "A selective serotonin reuptake inhibitor", D: "Cognitive behavioral therapy", E: "A mood stabilizer" } });
+    expect(notes.A).toMatch(/^Although benzodiazepines can be used/);
+    expect(notes.D).toMatch(/cognitive behavioral therapy/);
+    expect(notes.B).toBeUndefined();
+    expect(notes.C).toBeUndefined();
+  });
+});

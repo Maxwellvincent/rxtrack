@@ -23,6 +23,7 @@ import { latestLearningRecords } from "../../../engine/learningLoop.js";
 import { ObjectiveLearningReport } from "../../../ui/ObjectiveLearningReport.jsx";
 import { lectureSourceObjectives } from "../../../engine/sourceObjectiveScope.js";
 import { schoolContinuationQuestions } from "./lectureQuizContinuation.js";
+import { answeredQuestionKeys } from "../../../engine/questionHistory.js";
 import { preparationJobKey, getPreparationJob, startPreparationJob, recoverPreparationFailure, subscribePreparationJob, cancelOtherAccountJobs } from "../../../questionPreparationJobs.js";
 import { preparationErrorMessage } from "../../../preparationError.js";
 import { readQuestionDiagnostics, saveQuestionDiagnostics } from "../../../questionDiagnostics.js";
@@ -717,6 +718,7 @@ export function LectureStudyFlow({
       banks: questionBanksRes.data || {}, metadata: questionBankMetaRes.data || {}, lecture, blockId,
       missing: Math.max(0, count - reserve.length), difficulty,
       history: [...generatedHistory, ...reserve], ratings: questionRatingsStore.read(userId).ratings || {},
+      answeredKeys: answeredQuestionKeys(learnerEvidence.data?.evidenceJournal || []),
     }) : [];
     reserve.push(...originalSchoolItems);
     if (originalSchoolItems.length) setObjectiveNotice(`Added ${originalSchoolItems.length} unseen original school question${originalSchoolItems.length === 1 ? "" : "s"} to continue this quiz. Original wording and answer keys are preserved.`);

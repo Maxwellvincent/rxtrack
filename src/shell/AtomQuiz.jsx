@@ -14,6 +14,8 @@ import { classify, atomsToReview } from "../engine/calibration.js";
 import { appendCalibration } from "../engine/calibrationStore.js";
 import { recordAnswer } from "../stores/lectureQuestionStats.js";
 import { recordAtomAnswer } from "../stores/atomProgress.js";
+import { quizAnswerKey, questionHistory } from "../engine/questionHistory.js";
+import { ExplainOtherChoicesButton, mergeAiChoiceNotes } from "../ui/ExplainOtherChoices.jsx";
 import { questionEvidenceKey, read as readLearnerEvidence, recordEvidenceAwait, recordReflection } from "../stores/learnerEvidence.js";
 import { classifyLeadIn, ERROR_REASONS } from "./features/exam/questionReading.js";
 import * as objectivesStore from "../stores/blockObjectives.js";
@@ -49,6 +51,8 @@ const GAP = {
 // accuracy-by-confidence curve + landmine list.
 export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "", lectureTitle = "", lectureNumber = null, lectureId = null, userId, onDone, onExit, onReviewAtom, onAnswer, onCheckpoint, initialState = null, expectedCount = null, preparing = false, onPrepareMore = null, preparationError = null, objectiveReport = null, sessionKey = null }) {
   const [assistance,setAssistance]=useState(()=>initialState?.assistance || {});
+  const [attemptHistory, setAttemptHistory] = useState(null);
+  const [, setChoiceNotesRevision] = useState(0);
   const assistanceRef=useRef(assistance);
   const [coachBusy,setCoachBusy]=useState({});
   const [evidenceSaveError,setEvidenceSaveError]=useState('');
@@ -114,7 +118,10 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
   const displayedTotal = preparing ? Math.max(questions.length, Number(expectedCount) || 0) : questions.length;
   const missingCount = Math.max(0, (Number(expectedCount) || 0) - questions.length);
   const revealed = confidence != null;
-  const revealedNotes = revealed ? choiceNotes({ text: q.explanation, whyWrong: q.whyWrong, choices: q.choices, correctLetter: q.correct, sourceType: q.sourceType }).notes : {};
+  // Earlier answers to this exact question, captured before this answer was recorded.
+  const pastAttempts = revealed && attemptHistory?.index === currentIndex ? attemptHistory.value : null;
+  const sourceNotes = revealed ? choiceNotes({ text: q.explanation, whyWrong: q.whyWrong, choices: q.choices, correctLetter: q.correct, sourceType: q.sourceType }).notes : {};
+  const { notes: revealedNotes, aiLetters } = revealed ? mergeAiChoiceNotes(q, sourceNotes) : { notes: {}, aiLetters: new Set() };
   const correct = revealed && picked === q.correct;
   const quadrant = revealed ? classify({ confidence, correct }) : null;
 
@@ -127,7 +134,8 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
     const responseMs = nowMs() - questionStartedAtRef.current;
     setConfidence(level);
     const answerAt=nowMs();
-    const answerKey=q.poolId||q.id||q.questionId||q.questionKey||`stem:${q.stem||""}`;
+    const answerKey=quizAnswerKey(q);
+    setAttemptHistory({ index: currentIndex, value: questionHistory(readLearnerEvidence(userId)?.evidenceJournal || [], questionEvidenceKey(answerKey)) });
     const answerEventId=`quiz:${evidenceSessionKeyRef.current}:${currentIndex}:${questionEvidenceKey(answerKey)}`;
     const rec = {
       ...helpFields,
@@ -353,7 +361,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
                   </button>
                 )}
               </div>
-              {revealed && <div className="mx-1 rounded-b-lg border border-t-0 border-border bg-bg-elevated"><ChoiceNote note={revealedNotes[letter]} letter={letter} correctLetter={q.correct} pickedLetter={picked} /></div>}
+              {revealed && <div className="mx-1 rounded-b-lg border border-t-0 border-border bg-bg-elevated"><ChoiceNote note={revealedNotes[letter]} letter={letter} correctLetter={q.correct} pickedLetter={picked} aiWritten={aiLetters.has(letter)} /></div>}
               </div>
             );
           })}
@@ -376,6 +384,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
 
         {revealed && (
           <div className="quiz-feedback mt-3 space-y-2">
+            <ExplainOtherChoicesButton question={q} notes={revealedNotes} onDone={() => setChoiceNotesRevision((value) => value + 1)} />
             <div className={"quiz-result text-xs " + (GAP[quadrant]?.cls || "")}>
               {correct ? "✓ " : "✕ "}{assistance[currentIndex]?.used ? (correct?"Correct after guidance — check a fresh case later.":"This connection still needs repair.") : GAP[quadrant]?.text}
             </div>
@@ -383,6 +392,11 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
                 the end-of-quiz landmine list, so a miss tells you what to go re-study while
                 the question is still on screen. Falls back to nothing rather than the stem:
                 a topic-less label is worse than no label. */}
+            <div className="text-xs text-text-2" data-testid="question-history">
+              {pastAttempts
+                ? <>Seen before: {pastAttempts.count}× · <span className="font-mono">{pastAttempts.results.map((ok) => ok ? "✓" : "✕").join(" ")}</span> · {pastAttempts.correct}/{pastAttempts.count} correct{pastAttempts.lastAt ? ` · last ${new Date(pastAttempts.lastAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : ""}</>
+                : "First time you've answered this question."}
+            </div>
             {q.topic && q.topic !== "Uploaded" && q.topic !== "Exam Review" && (
               <div className="font-mono text-[11px] uppercase tracking-wider text-text-3">
                 Concept: <span className="font-semibold text-text-1 normal-case tracking-normal">{q.topic}</span>
