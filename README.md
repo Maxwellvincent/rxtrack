@@ -56,7 +56,7 @@ Top tabs (`src/shell/TabBar.jsx`):
 | Today | `features/today` | daily plan, block practice card, school alignment, exam sprint, readiness, model retrieval |
 | Lectures | `features/lectures` | lecture workspace: pre-read, study flow, checkpoints, objective coverage/connections (incl. ✓/⚠ check that every slide objective code is uploaded, `objectiveCompleteness.js`), figures, question bank upload |
 | Objectives | `features/objectives` | objective tracker per block, PDF objective import, answer-history audit, quiz launch |
-| Exam | `features/exam` | timed/tutor exam sessions, prepared question sets, results (high-yield ranking `HighYieldPanel` / `blockHighYield.js`, score-report upload, school alignment panel, dashboards, weak areas, calibration, blueprint coverage) |
+| Exam | `features/exam` | timed/tutor exam sessions, **Practice a topic** (`TopicPractice.jsx` / `topicFocus.js`: type e.g. "PICA vs AICA, medial medulla"; matches objectives, key facts and on-demand lecture text in the block, case-sensitive abbreviations, then launches a focused repair set that follows the mastery ladder), prepared question sets, results (high-yield ranking `HighYieldPanel` / `blockHighYield.js`, score-report upload, school alignment panel, dashboards, weak areas, calibration, blueprint coverage) |
 | Guide | `features/guide` | master study guide |
 | More | `Shell.jsx` `MoreTab` | continue learning, calibration, weak concepts, struggle tasks (`features/tracker`), diagnostics/admin |
 

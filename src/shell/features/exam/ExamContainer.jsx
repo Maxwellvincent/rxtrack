@@ -14,6 +14,7 @@ import {QuestionBankMappingStatus} from './QuestionBankMappingStatus.jsx';
 import { QuestionBankManualLinks } from "./QuestionBankManualLinks.jsx";
 import { ScoreReportUpload } from "./ScoreReportUpload.jsx";
 import { HighYieldPanel } from "./HighYieldPanel.jsx";
+import { TopicPractice } from "./TopicPractice.jsx";
 import { blockBlueprintContext, blockBlueprintBanks } from "./blueprintScope.js";
 import { BpmBlueprintDashboard } from "./BpmBlueprintDashboard.jsx";
 import { recoverExamPreparation } from "./preparationRecovery.js";
@@ -859,6 +860,8 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           </Button>
         </div>
       </div>
+
+      <TopicPractice blockId={blockId} userId={userId} lectures={lectures} objectives={objectives} onPractice={openExamLaunch} />
 
       <details className="mb-5 rounded-xl border border-border p-3"><summary className="cursor-pointer text-sm font-semibold">Optional school subject weighting</summary>
       <BpmBlueprintDashboard blockId={blockId} userId={userId} objectivesByLecture={blueprintContext.objectivesByLecture} lectures={blueprintContext.lectures}
