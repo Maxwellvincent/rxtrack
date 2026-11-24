@@ -1,4 +1,4 @@
-> **Historical reference.** The adaptive session (`EngineSession.jsx`) was removed on 2026-11-24; the mastery, selection and session modules survive only as the engine behind Calibrate. See README for what is built.
+> **Historical reference.** The adaptive session (`EngineSession.jsx`) and the Calibrate session that shared its engine were both removed on 2026-11-24; only `engine/mastery.js` survives (used by weak-concept recovery). See README for what is built.
 
 # Adaptive Learning Engine Implementation Plan
 

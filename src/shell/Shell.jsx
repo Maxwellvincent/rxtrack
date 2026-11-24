@@ -18,12 +18,11 @@ import { touchBlock } from "../stores/blockObjectives.js";
 import { defaultBlockId, readCollapsedTerms, readLastView, writeLastView } from "./navPrefs.js";
 
 const VALID_TABS = ["today", "lectures", "objectives", "exam", "more"];
-const VALID_MORE_VIEWS = ["struggle", "calibrate", "diagnostics"];
+const VALID_MORE_VIEWS = ["struggle", "diagnostics"];
 import { Sidebar } from "./Sidebar.jsx";
 import { Header } from "./Header.jsx";
 import { TabBar } from "./TabBar.jsx";
 import { CommandPalette } from "../ui/CommandPalette.jsx";
-const CalibrationSession=lazy(()=>import("../engine/CalibrationSession.jsx").then(m=>({default:m.CalibrationSession})));
 import { Button } from "../ui/Button.jsx";
 import { PracticeModeTabs } from "./features/lectures/PracticeModeTabs.jsx";
 import { signInWithGoogle, signOut, onAuthChange, completeRedirectSignIn, pullAllDataFromCloud } from "../firebaseData.js";
@@ -220,7 +219,6 @@ function ShellMain({ theme, toggle, userId }) {
     import('../stores/reviewLibrary.js').then(store=>store.ensureReviewLibrary(userId,activeBlockId)).catch(error=>console.warn('NB2 review-source sync:',error.message));
   },[userId,activeBlockId,termsResource.loading,termsResource.error,termsResource.data]);
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [sessionMode, setSessionMode] = useState(null); // null | 'engine' | 'calibrate'
   const [showAnki, setShowAnki] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [showAddLecture, setShowAddLecture] = useState(false);
@@ -331,7 +329,6 @@ function ShellMain({ theme, toggle, userId }) {
     [blocks]
   );
 
-  const onCalibrate = useCallback(() => setSessionMode("calibrate"), []);
 
   const switchTab = useCallback((t) => { setTab(t); setMoreView(null); }, []);
 
@@ -371,7 +368,6 @@ function ShellMain({ theme, toggle, userId }) {
         activeBlockId={activeBlockId}
         onSelectBlock={(id) => {
           setSelectedBlockId(id);
-          setSessionMode(null);
           setTab("today");
           setMoreView(null);
           setStudyLecture(null);
@@ -403,18 +399,17 @@ function ShellMain({ theme, toggle, userId }) {
           onSignOut={() => signOut().then(() => window.location.reload())}
         />
         {/* Tab bar — hidden while a full-screen overlay is active */}
-        {blocks.length > 0 && !sessionMode && !studyLecture && activeBlockId !== CBSE_BLOCK_ID && (
+        {blocks.length > 0 && !studyLecture && activeBlockId !== CBSE_BLOCK_ID && (
           <TabBar active={tab} onChange={switchTab} />
         )}
         <main id="study-content" tabIndex={-1} ref={mainRef} onScroll={onMainScroll} className="desk-content flex-1 overflow-y-auto">
           {cbseSetupError && <div role="alert" className="m-4 rounded border border-bad p-3">CBSE Prep setup: {cbseSetupError}<button className="ml-3 underline" onClick={() => termsStore.writeAwait(userId, termsStore.read(userId)).then(() => setCbseSetupError(null)).catch(error => setCbseSetupError(error.message))}>Retry</button></div>}
           <StudyViewErrorBoundary
-            resetKey={`${tab}|${activeBlockId || ""}|${studyLecture?.id || ""}|${sessionMode || ""}|${moreView || ""}`}
+            resetKey={`${tab}|${activeBlockId || ""}|${studyLecture?.id || ""}|${moreView || ""}`}
             onReset={() => {
               setStudyLecture(null);
               setPendingAutoQuiz(null);
-              setSessionMode(null);
-              setTab("today");
+                  setTab("today");
               setMoreView(null);
             }}
           >
@@ -430,14 +425,6 @@ function ShellMain({ theme, toggle, userId }) {
                 <p className="mt-2 text-sm text-text-3">Exam and More will appear as soon as the schedule selection finishes loading.</p>
               </div>
             </div>
-          ) : sessionMode === "calibrate" && activeBlockId ? (
-              <CalibrationSession
-                userId={userId}
-                blockId={activeBlockId}
-                blockName={active?.name}
-                newPool={[]}
-                onExit={() => setSessionMode(null)}
-              />
           ) : studyLecture ? (
             <div className="relative flex-1">
               <LectureStudyFlow
@@ -493,7 +480,6 @@ function ShellMain({ theme, toggle, userId }) {
             <MoreTab
               view={moreView}
               onView={setMoreView}
-              onCalibrate={onCalibrate}
               struggle={<StruggleTasks userId={userId} lectures={(allLectures.data || []).filter((l) => l.blockId === activeBlockId)} />}
               admin={canViewQuestionDiagnostics(userId) ? <QuestionDiagnosticsAdmin userId={userId} lectures={allLectures.data || []} /> : null}
             />
@@ -520,7 +506,7 @@ function ShellMain({ theme, toggle, userId }) {
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}
         items={paletteItems}
-        onPick={(it) => { setSelectedBlockId(it.id); setSessionMode(null); setTab("today"); setMoreView(null); setStudyLecture(null); setPendingAutoQuiz(null); }}
+        onPick={(it) => { setSelectedBlockId(it.id); setTab("today"); setMoreView(null); setStudyLecture(null); setPendingAutoQuiz(null); }}
       />
       {showImportObjectives && activeBlockId && (
         <ImportObjectivesPdfModal
@@ -600,27 +586,21 @@ function ShellMain({ theme, toggle, userId }) {
   );
 }
 
-function MoreTab({ view, onView, onCalibrate, struggle, admin }) {
+function MoreTab({ view, onView, struggle, admin }) {
   const modes = [
     { id: "struggle", label: "Anki struggles" },
-    { id: "calibrate", label: "Calibrate" },
     ...(admin ? [{ id: "diagnostics", label: "Admin" }] : []),
   ];
   const current = modes.some((mode) => mode.id === view) ? view : "struggle";
-  const launcher = (title, text, label, action) => <div className="flex flex-col items-start gap-3">
-    <p className="max-w-2xl text-sm text-text-2"><strong className="text-text-1">{title}</strong> — {text}</p>
-    <Button onClick={action}>{label}</Button>
-  </div>;
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 p-4 sm:p-5">
       <div>
         <h2 className="text-2xl font-bold text-text-1">More</h2>
-        <p className="mt-1 text-sm text-text-3">Anki struggles, calibration and admin tools.</p>
+        <p className="mt-1 text-sm text-text-3">Anki struggles and admin tools.</p>
       </div>
       <section aria-label="More" className="flex flex-col gap-3 rounded-2xl border border-border bg-bg-elevated p-4 shadow-sm sm:p-5">
         <PracticeModeTabs ariaLabel="More views" value={current} onChange={onView} modes={modes} />
         {current === "struggle" && struggle}
-        {current === "calibrate" && launcher("Calibrate", "rate your confidence before each answer to surface the things you are sure about but get wrong.", "▸ Start calibration", onCalibrate)}
         {current === "diagnostics" && admin && <Suspense fallback={<p className="text-sm text-text-3">Loading admin tools…</p>}>{admin}</Suspense>}
       </section>
     </div>

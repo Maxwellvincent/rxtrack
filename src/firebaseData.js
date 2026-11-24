@@ -1268,33 +1268,6 @@ export async function getAnkiCards(uid) {
   }
 }
 
-/** Upsert ungenerated-card rows keyed by card_id (client Anki-ingest write; server marks generated). */
-export async function saveUngeneratedCards(uid, cards) {
-  if (!uid || !cards?.length) return { count: 0, error: null };
-  const errors = [];
-  const ops = cards.map((c) => (b) =>
-    b.set(
-      doc(db, "users", uid, "ungeneratedCards", encodeDocId(c.card_id ?? c.id)),
-      { ...c, updatedAt: serverTimestamp() },
-      { merge: true }
-    )
-  );
-  await commitInChunks(ops, errors);
-  return { count: cards.length - errors.length, error: errors[0]?.error || null };
-}
-
-/** All ungenerated-card rows for this user. */
-export async function getUngeneratedCards(uid) {
-  if (!uid) return [];
-  try {
-    const snap = await getDocs(collection(db, "users", uid, "ungeneratedCards"));
-    return snap.docs.map((d) => d.data());
-  } catch (e) {
-    console.warn("getUngeneratedCards exception:", e?.message);
-    return [];
-  }
-}
-
 /**
  * Anki struggle-tracker export → users/{uid}/struggleTasks, keyed by cardId.
  * Client-side counterpart of scripts/sync-struggle-tracker.mjs (which uses
