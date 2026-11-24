@@ -400,6 +400,7 @@ export function LectureStudyFlow({
 }) {
   const [workspace,setWorkspace,visitedWorkspaces]=useLectureWorkspace();
   const [practiceMode,setPracticeMode]=useState(()=>examRepairContext?.weakConcept?'weak':'quiz');
+  const [learnMode,setLearnMode]=useState('connections');
   const [atoms, setAtoms] = useState([]);
   const [lectureChunks, setLectureChunks] = useState(() => Array.isArray(lecture?.chunks) ? lecture.chunks : []);
   const [text, setText] = useState("");
@@ -1047,7 +1048,7 @@ export function LectureStudyFlow({
   useEffect(() => {
     if (!reviewAtomKey || questions) return;
     if(workspace!=="learn"){setWorkspace("learn");return;}
-    if (atomsDetailsRef.current) atomsDetailsRef.current.open = true;
+    setLearnMode('facts');
     const el = document.getElementById(`atom-${reviewAtomKey}`);
     for (let parent = el?.parentElement; parent; parent = parent.parentElement) { if (parent.tagName === "DETAILS") parent.open = true; }
     el?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -1088,7 +1089,7 @@ export function LectureStudyFlow({
   // Jump to an atom referenced by the framework — same target the quiz Summary's
   // "review this atom" link uses, so the highlight/scroll behavior is shared.
   const jumpToAtomTerm = useCallback((term) => {
-    if (atomsDetailsRef.current) atomsDetailsRef.current.open = true;
+    setLearnMode('facts');
     setReviewAtomKey(normAtomKey(term));
   }, []);
 
@@ -2044,7 +2045,6 @@ export function LectureStudyFlow({
       <RenameLecture inline userId={userId} lectureId={lecture?.id} title={renamedTitle || title} onRenamed={(name) => { setRenamedTitle(name); onLectureRenamed?.(name); }} />
       </header>
       <LectureWorkspaceNav value={workspace} onChange={setWorkspace} />
-      {workspace==="learn" && <StudyGuidePanel mode="learn" userId={userId} blockId={blockId} lecture={lecture} objectives={lectureObjectives} />}
       {error && <div className="mb-3 rounded-lg border border-bad bg-bg-elevated p-3 text-xs text-bad">{error}</div>}
       <LecturePanel name="progress" workspace={workspace} visited={visitedWorkspaces} aria-label="Lecture review progress">
       <MasteryLadderPanel defaultOpen objectives={lectureObjectives} evidence={learnerEvidence.data || {}} examDate={practiceExamDate} />
@@ -2117,9 +2117,25 @@ export function LectureStudyFlow({
 
       </LecturePanel>
       <LecturePanel name="learn" workspace={workspace} visited={visitedWorkspaces} aria-label="Learn this lecture">
+      <div className="mb-4 flex flex-col gap-3 rounded-2xl border border-border bg-bg-elevated p-4 shadow-sm sm:p-5">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+          <h2 className="text-lg font-semibold">Learn</h2>
+          <span className="text-xs text-text-3">{lectureObjectives.length} objectives · {atoms.length} facts{tutorSession?.status === "active" ? " · tutor in progress" : ""}</span>
+        </div>
+        <PracticeModeTabs ariaLabel="Learn mode" value={learnMode} onChange={setLearnMode} modes={[
+          { id: "connections", label: "Connections" },
+          { id: "tutor", label: "Tutor", badge: tutorSession?.status === "active" ? "●" : null },
+          { id: "model", label: "Mental model" },
+          { id: "guide", label: "Study guide", badge: studyGuide?.topics?.length ? `${studyGuide.topics.filter((t) => t.checked).length}/${studyGuide.topics.length}` : null },
+          { id: "facts", label: "Facts", badge: atoms.length || null },
+          { id: "repairs", label: "Repairs" },
+        ]} />
+      </div>
+      <div hidden={learnMode !== "connections"}>
       <ObjectiveConnections key={connectionMapKey(connectionScope)} userId={userId} catalog={relationshipResource.data||{}} evidence={learnerEvidence.data||{}} scope={connectionScope} loading={relationshipResource.loading||learnerEvidence.loading} error={relationshipResource.error} enabled={workspace==='learn'} busy={!!busy||checkpointPreparing||!!questions} onPractice={({count,objectives,focusNotes})=>runQuiz(count,resolveDefaultDifficulty(qStats.accuracy),[],false,objectives,focusNotes)} />
-      <details id="lecture-learn" open={tutorSession?.status === "active"} className="mt-4 rounded-xl border border-border bg-bg-elevated">
-        <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-text-1">Guided tutor <span className="ml-2 font-normal text-text-3">{tutorSession?.status === "active" ? "In progress" : "Open to learn this lecture"}</span></summary>
+      <StudyGuidePanel mode="learn" userId={userId} blockId={blockId} lecture={lecture} objectives={lectureObjectives} />
+      </div>
+      <div id="lecture-learn" hidden={learnMode !== "tutor"}>
       <div className="desk-tutor-launcher rounded-b-xl border-t border-accent/30 bg-accent/5 px-3 py-3 sm:flex sm:items-center sm:justify-between sm:gap-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -2345,7 +2361,7 @@ export function LectureStudyFlow({
           )}
         </section>
       )}
-      </details>
+      </div>
 
       </LecturePanel>
       <LecturePanel name="practice" workspace={workspace} visited={visitedWorkspaces} aria-label="Practice this lecture">
@@ -2513,17 +2529,13 @@ export function LectureStudyFlow({
       </LecturePanel>
       <LecturePanel name="sources" workspace={workspace} visited={visitedWorkspaces} aria-label="Lecture figure tools">{figuresPrompt}<div className="mt-4"><ObjectiveCoverage atoms={atoms} objectives={lectureObjectives} examples={schoolExemplars} lectureText={text} lecture={lecture} blockId={blockId} /></div></LecturePanel>
 
-      <LecturePanel name="learn" workspace={workspace} visited={visitedWorkspaces} id="lecture-reference" sectionRef={referenceDetailsRef} className="mt-5 rounded-xl border border-border bg-bg-elevated p-3">
-        <h2 className="px-1 py-1 text-sm font-semibold text-text-2">Lecture reference <span className="ml-2 font-normal text-text-3">Models, guide &amp; lecture facts</span></h2>
-        <div className="mt-3">
+      <LecturePanel name="learn" workspace={workspace} visited={visitedWorkspaces} id="lecture-reference" sectionRef={referenceDetailsRef}>
+        <div>
 
 
-      <details id="lecture-learning-plan" className="mt-5 rounded-xl border border-border bg-bg-elevated">
-        <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
-          <span><span className="block font-semibold text-text-1">Learning plan</span><span className="text-sm text-text-3">Mental-model setup, repairs, and objective links</span></span>
-          <span className="font-mono text-[12px] text-text-3">{lectureObjectives.length} objectives · {atoms.length} facts</span>
-        </summary>
-        <div className="space-y-4 border-t border-border p-4">
+      <div id="lecture-learning-plan" hidden={learnMode !== "repairs"}>
+        <h3 className="mb-2 text-base font-semibold text-text-1">Model repairs &amp; clinical correlates</h3>
+        <div className="space-y-4">
           <div className="grid items-start gap-4 lg:grid-cols-2">
             <ModelRepairs userId={userId} lectureId={lecture?.id} title={renamedTitle || title} atoms={atoms} objectives={lectureObjectives} chunks={lectureChunks} />
           </div>
@@ -2545,15 +2557,13 @@ export function LectureStudyFlow({
             </details>
           )}
         </div>
-      </details>
+      </div>
       {/* Mental model — the reasoning framework this lecture's atoms attach to. Not a summary:
           big picture -> components -> relationships -> mechanisms -> cause/effect -> clinical
           application, each node linked back to the atoms that support it. */}
       {stage === "quiz" && atoms.length > 0 && (
-        <details className="mt-0 w-full rounded-t-xl border border-b-0 border-border bg-bg-elevated p-4">
-          <summary className="min-h-11 cursor-pointer rounded py-2 text-base font-semibold text-text-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent">
-            Mental model <span className="text-sm font-normal text-text-2">· {generatingModel ? "building…" : mentalModel ? "saved framework" : "not built yet"}</span>
-          </summary>
+        <div hidden={learnMode !== "model"}>
+          <h3 className="mb-2 text-base font-semibold text-text-1">Mental model <span className="text-sm font-normal text-text-2">· {generatingModel ? "building…" : mentalModel ? "saved framework" : "not built yet"}</span></h3>
           {!mentalModel && !generatingModel && (
             <div className="flex items-center gap-3">
               <Button variant="outline" onClick={generateModel} disabled={!!busy||checkpointPreparing}>
@@ -2577,23 +2587,21 @@ export function LectureStudyFlow({
               </button>
             </MentalModelOverview>
           )}
-        </details>
+        </div>
       )}
 
       {/* The atom list is reference, not the session. Reading it is the passive habit this
           screen used to force; it stays one click away for when you actually want it. */}
       {/* Study guide — auto-generated searchable topics, checkable */}
       {(studyGuide || generatingGuide) && (
-        <details className="mt-0 w-full rounded-none border border-b-0 border-border bg-bg-elevated p-4">
-          <summary className="min-h-11 cursor-pointer rounded py-2 text-base font-semibold text-text-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent">
-              Study guide
+        <div hidden={learnMode !== "guide"}>
+          <h3 className="mb-2 text-base font-semibold text-text-1">Study guide
               {studyGuide && !generatingGuide && (
                 <span className="ml-1.5 text-sm text-text-2 font-normal">
                   · {studyGuide.topics.filter((t) => t.checked).length}/{studyGuide.topics.length} complete
                 </span>
               )}
-              {generatingGuide && <span role="status" className="ml-1.5 text-sm font-normal text-text-2">· building…</span>}
-          </summary>
+              {generatingGuide && <span role="status" className="ml-1.5 text-sm font-normal text-text-2">· building…</span>}</h3>
           <div className="mt-2">
             {!generatingGuide && studyGuide && (
               <button
@@ -2631,14 +2639,14 @@ export function LectureStudyFlow({
               ))}
             </div>
           )}
-        </details>
+        </div>
       )}
+      {learnMode === "model" && !(stage === "quiz" && atoms.length > 0) && <p className="text-sm text-text-3">◇ The mental model builds once this lecture&apos;s facts are extracted.</p>}
+      {learnMode === "guide" && !studyGuide && !generatingGuide && <p className="text-sm text-text-3">◇ No study guide yet — it builds from this lecture&apos;s facts once they are extracted.</p>}
 
       {atoms.length > 0 && (
-        <details ref={atomsDetailsRef} className="group mt-0 rounded-b-xl border border-border bg-bg-elevated p-4">
-          <summary className="min-h-11 cursor-pointer list-none py-2 text-base font-semibold text-text-1 hover:text-accent">
-            Reference atoms <span className="text-sm font-normal text-text-3">· {atoms.length} supporting facts</span>
-          </summary>
+        <div ref={atomsDetailsRef} hidden={learnMode !== "facts"}>
+          <h3 className="mb-2 text-base font-semibold text-text-1">Lecture facts <span className="text-sm font-normal text-text-3">· {atoms.length} supporting facts</span></h3>
           <div className="mt-3 space-y-4">
           {Array.from(new Set(annotatedAtoms.map(a => a.objectiveIds?.[0] || a.parentTerm || a.type))).map((groupKey) => {
             const list = annotatedAtoms.filter(a => (a.objectiveIds?.[0] || a.parentTerm || a.type) === groupKey);
@@ -2709,7 +2717,7 @@ export function LectureStudyFlow({
             );
           })}
           </div>
-        </details>
+        </div>
       )}
         </div>
       </LecturePanel>

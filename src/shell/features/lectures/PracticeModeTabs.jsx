@@ -1,6 +1,6 @@
 /** Segmented control for the Practice card's modes; badges are text, never color alone. */
-export function PracticeModeTabs({ modes = [], value, onChange }) {
-  return <div role="tablist" aria-label="Practice mode" className="flex flex-wrap gap-1 rounded-lg bg-bg p-1">
+export function PracticeModeTabs({ modes = [], value, onChange, ariaLabel = "Practice mode" }) {
+  return <div role="tablist" aria-label={ariaLabel} className="flex flex-wrap gap-1 rounded-lg bg-bg p-1">
     {modes.map((mode) => {
       const active = value === mode.id;
       return <button key={mode.id} type="button" role="tab" aria-selected={active} onClick={() => onChange(mode.id)}
