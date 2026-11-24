@@ -45,7 +45,7 @@ import { SchoolQuestionFigure } from "./SchoolQuestionFigure.jsx";
 import { Button } from "../../../ui/Button.jsx";
 import { advanceOnEnter } from "../../../ui/nextQuestion.js";
 import { QuestionStem } from "../../../ui/QuestionStem.jsx";
-import { QuestionExplanation } from "../../../ui/QuestionExplanation.jsx";
+import { QuestionExplanation, ChoiceNote, choiceNotes } from "../../../ui/QuestionExplanation.jsx";
 import { ChoiceValue, hasTableChoices } from "../../../ui/ChoiceValue.jsx";
 import { QuestionQualityRating } from "../../../ui/QuestionQualityRating.jsx";
 import { useExamSessionController } from "./useExamSessionController.js";
@@ -267,7 +267,7 @@ function SyncIndicator({ status }) {
 function ChoiceList({questionId,...props}) {
   return <QuestionChoices key={questionId} {...props}/>;
 }
-function QuestionChoices({ choices, picked, revealed, correct, onPick, onCrossedChange, crossedChoices = [], locked = false, choiceColumns = [], choiceLayout = null }) {
+function QuestionChoices({ choices, picked, revealed, correct, onPick, onCrossedChange, crossedChoices = [], locked = false, choiceColumns = [], choiceLayout = null, notes = null }) {
   const crossedKey = crossedChoices.join("|");
   const [localCrossed,setCrossed]=useState(()=>({key:crossedKey,letters:new Set(crossedChoices)}));
   const crossed=localCrossed.key===crossedKey?localCrossed.letters:new Set(crossedChoices);
@@ -287,7 +287,8 @@ function QuestionChoices({ choices, picked, revealed, correct, onPick, onCrossed
               ? "border-bad bg-bad/10"
               : "border-border opacity-60";
         return (
-          <div key={letter} className={`flex min-h-12 items-stretch overflow-hidden rounded-lg border bg-bg ${isCrossed ? "opacity-45 " : ""}${stateCls}`}>
+          <div key={letter} className={`overflow-hidden rounded-lg border bg-bg ${isCrossed ? "opacity-45 " : ""}${revealed && notes?.[letter] ? stateCls.replace("opacity-60", "") : stateCls}`}>
+          <div className="flex min-h-12 items-stretch">
           <button
             type="button"
             disabled={revealed || locked || isCrossed}
@@ -312,6 +313,8 @@ function QuestionChoices({ choices, picked, revealed, correct, onPick, onCrossed
             setCrossed({key:crossedKey,letters:next});
             onCrossedChange?.([...next].sort());
           }} className="w-10 shrink-0 border-l border-border text-text-3 hover:bg-bg-2 hover:text-text-1 sm:w-11">{isCrossed ? "↩" : "×"}</button>}
+          </div>
+          {revealed && <ChoiceNote note={notes?.[letter]} letter={letter} correctLetter={correct} pickedLetter={picked} />}
           </div>
         );
       })}
@@ -602,6 +605,7 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
           revealed={showAnswer}
           locked={revealed && !showAnswer}
           correct={q.correct}
+          notes={showAnswer ? choiceNotes({ text: q.explanation, whyWrong: q.whyWrong, choices: q.choices, correctLetter: q.correct, sourceType: q.sourceType || session.sourceType }).notes : null}
           onPick={letter => answerQuestion(q.questionId, letter, { revealed: false })}
           onCrossedChange={letters => setEliminatedChoices?.(q.questionId, letters)}
         />
@@ -633,7 +637,7 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
               {!q.correct ? "Unscored · source key needs verification" : isCorrect ? "✓ Correct" : "✕ Incorrect"}
             </div>
             {(q.explanation || Object.keys(q.whyWrong || {}).length > 0) && (
-              <QuestionExplanation selectedLetter={picked} text={q.explanation} correctLetter={q.correct} whyWrong={q.whyWrong} choices={q.choices} sourceType={q.sourceType || session.sourceType} />
+              <QuestionExplanation notesInline selectedLetter={picked} text={q.explanation} correctLetter={q.correct} whyWrong={q.whyWrong} choices={q.choices} sourceType={q.sourceType || session.sourceType} />
             )}
             <ConnectionFeedback question={q} userId={userId} lectureId={q.lectureId} blockId={session.blockId} />
             {q.correct && !isCorrect && <LearningGapNote key={q.questionId} userId={userId} question={q} blockId={session.blockId} lectureId={q.lectureId} />}
@@ -784,10 +788,10 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, object
             <QuestionMeta question={q} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} />
             <QuestionStem text={q.stem} questionId={q.questionId} />
             <SchoolQuestionFigure question={q} userId={userId} />
-            <ChoiceList questionId={q.questionId} choices={q.choices} choiceColumns={q.choiceColumns} choiceLayout={q.choiceLayout} picked={picked} crossedChoices={(session.answers || []).find(answer => answer.questionId === q.questionId)?.eliminatedChoices || []} revealed correct={q.correct} onPick={() => {}} />
+            <ChoiceList questionId={q.questionId} choices={q.choices} choiceColumns={q.choiceColumns} choiceLayout={q.choiceLayout} picked={picked} crossedChoices={(session.answers || []).find(answer => answer.questionId === q.questionId)?.eliminatedChoices || []} revealed correct={q.correct} notes={choiceNotes({ text: q.explanation, whyWrong: q.whyWrong, choices: q.choices, correctLetter: q.correct, sourceType: q.sourceType || session.sourceType }).notes} onPick={() => {}} />
             {(q.explanation || Object.keys(q.whyWrong || {}).length > 0) ? (
               <div className="mt-3">
-                <QuestionExplanation selectedLetter={picked} text={q.explanation} correctLetter={q.correct} whyWrong={q.whyWrong} choices={q.choices} sourceType={q.sourceType || session.sourceType} />
+                <QuestionExplanation notesInline selectedLetter={picked} text={q.explanation} correctLetter={q.correct} whyWrong={q.whyWrong} choices={q.choices} sourceType={q.sourceType || session.sourceType} />
               <ConnectionFeedback question={q} userId={userId} lectureId={q.lectureId} blockId={session.blockId} />
               </div>
             ) : picked != null ? (

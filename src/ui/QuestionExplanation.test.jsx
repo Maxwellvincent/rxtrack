@@ -42,3 +42,31 @@ it("shows the decisive explanation and selected misconception without expanding 
   expect(host.querySelector("details").textContent).toContain("Absorption affects ventricular size");
   act(() => root.unmount());
 });
+
+describe("inline answer-choice notes", () => {
+  it("maps each choice to its own reasoning and keeps the general explanation as the lead", async () => {
+    const { choiceNotes } = await import("./QuestionExplanation.jsx");
+    const result = choiceNotes({
+      text: "Polio destroys anterior horn cells. (A) Dorsal column carries vibration. (D) Anterior horn: lower motor neuron loss.",
+      choices: { A: "Dorsal column", B: "Lateral corticospinal tract", D: "Anterior horn" }, correctLetter: "D",
+    });
+    expect(result.lead).toMatch(/Polio destroys/);
+    expect(result.notes).toEqual({ A: "Dorsal column carries vibration.", D: "Anterior horn: lower motor neuron loss." });
+  });
+
+  it("prefers structured whyWrong notes and gives a source-bank key a condensed correct note", async () => {
+    const { choiceNotes } = await import("./QuestionExplanation.jsx");
+    expect(choiceNotes({ whyWrong: { A: "Too proximal.", B: "Correct mechanism." }, choices: { A: "x", B: "y" }, correctLetter: "B" }).notes).toEqual({ A: "Too proximal.", B: "Correct mechanism." });
+    const source = choiceNotes({ text: "Because the medial lemniscus crosses in the medulla, the deficit is contralateral.", choices: { A: "Ipsilateral", B: "Contralateral" }, correctLetter: "B", sourceType: "question-bank" });
+    expect(source.notes.B).toMatch(/medial lemniscus/);
+  });
+
+  it("shows only the general explanation below the choices when notes are inline", () => {
+    const host = document.createElement("div"); const root = createRoot(host);
+    act(() => root.render(<QuestionExplanation notesInline text="Polio destroys anterior horn cells. (A) Dorsal column carries vibration. (D) Anterior horn loss." correctLetter="D" selectedLetter="A" choices={{ A: "Dorsal column", D: "Anterior horn" }} />));
+    expect(host.textContent).toContain("Polio destroys anterior horn cells.");
+    expect(host.textContent).not.toContain("Why your answer");
+    expect(host.textContent).not.toContain("Compare answer choices");
+    act(() => root.unmount());
+  });
+});

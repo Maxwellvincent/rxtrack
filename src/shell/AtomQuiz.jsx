@@ -5,7 +5,7 @@ import { hasReusableQuestionReview } from "../engine/questionReuse.js";
 import { questionLearningContext } from "../engine/learningLoop.js";
 import { LearningGapNote } from "../ui/LearningGapNote.jsx";
 import * as questionRatingsStore from "../stores/questionRatings.js";
-import { QuestionExplanation } from "../ui/QuestionExplanation.jsx";
+import { QuestionExplanation, ChoiceNote, choiceNotes } from "../ui/QuestionExplanation.jsx";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Button } from "../ui/Button.jsx";
 import { advanceOnEnter } from "../ui/nextQuestion.js";
@@ -114,6 +114,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
   const displayedTotal = preparing ? Math.max(questions.length, Number(expectedCount) || 0) : questions.length;
   const missingCount = Math.max(0, (Number(expectedCount) || 0) - questions.length);
   const revealed = confidence != null;
+  const revealedNotes = revealed ? choiceNotes({ text: q.explanation, whyWrong: q.whyWrong, choices: q.choices, correctLetter: q.correct, sourceType: q.sourceType }).notes : {};
   const correct = revealed && picked === q.correct;
   const quadrant = revealed ? classify({ confidence, correct }) : null;
 
@@ -296,6 +297,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
             assistanceRef.current=next;setAssistance(next);checkpointRef.current={...checkpointRef.current,assistance:next};return onCheckpoint?.(checkpointRef.current);
           }} />}
         {revealed && assistance[currentIndex]?.used && <p className="mb-2 text-xs text-accent-text">Assisted answer · does not establish independent readiness.</p>}
+        {/* Per-choice reasoning shows under each choice once revealed. */}
         <div className="quiz-choice-list flex flex-col gap-1.5">
           {orderedChoiceEntries(q.choices).map(([letter, txt]) => {
             const isPicked = picked === letter;
@@ -312,7 +314,8 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
                   ? "border-bad"
                   : "border-border opacity-60";
             return (
-              <div key={letter} className="quiz-choice-row flex items-center gap-1.5">
+              <div key={letter} className="flex flex-col">
+              <div className="quiz-choice-row flex items-center gap-1.5">
                 <button
                   type="button"
                   disabled={revealed}
@@ -350,6 +353,8 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
                   </button>
                 )}
               </div>
+              {revealed && <div className="mx-1 rounded-b-lg border border-t-0 border-border bg-bg-elevated"><ChoiceNote note={revealedNotes[letter]} letter={letter} correctLetter={q.correct} pickedLetter={picked} /></div>}
+              </div>
             );
           })}
         </div>
@@ -385,6 +390,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
             )}
             {(q.explanation || Object.keys(q.whyWrong || {}).length > 0) && (
               <QuestionExplanation
+                notesInline
                 selectedLetter={picked}
                 sourceType={q.sourceType}
                 text={q.explanation}

@@ -3,7 +3,7 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { it, expect, vi } from 'vitest';
 vi.mock('./hooks/useFocusHudSignal.js', () => ({ useFocusHudSignal: () => {} }));
-vi.mock('../ui/QuestionExplanation.jsx', () => ({ QuestionExplanation: () => <div>Explanation</div> }));
+vi.mock('../ui/QuestionExplanation.jsx', () => ({ QuestionExplanation: () => <div>Explanation</div>, ChoiceNote: () => null, choiceNotes: () => ({ notes: {}, lead: '' }) }));
 import { AtomQuiz } from './AtomQuiz.jsx';
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 it('appends reviewed questions without losing revealed answer state and waits at the frontier', () => {

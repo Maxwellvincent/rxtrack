@@ -46,8 +46,32 @@ function condensedSourcePoint(text, correctText = "") {
   return summary;
 }
 
+/** Per-choice reasoning for showing directly under each answer choice, plus the general lead. */
+export function choiceNotes({ text, whyWrong, choices = {}, correctLetter, sourceType = null } = {}) {
+  const parsed = parsedBullets(text);
+  const structured = Object.keys(whyWrong || {}).filter((letter) => letter in choices)
+    .map((letter) => ({ letter, body: cleanText(whyWrong[letter]) })).filter((item) => item.body);
+  const bullets = structured.length ? structured : parsed.bullets.filter((item) => item.letter in choices);
+  const notes = Object.fromEntries(bullets.map(({ letter, body }) => [letter, body]));
+  if (correctLetter && !notes[correctLetter] && sourceType === "question-bank" && text) {
+    const condensed = condensedSourcePoint(text, choices[correctLetter]);
+    if (condensed) notes[correctLetter] = condensed;
+  }
+  return { notes, lead: parsed.lead };
+}
+
+/** The reasoning note rendered under one answer choice after reveal (symbols + text, never color alone). */
+export function ChoiceNote({ note, letter, correctLetter, pickedLetter }) {
+  if (!note) return null;
+  const correct = letter === correctLetter, picked = letter === pickedLetter;
+  const label = correct ? "✓ Why this is right" : picked ? "✕ Why your answer is wrong" : "Why not";
+  return <div data-testid={`choice-note-${letter}`} className={`border-t px-3 py-2 text-[13px] leading-relaxed ${correct ? "border-good/30 text-text-1" : picked ? "border-bad/30 text-text-1" : "border-border text-text-2"}`}>
+    <span className="mr-1 font-semibold">{label}:</span><LabAnnotatedText text={note} />
+  </div>;
+}
+
 /** Shared answer reasoning for lecture quizzes, Practice, and submitted Exams. */
-export function QuestionExplanation({ text, correctLetter, whyWrong, choices = {}, sourceType = null, selectedLetter = null }) {
+export function QuestionExplanation({ text, correctLetter, whyWrong, choices = {}, sourceType = null, selectedLetter = null, notesInline = false }) {
   const parsed = parsedBullets(text);
   const structured = Object.keys(whyWrong || {})
     .filter((letter) => letter in choices)
@@ -60,6 +84,18 @@ export function QuestionExplanation({ text, correctLetter, whyWrong, choices = {
   const condensed = isSourceBank ? condensedSourcePoint(text, choices[correctLetter]) : "";
   const primaryCorrectReason = isSourceBank ? (condensed || correctReason || parsed.lead) : (parsed.lead || correctReason);
 
+  if (notesInline) {
+    // Per-choice reasoning already sits under each choice; keep only the general point.
+    const inlineNotes = choiceNotes({ text, whyWrong, choices, correctLetter, sourceType }).notes;
+    const general = parsed.lead && parsed.lead !== inlineNotes[correctLetter] ? parsed.lead : (!Object.keys(inlineNotes).length ? cleanText(text) : "");
+    if (!general && !isSourceBank) return null;
+    return (
+      <div className="space-y-2 rounded border-l-2 border-accent bg-panel p-3 text-[13px] leading-relaxed text-text-2">
+        {isSourceBank && <div className="font-mono text-[10px] font-semibold uppercase tracking-wide text-text-3">Source key preserved · source rationale not independently medically verified</div>}
+        {general && <div data-testid="general-explanation"><LabAnnotatedText text={general} className="block" /></div>}
+      </div>
+    );
+  }
   return (
     <div className="space-y-2 rounded border-l-2 border-accent bg-panel p-3 text-[13px] leading-relaxed text-text-2">
       {isSourceBank && <div className="font-mono text-[10px] font-semibold uppercase tracking-wide text-text-3">Source key preserved · source rationale not independently medically verified</div>}
