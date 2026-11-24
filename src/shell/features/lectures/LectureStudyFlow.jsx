@@ -1,10 +1,11 @@
 import {LectureCheckpoint} from './LectureCheckpoint.jsx';
-import {LectureProgression,useLectureProgressionNotice} from './LectureProgression.jsx';
-import {lecturePracticeTargets,lectureProgressionPlan} from './lecturePracticeTargets.js';
+import {lecturePracticeTargets} from './lecturePracticeTargets.js';
 import {ObjectiveConnections,connectionMapKey} from './ObjectiveConnections.jsx';
 import {objectivesWithConnectionGaps} from '../../../engine/objectiveConnections.js';
 import {UnfinishedLectureQuizzes} from "./UnfinishedLectureQuizzes.jsx";
 import {MissedQuestions} from '../../../ui/MissedQuestions.jsx';
+import {missedQuestionGroups} from '../../../engine/missedQuestions.js';
+import {PracticeModeTabs} from './PracticeModeTabs.jsx';
 import {repairTransferPlan,repairTransferPrompt} from "../../../engine/repairTransfer.js";
 import {isIndependentAttempt} from '../../../engine/practiceAssistance.js';
 import {ReviewSourceStatus} from './ReviewSourceStatus.jsx';
@@ -114,7 +115,7 @@ import { RenameLecture } from "./RenameLecture.jsx";
 import { ModelRepairs } from "./ModelRepairs.jsx";
 import { LectureRetrievalEnrollment } from "./LectureRetrievalEnrollment.jsx";
 import { ObjectiveCoverage } from "./ObjectiveCoverage.jsx";
-import { MasteryLadderPanel } from "./MasteryLadderPanel.jsx";
+import { MasteryLadderPanel, LadderSummaryLine } from "./MasteryLadderPanel.jsx";
 import * as learnerEvidenceStore from "../../../stores/learnerEvidence.js";
 import { useStoreResource } from "../../hooks/useStoreResource.js";
 import { objectivePracticePlan, objectivesWithPracticeEvidence } from "../../../engine/objectivePractice.js";
@@ -398,6 +399,7 @@ export function LectureStudyFlow({
   examRepairContext = null,
 }) {
   const [workspace,setWorkspace,visitedWorkspaces]=useLectureWorkspace();
+  const [practiceMode,setPracticeMode]=useState(()=>examRepairContext?.weakConcept?'weak':'quiz');
   const [atoms, setAtoms] = useState([]);
   const [lectureChunks, setLectureChunks] = useState(() => Array.isArray(lecture?.chunks) ? lecture.chunks : []);
   const [text, setText] = useState("");
@@ -1393,9 +1395,8 @@ export function LectureStudyFlow({
       .sort((a, b) => rank(a) - rank(b));
   }, [lectureObjectives, focusObjectiveIds, learnerEvidence.data]);
 
-  const practiceTargets=useMemo(()=>lecturePracticeTargets(orderedObjectives,relationshipResource.data,learnerEvidence.data||{},connectionScope),[orderedObjectives,relationshipResource.data,learnerEvidence.data,connectionScope]);
-  const progressionPlan=useMemo(()=>lectureProgressionPlan(practiceTargets,learnerEvidence.data),[practiceTargets,learnerEvidence.data]);
-  const progressionNotice=useLectureProgressionNotice(progressionPlan,`${userId}:${lecture?.id}`,!learnerEvidence.loading&&!relationshipResource.loading);
+  const practiceExamDate=useMemo(()=>{ const raw = examDates?.[blockId]?.examDate ?? examDates?.[blockId]; const ms = raw ? Date.parse(raw) : NaN; return Number.isFinite(ms) ? ms : null; },[examDates,blockId]);
+  const missedCount=useMemo(()=>missedQuestionGroups(learnerEvidence.data||{},{blockId,lectureId:lecture?.id}).reduce((n,group)=>n+group.questions.length,0),[learnerEvidence.data,blockId,lecture?.id]);
 
   const [, setPreparationDetails] = useState(null);
   useEffect(() => { setPreparationDetails(readQuestionDiagnostics(userId, lecture?.id)); }, [userId, lecture?.id]);
@@ -2046,6 +2047,7 @@ export function LectureStudyFlow({
       {workspace==="learn" && <StudyGuidePanel mode="learn" userId={userId} blockId={blockId} lecture={lecture} objectives={lectureObjectives} />}
       {error && <div className="mb-3 rounded-lg border border-bad bg-bg-elevated p-3 text-xs text-bad">{error}</div>}
       <LecturePanel name="progress" workspace={workspace} visited={visitedWorkspaces} aria-label="Lecture review progress">
+      <MasteryLadderPanel defaultOpen objectives={lectureObjectives} evidence={learnerEvidence.data || {}} examDate={practiceExamDate} />
       <LectureProgressOverview historyLoading={learnerEvidence.loading} model={learnerEvidence.data || {}} ratings={questionRatingsStore.read(userId).ratings || {}} blockId={blockId} lectureId={lecture?.id} stats={qStats} objectivePractice={objectivePractice} relationshipRows={relationshipRows} />
       <LectureRetrievalEnrollment key={`${userId}:${blockId}:${lecture?.id}`} userId={userId} blockId={blockId} lectureId={lecture?.id} title={renamedTitle || title} reference={mentalModel?.bigPicture || ""} rows={objectivePractice.rows} evidenceModel={learnerEvidence.data} examDate={examDates?.[blockId]?.examDate ?? examDates?.[blockId] ?? null} />
 
@@ -2346,36 +2348,7 @@ export function LectureStudyFlow({
       </details>
 
       </LecturePanel>
-      <LecturePanel name="practice" workspace={workspace} visited={visitedWorkspaces} aria-label="Continue lecture practice">
-      {!savedLectureQuizzes.length && recentLearningRecords.length>0 && <div className="my-3"><ObjectiveLearningReport objectives={lectureObjectives} evidence={learnerEvidence.data || {}} records={recentLearningRecords} busy={!!busy||checkpointPreparing} onRetest={({count,objectives,focusNotes})=>runQuiz(count,"medium",[],false,objectives,focusNotes)} /></div>}
-
-      </LecturePanel>
       <LecturePanel name="practice" workspace={workspace} visited={visitedWorkspaces} aria-label="Practice this lecture">
-      <MasteryLadderPanel objectives={lectureObjectives} evidence={learnerEvidence.data || {}} examDate={(() => { const raw = examDates?.[blockId]?.examDate ?? examDates?.[blockId]; const ms = raw ? Date.parse(raw) : NaN; return Number.isFinite(ms) ? ms : null; })()} />
-      <LectureProgression plan={progressionPlan} notice={progressionNotice} />
-      <LectureCheckpoint userId={userId} lecture={lecture} blockId={blockId} busy={!!busy||checkpointPreparing||!!questions||schoolExamplesLoading||learnerEvidence.loading} onOpenSession={setCheckpointSession} onWorkingChange={setCheckpointPreparing} config={{objectives:objectivesWithConnectionGaps(orderedObjectives,relationshipResource.data,learnerEvidence.data||{},connectionScope),evidenceModel:learnerEvidence.data,lectureText:text,sourcePages:connectionScope.pages,atoms,exemplars:schoolExemplars,difficulty:resolveDefaultDifficulty(qStats.accuracy)}} />
-      <MissedQuestions evidence={learnerEvidence.data || {}} blockId={blockId} lectureId={lecture?.id} lectures={[lecture]} busy={!!busy||checkpointPreparing || !!questions} onReplay={items=>{setAdHocQuiz(true);startQuizSession(items);}} onStudy={()=>setWorkspace('learn')} />
-      <div className="my-3 flex flex-wrap justify-between gap-2"><h2 className="text-lg font-semibold">Test this lecture</h2><button type="button" className="text-sm font-semibold text-accent underline" onClick={()=>setWorkspace("learn")}>Study objective connections →</button><p className="text-sm text-text-3">{qStats.loading ? "Loading practice history…" : qStats.answered ? `${qStats.answered} answered · ${qStats.correct} correct · ${qStats.answered - qStats.correct} missed · ${accuracyPct}%` : "No questions answered yet"}</p></div>
-      {lectureWeakConcepts.length > 0 && <section aria-label="Weak concepts in this lecture" className="my-3">
-        <details open={lectureWeakConcepts.length <= 3 || !!examRepairContext?.weakConcept} className="rounded-xl border border-border bg-bg-elevated px-4 py-2">
-          <summary className="cursor-pointer py-1 text-sm"><span className="font-semibold">⚠ Weak concepts</span><span className="ml-2 font-mono text-xs text-text-2">{lectureWeakConcepts.length} active</span></summary>
-          <ul className="mb-1 mt-1 divide-y divide-border">
-            {lectureWeakConcepts.map((concept) => {
-              const targets = objectivesForWeakConcept(concept, lectureObjectives);
-              const focused = examRepairContext?.weakConcept && String(examRepairContext.weakConcept).toLowerCase() === String(concept.concept).toLowerCase();
-              const recovery = Math.min(4, concept.consecutiveCorrect || 0);
-              return <li key={concept.id || concept.concept} className={`flex flex-wrap items-center justify-between gap-2 py-2 ${focused ? "font-semibold" : ""}`}>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm">{focused ? "▸ " : ""}{concept.concept || concept.description}</p>
-                  <p className="text-xs text-text-3" title="Recovery counts consecutive fresh answers without help. At 4/4 the concept leaves this list; the original misses stay in history.">✕ {concept.misses} missed · ✓ {concept.correct} correct · recovery {recovery}/4</p>
-                  {!targets.length && <p className="text-xs">◇ Needs an objective link before targeted questions.</p>}
-                </div>
-                <Button variant="outline" className="px-3 py-1 text-xs" disabled={!!busy||checkpointPreparing || !targets.length} onClick={() => runQuiz(5, resolveDefaultDifficulty(qStats.accuracy), [], false, targets, `Test this weak concept specifically: ${concept.concept}. Use fresh second- or third-order applications tied to this lecture's linked objectives.`)}>Quiz · 5</Button>
-              </li>;
-            })}
-          </ul>
-        </details>
-      </section>}
       {pendingQuiz && <div role="status" className="my-3 rounded-lg border border-border bg-panel p-3 text-sm">
         <strong>{pendingQuiz.questions.length}/{pendingQuiz.count} questions ready</strong>
         <p className="mt-1 text-text-2">Your ready questions are saved. Finish or exit the current quiz before retrying the remaining {pendingQuiz.count - pendingQuiz.questions.length} slots, or choose a shorter quiz.</p>
@@ -2421,12 +2394,20 @@ export function LectureStudyFlow({
         </div>
       )}
 
-      {stage === "quiz" && atoms.length > 0 && (
-        <section aria-label="Lecture quiz" className="mb-6 flex flex-col gap-3 rounded-b-2xl border border-t-0 border-accent/40 bg-accent-soft/40 p-4 sm:p-5">
-          {/* Unified generate button — opens inline picker. This IS the Quiz feature (same
-              exemplar-backed generator as the Lectures list's QUIZ button), labeled Quiz so it
-              reads as one instead of a generic "make some questions" action. */}
-          {/* One row: pick a count, start; review due questions when any are due. */}
+      <section aria-label="Practice" className="mb-6 flex flex-col gap-3 rounded-2xl border border-border bg-bg-elevated p-4 shadow-sm sm:p-5">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+          <h2 className="text-lg font-semibold">Practice</h2>
+          <button type="button" className="text-xs text-text-2 hover:text-text-1" title="Open the full mastery ladder" onClick={() => setWorkspace("progress")}>
+            <LadderSummaryLine objectives={lectureObjectives} evidence={learnerEvidence.data || {}} examDate={practiceExamDate} /> <span aria-hidden="true">›</span>
+          </button>
+        </div>
+        <PracticeModeTabs value={practiceMode} onChange={setPracticeMode} modes={[
+          { id: "quiz", label: "Quiz" },
+          { id: "weak", label: "Weak spots", badge: lectureWeakConcepts.length || null },
+          { id: "missed", label: "Missed", badge: missedCount || null },
+          { id: "checkpoint", label: "Checkpoint" },
+        ]} />
+        {practiceMode === "quiz" && (stage === "quiz" && atoms.length > 0 ? <div className="flex flex-col gap-3">
           <div className="flex flex-col gap-2">
             <div className="flex flex-wrap items-center gap-2">
               <label className="flex items-center gap-1.5 text-sm text-text-2">Questions
@@ -2490,7 +2471,6 @@ export function LectureStudyFlow({
             </div>
           )}
 
-          {/* Tagging (maintenance) */}
           {lectureObjectives.length > 0 && untagged > 0 && (
             <details className="text-sm"><summary className="cursor-pointer text-text-2">Lecture maintenance</summary>
             <div className="mt-2 flex items-center gap-3">
@@ -2506,8 +2486,29 @@ export function LectureStudyFlow({
           {images.length > 0 && (
             <span className="text-[12px] text-text-3">{images.length} figures attached</span>
           )}
-        </section>
-      )}
+          {!savedLectureQuizzes.length && recentLearningRecords.length > 0 && <details className="rounded-lg border border-border px-3 py-2 text-sm"><summary className="cursor-pointer font-semibold">Last quiz · what to repair</summary><div className="mt-2"><ObjectiveLearningReport objectives={lectureObjectives} evidence={learnerEvidence.data || {}} records={recentLearningRecords} busy={!!busy||checkpointPreparing} onRetest={({count,objectives,focusNotes})=>runQuiz(count,"medium",[],false,objectives,focusNotes)} /></div></details>}
+        </div> : <p className="text-sm text-text-3">◇ Quizzes unlock once this lecture&apos;s text is extracted.</p>)}
+        {practiceMode === "weak" && (lectureWeakConcepts.length ? <div>
+          <p className="text-xs text-text-3">Concepts you have missed. Four fresh correct answers in a row clears one.</p>
+          <ul className="mb-1 mt-1 divide-y divide-border">
+            {lectureWeakConcepts.map((concept) => {
+              const targets = objectivesForWeakConcept(concept, lectureObjectives);
+              const focused = examRepairContext?.weakConcept && String(examRepairContext.weakConcept).toLowerCase() === String(concept.concept).toLowerCase();
+              const recovery = Math.min(4, concept.consecutiveCorrect || 0);
+              return <li key={concept.id || concept.concept} className={`flex flex-wrap items-center justify-between gap-2 py-2 ${focused ? "font-semibold" : ""}`}>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm">{focused ? "▸ " : ""}{concept.concept || concept.description}</p>
+                  <p className="text-xs text-text-3" title="Recovery counts consecutive fresh answers without help. At 4/4 the concept leaves this list; the original misses stay in history.">✕ {concept.misses} missed · ✓ {concept.correct} correct · recovery {recovery}/4</p>
+                  {!targets.length && <p className="text-xs">◇ Needs an objective link before targeted questions.</p>}
+                </div>
+                <Button variant="outline" className="px-3 py-1 text-xs" disabled={!!busy||checkpointPreparing || !targets.length} onClick={() => runQuiz(5, resolveDefaultDifficulty(qStats.accuracy), [], false, targets, `Test this weak concept specifically: ${concept.concept}. Use fresh second- or third-order applications tied to this lecture's linked objectives.`)}>Quiz · 5</Button>
+              </li>;
+            })}
+          </ul>
+        </div> : <p className="text-sm text-text-3">✓ No active weak concepts in this lecture.</p>)}
+        {practiceMode === "missed" && <MissedQuestions bare evidence={learnerEvidence.data || {}} blockId={blockId} lectureId={lecture?.id} lectures={[lecture]} busy={!!busy||checkpointPreparing || !!questions} onReplay={items=>{setAdHocQuiz(true);startQuizSession(items);}} onStudy={()=>setWorkspace('learn')} />}
+        {practiceMode === "checkpoint" && <LectureCheckpoint bare userId={userId} lecture={lecture} blockId={blockId} busy={!!busy||checkpointPreparing||!!questions||schoolExamplesLoading||learnerEvidence.loading} onOpenSession={setCheckpointSession} onWorkingChange={setCheckpointPreparing} config={{objectives:objectivesWithConnectionGaps(orderedObjectives,relationshipResource.data,learnerEvidence.data||{},connectionScope),evidenceModel:learnerEvidence.data,lectureText:text,sourcePages:connectionScope.pages,atoms,exemplars:schoolExemplars,difficulty:resolveDefaultDifficulty(qStats.accuracy)}} />}
+      </section>
 
       </LecturePanel>
       <LecturePanel name="sources" workspace={workspace} visited={visitedWorkspaces} aria-label="Lecture figure tools">{figuresPrompt}<div className="mt-4"><ObjectiveCoverage atoms={atoms} objectives={lectureObjectives} examples={schoolExemplars} lectureText={text} lecture={lecture} blockId={blockId} /></div></LecturePanel>
