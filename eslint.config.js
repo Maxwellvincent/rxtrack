@@ -5,7 +5,8 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  // .claude/ holds agent worktree snapshots, not app source.
+  globalIgnores(['dist', '.claude/**']),
   {
     files: ['**/*.{js,jsx}'],
     extends: [
@@ -39,31 +40,22 @@ export default defineConfig([
     },
   },
   {
-    files: ['src/App.jsx'],
-    rules: {
-      // Large legacy surface: hook dependency lint is noisy and often intentionally stale here.
-      'react-hooks/exhaustive-deps': 'off',
-      'react-hooks/set-state-in-effect': 'off',
-      'react-hooks/preserve-manual-memoization': 'off',
-      // Legacy monolith: unused bindings are pervasive; new code should still avoid dead vars.
-      'no-unused-vars': 'off',
-      'no-empty': ['warn', { allowEmptyCatch: true }],
-    },
-  },
-  {
     files: [
-      'src/DeepLearn.jsx',
-      'src/LearningModel.jsx',
-      'src/HistoStudy.jsx',
-      // Ported in SP1 T1.3/T3.1 but still the legacy trees — same relaxations.
+      // Ported in SP1 T1.3/T3.1 but still the legacy tree — same relaxations.
       'src/shell/features/objectives/ObjectiveTracker.jsx',
-      'src/shell/features/recognition/PatientRecognition.jsx',
     ],
     rules: {
       'react-hooks/exhaustive-deps': 'off',
       'react-hooks/set-state-in-effect': 'off',
       'no-unused-vars': 'off',
     },
+  },
+  {
+    // Cloud Functions (CommonJS) and Node scripts/configs run on Node, not in the browser.
+    files: ['functions/**/*.js', 'scripts/**/*.{js,mjs}', '*.config.js', 'tools/**/*.js',
+      // Emulator-backed tests run under Node.
+      'src/rules.test.js', 'src/**/*.integration.test.js', 'src/**/*.persistence.test.js'],
+    languageOptions: { globals: { ...globals.node } },
   },
   {
     // SP1 boundary (T0.5): ported shell features must not reach back into the
