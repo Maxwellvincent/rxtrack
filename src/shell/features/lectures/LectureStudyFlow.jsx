@@ -383,7 +383,7 @@ function TutorCountdown({ remainingSeconds, active }) {
 }
 
 export function LectureStudyFlow({
-  lecture, blockId, blockName = "", userId, logActivity, examDates, onClose, onGoDeep, onLectureRenamed = null,
+  lecture, blockId, blockName = "", userId, logActivity, examDates, onClose, onLectureRenamed = null,
   onReExtract = null,
   // Set by an external "Quiz" button (Today, Lectures list, ObjectiveTracker) instead of
   // launching its own separate screen — opens the same picker this file's "Quiz this lecture"
@@ -2602,7 +2602,6 @@ export function LectureStudyFlow({
               </div>
             </details>
           )}
-          {onGoDeep && <Button variant="outline" onClick={() => onGoDeep(lecture?.id)}>Deep lecture study</Button>}
         </div>
       </details>
       {/* Mental model — the reasoning framework this lecture's atoms attach to. Not a summary:

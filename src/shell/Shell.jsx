@@ -18,7 +18,7 @@ import { touchBlock } from "../stores/blockObjectives.js";
 import { defaultBlockId, readCollapsedTerms, readLastView, writeLastView } from "./navPrefs.js";
 
 const VALID_TABS = ["today", "lectures", "objectives", "exam", "guide", "more"];
-const VALID_MORE_VIEWS = ["weak", "deeplearn", "struggle", "diagnostics"];
+const VALID_MORE_VIEWS = ["weak", "struggle", "diagnostics"];
 import { Sidebar } from "./Sidebar.jsx";
 import { Header } from "./Header.jsx";
 import { TabBar } from "./TabBar.jsx";
@@ -56,11 +56,9 @@ import { useObjectives } from "./hooks/useObjectives.js";
 import { BackgroundJobCenter } from "./BackgroundJobCenter.jsx";
 import { formatLectureLabel } from "../lectureTitle.js";
 
-const RecognitionContainer = lazy(() => import("./features/recognition/RecognitionContainer.jsx").then((m) => ({ default: m.RecognitionContainer })));
 const LectureStudyFlow = lazy(() => import("./features/lectures/LectureStudyFlow.jsx").then((m) => ({ default: m.LectureStudyFlow })));
 const QuestionBankModal = lazy(() => import("./features/lectures/QuestionBankModal.jsx").then((m) => ({ default: m.QuestionBankModal })));
 const MasterGuide = lazy(() => import("./features/guide/MasterGuide.jsx").then((m) => ({ default: m.MasterGuide })));
-const DeepLearnContainer = lazy(() => import("./features/deeplearn/DeepLearnContainer.jsx").then((m) => ({ default: m.DeepLearnContainer })));
 const CbseDashboard = lazy(() => import("./features/cbse/CbseDashboard.jsx").then(m => ({ default: m.CbseDashboard })));
 const ExamContainer = lazy(() => import("./features/exam/ExamContainer.jsx").then((m) => ({ default: m.ExamContainer })));
 
@@ -227,7 +225,6 @@ function ShellMain({ theme, toggle, userId }) {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [sessionMode, setSessionMode] = useState(null); // null | 'engine' | 'calibrate'
   const [showAnki, setShowAnki] = useState(false);
-  const [showRecognize, setShowRecognize] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [showAddLecture, setShowAddLecture] = useState(false);
   const [reextractLecture, setReextractLecture] = useState(null);
@@ -251,7 +248,6 @@ function ShellMain({ theme, toggle, userId }) {
   useEffect(() => {
     writeLastView({ tab, selectedBlockId: activeBlockId, moreView });
   }, [tab, activeBlockId, moreView]);
-  const [deepLearnPreselectId, setDeepLearnPreselectId] = useState(null);
   const [examFocusLectureId, setExamFocusLectureId] = useState(null);
   // Per-lecture study flow (T2.1) — the lecture whose atoms we are working on.
   const [studyLecture, setStudyLecture] = useState(null);
@@ -396,7 +392,6 @@ function ShellMain({ theme, toggle, userId }) {
           theme={theme}
           onToggleTheme={toggle}
           onAnki={() => setShowAnki(true)}
-          onRecognize={() => setShowRecognize(true)}
           onExamDate={activeBlockId ? () => setShowExamDate(true) : null}
           onImportSchedule={() => setShowImport(true)}
           onAddLecture={activeBlockId ? () => setShowAddLecture(true) : null}
@@ -474,13 +469,6 @@ function ShellMain({ theme, toggle, userId }) {
                 autoQuizCount={pendingAutoQuiz?.questionCount}
                 focusObjectiveIds={studyFocusObjectiveIds || pendingAutoQuiz?.focusObjectiveIds}
                 examRepairContext={examRepairContext}
-                onGoDeep={(lecId) => {
-                  setStudyLecture(null);
-                  setPendingAutoQuiz(null);
-                  setDeepLearnPreselectId(lecId);
-                  switchTab("more");
-                  setMoreView("deeplearn");
-                }}
               />
             </div>
           ) : activeBlockId === CBSE_BLOCK_ID ? (
@@ -534,21 +522,12 @@ function ShellMain({ theme, toggle, userId }) {
                 lectures={(allLectures.data || []).filter((l) => l.blockId === activeBlockId)}
                 onBack={() => setMoreView(null)}
               />
-            ) : moreView === "deeplearn" ? (
-              <DeepLearnContainer
-                blockId={activeBlockId}
-                userId={userId}
-                termColor={active?.termColor}
-                preselectLecId={deepLearnPreselectId}
-                onBack={() => { setMoreView(null); setDeepLearnPreselectId(null); }}
-              />
             ) : (
               <MoreTab
                 onDiagnostics={canViewQuestionDiagnostics(userId) ? () => setMoreView("diagnostics") : null}
                 onContinue={onContinue}
                 onCalibrate={onCalibrate}
                 onWeak={() => setMoreView("weak")}
-                onDeepLearn={() => setMoreView("deeplearn")}
                 onStruggle={() => setMoreView("struggle")}
               />
             )
@@ -611,14 +590,6 @@ function ShellMain({ theme, toggle, userId }) {
         />
       )}
       {showAnki && <AnkiSyncModal T={legacyTheme} onClose={() => setShowAnki(false)} />}
-      {showRecognize && (
-        <RecognitionContainer
-          T={legacyTheme}
-          userId={userId}
-          blockId={activeBlockId}
-          onClose={() => setShowRecognize(false)}
-        />
-      )}
       {showImport && <ScheduleImportModal userId={userId} onClose={() => setShowImport(false)} />}
       {showAddLecture && activeBlockId && (
         <AddLectureModal
@@ -668,11 +639,10 @@ function ShellMain({ theme, toggle, userId }) {
   );
 }
 
-function MoreTab({ onContinue, onCalibrate, onWeak, onDeepLearn, onStruggle, onDiagnostics }) {
+function MoreTab({ onContinue, onCalibrate, onWeak, onStruggle, onDiagnostics }) {
   const items = [
     { label: "▸ Continue learning", desc: "adaptive session — teaches, shows a case, then checks you", action: onContinue },
     { label: "◎ Calibrate", desc: "rate confidence before each answer — surfaces sure-but-wrong gaps", action: onCalibrate },
-    { label: "🧬 Deep Learn", desc: "teach-then-test on one lecture with drills and rapid fire", action: onDeepLearn },
     { label: "⚠ Weak concepts", desc: "what you keep missing, landmines first", action: onWeak },
     { label: "🔴 Struggle Tracker", desc: "deep/persistent + buried cards synced in from Anki", action: onStruggle },
   ];

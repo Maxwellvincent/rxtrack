@@ -31,8 +31,8 @@ the Firebase data layer (auth, push/pull, kv, exam sessions, storage).
 
 ## Architecture
 
-The original monolith (`App.jsx`, `Tracker.jsx`) has been fully removed by the
-SP1 strangler work. Everything boots through one shell:
+The original monolith (`App.jsx`, `Tracker.jsx`, and later `DeepLearn.jsx`) has been fully
+removed. Everything boots through one shell:
 
 ```
 src/main.jsx            → lazy-loads src/shell/Shell.jsx (only entry point)
@@ -44,7 +44,6 @@ src/engine/             pure study/question engine (mastery, calibration, questi
                         objective mapping, school alignment, readiness, …) — unit-tested
 src/stores/             one typed module per shared key: read() / write() / subscribe(),
                         local cache + Firestore sync (base.js, cloudBase.js)
-src/DeepLearn.jsx       remaining legacy component (~9.2k lines), mounted from More → Deep Learn
 functions/index.js      Cloud Functions
 ```
 
@@ -59,7 +58,7 @@ Top tabs (`src/shell/TabBar.jsx`):
 | Objectives | `features/objectives` | objective tracker per block, PDF objective import, answer-history audit, quiz launch |
 | Exam | `features/exam` | timed/tutor exam sessions, prepared question sets, results (high-yield ranking `HighYieldPanel` / `blockHighYield.js`, score-report upload, school alignment panel, dashboards, weak areas, calibration, blueprint coverage) |
 | Guide | `features/guide` | master study guide |
-| More | `Shell.jsx` `MoreTab` | Deep Learn, calibration, weak concepts, struggle tasks (`features/tracker`), diagnostics/admin |
+| More | `Shell.jsx` `MoreTab` | continue learning, calibration, weak concepts, struggle tasks (`features/tracker`), diagnostics/admin |
 
 **Score reports:** ExamSoft "Strengths and Improvement Opportunities" PDFs (ESoft quiz
 or NB main exam) are uploaded from CBSE Prep or Exam → Results (`ScoreReportUpload.jsx`,
@@ -68,9 +67,8 @@ below the class average — or, for NB reports that have no average, below the 8
 goal on ≥3 questions — become exam-report weak concepts that weight exam allocation
 and CBSE "weak" practice.
 
-Other feature dirs: `features/cbse` (CBSE prep dashboard), `features/recognition`
-(patient-recognition vignettes), `features/deeplearn` (container around
-`DeepLearn.jsx`). Admin screens (`QuestionDiagnosticsAdmin`, `SourceUseAdmin`,
+Other feature dir: `features/cbse` (CBSE prep dashboard). Deep Learn and Patient Recognition
+were removed on 2026-11-24 (unused since July; their Firestore data was left in place). Admin screens (`QuestionDiagnosticsAdmin`, `SourceUseAdmin`,
 `SourceRelationshipsAdmin`, `ObjectiveIntegrityAdmin`) are gated by
 `VITE_RXTRACK_ADMIN_UIDS`.
 
@@ -93,7 +91,7 @@ bucket CORS: `storage.cors.json`.
 | Function | Purpose |
 |----------|---------|
 | `aiComplete` | server-side AI gateway (Anthropic / Gemini), uid allow-list |
-| `buildRecognitionBank` | builds patient-recognition vignettes |
+| `buildRecognitionBank` | builds recognition items from Anki cards (used by Anki sync) |
 | `datalabConvert` | Datalab OCR proxy (deployed only when `DEPLOY_DATALAB` is set) |
 | `bridgeStruggleTaskToFocusHud` | pushes struggle tasks to the focus-hud project |
 
@@ -240,7 +238,7 @@ is superseded.
 | Area | Status |
 |------|--------|
 | Firebase backend (was SP0) | **Done** |
-| Modular shell, monolith removed (was SP1, [PLAN.md](PLAN.md), historical) | **Done**; `DeepLearn.jsx` still legacy |
+| Modular shell, monolith removed (was SP1, [PLAN.md](PLAN.md), historical) | **Done** (last legacy component, `DeepLearn.jsx`, removed 2026-11-24) |
 | Source-grounded question prep: review, blind solve, discrimination, repair | **Done**, under continuous tuning (`docs/quality/question-baseline.md`) |
 | School-style calibration (templates, style profile, difficulty contract) | **Done**; ExamSoft and IMCQ pooled into one style profile |
 | Integrated exam tab: prepared sets, reserve refill, timed 72 s/question, tutor mode, persisted choice elimination | **Done** |
