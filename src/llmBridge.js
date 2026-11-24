@@ -297,14 +297,6 @@ export async function bridgeTutor({ system, prompt, sessionKey, onDelta, signal 
   }, 180000, signal, "Tutor response");
 }
 
-// Decode only the public feedback JSON string, never private diagnostic fields.
-export function streamedTutorFeedback(raw) {
-  const match = String(raw || "").match(/"feedback"\s*:\s*"((?:[^"\\]|\\.)*)/);
-  if (!match) return "";
-  let value = match[1].replace(/\\$/, "");
-  try { return JSON.parse('"' + value + '"'); } catch { return ""; }
-}
-
 /** Deterministic local ruled-table extraction; no model or cloud OCR. */
 export async function bridgeStudyTables(file) {
  if(!(await bridgeAvailable()))throw new Error('Open the local bridge to read study-table PDFs.');

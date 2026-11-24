@@ -9,7 +9,6 @@ import {PracticeModeTabs} from './PracticeModeTabs.jsx';
 import {repairTransferPlan,repairTransferPrompt} from "../../../engine/repairTransfer.js";
 import {isIndependentAttempt} from '../../../engine/practiceAssistance.js';
 import {ReviewSourceStatus} from './ReviewSourceStatus.jsx';
-import {attachReviewSources,reviewSourcePrompt} from '../../../engine/reviewSourceContext.js';
 import {LectureProgressOverview} from './LectureProgressOverview.jsx';
 import {StudyGuidePanel} from './StudyGuidePanel.jsx';
 import {useLectureStats} from '../../hooks/useLectureQuestionStats.js';
@@ -24,12 +23,9 @@ import { latestLearningRecords } from "../../../engine/learningLoop.js";
 import { ObjectiveLearningReport } from "../../../ui/ObjectiveLearningReport.jsx";
 import { lectureSourceObjectives } from "../../../engine/sourceObjectiveScope.js";
 import { schoolContinuationQuestions } from "./lectureQuizContinuation.js";
-import { streamedTutorFeedback } from "../../../llmBridge.js";
 import { preparationJobKey, getPreparationJob, startPreparationJob, recoverPreparationFailure, subscribePreparationJob, cancelOtherAccountJobs } from "../../../questionPreparationJobs.js";
 import { preparationErrorMessage } from "../../../preparationError.js";
 import { readQuestionDiagnostics, saveQuestionDiagnostics } from "../../../questionDiagnostics.js";
-import { questionWritingBenchmarkPrompt } from "../../../engine/questionWritingStandard.js";
-import { TutorMessage } from "../../../ui/TutorMessage.jsx";
 import * as weakConceptsStore from "../../../stores/weakConcepts.js";
 import { objectivesForWeakConcept, weakConceptsForLectureView } from "./lectureWeakConcepts.js";
 /**
@@ -56,7 +52,7 @@ import {
 import { HY_TYPES } from "../../../engine/highYield.js";
 import { locallyValidClinicalQuestions } from "../../../engine/mcq.js";
 import { objectiveLectureNumberConflict } from "../../../engine/lectureIdentity.js";
-import { normalizeMissDiagnostic, reasoningGuidance } from "../../../engine/questionReasoning.js";
+import { reasoningGuidance } from "../../../engine/questionReasoning.js";
 import { buildClinicalCorrelateLibrary } from "../../../engine/clinicalCorrelates.js";
 import { tagAtomsWithObjectives } from "../../../engine/tagAtoms.js";
 import { createObjectiveCommands, selectBlockObjectives, selectLectureObjectives } from "../../logic/objectives.js";
@@ -90,21 +86,7 @@ import * as questionStats from "../../../stores/lectureQuestionStats.js";
 import * as atomProgressStore from "../../../stores/atomProgress.js";
 import * as generatedQuestionsStore from "../../../stores/generatedQuestions.js";
 import * as questionRatingsStore from "../../../stores/questionRatings.js";
-import * as tutorSessionsStore from "../../../stores/tutorSessions.js";
 import * as lectureQuizSessionsStore from "../../../stores/lectureQuizSessions.js";
-import {
-  createTutorSession,
-  finishTutorSession,
-  pauseTutorSession,
-  resumeTutorSession,
-  tickTutorSession,
-  tutorSessionSummary,
-  tutorStepPrompt,
-  tutorPacingContext,
-  extendTutorSession,
-  recordTutorTurn,
-  attachTutorCase,
-} from "../../../engine/tutorSession.js";
 import { deleteLectureFully } from "../../logic/deleteLecture.js";
 import { RenameLecture } from "./RenameLecture.jsx";
 import { ModelRepairs } from "./ModelRepairs.jsx";
@@ -114,20 +96,10 @@ import { MasteryLadderPanel, LadderSummaryLine } from "./MasteryLadderPanel.jsx"
 import * as learnerEvidenceStore from "../../../stores/learnerEvidence.js";
 import { useStoreResource } from "../../hooks/useStoreResource.js";
 import { objectivePracticePlan, objectivesWithPracticeEvidence } from "../../../engine/objectivePractice.js";
-import { buildTeachingBlocks, lectureModelFromBlocks } from "../../../engine/lectureTutorPlan.js";
 
 const CheckpointRunner=lazy(()=>import('../exam/ExamSessionRunner.jsx').then(module=>({default:module.ExamSessionRunner})));
 
 
-function TutorCountdown({ remainingSeconds, active }) {
-  const [seconds, setSeconds] = useState(Math.max(0, Number(remainingSeconds) || 0));
-  useEffect(() => {
-    if (!active) return undefined;
-    const interval = window.setInterval(() => setSeconds((value) => Math.max(0, value - 1)), 1000);
-    return () => window.clearInterval(interval);
-  }, [active]);
-  return <span className="min-w-[54px] text-center font-mono text-sm font-semibold text-text-1">{Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, "0")}</span>;
-}
 
 export function LectureStudyFlow({
   lecture, blockId, blockName = "", userId, logActivity, examDates, onClose, onLectureRenamed = null,
@@ -192,8 +164,8 @@ export function LectureStudyFlow({
     () => objectivePracticePlan(lectureObjectives, learnerEvidence.data),
     [lectureObjectives, learnerEvidence.data]
   );
-  const teachingBlocks = useMemo(() => buildTeachingBlocks(lectureObjectives, atoms), [atoms, lectureObjectives]);
-  const lectureModel = useMemo(() => lectureModelFromBlocks(teachingBlocks, title), [teachingBlocks, title]);
+  // A saved framework from the retired mental-model view is still the reference text for slides-and-notes review.
+  const [savedModelReference] = useState(() => mentalModelStore.read(userId, lecture?.id)?.bigPicture || "");
   const [round, setRound] = useState(0);
   // Rounds already finished, read once on mount — this component is keyed by lecture id, so it
   // remounts (and re-reads) whenever you switch lectures.
@@ -245,423 +217,6 @@ export function LectureStudyFlow({
       setOpeningSource("");
     }
   }, [userId]);
-
-  // A lecture tutor is a bounded, resumable layer over the existing study surface.
-  // The checkpoint is per lecture so leaving one lecture never loses the place in another.
-  const [tutorSession, setTutorSession] = useState(() => userId ? null : tutorSessionsStore.get(userId, lecture?.id));
-  const [tutorStoreHydrated, setTutorStoreHydrated] = useState(() => tutorSessionsStore.isHydrated(userId));
-  const [tutorCloudStatus, setTutorCloudStatus] = useState(() => tutorSessionsStore.syncStatus(userId, lecture?.id));
-  const tutorResponseInputRef = useRef(null);
-  const [tutorConfidence, setTutorConfidence] = useState("");
-  const [tutorNotice, setTutorNotice] = useState("");
-  const [tutorWorkspaceOpen, setTutorWorkspaceOpen] = useState(true);
-  const [tutorLoading, setTutorLoading] = useState(false);
-  const [tutorReviewing, setTutorReviewing] = useState(false);
-  const [pendingTutorTurn, setPendingTutorTurn] = useState(null);
-  const tutorCaseGenerationRef = useRef(null);
-  // Saved frameworks from the retired mental-model view still seed the tutor opening.
-  const [mentalModel] = useState(() => mentalModelStore.read(userId, lecture?.id));
-  const tutorSessionRef = useRef(tutorSession);
-  const tutorSessionSummaryValue = useMemo(() => tutorSessionSummary(tutorSession), [tutorSession]);
-  const tutorPacing = useMemo(() => tutorPacingContext(tutorSession), [tutorSession]);
-  useEffect(() => { tutorSessionRef.current = tutorSession; }, [tutorSession]);
-
-  const saveTutorSession = useCallback((next) => {
-    if (!next) return;
-    tutorSessionRef.current = next;
-    setTutorSession(next);
-    const saved = tutorSessionsStore.save(userId, next);
-    if (saved && typeof saved.then === "function") {
-      saved.then((ok) => {
-        if (!ok) setTutorNotice("Cloud save failed. Your tutor progress remains in this tab; keep RXTrack open and retry when connected.");
-      });
-      return true;
-    }
-    if (!saved) setTutorNotice("This tutor checkpoint could not be saved.");
-    return Boolean(saved);
-  }, [userId]);
-
-  const startFreshTutor = useCallback(() => {
-    tutorCaseGenerationRef.current = null;
-    tutorSessionRef.current = null;
-    setTutorSession(null);
-    if (tutorResponseInputRef.current) tutorResponseInputRef.current.value = "";
-    setTutorConfidence("");
-    setTutorNotice("Fresh lecture walkthrough ready. Choose a time block to begin.");
-    if (lecture?.id) tutorSessionsStore.clear(userId, lecture.id);
-  }, [lecture?.id, userId]);
-
-  useEffect(() => {
-    if (!userId) {
-      setTutorStoreHydrated(true);
-      return undefined;
-    }
-    let mounted = true;
-    const refreshFromCloud = () => {
-      if (!mounted) return;
-      const hydrated = tutorSessionsStore.isHydrated(userId);
-      setTutorCloudStatus(tutorSessionsStore.syncStatus(userId, lecture?.id));
-      if (!hydrated) return;
-      const stored = tutorSessionsStore.get(userId, lecture?.id);
-      tutorSessionRef.current = stored;
-      setTutorSession(stored);
-      setTutorStoreHydrated(true);
-    };
-    const unsubscribe = tutorSessionsStore.subscribe(userId, refreshFromCloud);
-    tutorSessionsStore.hydrate(userId).then(refreshFromCloud).catch(refreshFromCloud);
-    return () => { mounted = false; unsubscribe(); };
-  }, [lecture?.id, userId]);
-
-  const generateTutorCase = useCallback(async () => {
-    if (!tutorSessionRef.current || tutorSessionRef.current.patientCase || tutorSessionRef.current.delayedReview || tutorCaseGenerationRef.current) return;
-    const sessionId = tutorSessionRef.current.sessionId;
-    const activeObjectiveId = tutorSessionRef.current.activeObjectiveId;
-    tutorCaseGenerationRef.current = lecture?.id || "lecture";
-    setTutorLoading(true);
-    const objective = lectureObjectives.find((candidate) => String(candidate?.id || candidate?.code || candidate?.objective) === String(activeObjectiveId))
-      || lectureObjectives[0];
-    const objectiveText = objective?.objective || objective?.text || title;
-    const activeBlock = tutorSessionRef.current?.teachingBlocks?.find((block) => block.id === tutorSessionRef.current.activeBlockId) || null;
-    const walkthroughTeaching = tutorSessionRef.current?.sessionMode === "walkthrough" && tutorSessionRef.current?.blockPhase !== "application";
-    const pacing = tutorPacingContext(tutorSessionRef.current);
-    const source = String(text || atoms.map((atom) => `${atom.term || ""}: ${atom.content || ""}`).join("\n")).slice(0, 9000);
-    const knownAnchors = [
-      ...(tutorSessionRef.current.learnerProfile?.confirmedAnchors || []),
-      ...(tutorSessionRef.current.turns || []).filter((turn) => turn.stepResolved && turn.response),
-    ]
-      .slice(-4)
-      .map((anchor) => anchor.response)
-      .join("\n");
-    try {
-      const reviewConfig=await attachReviewSources({userId,blockId,subject:title,objectives:[objective]});
-      const generated = await callAIJSON(
-        "You are a warm, precise medical-school tutor following a lecture-teaching and question-reasoning model. The active lecture objective is the curriculum. In walkthrough mode for a first pass, teach that objective as if you analyzed the uploaded lecture: explain what the objective means, select the high-yield facts needed to understand it, connect them in a causal or structural chain, and name common confusions. Use the objective and source atoms as factual authority. Do not substitute a generic lecture summary and do not lead with a patient case. The case is practice only after the objective lesson and guided check. In integration mode, assume first-pass coverage is complete and use a Step 1-style patient or anatomy problem that connects multiple objectives. The question must have one clear requested depth and wording that can later be translated explicitly. Include clinically meaningful distractor logic. Keep caseTitle neutral (Patient 1); hide the diagnosis and answer choices until the learner has reasoned through the case. Stay grounded in the lecture and return valid JSON only.",
-        `Lecture: ${title}\nSession mode: ${tutorSessionRef.current?.sessionMode || "walkthrough"}\nWalkthrough teaching first: ${walkthroughTeaching ? "yes" : "no"}\nActive teaching block: ${activeBlock?.title || "none"}\nBlock objectives: ${(activeBlock?.objectives || []).join(" | ") || objectiveText}\nIntegration instruction: ${tutorSessionRef.current?.integrationSeed || "none"}\nSession pace and coverage (live state; follow it): ${JSON.stringify(pacing)}\nObjective anchor (teach this exactly): ${objectiveText}\nExisting lecture mental model (use this when available): ${mentalModel?.bigPicture || "none saved"}\nLearner's established anchors:\n${knownAnchors || "No stable anchors recorded yet."}\n${questionWritingBenchmarkPrompt({ objectives: [objective], atoms, lectureText: source })}\n${reviewSourcePrompt(reviewConfig.reviewSourceContext)}\nLecture material and extracted facts:\n${source}\n\nReturn {"objectiveLesson":{"objective":"repeat the active objective in plain language","whyItMatters":"why this objective matters clinically or for Step 1","highYieldFacts":["3-5 specific facts from the lecture needed to understand this objective"],"causalChain":["2-5 linked steps showing how the facts relate"],"commonConfusions":["1-3 likely confusions or discriminators"]},"teachingBrief":["2-4 concise factual teaching points grounded in the lecture"],"keyTerms":["2-5 lecture terms used in the lesson"],"blockOrientation":"one plain-language orientation to the active block","minimumModel":"the smallest causal model needed before testing","guidedQuestion":"one low-load question that checks the taught model before the case","openingModel":"1-2 concise case-relevant sentences without naming the answer","caseTitle":"Patient 1","stem":"a clinically coherent 3-5 sentence vignette; do not state the diagnosis","task":"one question the learner can answer from the case","questionIntent":"plain-language description of the exact requested output","requestedDepth":"disease|pathway|mechanism|enzyme_or_structure|regulator_or_cofactor|consequence","choices":{"A":"...","B":"...","C":"...","D":"..."},"correctChoice":"private correct letter","keyClues":["2-4 private clues for feedback"],"diagnosisCategory":"private expected diagnosis family","mechanismTarget":"private expected mechanism","acceptedAnswers":["private acceptable aliases grounded in lecture"]}. Choices must be plausible and lecture-supported; do not reveal the correct choice in the stem, guided question, or opening model.`,
-        { objectiveLesson: { objective: objectiveText, whyItMatters: "This objective is a building block for the lecture's clinical reasoning.", highYieldFacts: [], causalChain: [], commonConfusions: [] }, teachingBrief: [], keyTerms: [], blockOrientation: "Orient to the lecture objective, then connect it to the clinical pattern.", minimumModel: "Start with the smallest causal relationship in the objective before naming a disease.", guidedQuestion: "What is the key relationship this objective is asking you to recognize?", openingModel: "Start with the lecture’s organizing model and identify the clinical pattern before naming an answer.", caseTitle: "Patient 1", stem: `A patient presents with findings relevant to ${objectiveText}. Use the lecture evidence to identify the pattern before naming the answer.`, task: "What do you think is happening to this patient?", questionIntent: "identify the clinical pattern before going one level deeper", requestedDepth: "disease", keyClues: [], diagnosisCategory: "", mechanismTarget: "" },
-        2200,
-        undefined,
-        undefined,
-        { throwOnError: true }
-      );
-      if (typeof generated?.openingModel !== "string" || generated.openingModel.trim().length < 30
-        || typeof generated?.stem !== "string" || generated.stem.trim().length < 80
-        || typeof generated?.task !== "string" || generated.task.trim().length < 10) {
-        throw new Error("The tutor returned an incomplete case; retry to keep the walkthrough grounded in this lecture.");
-      }
-      const patientCase = {
-        // Never trust model-generated headings to be reveal-safe.
-        caseTitle: "Patient 1",
-        objectiveLesson: generated?.objectiveLesson || { objective: objectiveText, whyItMatters: "This objective is a building block for the lecture's clinical reasoning.", highYieldFacts: [], causalChain: [], commonConfusions: [] },
-        teachingBrief: Array.isArray(generated?.teachingBrief) && generated.teachingBrief.length > 0
-          ? generated.teachingBrief.slice(0, 4)
-          : atoms.filter((atom) => (atom.objectiveIds || atom.objectives || []).map(String).includes(String(activeObjectiveId))).slice(0, 4).map((atom) => `${atom.term || atom.name || "Lecture point"}: ${String(atom.content || "").slice(0, 220)}`),
-        keyTerms: Array.isArray(generated?.keyTerms) ? generated.keyTerms.slice(0, 5) : [],
-        blockOrientation: generated?.blockOrientation || "Orient to the lecture objective, then connect it to the clinical pattern.",
-        minimumModel: generated?.minimumModel || "Start with the smallest causal relationship in the objective before naming a disease.",
-        guidedQuestion: generated?.guidedQuestion || "What is the key relationship this objective is asking you to recognize?",
-        stem: generated?.stem || "Start by identifying the presenting syndrome.",
-        task: generated?.task || "What is the most likely diagnosis or disease family?",
-        keyClues: Array.isArray(generated?.keyClues) ? generated.keyClues.slice(0, 4) : [],
-        diagnosisCategory: generated?.diagnosisCategory || "",
-        mechanismTarget: generated?.mechanismTarget || "",
-        acceptedAnswers: Array.isArray(generated?.acceptedAnswers) ? generated.acceptedAnswers.slice(0, 6) : [],
-        questionIntent: generated?.questionIntent || "identify the clinical pattern before going one level deeper",
-        requestedDepth: generated?.requestedDepth || "disease",
-        choices: generated?.choices && typeof generated.choices === "object" ? Object.fromEntries(Object.entries(generated.choices).slice(0, 5)) : {},
-        correctChoice: generated?.correctChoice || "",
-      };
-      if (tutorSessionRef.current?.sessionId === sessionId) {
-        saveTutorSession(attachTutorCase(
-          tutorSessionRef.current,
-          patientCase,
-          Date.now(),
-          tutorSessionRef.current?.lectureModel || mentalModel?.bigPicture || generated?.openingModel || "Start with the lecture’s organizing model, then ask what clinical job breaks when a process is disrupted."
-        ));
-      }
-    } catch (error) {
-      setTutorNotice(`Case generation failed: ${error?.message || "use the objective scaffold below"}`);
-    } finally {
-      setTutorLoading(false);
-      tutorCaseGenerationRef.current = null;
-    }
-  }, [atoms, blockId, userId, lecture?.id, lectureObjectives, mentalModel?.bigPicture, saveTutorSession, text, title]);
-
-  const startTutorSession = useCallback((budgetMinutes, modeOverride = null) => {
-    const profile = tutorSessionsStore.getLearnerProfile(userId) || {};
-    const openMisses = new Map();
-    for (const miss of profile.recentMisses || []) {
-      if (miss.status !== "resolved") openMisses.set(String(miss.objectiveId), (openMisses.get(String(miss.objectiveId)) || 0) + 1);
-    }
-    const objectiveIds = [...objectivePractice.rows]
-      .sort((a, b) => {
-        const missDelta = (openMisses.get(String(b.id)) || 0) - (openMisses.get(String(a.id)) || 0);
-        if (missDelta) return missDelta;
-        const stateRank = { struggling: 0, untested: 1, developing: 2, ready: 3 };
-        return (stateRank[a.state] ?? 4) - (stateRank[b.state] ?? 4);
-      })
-      .map((objective) => String(objective.id));
-    const allObjectivesCovered = lectureObjectives.length > 0 && objectivePractice.rows.length > 0 && objectivePractice.rows.every((objective) => objective.worked);
-    const integrationSeed = /general morphology.*nervous system/i.test(title) || /cerebral aqueduct|ventricular system/i.test(`${title} ${text}`)
-      ? "Start with an integrated cerebral aqueduct obstruction case. Ask the learner to trace lateral ventricles → interventricular foramina → third ventricle → cerebral aqueduct → fourth ventricle, then reason which spaces enlarge and why. Do not restart with definitions."
-      : "Connect two or more covered objectives in one patient or anatomical problem. Require localization, mechanism, and one predicted consequence.";
-    const previous = tutorSessionsStore.get(userId, lecture?.id);
-    const now = Date.now();
-    const retrievalQueue = (previous?.retrievalQueue || []).map((review) => ({
-      ...review,
-      dueAt: review.dueAt || ((previous?.lastCheckpointAt || previous?.startedAt || now) + (24 * 60 * 60 * 1000)),
-    }));
-    const sessionMode = modeOverride === "integration" || allObjectivesCovered ? "integration" : "walkthrough";
-    const next = createTutorSession({
-      lectureId: lecture?.id,
-      budgetMinutes,
-      objectiveIds,
-      objectivePlan: lectureObjectives.map((objective) => ({
-        id: String(objective?.id || objective?.code || objective?.objective || ""),
-        label: objective?.objective || objective?.text || objective?.code || objective?.id || "Objective",
-      })),
-      learnerProfile: tutorSessionsStore.getLearnerProfile(userId),
-      retrievalQueue,
-      sessionMode,
-      integrationSeed: sessionMode === "integration" ? integrationSeed : "",
-      teachingBlocks,
-      lectureModel,
-      now,
-    });
-    if (tutorResponseInputRef.current) tutorResponseInputRef.current.value = "";
-    setTutorConfidence("");
-    const dueReviewIndex = retrievalQueue.findIndex((review) => review.dueAt <= now && objectiveIds.includes(String(review.objectiveId)));
-    if (dueReviewIndex >= 0) {
-      const [delayedReview] = retrievalQueue.splice(dueReviewIndex, 1);
-      next.activeObjectiveId = delayedReview.objectiveId;
-      next.currentStep = "delayed_retrieval";
-      next.delayedReview = delayedReview;
-      next.resumeObjectiveId = objectiveIds.find((id) => id !== String(delayedReview.objectiveId)) || objectiveIds[0] || null;
-      next.nextAction = "retrieve_earlier_case";
-      next.status = "active";
-    }
-    next.retrievalQueue = retrievalQueue;
-    saveTutorSession(next);
-  }, [lecture?.id, lectureModel, lectureObjectives, objectivePractice.rows, saveTutorSession, teachingBlocks, text, title, userId]);
-
-  useEffect(() => {
-    if (tutorSession?.status !== "active" || tutorSession.patientCase || tutorSession.delayedReview || (!text && !atoms.length)) return;
-    generateTutorCase();
-  }, [atoms.length, generateTutorCase, text, tutorSession?.delayedReview, tutorSession?.patientCase, tutorSession?.status]);
-
-  const pauseCurrentTutorSession = useCallback(() => {
-    saveTutorSession(pauseTutorSession(tutorSessionRef.current));
-  }, [saveTutorSession]);
-
-  const resumeCurrentTutorSession = useCallback(() => {
-    saveTutorSession(resumeTutorSession(tutorSessionRef.current));
-  }, [saveTutorSession]);
-
-  const finishCurrentTutorSession = useCallback(() => {
-    saveTutorSession(finishTutorSession(tutorSessionRef.current));
-  }, [saveTutorSession]);
-
-  const activeTutorObjective = useMemo(() => {
-    const activeId = tutorSession?.delayedReview?.objectiveId || tutorSession?.activeObjectiveId;
-    return lectureObjectives.find((objective) => String(objective?.id || objective?.code || objective?.objective) === String(activeId))
-      || lectureObjectives[0]
-      || null;
-  }, [lectureObjectives, tutorSession?.activeObjectiveId, tutorSession?.delayedReview?.objectiveId]);
-  const activeTutorBlock = useMemo(() => tutorSession?.teachingBlocks?.find((block) => block.id === tutorSession.activeBlockId) || null, [tutorSession?.activeBlockId, tutorSession?.teachingBlocks]);
-  const activeTutorAtoms = useMemo(() => {
-    const activeId = tutorSession?.delayedReview?.objectiveId || tutorSession?.activeObjectiveId;
-    const matched = activeId
-      ? atoms.filter((atom) => {
-        const links = atom.objectiveIds || atom.objectives || [];
-        const ids = Array.isArray(links) ? links : [links];
-        return ids.map(String).includes(String(activeId));
-      })
-      : [];
-    return (matched.length ? matched : atoms).slice(0, 4);
-  }, [atoms, tutorSession?.activeObjectiveId, tutorSession?.delayedReview?.objectiveId]);
-  const tutorPrompt = useMemo(() => tutorStepPrompt({
-    step: tutorSession?.currentStep,
-    objectiveText: activeTutorObjective?.objective || activeTutorObjective?.text || "this lecture objective",
-    atomTerms: activeTutorAtoms.map((atom) => atom.term || atom.name || atom.label),
-  }), [activeTutorAtoms, activeTutorObjective, tutorSession?.currentStep]);
-  const tutorObjectiveIndex = Math.max(0, (tutorSession?.objectiveIds || []).indexOf(String(tutorSession?.activeObjectiveId)));
-  const latestTutorTurn = tutorSession?.turns?.[tutorSession.turns.length - 1] || null;
-  const displayedTutorCase = tutorSession?.delayedReview || tutorSession?.patientCase;
-  const normalizedTutorStep = tutorSession?.currentStep === "patient_case" ? "diagnosis" : tutorSession?.currentStep;
-  const latestTurnMatchesStep = latestTutorTurn
-    && String(latestTutorTurn.objectiveId) === String(tutorSession?.activeObjectiveId)
-    && latestTutorTurn.reviewedStep === normalizedTutorStep;
-  const currentTutorQuestion = latestTurnMatchesStep && latestTutorTurn.followUp
-    ? latestTutorTurn.followUp
-    : (latestTutorTurn
-      && String(latestTutorTurn.objectiveId) === String(tutorSession?.activeObjectiveId)
-      && latestTutorTurn.stepResolved
-      && latestTutorTurn.followUp
-      ? latestTutorTurn.followUp
-      : (normalizedTutorStep === "delayed_retrieval"
-        ? tutorPrompt.prompt
-        : (normalizedTutorStep === "diagnosis" ? (tutorSession?.patientCase?.guidedQuestion || tutorSession?.patientCase?.task) : tutorPrompt.prompt)));
-  const tutorHasCurrentCase = Boolean(tutorSession?.delayedReview || tutorSession?.patientCase);
-  const tutorQuestionInConversation = Boolean(latestTutorTurn?.followUp
-    && String(latestTutorTurn.objectiveId) === String(tutorSession?.activeObjectiveId));
-  const walkthroughNeedsModelResponse = tutorSession?.sessionMode === "walkthrough"
-    && Boolean(tutorSession?.patientCase)
-    && !tutorSession?.delayedReview
-    && !(tutorSession?.turns || []).length;
-
-  const submitTutorTurn = useCallback(async (kind = "response") => {
-    const response = String(tutorResponseInputRef.current?.value || "").trim();
-    if (kind === "response" && /^(let'?s?\s+)?(start\s+)?fresh|^reset\s+(the\s+)?tutor|^new\s+(session|start)/i.test(response)) {
-      startFreshTutor();
-      return;
-    }
-    if (kind === "response" && response.length < 3) {
-      setTutorNotice("Write a short explanation first, even if it is incomplete.");
-      return;
-    }
-    const current = tutorSessionRef.current;
-    if (!current || current.status !== "active" || tutorReviewing) return;
-    const isBlocked = kind === "stuck";
-    const reviewedStep = current.currentStep === "patient_case" ? "diagnosis" : current.currentStep;
-    const reviewCase = current.delayedReview || current.patientCase;
-    const reviewObjectiveId = current.delayedReview?.objectiveId || current.activeObjectiveId;
-    const objectiveText = activeTutorObjective?.objective || activeTutorObjective?.text || "this lecture objective";
-    const caseText = reviewCase?.stem || "No generated case is available.";
-    const source = String(text || activeTutorAtoms.map((atom) => `${atom.term || ""}: ${atom.content || ""}`).join("\n")).slice(0, 6500);
-    const knownAnchors = [
-      ...(current.learnerProfile?.confirmedAnchors || []),
-      ...(current.turns || []).filter((turn) => turn.stepResolved && turn.response),
-    ]
-      .slice(-4)
-      .map((anchor) => anchor.response)
-      .join("\n");
-    const recentMisses = (current.learnerProfile?.recentMisses || [])
-      .filter((miss) => miss.status !== "resolved")
-      .slice(-4)
-      .map((miss) => `${miss.missType}: ${miss.repairLink || miss.step}`)
-      .join("\n");
-    const stableReasoningSkills = current.learnerProfile?.stableReasoningSkills || [];
-    const pacing = tutorPacingContext(current);
-    const recentConfidence = (current.learnerProfile?.confidenceEvents || [])
-      .slice(-4)
-      .map((event) => `${event.confidence} confidence / ${event.assessment}${event.confidenceNote ? `: ${event.confidenceNote}` : ""}`)
-      .join("\n");
-    const recentConversation = (current.turns || []).slice(-6).map((turn, index) => `Turn ${index + 1} (${turn.reviewedStep || "step"}): learner=${turn.response || ""}; tutor=${turn.feedback || ""}; next=${turn.followUp || ""}`).join("\n");
-    const objectiveFact = activeTutorAtoms.find((atom) => atom.content)?.content || "Use the lecture objective and its linked facts as your source of truth.";
-    const fallback = {
-      assessment: isBlocked ? "needs_repair" : "unreviewed",
-      feedback: isBlocked
-        ? "Start with the organ system, time course, and the finding that is hardest to explain."
-        : `I heard your answer. Anchor it to the objective: ${objectiveText}. The linked lecture fact to use first is: ${String(objectiveFact).slice(0, 220)}`,
-      followUp: isBlocked
-        ? "Which single finding best localizes the process?"
-        : `What part of the objective does that fact help you explain: ${objectiveText}?`,
-      readyToAdvance: false,
-    };
-    setTutorReviewing(true);
-    setPendingTutorTurn({ response: response || "Give me one hint", kind });
-    setTutorNotice(isBlocked ? "Building a focused hint…" : "Checking your reasoning against the lecture…");
-    try {
-      const review = await callAIJSON(
-        "You are a Socratic medical-school tutor following a question-reasoning diagnostic model. Evaluate only the learner's current step against the active lecture objective and source. Preserve every correct proposition, identify the first divergence, and teach only that missing connection. Do not dump a full solution or reveal the private answer before the learner commits. Give one concise teaching bridge before the follow-up question: if the learner is correct, connect their answer to the next level; if partial, explain the missing link in one sentence; if they say they need the lecture, provide only the relevant lecture fact or relationship before asking them to use it. Ask exactly one next question. Do not re-test a confirmed connection just to repeat the six-stage script. If the learner asks for teaching or has not learned a prerequisite, teach the relevant source relationship first; needing that first-pass teaching is not a comprehension error. Keep assessment categories in the structured fields; feedback should read like a natural tutor reply, not a grading report. For translation and depth steps, do not solve the medical case; evaluate whether the learner correctly identified what the wording asks and how deep the answer must be. Return valid JSON only.",
-        `Lecture: ${title}\nSession pace and coverage: ${JSON.stringify(pacing)}\nOpening mental model: ${current.openingModel || mentalModel?.bigPicture || "none saved"}\nEstablished learner anchors:\n${knownAnchors || "None recorded yet."}\nStable reasoning skills already demonstrated: ${stableReasoningSkills.join(", ") || "none yet"}\nRecent conversation (continue this thread; do not restart):\n${recentConversation || "No prior tutor turns."}\nRecent repair history:\n${recentMisses || "No repeated miss pattern recorded."}\nRecent confidence history:\n${recentConfidence || "None recorded."}\nObjective: ${objectiveText}\nPatient case: ${caseText}\nQuestion intent: ${reviewCase?.questionIntent || "not recorded"}\nRequested depth: ${reviewCase?.requestedDepth || "not recorded"}\nCurrent step: ${reviewedStep}\nLearner turns on this objective: ${(current.turns || []).filter((turn) => String(turn.objectiveId) === String(reviewObjectiveId)).length}\nPrivate expected answer (never reveal before evaluating): diagnosis=${current.patientCase?.diagnosisCategory || "not recorded"}; accepted aliases=${(current.patientCase?.acceptedAnswers || []).join(", ") || "none recorded"}; mechanism=${current.patientCase?.mechanismTarget || "not recorded"}.\nConfidence before feedback: ${tutorConfidence || "not recorded"}\nLearner response: ${response || "The learner asked for a hint."}\nLecture material:\n${source}\n\nReturn {"assessment":"correct|partial|needs_repair","feedback":"1-3 concise sentences preserving what was correct","preservedReasoning":["correct proposition 1"],"firstDivergence":"the earliest wrong or missing connection, or empty","followUp":"one Socratic question","questionIntent":"plain-language interpretation, if evaluated","requestedDepth":"disease|pathway|mechanism|enzyme_or_structure|regulator_or_cofactor|consequence|null","missTypes":["comprehension|depth|content"],"missType":"legacy recognition|mechanism|application|execution|null","repairLink":"the single missing connection, or empty","reasoningSkill":"causal-chain|localization|discriminator|pathway-link, or empty","confidenceNote":"brief coaching only if confidence and performance clearly mismatch; otherwise empty","anki":{"kind":"comprehension|depth|content|none","front":"one atomic recall question about the actual unresolved gap","back":"the concise answer and lecture connection"},"readyToAdvance":boolean}. If the learner asks for a hint, reveal one clue but not the answer. Never reveal the diagnosis or correct choice until the diagnosis, translation, and depth reasoning steps have been attempted. Do not recommend Anki on the first response, for a correct step, or merely because the learner needed a hint. Recommend at most one card for an objective, and only after the learner has successfully re-explained a previously corrected gap. Otherwise set anki.kind to none.`,
-        fallback,
-        1000,
-        undefined,
-        undefined,
-        {
-          tutorSessionKey: JSON.stringify([userId || "local", lecture?.id, current.sessionId]),
-          onDelta: raw => {
-            if (tutorSessionRef.current?.sessionId === current.sessionId) {
-              setPendingTutorTurn(previous => {
-                const feedback = streamedTutorFeedback(raw);
-                return previous && previous.feedback !== feedback ? { ...previous, feedback } : previous;
-              });
-            }
-          },
-        }
-      );
-      const latest = tutorSessionRef.current;
-      if (!latest || latest.sessionId !== current.sessionId || latest.activeObjectiveId !== current.activeObjectiveId || latest.currentStep !== current.currentStep) return;
-      const diagnostic = normalizeMissDiagnostic({
-        primaryType: review?.missTypes?.[0] || null,
-        secondaryType: review?.missTypes?.[1] || null,
-        depth: review?.requestedDepth || null,
-        preserved: review?.preservedReasoning || [],
-        breakPoint: review?.firstDivergence || "",
-        asksFor: review?.questionIntent || reviewCase?.questionIntent || "",
-        anki: review?.anki || {},
-      });
-      const readyToAdvance = !isBlocked && review?.readyToAdvance === true;
-      const hasPriorAnkiDraft = (current.turns || []).some((turn) => String(turn.objectiveId) === String(reviewObjectiveId) && turn.ankiRecommendation?.front);
-      const shouldOfferAnki = readyToAdvance && !hasPriorAnkiDraft && current.turns.some((turn) => String(turn.objectiveId) === String(reviewObjectiveId) && turn.firstDivergence);
-      const delayedReviewComplete = reviewedStep === "delayed_retrieval" && readyToAdvance;
-      const objectiveComplete = readyToAdvance && reviewedStep === "contrast";
-      const next = recordTutorTurn(latest, {
-        objectiveId: reviewObjectiveId,
-        response: response || "Student requested a hint.",
-        reviewedStep,
-        assessment: review?.assessment || fallback.assessment,
-        missType: review?.missType || null,
-        repairLink: review?.repairLink || "",
-        missTypes: Array.isArray(review?.missTypes) ? review.missTypes.filter((type) => ["comprehension", "depth", "content"].includes(type)) : [],
-        preservedReasoning: Array.isArray(review?.preservedReasoning) ? review.preservedReasoning.slice(0, 4) : [],
-        firstDivergence: review?.firstDivergence || "",
-        questionIntent: review?.questionIntent || reviewCase?.questionIntent || "",
-        requestedDepth: review?.requestedDepth || reviewCase?.requestedDepth || "",
-        ankiRecommendation: shouldOfferAnki && diagnostic.anki.kind !== "none" && diagnostic.anki.front && diagnostic.anki.back ? diagnostic.anki : null,
-        reasoningSkill: review?.reasoningSkill || "",
-        confidence: tutorConfidence || "",
-        confidenceNote: review?.confidenceNote || "",
-        stepResolved: readyToAdvance,
-        feedback: review?.feedback || fallback.feedback,
-        followUp: review?.followUp || fallback.followUp,
-        objectiveComplete,
-        delayedReviewComplete,
-        nextStep: readyToAdvance ? tutorPrompt.nextStep : latest.currentStep,
-        nextAction: objectiveComplete ? "advance_objective" : (readyToAdvance ? "continue_reasoning" : "retry_reasoning"),
-        blocker: !readyToAdvance && (isBlocked || (review?.missType && review.missType !== "execution"))
-          ? { type: isBlocked ? reviewedStep : review.missType, step: reviewedStep, concept: review?.repairLink || objectiveText, status: "open" }
-          : null,
-      });
-      const saved = saveTutorSession(next);
-      if (tutorResponseInputRef.current) tutorResponseInputRef.current.value = "";
-      setTutorConfidence("");
-      setTutorNotice(saved ? "" : "Your answer was checked, but browser storage is full. This progress remains in this tab; free local storage before leaving to ensure it persists.");
-    } catch (error) {
-      setTutorNotice(`Tutor review failed: ${error?.message || "save your response and retry"}`);
-    } finally {
-      setTutorReviewing(false);
-      setPendingTutorTurn(null);
-    }
-  }, [activeTutorAtoms, activeTutorObjective, saveTutorSession, startFreshTutor, text, title, tutorPrompt.nextStep, tutorReviewing, mentalModel?.bigPicture, tutorConfidence, userId, lecture?.id]);
-
-  // Advance the clock in a ref so typing does not rerender this large study view every second.
-  // The isolated countdown renders seconds; session state is persisted every 30 seconds/boundary.
-  useEffect(() => {
-    if (tutorSession?.status !== "active" || (!tutorSession.patientCase && !tutorSession.delayedReview)) return undefined;
-    let lastPersistedElapsed = tutorSessionRef.current?.elapsedSeconds || 0;
-    const timer = window.setInterval(() => {
-      const current = tutorSessionRef.current;
-      const next = tickTutorSession(current, 1);
-      if (next === current) return;
-      tutorSessionRef.current = next;
-      if (next.status === "checkpoint") {
-        saveTutorSession(next);
-      } else if (next.elapsedSeconds - lastPersistedElapsed >= 30) {
-        lastPersistedElapsed = next.elapsedSeconds;
-        const saving = tutorSessionsStore.save(userId, next);
-        saving?.then?.((saved) => {
-          if (!saved) setTutorNotice("Cloud save failed. Your timer checkpoint remains in this tab; keep RXTrack open and retry when connected.");
-        });
-      }
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, [tutorSession?.status, tutorSession?.patientCase, tutorSession?.delayedReview, saveTutorSession, userId]);
-
-  // Persist the last checkpoint even if the learner navigates away between timer ticks.
-  useEffect(() => () => {
-    if (tutorSessionRef.current) tutorSessionsStore.save(userId, tutorSessionRef.current);
-  }, [userId, lecture?.id]);
 
   // Start both cloud subscriptions as soon as Study opens. Previously the first generation
   // itself started hydration and immediately read an empty fallback, so uploaded Esoft examples
@@ -1688,7 +1243,7 @@ export function LectureStudyFlow({
       <LecturePanel name="progress" workspace={workspace} visited={visitedWorkspaces} aria-label="Lecture review progress">
       <MasteryLadderPanel defaultOpen objectives={lectureObjectives} evidence={learnerEvidence.data || {}} examDate={practiceExamDate} />
       <LectureProgressOverview historyLoading={learnerEvidence.loading} model={learnerEvidence.data || {}} ratings={questionRatingsStore.read(userId).ratings || {}} blockId={blockId} lectureId={lecture?.id} stats={qStats} objectivePractice={objectivePractice} relationshipRows={relationshipRows} />
-      <LectureRetrievalEnrollment key={`${userId}:${blockId}:${lecture?.id}`} userId={userId} blockId={blockId} lectureId={lecture?.id} title={renamedTitle || title} reference={mentalModel?.bigPicture || ""} rows={objectivePractice.rows} evidenceModel={learnerEvidence.data} examDate={examDates?.[blockId]?.examDate ?? examDates?.[blockId] ?? null} />
+      <LectureRetrievalEnrollment key={`${userId}:${blockId}:${lecture?.id}`} userId={userId} blockId={blockId} lectureId={lecture?.id} title={renamedTitle || title} reference={savedModelReference} rows={objectivePractice.rows} evidenceModel={learnerEvidence.data} examDate={examDates?.[blockId]?.examDate ?? examDates?.[blockId] ?? null} />
 
 
       </LecturePanel>
@@ -1759,244 +1314,16 @@ export function LectureStudyFlow({
       <div className="mb-4 flex flex-col gap-3 rounded-2xl border border-border bg-bg-elevated p-4 shadow-sm sm:p-5">
         <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
           <h2 className="text-lg font-semibold">Learn</h2>
-          <span className="text-xs text-text-3">{lectureObjectives.length} objectives · {atoms.length} facts{tutorSession?.status === "active" ? " · tutor in progress" : ""}</span>
+          <span className="text-xs text-text-3">{lectureObjectives.length} objectives · {atoms.length} facts</span>
         </div>
         <PracticeModeTabs ariaLabel="Learn mode" value={learnMode} onChange={setLearnMode} modes={[
           { id: "connections", label: "Connections" },
-          { id: "tutor", label: "Tutor", badge: tutorSession?.status === "active" ? "●" : null },
           { id: "repairs", label: "Repairs" },
         ]} />
       </div>
       <div hidden={learnMode !== "connections"}>
       <ObjectiveConnections key={connectionMapKey(connectionScope)} userId={userId} catalog={relationshipResource.data||{}} evidence={learnerEvidence.data||{}} scope={connectionScope} loading={relationshipResource.loading||learnerEvidence.loading} error={relationshipResource.error} enabled={workspace==='learn'} busy={!!busy||checkpointPreparing||!!questions} onPractice={({count,objectives,focusNotes})=>runQuiz(count,resolveDefaultDifficulty(qStats.accuracy),[],false,objectives,focusNotes)} />
       <StudyGuidePanel mode="learn" userId={userId} blockId={blockId} lecture={lecture} objectives={lectureObjectives} />
-      </div>
-      <div id="lecture-learn" hidden={learnMode !== "tutor"}>
-      <div className="desk-tutor-launcher rounded-b-xl border-t border-accent/30 bg-accent/5 px-3 py-3 sm:flex sm:items-center sm:justify-between sm:gap-4">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="font-semibold text-text-1">Guided tutor</span>
-            {tutorSession && <span className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-text-3">{tutorSession.status === "active" && !tutorSession.patientCase && !tutorSession.delayedReview ? "preparing" : tutorSession.status}</span>}
-            {userId && <span className={`rounded border border-border px-1.5 py-0.5 font-mono text-[10px] ${tutorCloudStatus === "error" ? "text-bad" : "text-text-3"}`} role="status">{!tutorStoreHydrated ? "loading cloud history" : tutorCloudStatus === "syncing" ? "saving to cloud…" : tutorCloudStatus === "error" ? "cloud save needs retry" : "saved in cloud"}</span>}
-          </div>
-          {!tutorSession ? (
-            <p className="mt-1 text-xs text-text-3">{!tutorStoreHydrated ? "Loading your saved tutor history from Firestore…" : "Choose a focused block. Your place, objectives, and blockers are saved by lecture."}</p>
-          ) : (
-            <p className="mt-1 text-xs text-text-3">
-              {tutorSession.status === "active" && !tutorSession.patientCase && !tutorSession.delayedReview
-                ? "Building your first patient case · study timer starts when it is ready"
-                : `${tutorPacing.mode} · ${tutorSessionSummaryValue.objectivesCompleted}/${tutorSessionSummaryValue.objectivesTotal || lectureObjectives.length} complete · ${tutorPacing.objectivesInProgress} in progress · ${tutorPacing.objectivesNotYetReached} not reached · ${Math.floor(tutorSessionSummaryValue.elapsedSeconds / 60)}m elapsed · ${Math.floor(tutorSessionSummaryValue.remainingSeconds / 60)}m left`}
-            </p>
-          )}
-        </div>
-        <div className="mt-3 flex flex-wrap items-center gap-2 sm:mt-0 sm:justify-end">
-          {tutorSession && (
-            <button
-              type="button"
-              aria-expanded={tutorWorkspaceOpen}
-              aria-controls="guided-tutor-workspace"
-              onClick={() => setTutorWorkspaceOpen((open) => !open)}
-              className="rounded border border-border px-2 py-1 font-mono text-[11px] text-text-2 hover:border-accent"
-            >{tutorWorkspaceOpen ? "Collapse case" : "Show patient case"}</button>
-          )}
-          {!tutorSession && [
-            { minutes: 30, label: "Quick overview" },
-            { minutes: 45, label: "Balanced walkthrough" },
-            { minutes: 60, label: "Deep dive" },
-          ].map(({ minutes, label }) => (
-            <button key={minutes} disabled={!tutorStoreHydrated} onClick={() => startTutorSession(minutes)} className="rounded border border-accent/40 px-2 py-1 font-mono text-[11px] text-accent hover:bg-accent/10 disabled:cursor-wait disabled:opacity-50">
-              {label} · {minutes}m
-            </button>
-          ))}
-          {tutorSession && tutorSession.status === "active" && (tutorSession.patientCase || tutorSession.delayedReview) && (
-            <>
-              <TutorCountdown key={`${tutorSession.sessionId}:${tutorSession.remainingSeconds}`} remainingSeconds={tutorSession.remainingSeconds} active />
-              <button onClick={pauseCurrentTutorSession} className="rounded border border-border px-2 py-1 font-mono text-[11px] text-text-2 hover:border-accent">Pause</button>
-              <button onClick={startFreshTutor} className="rounded border border-border px-2 py-1 font-mono text-[11px] text-text-3 hover:border-accent">Start fresh</button>
-              <button onClick={finishCurrentTutorSession} className="rounded border border-border px-2 py-1 font-mono text-[11px] text-text-3 hover:border-bad hover:text-bad">End block</button>
-            </>
-          )}
-          {tutorSession && tutorSession.status === "active" && !tutorSession.patientCase && !tutorSession.delayedReview && (
-            <span className="font-mono text-[11px] text-text-3" role="status">{tutorLoading ? "Preparing case…" : "Case not ready · retry below"}</span>
-          )}
-          {tutorSession && tutorSession.status === "paused" && (
-            <>
-              <span className="font-mono text-[11px] text-text-3">{Math.floor(tutorSession.remainingSeconds / 60)}m left</span>
-              <button onClick={resumeCurrentTutorSession} className="rounded bg-accent px-2 py-1 font-mono text-[11px] font-semibold text-white hover:bg-accent/90">Resume</button>
-              <button onClick={finishCurrentTutorSession} className="rounded border border-border px-2 py-1 font-mono text-[11px] text-text-3 hover:border-bad hover:text-bad">End block</button>
-            </>
-          )}
-          {tutorSession && tutorSession.status === "checkpoint" && (
-            <>
-              <span className="font-mono text-[11px] text-text-3">time block complete</span>
-              <button onClick={() => saveTutorSession(extendTutorSession(tutorSessionRef.current, 10))} className="rounded bg-accent px-2 py-1 font-mono text-[11px] font-semibold text-white hover:bg-accent/90">Add 10 min &amp; continue</button>
-              <button onClick={finishCurrentTutorSession} className="rounded border border-border px-2 py-1 font-mono text-[11px] text-text-3 hover:border-bad hover:text-bad">End block</button>
-            </>
-          )}
-          {tutorSession && tutorSession.status === "finished" && (
-            <>
-              {tutorSession.sessionMode === "walkthrough" && tutorSession.completedObjectiveIds?.length > 0 && <button onClick={() => startTutorSession(30, "integration")} className="rounded bg-accent px-2 py-1 font-mono text-[11px] font-semibold text-white hover:bg-accent/90">Start integration case</button>}
-              <button onClick={startFreshTutor} className="rounded border border-border px-2 py-1 font-mono text-[11px] text-text-3 hover:border-accent">Start fresh</button>
-              <button onClick={() => setTutorSession(null)} className="rounded border border-border px-2 py-1 font-mono text-[11px] text-text-3 hover:border-accent">Start another block</button>
-            </>
-          )}
-          {tutorSession && tutorCloudStatus === "error" && (
-            <button onClick={() => saveTutorSession(tutorSessionRef.current)} className="rounded border border-bad/40 px-2 py-1 font-mono text-[11px] text-bad hover:bg-bad/5">Retry cloud save</button>
-          )}
-        </div>
-      </div>
-      {tutorSession && (
-        <section id="guided-tutor-workspace" hidden={!tutorWorkspaceOpen} className="desk-tutor-workspace mt-3 rounded-xl border border-good/30 bg-good/5 p-3 sm:p-4" data-testid="guided-tutor-workspace">
-          {tutorSession.status !== "active" && (
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded border border-accent/30 bg-bg-elevated px-3 py-2">
-              <p className="text-sm text-text-2">
-                {tutorSession.status === "finished"
-                  ? "Walkthrough finished. Your case and checkpoints are here to review."
-                  : tutorSession.status === "checkpoint"
-                    ? "Time block complete. Your place is saved; pause to process, add 10 minutes to continue, or end the block."
-                    : "Tutor paused. Take your time with the case and feedback; your place is saved."}
-              </p>
-              {tutorSession.status === "paused" && (
-                <button onClick={resumeCurrentTutorSession} className="rounded bg-accent px-3 py-1.5 text-xs font-semibold text-white hover:bg-accent/90">Resume timer</button>
-              )}
-              {tutorSession.status === "checkpoint" && (
-                <button onClick={() => saveTutorSession(extendTutorSession(tutorSessionRef.current, 10))} className="rounded bg-accent px-3 py-1.5 text-xs font-semibold text-white hover:bg-accent/90">Add 10 min &amp; continue</button>
-              )}
-            </div>
-          )}
-          <div className="flex flex-wrap items-start justify-between gap-2">
-            <div>
-            <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-good">{tutorSession.sessionMode === "integration" ? "Integrated application · step" : "Guided case walkthrough · step"} {tutorSession.turns?.length + 1 || 1}</p>
-              <h3 className="mt-1 font-semibold text-text-1">{tutorSession.delayedReview ? "Delayed retrieval" : tutorSession.sessionMode === "integration" ? "Connect the lecture" : `Objective ${tutorObjectiveIndex + 1} of ${lectureObjectives.length || 1}`}</h3>
-            </div>
-            <span className="rounded border border-good/30 px-2 py-1 font-mono text-[11px] text-good">Recognize → translate → depth → connect → apply</span>
-          </div>
-          {tutorSession.status === "finished" && <section className="mt-3 rounded border border-good/30 bg-bg-elevated p-3" aria-label="Tutor session summary">
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-good">Session map</p>
-              <span className="text-xs text-text-3">{tutorSessionSummaryValue.objectivesCompleted}/{tutorSessionSummaryValue.objectivesTotal || lectureObjectives.length} objectives reached</span>
-            </div>
-            <p className="mt-2 text-sm leading-6 text-text-1">{tutorSession.lectureModel || "You built a lecture-grounded model and practiced applying it."}</p>
-            <div className="mt-3 grid gap-2 sm:grid-cols-3">
-              {Object.entries(tutorSession.learnerProfile?.diagnosticMisses || {}).map(([kind, count]) => <div key={kind} className="rounded border border-border px-2 py-2 text-xs text-text-2"><strong className="capitalize text-text-1">{kind}</strong><span className="ml-1">{count} pattern{count === 1 ? "" : "s"}</span></div>)}
-              {!Object.keys(tutorSession.learnerProfile?.diagnosticMisses || {}).length && <p className="text-xs text-good">No recurring comprehension, depth, or content miss recorded.</p>}
-            </div>
-            {tutorSession.retrievalQueue?.length > 0 && <p className="mt-3 border-t border-border pt-2 text-xs leading-5 text-text-2"><strong>Next review:</strong> {tutorSession.retrievalQueue.length} case{tutorSession.retrievalQueue.length === 1 ? "" : "s"} queued for delayed retrieval.</p>}
-            {tutorSession.ankiQueue?.length > 0 && <p className="mt-1 text-xs leading-5 text-text-2"><strong>Targeted cards:</strong> {tutorSession.ankiQueue.length} gap-based draft{tutorSession.ankiQueue.length === 1 ? "" : "s"} saved in this session.</p>}
-          </section>}
-          <nav className="desk-tutor-phase-rail" aria-label="Tutor reasoning phases">
-            {[['diagnosis', 'Recognize'], ['translate', 'Translate'], ['depth', 'Depth'], ['mechanism', 'Connect'], ['consequence', 'Apply'], ['contrast', 'Contrast']].map(([step, label], index) => {
-              const phaseIndex = ['diagnosis', 'translate', 'depth', 'mechanism', 'consequence', 'contrast'].indexOf(normalizedTutorStep);
-              const state = index < phaseIndex ? 'done' : index === phaseIndex ? 'active' : 'next';
-              return <span key={step} className={`desk-tutor-phase desk-tutor-phase--${state}`}><span className="desk-tutor-phase__dot">{state === 'done' ? '✓' : index + 1}</span>{label}</span>;
-            })}
-          </nav>
-          {tutorSession.sessionMode === "walkthrough" && tutorSession.teachingBlocks?.length > 0 && <section className="desk-tutor-block-plan mt-3" aria-label="Lecture teaching plan">
-            <div className="desk-tutor-block-plan__header"><span>Teaching plan</span><strong>{tutorPacing.blocksComplete}/{tutorPacing.blocksTotal} blocks complete</strong></div>
-            <div className="desk-tutor-block-plan__list">{tutorSession.teachingBlocks.map((block, index) => <div key={block.id} className={`desk-tutor-block ${block.id === tutorSession.activeBlockId ? "desk-tutor-block--active" : ""} ${block.status === "complete" ? "desk-tutor-block--complete" : ""}`}><span>{block.status === "complete" ? "✓" : index + 1}</span><p>{block.title}</p></div>)}</div>
-          </section>}
-          <details className="mt-3 rounded border border-border bg-bg-elevated px-3 py-2 text-xs text-text-2" data-testid="tutor-coverage">
-            <summary className="cursor-pointer font-semibold text-text-1">{tutorPacing.coverageLabel || `Coverage checkpoint · ${tutorPacing.objectivesCompleted} complete · ${tutorPacing.objectivesInProgress} in progress · ${tutorPacing.objectivesNotYetReached} not yet reached`}</summary>
-            <p className="mt-2 text-text-3">{tutorSession.sessionMode === "integration" ? "First-pass teaching is complete for this lecture. This block tests whether you can connect the objectives in new patient and anatomy problems." : "Time spent or an objective being reached is not mastery; only completed reasoning chains count as complete."}</p>
-            <div className="mt-2 grid gap-2 sm:grid-cols-3">
-              <div><p className="font-semibold text-good">Complete</p>{tutorPacing.completed.map((label, index) => <p key={`done-${index}`} className="mt-1">{label}</p>)}</div>
-              <div><p className="font-semibold text-accent">In progress</p>{tutorPacing.inProgress.map((label, index) => <p key={`progress-${index}`} className="mt-1">{label}</p>)}</div>
-              <div><p className="font-semibold text-text-3">Not yet reached</p>{tutorPacing.notYetReached.map((label, index) => <p key={`pending-${index}`} className="mt-1">{label}</p>)}</div>
-            </div>
-            <p className="mt-2 border-t border-border pt-2">Pacing target: about {Math.max(1, Math.round(tutorPacing.targetSecondsPerRemainingObjective / 60))} min per unfinished objective. {tutorPacing.closingGuidance}</p>
-          </details>
-          <div className="mt-3 rounded border border-accent/30 bg-accent/5 px-3 py-2">
-            <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-accent">Practice objective</p>
-            {activeTutorBlock?.title && <p className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-text-3">Block: {activeTutorBlock.title}</p>}
-            <p className="mt-1 text-sm leading-5 text-text-1">{activeTutorObjective?.objective || activeTutorObjective?.text || "Build the patient case from the lecture material."}</p>
-          </div>
-          {tutorSession.openingModel && !tutorSession.delayedReview && (
-            <div className="desk-tutor-context mt-4 rounded border border-good/30 bg-bg-elevated p-3">
-              <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-good">Start with the model</p>
-              {tutorSession.sessionMode === "walkthrough" && tutorSession.patientCase?.objectiveLesson && <div className="mt-2 rounded border border-accent/25 bg-accent/5 px-2 py-2"><p className="text-xs font-semibold uppercase tracking-wide text-accent">Objective lesson</p><p className="mt-1 text-sm font-semibold leading-6 text-text-1">{tutorSession.patientCase.objectiveLesson.objective}</p>{tutorSession.patientCase.objectiveLesson.whyItMatters && <p className="mt-1 text-sm leading-6 text-text-2">{tutorSession.patientCase.objectiveLesson.whyItMatters}</p>}{tutorSession.patientCase.objectiveLesson.highYieldFacts?.length > 0 && <ul className="mt-2 grid gap-1 text-sm leading-6 text-text-1">{tutorSession.patientCase.objectiveLesson.highYieldFacts.map((fact, index) => <li key={`${index}-${fact}`}><span className="mr-2 text-accent">•</span>{fact}</li>)}</ul>}{tutorSession.patientCase.objectiveLesson.causalChain?.length > 0 && <p className="mt-2 text-xs leading-5 text-text-2"><strong>Connect it:</strong> {tutorSession.patientCase.objectiveLesson.causalChain.join(" → ")}</p>}{tutorSession.patientCase.objectiveLesson.commonConfusions?.length > 0 && <p className="mt-2 text-xs leading-5 text-warn"><strong>Watch for:</strong> {tutorSession.patientCase.objectiveLesson.commonConfusions.join(" · ")}</p>}</div>}
-              {tutorSession.sessionMode === "walkthrough" && tutorSession.patientCase?.objectiveLesson?.highYieldFacts?.length === 0 && tutorSession.patientCase?.teachingBrief?.length > 0 && <div className="mt-2 rounded border border-good/20 bg-good/5 px-2 py-2"><p className="text-xs font-semibold uppercase tracking-wide text-good">First-pass lesson</p><ul className="mt-1 grid gap-1 text-sm leading-6 text-text-1">{tutorSession.patientCase.teachingBrief.map((point, index) => <li key={`${index}-${point}`}><span className="mr-2 text-good">•</span>{point}</li>)}</ul>{tutorSession.patientCase.keyTerms?.length > 0 && <p className="mt-2 text-xs text-text-3"><strong>Lecture terms:</strong> {tutorSession.patientCase.keyTerms.join(" · ")}</p>}</div>}
-              {tutorSession.sessionMode === "walkthrough" && tutorSession.patientCase?.blockOrientation && <p className="mt-2 text-sm font-semibold leading-6 text-text-1">{tutorSession.patientCase.blockOrientation}</p>}
-              {tutorSession.sessionMode === "walkthrough" && tutorSession.patientCase?.minimumModel && <p className="mt-2 text-sm leading-6 text-text-1"><strong>Minimum model:</strong> {tutorSession.patientCase.minimumModel}</p>}
-              <p className="mt-2 text-sm leading-6 text-text-1">{tutorSession.openingModel}</p>
-              {tutorSession.sessionMode === "walkthrough" && tutorSession.patientCase?.guidedQuestion ? <p className="mt-2 rounded border border-accent/20 bg-accent/5 px-2 py-2 text-sm leading-6 text-accent"><strong>Before the case:</strong> {tutorSession.patientCase.guidedQuestion}</p> : <p className="mt-2 text-xs text-text-3">The case asks what clinical job breaks when the process is disrupted.</p>}
-            </div>
-          )}
-          {tutorSession.delayedReview ? (
-            <div className="desk-tutor-context mt-4 rounded border border-accent/30 bg-bg-elevated p-3">
-              <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-accent">Earlier patient · delayed retrieval</p>
-              <p className="mt-2 text-sm leading-6 text-text-1">{tutorSession.delayedReview.stem}</p>
-            </div>
-          ) : tutorLoading && !tutorSession.patientCase ? (
-            <div className="mt-4 rounded border border-border bg-bg-elevated px-3 py-4 text-sm text-text-2">Building a patient case from this lecture and its objectives…</div>
-          ) : tutorSession.patientCase && !walkthroughNeedsModelResponse ? (
-            <div className="desk-tutor-context mt-4 rounded border border-accent/30 bg-bg-elevated p-3">
-              <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-accent">{displayedTutorCase.caseTitle || "Patient case"}</p>
-              <p className="mt-2 text-sm leading-6 text-text-1">{displayedTutorCase.stem}</p>
-              {Object.keys(displayedTutorCase.choices || {}).length > 0 && ["mechanism", "consequence", "contrast"].includes(normalizedTutorStep) && (
-                <div className="mt-3 border-t border-border pt-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-text-3">Answer choices · now test your model</p>
-                  <ul className="mt-2 grid gap-2 sm:grid-cols-2">
-                    {Object.entries(displayedTutorCase.choices).map(([letter, choice]) => <li key={letter} className="rounded border border-border px-2 py-2 text-sm"><strong className="mr-2 text-accent">{letter}</strong>{choice}</li>)}
-                  </ul>
-                </div>
-              )}
-            </div>
-          ) : walkthroughNeedsModelResponse ? (
-            <div className="mt-4 rounded border border-good/30 bg-good/5 px-3 py-4 text-sm text-text-2">
-              <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-good">Model check before application</p>
-              <p className="mt-2 leading-6">Explain the minimum model in your own words first. Once you connect it to the objective, the patient example will open.</p>
-            </div>
-          ) : (
-            <div className="mt-4 rounded border border-border bg-bg-elevated px-3 py-4 text-sm text-text-2">
-              <p>No case was generated yet.</p>
-              <button type="button" onClick={generateTutorCase} className="mt-2 rounded border border-accent/40 px-2 py-1 text-xs text-accent hover:bg-accent/10">Build patient case</button>
-            </div>
-          )}
-          {(tutorSession.turns?.length > 0 || pendingTutorTurn) && <section className="desk-tutor-thread mt-4" aria-label="Tutor conversation">
-            <div className="desk-tutor-thread__label">Conversation</div>
-            <div className="desk-tutor-thread__messages">
-              {tutorSession.turns.slice(-4).map((turn, index) => <div key={`${turn.at || index}-${index}`} className="desk-tutor-exchange">
-                <div className="desk-tutor-bubble desk-tutor-bubble--student"><span className="desk-tutor-bubble__label">You</span><p>{turn.response}</p></div>
-                {turn.feedback && <TutorMessage turn={turn} />}
-              </div>)}
-              {pendingTutorTurn && <div className="desk-tutor-exchange desk-tutor-exchange--pending"><div className="desk-tutor-bubble desk-tutor-bubble--student"><span className="desk-tutor-bubble__label">You</span><p>{pendingTutorTurn.response}</p></div><div className="desk-tutor-bubble desk-tutor-bubble--tutor"><span className="desk-tutor-bubble__label">Tutor</span><p className="text-text-3">{pendingTutorTurn.feedback || "Connecting to Codex…"}</p></div></div>}
-            </div>
-          </section>}
-          {tutorHasCurrentCase && (
-            <>
-              {!tutorQuestionInConversation && <><p className="mt-4 text-sm font-semibold leading-6 text-text-1">{currentTutorQuestion || tutorPrompt.prompt}</p><p className="mt-1 text-xs text-text-3">{tutorPrompt.scaffold}</p></>}
-              {tutorQuestionInConversation && <p className="mt-4 text-xs text-text-3">Continue from the tutor question above. Add your reasoning in your own words.</p>}
-              <div className="mt-3 flex flex-wrap items-center gap-2" role="group" aria-label="Confidence before feedback">
-                <span className="text-xs text-text-3">How sure are you?</span>
-                {["low", "medium", "high"].map((level) => (
-                  <button
-                    key={level}
-                    type="button"
-                    aria-pressed={tutorConfidence === level}
-                    disabled={tutorSession.status !== "active" || tutorReviewing || tutorLoading}
-                    onClick={() => setTutorConfidence(level)}
-                    className={`rounded border px-2 py-1 text-xs capitalize disabled:opacity-50 ${tutorConfidence === level ? "border-accent bg-accent/10 text-accent" : "border-border text-text-3 hover:text-text-1"}`}
-                  >{level}</button>
-                ))}
-              </div>
-              <textarea
-                ref={tutorResponseInputRef}
-                defaultValue=""
-                onChange={() => { if (tutorNotice) setTutorNotice(""); }}
-                placeholder={tutorSession.sessionMode === "walkthrough" ? "Explain the model in your own words, then apply it to the example…" : "First name the syndrome or disease family, then explain your reasoning…"}
-                disabled={tutorSession.status !== "active" || tutorLoading}
-                rows={3}
-                className="desk-tutor-input mt-3 w-full rounded border border-border bg-bg-elevated px-3 py-2 text-sm text-text-1 outline-none focus:border-accent disabled:opacity-70"
-              />
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <button disabled={tutorSession.status !== "active" || tutorReviewing || tutorLoading} onClick={() => submitTutorTurn("response")} className="rounded bg-good px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90 disabled:cursor-wait disabled:opacity-50">{tutorReviewing ? "Tutor is reviewing…" : "Check my reasoning"}</button>
-                <button disabled={tutorSession.status !== "active" || tutorReviewing || tutorLoading} onClick={() => submitTutorTurn("stuck")} className="rounded border border-border px-3 py-1.5 text-xs text-text-2 hover:border-accent disabled:cursor-wait disabled:opacity-50">Give me one hint</button>
-                {tutorNotice && <span className="text-xs text-text-3" role="status">{tutorNotice}</span>}
-              </div>
-            </>
-          )}
-        </section>
-      )}
       </div>
 
       </LecturePanel>
