@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from "firebase/auth";
 import { auth } from "./firebase";
-import { getCurrentUser } from "./supabase";
+import { getCurrentUser } from "./firebaseData";
 
 describe.skipIf(!globalThis.process?.env?.FIREBASE_AUTH_EMULATOR_HOST)("auth adapter", () => {
   beforeAll(async () => {

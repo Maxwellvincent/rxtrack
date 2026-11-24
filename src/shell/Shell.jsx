@@ -27,7 +27,7 @@ import { CommandPalette } from "../ui/CommandPalette.jsx";
 const EngineSession=lazy(()=>import("../engine/EngineSession.jsx").then(m=>({default:m.EngineSession})));
 const CalibrationSession=lazy(()=>import("../engine/CalibrationSession.jsx").then(m=>({default:m.CalibrationSession})));
 import { Button } from "../ui/Button.jsx";
-import { signInWithGoogle, signOut, onAuthChange, completeRedirectSignIn, pullAllDataFromSupabase } from "../supabase.js";
+import { signInWithGoogle, signOut, onAuthChange, completeRedirectSignIn, pullAllDataFromCloud } from "../firebaseData.js";
 const AnkiSyncModal=lazy(()=>import("../AnkiSyncModal.jsx"));
 const ScheduleImportModal=lazy(()=>import("./ScheduleImportModal.jsx").then(m=>({default:m.ScheduleImportModal})));
 const ObjectivesContainer=lazy(()=>import("./features/objectives/ObjectivesContainer.jsx").then(m=>({default:m.ObjectivesContainer})));
@@ -145,7 +145,7 @@ export default function Shell() {
       if (alive) { setUserId(uid); setPhase("loading"); }
       // Never hang on a slow/stuck cloud query — proceed after 8s with whatever loaded.
       const timeout = new Promise((res) => setTimeout(res, 8000));
-      try { await Promise.race([pullAllDataFromSupabase(uid), timeout]); }
+      try { await Promise.race([pullAllDataFromCloud(uid), timeout]); }
       catch (e) { console.warn("cloud pull failed", e?.message); }
       if (alive && generation === bootGeneration) setPhase("ready");
     }

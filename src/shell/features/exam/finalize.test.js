@@ -9,7 +9,7 @@ import {
   createExamSession,
   getExamSession,
   updateExamSessionTransaction,
-} from "../../../supabase.js";
+} from "../../../firebaseData.js";
 import { createSessionShape, withRecordedStats } from "../../../examSessions.js";
 import { finalizeExamSession } from "./finalize.js";
 import * as lectureQuestionStats from "../../../stores/lectureQuestionStats.js";

@@ -1,6 +1,6 @@
 import { getFunctions, httpsCallable } from "firebase/functions";
 import { app } from "./firebase.js";
-import { getRecognitionItems } from "./supabase.js";
+import { getRecognitionItems } from "./firebaseData.js";
 
 /**
  * Weak-area items first, then the rest; up to n. Pure + deterministic.

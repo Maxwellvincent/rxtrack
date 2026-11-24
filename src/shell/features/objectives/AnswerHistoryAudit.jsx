@@ -9,7 +9,7 @@ import {useStoreResource} from '../../hooks/useStoreResource.js';
 import * as calibrationStore from '../../../stores/calibrationByBlock.js';
 import * as evidenceStore from '../../../stores/learnerEvidence.js';
 import * as ratingsStore from '../../../stores/questionRatings.js';
-import {listExamSessions,updateExamSessionTransaction,fetchLectureContent} from '../../../supabase.js';
+import {listExamSessions,updateExamSessionTransaction,fetchLectureContent} from '../../../firebaseData.js';
 import {auditAnswerHistory} from '../../../engine/answerHistoryAudit.js';
 
 export function AnswerHistoryAudit({userId,blockId,objectives=[],lectures=[],loading=false}){

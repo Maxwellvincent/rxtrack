@@ -17,7 +17,7 @@ const releaseUnansweredQuestionsMock = vi.fn();
 // useFocusHudSignal.test.jsx uses for its one dependency (examSessions has
 // no localStorage-backed store to seed against, unlike useObjectivesController's
 // dependencies).
-vi.mock("../../../supabase.js", () => ({
+vi.mock("../../../firebaseData.js", () => ({
   getExamSession: (...args) => getExamSessionMock(...args),
   updateExamSessionTransaction: (...args) => updateExamSessionTransactionMock(...args),
 }));
@@ -578,7 +578,7 @@ describe("useExamSessionController", () => {
     it("vetoes (leaves the session's real status alone) when the session isn't in_progress", async () => {
       const session = makeSession({ status: "submitted" });
       getExamSessionMock.mockResolvedValue(session);
-      // The real `updateExamSessionTransaction` (src/supabase.js) never
+      // The real `updateExamSessionTransaction` (src/firebaseData.js) never
       // returns null on a veto — when `updateFn` returns null, the
       // transaction hands back `current` (the unchanged doc) unchanged.
       // Only a genuinely missing document produces a null/undefined result.

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import * as lecturesStore from "../../../stores/lectures.js";
-import { saveLectureToCloud } from "../../../supabase.js";
+import { saveLectureToCloud } from "../../../firebaseData.js";
 
 export async function renameLecture(userId, lectureId, title, deps = {}) {
   const store = deps.store || lecturesStore;

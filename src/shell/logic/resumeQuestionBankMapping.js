@@ -52,7 +52,7 @@ async function run({userId,blockId,filename,lectures=[],objectives=[],recheck=fa
   if(pending.length){
    const available=deps.bridgeAvailable || (await import('../../llmBridge.js')).bridgeAvailable;
    if(!await available())throw Error('Local AI bridge unavailable. Start the bridge, then resume mapping.');
-   const fetch=deps.fetchLectureContent || (await import('../../supabase.js')).fetchLectureContent;
+   const fetch=deps.fetchLectureContent || (await import('../../firebaseData.js')).fetchLectureContent;
    const enriched=[];
    for(const l of lectures.filter(l=>l.blockId===blockId)){
     const content=await fetch(userId,l.id);enriched.push({...content,...l,chunks:content?.chunks||l.chunks,id:l.id,blockId});

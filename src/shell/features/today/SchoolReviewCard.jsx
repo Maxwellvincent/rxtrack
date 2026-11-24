@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "../../../ui/Button.jsx";
-import { listExamSessions } from "../../../supabase.js";
+import { listExamSessions } from "../../../firebaseData.js";
 import { useQuestionBanks } from "../../hooks/useQuestionBanks.js";
 import { useQuestionBankMeta } from "../../hooks/useQuestionBankMeta.js";
 import { nextSchoolReview } from "./schoolReviewPlan.js";

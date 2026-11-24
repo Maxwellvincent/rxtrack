@@ -6,7 +6,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from "firebase/auth";
 import { doc } from "firebase/firestore";
 import { auth, db } from "./firebase";
-import { __test } from "./supabase"; // export the primitives under __test
+import { __test } from "./firebaseData"; // export the primitives under __test
 
 describe.skipIf(!globalThis.process?.env?.FIRESTORE_EMULATOR_HOST || !globalThis.process?.env?.FIREBASE_AUTH_EMULATOR_HOST)("firestore doc primitives", () => {
   let uid;
@@ -25,10 +25,10 @@ describe.skipIf(!globalThis.process?.env?.FIRESTORE_EMULATOR_HOST || !globalThis
 
   it("push writes state/terms, pull merges it back", async () => {
     localStorage.setItem("rxt-terms", JSON.stringify([{ id: "t1", blocks: [{ id: "b1" }] }]));
-    const { pushAllLocalDataToSupabase, pullAllDataFromSupabase } = await import("./supabase");
-    await pushAllLocalDataToSupabase(uid);
+    const { pushAllLocalDataToCloud, pullAllDataFromCloud } = await import("./firebaseData");
+    await pushAllLocalDataToCloud(uid);
     localStorage.removeItem("rxt-terms");
-    await pullAllDataFromSupabase(uid);
+    await pullAllDataFromCloud(uid);
     expect(JSON.parse(localStorage.getItem("rxt-terms"))[0].id).toBe("t1");
   });
 
@@ -36,7 +36,7 @@ describe.skipIf(!globalThis.process?.env?.FIRESTORE_EMULATOR_HOST || !globalThis
     // Fresh user so no state/terms/objectives/lectures docs exist at all —
     // the ONLY cloud data for this account is a single kv doc. This is the
     // exact shape that used to trip the early `{ empty: true }` return and
-    // silently skip pullUserKvFromSupabase.
+    // silently skip pullUserKvFromCloud.
     try { await createUserWithEmailAndPassword(auth, "kvonly@d.com", "pw1234"); } catch {}
     const cred = await signInWithEmailAndPassword(auth, "kvonly@d.com", "pw1234");
     const kvUid = cred.user.uid;
@@ -45,11 +45,11 @@ describe.skipIf(!globalThis.process?.env?.FIRESTORE_EMULATOR_HOST || !globalThis
     await __test.writeDoc(kvRef, { note: "hello" });
 
     localStorage.clear();
-    const { pullAllDataFromSupabase } = await import("./supabase");
-    const result = await pullAllDataFromSupabase(kvUid);
+    const { pullAllDataFromCloud } = await import("./firebaseData");
+    const result = await pullAllDataFromCloud(kvUid);
     expect(result).not.toEqual({ empty: true });
 
-    // pullUserKvFromSupabase runs in the background (fire-and-forget) off the
+    // pullUserKvFromCloud runs in the background (fire-and-forget) off the
     // non-empty path — give it a tick to land in localStorage.
     await new Promise((r) => setTimeout(r, 300));
     expect(JSON.parse(localStorage.getItem("rxt-question-notes"))).toEqual({ note: "hello" });
@@ -60,10 +60,10 @@ describe.skipIf(!globalThis.process?.env?.FIRESTORE_EMULATOR_HOST || !globalThis
     // restore auth to the original `uid` before writing to its subtree,
     // or Firestore rules' owner(uid) check denies the write.
     await signInWithEmailAndPassword(auth, "d@d.com", "pw1234");
-    const { saveMcqBankEntry, pullMcqBankFromSupabase } = await import("./supabase");
+    const { saveMcqBankEntry, pullMcqBankFromCloud } = await import("./firebaseData");
     await saveMcqBankEntry(uid, "obj1", 0, { stem: "Q?" });
     localStorage.removeItem("rxt-mcq-bank");
-    await pullMcqBankFromSupabase(uid);
+    await pullMcqBankFromCloud(uid);
     const bank = JSON.parse(localStorage.getItem("rxt-mcq-bank"));
     expect(bank["obj1_r0"].stem).toBe("Q?");
   });

@@ -1,6 +1,6 @@
 import { stripAnki } from "./ankiConnect.js";
 import { parseProperLearningPath, resolveBlock } from "./ankiPaths.js";
-import { saveAnkiCards } from "./supabase.js";
+import { saveAnkiCards } from "./firebaseData.js";
 
 /** Map an AnkiConnect note + its deck path → an anki_cards row, or null. */
 export function cardToRow(note, deckPath, appTerms) {

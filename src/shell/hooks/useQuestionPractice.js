@@ -5,7 +5,7 @@ import {useStudyAnswerHistory} from './useStudyAnswerHistory.js';
 import {manualPracticeStore} from '../../stores/manualPractice.js';
 import * as questionRatings from '../../stores/questionRatings.js';
 import {useStoreResource} from './useStoreResource.js';
-import {listExamSessions} from '../../supabase.js';
+import {listExamSessions} from '../../firebaseData.js';
 import {scoredSessionSnapshot} from '../features/exam/checkpoint.js';
 // One invalidation before per-view subscriptions run; concurrent consumers share the next read.
 subscribeExamSessionChanges(invalidateSessionReads);

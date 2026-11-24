@@ -3,7 +3,7 @@
  *
  * One `examSessions` document per block-wide timed mini-exam (or practice
  * run). Mirrors the role `deepLearnSessions.js` plays for DeepLearn: this
- * file owns the schema shape and pure merge/CAS logic; `src/supabase.js`
+ * file owns the schema shape and pure merge/CAS logic; `src/firebaseData.js`
  * owns the actual Firestore reads/writes (see the "EXAM SESSIONS" section
  * there).
  *
@@ -42,7 +42,7 @@
  */
 
 // Firestore's real per-doc cap is ~1 MiB; same guard threshold as
-// src/supabase.js's MAX_DOC_BYTES.
+// src/firebaseData.js's MAX_DOC_BYTES.
 export const MAX_EXAM_SESSION_BYTES = 900_000;
 
 export function sessionBytes(session) {
@@ -55,7 +55,7 @@ export function sessionBytes(session) {
 
 /**
  * Pure constructor for a brand-new exam session. Does not touch Firestore —
- * the caller passes the result to `createExamSession` (src/supabase.js) to
+ * the caller passes the result to `createExamSession` (src/firebaseData.js) to
  * persist it.
  */
 export function createSessionShape({

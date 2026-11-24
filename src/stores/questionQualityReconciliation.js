@@ -1,4 +1,4 @@
-import { listExamSessions } from '../supabase.js';
+import { listExamSessions } from '../firebaseData.js';
 import * as weakConcepts from './weakConcepts.js';
 import { computeWeakConceptEntry } from '../shell/features/exam/finalizeLogic.js';
 

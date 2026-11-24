@@ -1,6 +1,6 @@
 import { it, expect, vi } from "vitest";
 const state = vi.hoisted(() => ({ session: null, record: vi.fn(), evidence: vi.fn() }));
-vi.mock("../../../supabase.js", () => ({
+vi.mock("../../../firebaseData.js", () => ({
   updateExamSessionTransaction: vi.fn(async (_u, _id, update) => { state.session = update(state.session) || state.session; return state.session; }),
   getExamSession: vi.fn(async () => state.session), listExamSessions: vi.fn(async () => []),
 }));

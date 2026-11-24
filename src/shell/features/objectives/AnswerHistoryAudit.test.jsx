@@ -9,7 +9,7 @@ vi.mock('../../../stores/questionBanks.js',()=>({read:()=>({})}));
 vi.mock('../../../stores/calibrationByBlock.js',()=>({readBlock:()=>[{questionKey:'q',objectiveIds:['o'],correct:true,ts:10}]}));
 vi.mock('../../../stores/learnerEvidence.js',()=>({read:()=>({}),questionEvidenceKey:x=>x,recordEvidenceBatchAwait:(...args)=>mocks.batch(...args)}));
 vi.mock('../../../stores/questionRatings.js',()=>({isExcluded:()=>false}));
-vi.mock('../../../supabase.js',()=>({listExamSessions:(...args)=>mocks.list(...args)}));
+vi.mock('../../../firebaseData.js',()=>({listExamSessions:(...args)=>mocks.list(...args)}));
 import {AnswerHistoryAudit} from './AnswerHistoryAudit.jsx';
 globalThis.IS_REACT_ACT_ENVIRONMENT=true;
 it('audits the selected block, awaits persistence, and reports recovered answers',async()=>{

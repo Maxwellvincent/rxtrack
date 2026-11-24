@@ -1,5 +1,5 @@
 import * as lecturesStore from "../../stores/lectures.js";
-import { saveLectureToCloud } from "../../supabase.js";
+import { saveLectureToCloud } from "../../firebaseData.js";
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 

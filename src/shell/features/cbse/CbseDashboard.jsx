@@ -11,7 +11,7 @@ import * as schoolResultsStore from "../../../stores/schoolResults.js";
 import * as calibrationStore from "../../../stores/calibrationByBlock.js";
 import * as termsStore from "../../../stores/terms.js";
 import { createSessionShape } from "../../../examSessions.js";
-import { createExamSession, listExamSessions } from "../../../supabase.js";
+import { createExamSession, listExamSessions } from "../../../firebaseData.js";
 import { ExamSessionRunner } from "../exam/ExamSessionRunner.jsx";
 import { ObjectiveProgressChart } from "../lectures/ObjectiveProgressChart.jsx";
 import { examDurationMs } from "../exam/examTiming.js";

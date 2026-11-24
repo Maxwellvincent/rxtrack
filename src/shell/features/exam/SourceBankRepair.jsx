@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { fetchQuestionBankSourceBytes, updateExamSessionTransaction } from '../../../supabase.js';
+import { fetchQuestionBankSourceBytes, updateExamSessionTransaction } from '../../../firebaseData.js';
 import * as bankMeta from '../../../stores/questionBankMeta.js';
 import * as banks from '../../../stores/questionBanks.js';
 import { repairSessionSource } from './repairSessionSource.js';

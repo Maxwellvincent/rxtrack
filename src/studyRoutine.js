@@ -7,12 +7,12 @@
  * `rxt-weak-drills`) to evaluate today's routine progress and surface
  * suggestions based on the last ~14 days of behavior.
  *
- * Storage keys are registered in src/supabase.js KV_KEYS so they sync
+ * Storage keys are registered in src/firebaseData.js KV_KEYS so they sync
  * via user_kv. No React, no DOM beyond a custom event dispatch.
  */
 
 import { getCalibrationStats, CALIBRATION_BUCKETS } from "./calibration";
-import { getCurrentUser, scheduleDebouncedCloudPush } from "./supabase";
+import { getCurrentUser, scheduleDebouncedCloudPush } from "./firebaseData";
 
 export const ROUTINE_KEY = "rxt-study-routine";
 export const MISS_NOTES_KEY = "rxt-miss-notes";

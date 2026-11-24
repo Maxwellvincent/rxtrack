@@ -6,7 +6,7 @@ import {markReasoningAssistance,saveReasoningCoach} from './reasoningCoachSessio
 import {HelpMeReason} from '../../../ui/HelpMeReason.jsx';
 import {ReservedAssessmentReport,ReservedAssessmentFigure} from './ReservedAssessmentReport.jsx';
 import { SourceBankRepair } from './SourceBankRepair.jsx';
-import { updateExamSessionTransaction } from '../../../supabase.js';
+import { updateExamSessionTransaction } from '../../../firebaseData.js';
 import { practiceSection, practiceSections, sectionQuestionIndices, firstSectionQuestion } from './practiceSections.js';
 import { restoreVisualChoices } from "../../../engine/visualChoiceLabels.js";
 import { splitQuestionStemSource } from "../../../engine/questionStemSource.js";

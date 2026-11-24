@@ -49,7 +49,7 @@ import { launchQuestionBankSession } from "./launchQuestionBank.js";
 import { examDurationMinutes } from "./examTiming.js";
 import { callAI, callAIJSON } from "../../../aiClient.js";
 import { createQuestionPool } from "../../../questionPool.js";
-import { listExamSessions, updateExamSessionTransaction } from "../../../supabase.js";
+import { listExamSessions, updateExamSessionTransaction } from "../../../firebaseData.js";
 import {releaseUnansweredQuestions} from '../../../questionPool.js';
 import { cleanLectureTitle, formatLectureLabel } from "../../../lectureTitle.js";
 import * as learnerEvidenceStore from "../../../stores/learnerEvidence.js";

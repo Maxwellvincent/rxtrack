@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { callAIJSON } from "../../../aiClient.js";
-import { fetchLectureContent } from "../../../supabase.js";
+import { fetchLectureContent } from "../../../firebaseData.js";
 import {
   PRE_READ_QUESTION_COUNT,
   PRE_READ_SOFT_CAP_MINUTES,

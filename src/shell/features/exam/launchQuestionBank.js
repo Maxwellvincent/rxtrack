@@ -5,8 +5,8 @@ import { questionReferencesVisual } from "../../../engine/questionVisual.js";
 import { questionClarityIssues } from "../../../engine/questionClarity.js";
 import { createSessionShape } from "../../../examSessions.js";
 import * as sourceUse from '../../../stores/sourceUse.js';
-import { listExamSessions } from '../../../supabase.js';
-import { createExamSession } from "../../../supabase.js";
+import { listExamSessions } from '../../../firebaseData.js';
+import { createExamSession } from "../../../firebaseData.js";
 import { examDurationMs } from "./examTiming.js";
 import { linkSourceLecture, prepareBankQuestionSet } from "./questionBankLinks.js";
 

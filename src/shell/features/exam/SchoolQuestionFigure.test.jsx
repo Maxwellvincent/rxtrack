@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { installDomStorage } from "../../../stores/testEnv.js";
 import { SchoolQuestionFigure, questionReferencesVisual } from "./SchoolQuestionFigure.jsx";
-vi.mock("../../../supabase.js", () => ({ fetchQuestionBankSourceBytes: vi.fn(async () => new Uint8Array([37,80,68,70]).buffer), uploadQuestionBankPage: vi.fn(async () => "https://example.com/saved-crop.jpg") }));
+vi.mock("../../../firebaseData.js", () => ({ fetchQuestionBankSourceBytes: vi.fn(async () => new Uint8Array([37,80,68,70]).buffer), uploadQuestionBankPage: vi.fn(async () => "https://example.com/saved-crop.jpg") }));
 vi.mock("../../../examParser.js", () => ({ loadPDFJS: vi.fn(async () => {}) }));
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 let host, root;

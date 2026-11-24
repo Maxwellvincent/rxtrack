@@ -1,6 +1,6 @@
 import { beforeEach, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({ session: null }));
-vi.mock("../../../supabase.js", () => ({ updateExamSessionTransaction: async (_u, _id, update) => { state.session = update(state.session) || state.session; return state.session; } }));
+vi.mock("../../../firebaseData.js", () => ({ updateExamSessionTransaction: async (_u, _id, update) => { state.session = update(state.session) || state.session; return state.session; } }));
 import { checkpointExamSession, scoredSessionSnapshot } from "./checkpoint.js";
 import * as lectureStats from "../../../stores/lectureQuestionStats.js";
 import { sessionEvidenceEvent } from "./sessionEvidence.js";

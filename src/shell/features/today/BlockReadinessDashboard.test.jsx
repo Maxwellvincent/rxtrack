@@ -8,7 +8,7 @@ vi.mock('../../hooks/useObjectives.js',()=>({useObjectives:()=>({data:[],loading
 vi.mock('../../hooks/useLectureQuestionStats.js',()=>({useLectureQuestionStats:()=>({data:{l:{answered:999,correct:999}},loading:false})}));
 vi.mock('../../hooks/useWeakConcepts.js',()=>({useWeakConcepts:()=>({data:[],loading:false})}));
 vi.mock('../../hooks/useStoreResource.js',()=>({useStoreResource:()=>({data:{},loading:false})}));
-vi.mock('../../../supabase.js',()=>({listExamSessions:vi.fn(async()=>[])}));
+vi.mock('../../../firebaseData.js',()=>({listExamSessions:vi.fn(async()=>[])}));
 import {BlockReadinessDashboard} from './BlockReadinessDashboard.jsx';
 globalThis.IS_REACT_ACT_ENVIRONMENT=true;
 it('shows unified scored and unscored outside practice behind an evidence disclosure',async()=>{

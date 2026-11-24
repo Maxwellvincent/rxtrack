@@ -21,7 +21,7 @@ import { checkpointExamSession } from "./checkpoint.js";
  * subscription (there's nothing to subscribe to).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getExamSession, updateExamSessionTransaction } from "../../../supabase.js";
+import { getExamSession, updateExamSessionTransaction } from "../../../firebaseData.js";
 import { mergeAnswer } from "../../../examSessions.js";
 import { finalizeExamSession } from "./finalize.js";
 import { releaseUnansweredQuestions } from "../../../questionPool.js";

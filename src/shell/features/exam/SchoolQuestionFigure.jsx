@@ -1,6 +1,6 @@
 import { useStoreResource } from "../../hooks/useStoreResource.js";
 import * as questionFigures from "../../../stores/questionFigures.js";
-import { fetchQuestionBankSourceBytes, uploadQuestionBankPage } from "../../../supabase.js";
+import { fetchQuestionBankSourceBytes, uploadQuestionBankPage } from "../../../firebaseData.js";
 import * as questionBankMeta from "../../../stores/questionBankMeta.js";
 import { useEffect, useRef, useState } from "react";
 

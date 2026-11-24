@@ -16,7 +16,7 @@ import { callAIJSON } from "../../../aiClient.js";
 import * as preReadCacheStore from "../../../stores/preReadCache.js";
 import { cacheEntry, preReadsToGenerate, readCached } from "../../logic/preReadCache.js";
 import { generatePreRead } from "./preRead.js";
-import { fetchLectureContent } from "../../../supabase.js";
+import { fetchLectureContent } from "../../../firebaseData.js";
 
 const whenIdle = (fn) =>
   typeof requestIdleCallback === "function"

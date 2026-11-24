@@ -4,7 +4,7 @@ import * as validationStore from '../../../stores/readinessValidation.js';
 import * as ratingsStore from '../../../stores/questionRatings.js';
 import {readinessSnapshot,randomAuditSample,nbExam2Scope} from '../../../engine/readinessValidation.js';
 import {auditQuestionAccuracy} from '../../../engine/questionAccuracyAudit.js';
-import {fetchLectureContent} from '../../../supabase.js';
+import {fetchLectureContent} from '../../../firebaseData.js';
 import {lectureTextFrom} from '../lectures/lectureStudy.js';
 import {questionPreparationDeps} from '../../../questionPreparation.js';
 import {callAIJSON} from '../../../aiClient.js';

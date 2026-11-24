@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { auditObjectiveSlideCoverage } from "../engine/objectiveSlideTargets.js";
 import * as objectivesStore from "../stores/blockObjectives.js";
-import { fetchLectureContent } from "../supabase.js";
+import { fetchLectureContent } from "../firebaseData.js";
 import { createObjectiveCommands, selectBlockObjectives } from "./logic/objectives.js";
 import { useLectures } from "./hooks/useLectures.js";
 import { useObjectives } from "./hooks/useObjectives.js";

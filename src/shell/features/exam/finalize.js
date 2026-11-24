@@ -20,7 +20,7 @@ import {
   updateExamSessionTransaction,
   getExamSession,
   listExamSessions,
-} from "../../../supabase.js";
+} from "../../../firebaseData.js";
 import { recordAnswersBatchAwait } from "../../../stores/lectureQuestionStats.js";
 import { read as readWeakConcepts, writeAwait as writeWeakConceptsAwait } from "../../../stores/weakConcepts.js";
 import { mergeExamReportConcepts } from "../../logic/examReportWeakConcepts.js";

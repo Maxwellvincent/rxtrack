@@ -41,7 +41,7 @@ vi.mock("./generation.js", () => ({
   generateExamQuestions: (...args) => generateExamQuestionsMock(...args),
 }));
 
-vi.mock("../../../supabase.js", () => ({
+vi.mock("../../../firebaseData.js", () => ({
   createExamSession: (...args) => createExamSessionMock(...args),
   checkExamAccess: (...args) => checkExamAccessMock(...args),
 }));

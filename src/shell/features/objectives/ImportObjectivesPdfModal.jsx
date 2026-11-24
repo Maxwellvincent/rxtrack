@@ -4,7 +4,7 @@ import { extractWithSmartFallback } from "../../../ingest/pdfText.js";
 import { extractObjectivesFromStandaloneDoc } from "../../../ingest/objectives.js";
 import { flattenEntry, readEntry, storageKeyFor, toEntry } from "../../logic/objectives.js";
 import * as objectivesStore from "../../../stores/blockObjectives.js";
-import { overwriteObjectivesInCloud } from "../../../supabase.js";
+import { overwriteObjectivesInCloud } from "../../../firebaseData.js";
 import { useLectures } from "../../hooks/useLectures.js";
 import { useObjectives } from "../../hooks/useObjectives.js";
 import { canonicalObjectiveCode, reconcileOfficialObjectives } from "./objectiveImport.js";

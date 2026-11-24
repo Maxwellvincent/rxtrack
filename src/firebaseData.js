@@ -49,7 +49,7 @@ function persistLocal(key, value) {
 
 // Auth (and data) gate on Firebase config — name preserved for callers that
 // still check it before showing cloud-dependent UI.
-export const isSupabaseConfigured = isFirebaseConfigured;
+export const isCloudConfigured = isFirebaseConfigured;
 
 // ─── AUTH (Firebase) ─────────────────────────────────
 
@@ -178,7 +178,7 @@ export async function deleteLectureFromCloud(userId, lecId) {
 /**
  * Lecture content on demand.
  *
- * `pullAllDataFromSupabase` hydrates `chunks` into localStorage for the active
+ * `pullAllDataFromCloud` hydrates `chunks` into localStorage for the active
  * term ONLY — everything older stays chunk-light so the ~5MB quota survives.
  * Which means 363 of 367 lectures have no text locally, and anything that wants
  * to read a lecture (extraction, quiz grounding) has to come here for it.
@@ -213,7 +213,7 @@ export async function fetchLectureSourceUrl(path) {
  * Write one lecture's doc, chunks included.
  *
  * The bulk importer needs this: pushing everything through
- * `pushAllLocalDataToSupabase` would mean keeping every lecture's text in
+ * `pushAllLocalDataToCloud` would mean keeping every lecture's text in
  * localStorage first, and 120 decks of it does not fit in the ~5MB quota. So the
  * text goes straight to Firestore and only a chunk-light row stays local, which
  * is the same split a pull produces for non-active terms.
@@ -553,7 +553,7 @@ const KV_KEYS = [
 // that would trip it rather than silently truncating or crashing (R4-6).
 const MAX_DOC_BYTES = 900_000;
 
-export async function pushAllLocalDataToSupabase(userId) {
+export async function pushAllLocalDataToCloud(userId) {
   if (!userId) return [];
   console.log("Starting merge-push for user:", userId);
   const errors = [];
@@ -675,7 +675,7 @@ export async function pushAllLocalDataToSupabase(userId) {
 
   // ── 9. MCQ BANK (awaited — folds its errors into the returned errors[], R2-finding 13) ──
   try {
-    const mcqErrors = await pushMcqBankToSupabase(userId);
+    const mcqErrors = await pushMcqBankToCloud(userId);
     if (Array.isArray(mcqErrors)) errors.push(...mcqErrors);
   } catch (e) {
     errors.push({ store: "mcq", error: { message: e?.message || String(e) } });
@@ -692,7 +692,7 @@ export async function pushAllLocalDataToSupabase(userId) {
 
 // ─── PULL SUPABASE DATA TO LOCAL ─────────────────────
 
-export async function pullAllDataFromSupabase(userId) {
+export async function pullAllDataFromCloud(userId) {
   if (!userId) return {};
 
   console.log("Pulling data for user:", userId);
@@ -791,7 +791,7 @@ export async function pullAllDataFromSupabase(userId) {
   }
 
   // Pull user_kv in background — non-blocking
-  pullUserKvFromSupabase(userId).catch(() => {});
+  pullUserKvFromCloud(userId).catch(() => {});
 
   // Do not bulk-pull the legacy MCQ collection into browser storage on sign-in.
   // Generated questions are served by the per-lecture Firestore store; the old
@@ -803,9 +803,9 @@ export async function pullAllDataFromSupabase(userId) {
 
 /**
  * Pull all kv docs from Firestore into localStorage.
- * Called once on sign-in alongside pullAllDataFromSupabase.
+ * Called once on sign-in alongside pullAllDataFromCloud.
  */
-export async function pullUserKvFromSupabase(userId) {
+export async function pullUserKvFromCloud(userId) {
   if (!userId) return;
   try {
     const snap = await getDocs(collection(db, "users", userId, "kv"));
@@ -1021,9 +1021,9 @@ export async function updateExamSessionTransaction(userId, sessionId, updateFn) 
 
 /**
  * Pull all mcq docs for this user from Firestore into localStorage.
- * Called once on sign-in alongside pullAllDataFromSupabase.
+ * Called once on sign-in alongside pullAllDataFromCloud.
  */
-export async function pullMcqBankFromSupabase(userId) {
+export async function pullMcqBankFromCloud(userId) {
   if (!userId) return;
   try {
     const snap = await getDocs(collection(db, "users", userId, "mcq"));
@@ -1046,9 +1046,9 @@ export async function pullMcqBankFromSupabase(userId) {
 /**
  * Push the entire local mcq_bank to Firestore.
  * Used in the full data push cycle. Returns an errors[] array (folded into
- * pushAllLocalDataToSupabase's return, R2-finding 13 — no fire-and-forget).
+ * pushAllLocalDataToCloud's return, R2-finding 13 — no fire-and-forget).
  */
-export async function pushMcqBankToSupabase(userId) {
+export async function pushMcqBankToCloud(userId) {
   const errors = [];
   if (!userId) return errors;
   try {
@@ -1390,12 +1390,12 @@ export async function getRecognitionItems(uid, blockId, subject) {
 
 let syncTimeout = null;
 
-export function scheduleSyncToSupabase(userId) {
+export function scheduleSyncToCloud(userId) {
   if (!userId) return;
   clearTimeout(syncTimeout);
   syncTimeout = setTimeout(async () => {
     try {
-      await pushAllLocalDataToSupabase(userId);
+      await pushAllLocalDataToCloud(userId);
       console.log("Auto-sync complete");
     } catch (e) {
       console.error("Auto-sync failed:", e);
@@ -1423,7 +1423,7 @@ export function scheduleDebouncedCloudPush(userId) {
     try {
       const user = await getCurrentUser();
       if (!user || user.id !== userId) return;
-      await pushAllLocalDataToSupabase(userId);
+      await pushAllLocalDataToCloud(userId);
       console.log("Background cloud push complete");
     } catch (e) {
       console.warn("Background cloud push failed:", e?.message || e);

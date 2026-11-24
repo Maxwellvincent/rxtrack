@@ -1,6 +1,6 @@
 import {beforeEach,it,expect,vi} from 'vitest';
 const state=vi.hoisted(()=>({session:null,weak:{},remove:vi.fn(),record:vi.fn()}));
-vi.mock('../../../supabase.js',()=>({updateExamSessionTransaction:async(_u,_id,update)=>{state.session=update(state.session)||state.session;return state.session;},getExamSession:async()=>state.session,listExamSessions:async()=>[]}));
+vi.mock('../../../firebaseData.js',()=>({updateExamSessionTransaction:async(_u,_id,update)=>{state.session=update(state.session)||state.session;return state.session;},getExamSession:async()=>state.session,listExamSessions:async()=>[]}));
 vi.mock('../../../stores/questionFigures.js',()=>({read:()=>({}),apply:q=>q}));
 vi.mock('../../../stores/questionRatings.js',()=>({read:()=>({ratings:{}})}));
 vi.mock('../../../stores/lectureQuestionStats.js',()=>({recordAnswersBatchAwait:vi.fn()}));

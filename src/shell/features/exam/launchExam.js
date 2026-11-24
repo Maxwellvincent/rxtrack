@@ -14,7 +14,7 @@ import { selectSchoolQuestions } from "./schoolQuestionSelection.js";
 import { allocateQuestions } from "./allocation.js";
 import { generateExamQuestions } from "./generation.js";
 import { createSessionShape } from "../../../examSessions.js";
-import { checkExamAccess } from "../../../supabase.js";
+import { checkExamAccess } from "../../../firebaseData.js";
 import { createQuestionPool } from "../../../questionPool.js";
 import { read as readLearnerEvidence } from "../../../stores/learnerEvidence.js";
 import { reasoningGuidance } from "../../../engine/questionReasoning.js";

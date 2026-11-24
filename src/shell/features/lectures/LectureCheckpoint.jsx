@@ -1,5 +1,5 @@
 import {useEffect,useRef,useState} from 'react';
-import {listLectureCheckpoints} from '../../../supabase.js';
+import {listLectureCheckpoints} from '../../../firebaseData.js';
 import {launchLectureCheckpoint,isLectureCheckpoint} from './lectureCheckpoint.js';
 export function LectureCheckpoint({userId,lecture,blockId,config,busy=false,onOpenSession,onWorkingChange,loadSessions=listLectureCheckpoints,launch=launchLectureCheckpoint}){
  const controller=useRef(null);

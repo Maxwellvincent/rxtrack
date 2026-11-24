@@ -12,7 +12,7 @@ import { repairTaskForIndex } from "./focusedRepair.js";
 import { canonicalObjectiveIds } from "../../../engine/objectiveLinks.js";
 import { buildClinicalCorrelateLibrary } from "../../../engine/clinicalCorrelates.js";
 import { questionMatchesObjectiveDomain } from "../../../engine/mcq.js";
-import { fetchLectureContent } from "../../../supabase.js";
+import { fetchLectureContent } from "../../../firebaseData.js";
 import { getLecText } from "../../../lectureText.js";
 import { loadExamLectureEvidence } from "./lectureEvidence.js";
 import { objectiveOrderProfile } from "../../../engine/questionOrder.js";

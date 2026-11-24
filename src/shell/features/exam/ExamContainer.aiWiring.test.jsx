@@ -39,7 +39,7 @@ vi.mock("../../../questionPreparation.js", () => ({
 }));
 
 const createExamSessionMock = vi.fn();
-vi.mock("../../../supabase.js", () => ({
+vi.mock("../../../firebaseData.js", () => ({
   createExamSession: (...args) => createExamSessionMock(...args),
   checkExamAccess: async () => {},
   fetchLectureContent: vi.fn(async () => null),

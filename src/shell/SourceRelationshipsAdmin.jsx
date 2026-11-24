@@ -3,7 +3,7 @@ import {useStoreResource} from './hooks/useStoreResource.js';
 import * as relationshipsStore from '../stores/sourceRelationships.js';
 import * as learnerEvidence from '../stores/learnerEvidence.js';
 import {createSourceRelationship,relationshipPages,relationshipCoverage} from '../engine/sourceRelationships.js';
-import {fetchLectureContent} from '../supabase.js';
+import {fetchLectureContent} from '../firebaseData.js';
 import {getLecText} from '../lectureText.js';
 import {formatLectureLabel} from '../lectureTitle.js';
 function LectureRelationships({userId,lecture,objectives}){

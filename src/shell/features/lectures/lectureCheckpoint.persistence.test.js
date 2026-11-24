@@ -3,7 +3,7 @@ import {beforeAll,describe,it,expect} from 'vitest';
 import {createUserWithEmailAndPassword,signInWithEmailAndPassword} from 'firebase/auth';
 import {auth} from '../../../firebase.js';
 import {installDomStorage} from '../../../stores/testEnv.js';
-import {createExamSession,getExamSession,listLectureCheckpoints,updateExamSessionTransaction} from '../../../supabase.js';
+import {createExamSession,getExamSession,listLectureCheckpoints,updateExamSessionTransaction} from '../../../firebaseData.js';
 import {createSessionShape} from '../../../examSessions.js';
 import {checkpointExamSession,scoredSessionSnapshot} from '../exam/checkpoint.js';
 import {finalizeExamSession} from '../exam/finalize.js';

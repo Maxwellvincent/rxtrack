@@ -20,7 +20,7 @@ import {
   saveLectureAtoms,
   saveLectureToCloud,
   uploadLectureSource,
-} from "../../../supabase.js";
+} from "../../../firebaseData.js";
 import { stripTeachingMap } from "../../../lectureTeachingMap.js";
 import * as objectivesStore from "../../../stores/blockObjectives.js";
 import { assessTextQuality, extractWithSmartFallback } from "../../../ingest/pdfText.js";

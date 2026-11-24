@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { installDomStorage } from "../../stores/testEnv.js";
 import * as lectures from "../../stores/lectures.js";
-vi.mock("../../supabase.js", () => ({ saveLectureToCloud: vi.fn() }));
+vi.mock("../../firebaseData.js", () => ({ saveLectureToCloud: vi.fn() }));
 const { updateLectureDate } = await import("./lectureDate.js");
 const { renameLecture } = await import("../features/lectures/RenameLecture.jsx");
 

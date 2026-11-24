@@ -2,7 +2,7 @@ import {useMemo,useState} from 'react';
 import * as guides from '../../../stores/studyGuides.js';
 import {normalizeStudyGuide,selectGuideRows} from '../../../engine/studyGuides.js';
 import {bridgeStudyTables} from '../../../llmBridge.js';
-import {uploadQuestionBankSource,fetchQuestionBankSourceUrl} from '../../../supabase.js';
+import {uploadQuestionBankSource,fetchQuestionBankSourceUrl} from '../../../firebaseData.js';
 import {useStoreResource} from '../../hooks/useStoreResource.js';
 export function StudyGuidePanel({userId,blockId,lecture,objectives=[],mode='sources'}){
  const store=useMemo(()=>({read:id=>guides.read(id,blockId),subscribe:fn=>guides.subscribe(blockId,fn),isHydrated:id=>guides.isHydrated(id,blockId),readError:id=>guides.readError(id,blockId)}),[blockId]);

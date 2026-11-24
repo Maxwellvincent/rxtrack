@@ -13,7 +13,7 @@ vi.mock("../../../stores/calibrationByBlock.js", () => ({
   readBlock: (...args) => readBlockMock(...args),
   subscribe: () => () => {},
 }));
-vi.mock("../../../supabase.js", () => ({ listExamSessions: (...args) => listExamSessionsMock(...args) }));
+vi.mock("../../../firebaseData.js", () => ({ listExamSessions: (...args) => listExamSessionsMock(...args) }));
 
 vi.mock("../../../stores/manualPractice.js", () => ({ manualPracticeStore: {read:()=>({}),subscribe:()=>()=>{},isHydrated:()=>true,readError:()=>null} }));
 vi.mock("../../hooks/useStudyAnswerHistory.js",()=>({useStudyAnswerHistory:()=>({studyAnswers:readBlockMock(),historicalStudy:{answered:0,correct:0},loading:false,error:null})}));

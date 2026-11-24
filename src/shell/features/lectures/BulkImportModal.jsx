@@ -13,7 +13,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { Button } from "../../../ui/Button.jsx";
 import * as lecturesStore from "../../../stores/lectures.js";
 import * as objectivesStore from "../../../stores/blockObjectives.js";
-import { overwriteObjectivesInCloud, saveLectureAtoms, saveLectureToCloud, uploadLectureSource } from "../../../supabase.js";
+import { overwriteObjectivesInCloud, saveLectureAtoms, saveLectureToCloud, uploadLectureSource } from "../../../firebaseData.js";
 import { assessTextQuality, extractWithSmartFallback } from "../../../ingest/pdfText.js";
 import { extractObjectivesFromLecture } from "../../../ingest/objectives.js";
 import { createObjectiveCommands } from "../../logic/objectives.js";

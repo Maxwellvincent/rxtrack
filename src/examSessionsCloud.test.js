@@ -10,7 +10,7 @@ import {
   getExamSession,
   listExamSessions,
   updateExamSessionTransaction,
-} from "./supabase";
+} from "./firebaseData";
 import { createSessionShape, MAX_EXAM_SESSION_BYTES } from "./examSessions";
 
 describe.skipIf(!globalThis.process?.env?.FIRESTORE_EMULATOR_HOST || !globalThis.process?.env?.FIREBASE_AUTH_EMULATOR_HOST)("examSessions Firestore CRUD + transaction", () => {

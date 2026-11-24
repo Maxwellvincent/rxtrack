@@ -51,7 +51,7 @@ import {
   saveLectureAtoms,
   saveLectureImages,
   uploadLectureImages,
-} from "../../../supabase.js";
+} from "../../../firebaseData.js";
 import { HY_TYPES } from "../../../engine/highYield.js";
 import { locallyValidClinicalQuestions } from "../../../engine/mcq.js";
 import { objectiveLectureNumberConflict } from "../../../engine/lectureIdentity.js";

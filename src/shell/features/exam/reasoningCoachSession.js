@@ -1,5 +1,5 @@
 import {compactCoachState} from '../../../engine/practiceAssistance.js';
-import {updateExamSessionTransaction} from '../../../supabase.js';
+import {updateExamSessionTransaction} from '../../../firebaseData.js';
 function practiceQuestion(session,id){
  if(session?.status!=='in_progress'||session.format!=='practice'||session.purpose==='reserved-assessment')throw Error('Coaching is available only in untimed practice.');
  const q=session.questions?.find(q=>q.questionId===id);if(!q)throw Error('This practice question is no longer available.');

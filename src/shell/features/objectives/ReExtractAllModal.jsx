@@ -8,7 +8,7 @@
 import { useState, useEffect, useCallback } from "react";
 import * as lecturesStore from "../../../stores/lectures.js";
 import * as objectivesStore from "../../../stores/blockObjectives.js";
-import { fetchLectureContent, overwriteObjectivesInCloud, saveLectureAtoms } from "../../../supabase.js";
+import { fetchLectureContent, overwriteObjectivesInCloud, saveLectureAtoms } from "../../../firebaseData.js";
 import { extractObjectivesFromLecture } from "../../../ingest/objectives.js";
 import { createObjectiveCommands, selectBlockObjectives } from "../../logic/objectives.js";
 import { Button } from "../../../ui/Button.jsx";

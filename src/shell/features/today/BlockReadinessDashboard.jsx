@@ -3,7 +3,7 @@ import {useQuestionPractice} from "../../hooks/useQuestionPractice.js";
 import {questionProgress} from "../exam/questionProgress.js";
 import * as questionRatingsStore from "../../../stores/questionRatings.js";
 import { useEffect, useMemo, useState } from "react";
-import { listExamSessions } from "../../../supabase.js";
+import { listExamSessions } from "../../../firebaseData.js";
 import * as calibrationStore from "../../../stores/calibrationByBlock.js";
 import * as learnerEvidenceStore from "../../../stores/learnerEvidence.js";
 import { retrievalStore } from "../../../stores/modelRetrieval.js";

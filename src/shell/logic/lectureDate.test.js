@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("../../supabase.js", () => ({ saveLectureToCloud: vi.fn() }));
+vi.mock("../../firebaseData.js", () => ({ saveLectureToCloud: vi.fn() }));
 const { updateLectureDate } = await import("./lectureDate.js");
 
 function fakeStore(rows) {

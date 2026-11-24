@@ -9,7 +9,7 @@
  */
 import { useMemo, useState } from "react";
 import { useStruggleTasks } from "../../hooks/useStruggleTasks.js";
-import { releaseStruggleTask, setStruggleTaskDone } from "../../../supabase.js";
+import { releaseStruggleTask, setStruggleTaskDone } from "../../../firebaseData.js";
 import { STATE_RANK, filterTasksToBlock, groupStruggleTasks } from "./struggleTasks.js";
 
 const STATE_BADGE = {

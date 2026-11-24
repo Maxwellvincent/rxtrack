@@ -6,7 +6,7 @@ import {normalizeStudyGuide,mergeStudyGuide} from '../../../engine/studyGuides.j
 const state=vi.hoisted(()=>({catalog:{guides:{}}}));
 vi.mock('../../hooks/useStoreResource.js',()=>({useStoreResource:()=>({data:state.catalog,loading:false,error:null})}));
 vi.mock('../../../llmBridge.js',()=>({bridgeStudyTables:vi.fn()}));
-vi.mock('../../../supabase.js',()=>({uploadQuestionBankSource:vi.fn(),fetchQuestionBankSourceUrl:vi.fn()}));
+vi.mock('../../../firebaseData.js',()=>({uploadQuestionBankSource:vi.fn(),fetchQuestionBankSourceUrl:vi.fn()}));
 import {StudyGuidePanel} from './StudyGuidePanel.jsx';
 globalThis.IS_REACT_ACT_ENVIRONMENT=true;
 it('groups learning suggestions by objective and keeps import controls in Sources',()=>{

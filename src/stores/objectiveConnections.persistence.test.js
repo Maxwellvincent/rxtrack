@@ -3,7 +3,7 @@ import {describe,it,expect,beforeAll} from 'vitest';
 import {createUserWithEmailAndPassword,signInWithEmailAndPassword} from 'firebase/auth';
 import {doc} from 'firebase/firestore';
 import {auth,db} from '../firebase.js';
-import {__test} from '../supabase.js';
+import {__test} from '../firebaseData.js';
 import {installDomStorage} from './testEnv.js';
 import * as relationships from './sourceRelationships.js';
 import {prepareObjectiveConnections} from '../engine/objectiveConnections.js';

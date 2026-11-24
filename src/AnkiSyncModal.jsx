@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { ping, pullProperLearningCards, ANKI_SETUP_NOTE, ANKICONNECT_ADDON_CODE } from "./ankiConnect";
 import { upsertAnkiCards } from "./ankiCards";
-import { getCurrentUser } from "./supabase";
+import { getCurrentUser } from "./firebaseData";
 import { buildBlockBank } from "./recognitionBank";
 
 // ── Anki Sync ────────────────────────────────────────────────────────────────

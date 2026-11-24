@@ -2,7 +2,7 @@ import * as questionRatings from "../../../stores/questionRatings.js";
 import * as questionFigures from "../../../stores/questionFigures.js";
 import { missingRequiredVisual } from "../../../engine/questionVisual.js";
 import { protectSessionScoring } from "../../../engine/questionScoringPolicy.js";
-import { updateExamSessionTransaction } from "../../../supabase.js";
+import { updateExamSessionTransaction } from "../../../firebaseData.js";
 import { recordEvidenceBatchAwait } from "../../../stores/learnerEvidence.js";
 import { linkSourceLecture } from "./questionBankLinks.js";
 import { sessionEvidenceEvent } from "./sessionEvidence.js";

@@ -17,7 +17,7 @@ import * as questionRatings from "../../../stores/questionRatings.js";
  * component deliberately does not copy.
  */
 import { useEffect, useMemo, useState } from "react";
-import { deleteExamSession, listExamSessions } from "../../../supabase.js";
+import { deleteExamSession, listExamSessions } from "../../../firebaseData.js";
 import { releaseSessionQuestions } from "../../../questionPool.js";
 import { read as readWeakConcepts, subscribe as subscribeWeakConcepts } from "../../../stores/weakConcepts.js";
 import { linkSourceLecture } from "./questionBankLinks.js";

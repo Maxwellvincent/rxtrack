@@ -30,7 +30,7 @@ vi.mock("./launchQuestionBank.js", () => ({
 vi.mock("../../../questionPool.js", () => ({
   createQuestionPool: () => ({ summary: async () => ({ ready: 12, assigned: 4, total: 16 }), preparedSets: () => poolPreparedSetsMock(), updatePreparedSetMetadata: (...args) => updatePreparedSetMetadataMock(...args), deletePreparedSet: (...args) => deletePreparedSetMock(...args) }),
 }));
-vi.mock("../../../supabase.js", () => ({ listExamSessions: (...args) => listExamSessionsMock(...args) }));
+vi.mock("../../../firebaseData.js", () => ({ listExamSessions: (...args) => listExamSessionsMock(...args) }));
 
 const readTutorModeEnabledMock = vi.fn(() => false);
 const writeTutorModeEnabledMock = vi.fn();

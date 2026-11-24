@@ -10,7 +10,7 @@ import * as weakConceptsStore from "../../stores/weakConcepts.js";
 import { extractPairedAnswerKey, isQuestionBankImage, pairQuestionBankFiles, selectQuestionBankFiles, summarizeBankUpload, tagBankQuestions } from "./questionBankIngest.js";
 import { analyzeExamReportWeakConcepts, mergeExamReportConcepts, parseExamReportSummary } from "./examReportWeakConcepts.js";
 import { cleanLectureTitle } from "../../lectureTitle.js";
-import { uploadQuestionBankPage, uploadQuestionBankSource } from "../../supabase.js";
+import { uploadQuestionBankPage, uploadQuestionBankSource } from "../../firebaseData.js";
 import { buildQuestionBankAnalysis, buildQuestionBankCritiquePrompt, mergeQuestionBankCritique } from "./questionBankAnalysis.js";
 import * as questionBankAnalysisStore from "../../stores/questionBankAnalysis.js";
 import * as questionStyleProfileStore from "../../stores/questionStyleProfile.js";

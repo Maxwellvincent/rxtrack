@@ -1,5 +1,5 @@
 import { pickWeightedItems, fetchRecognitionItems, buildBlockBank } from "../recognitionBank.js";
-import { getUngeneratedCards, saveUngeneratedCards } from "../supabase.js";
+import { getUngeneratedCards, saveUngeneratedCards } from "../firebaseData.js";
 import * as objectivesStore from "../stores/blockObjectives.js";
 import * as lecturesStore from "../stores/lectures.js";
 import { selectBlockObjectives } from "../shell/logic/objectives.js";

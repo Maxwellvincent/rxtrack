@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { releaseStruggleTask, setStruggleTaskDone } from "../../../supabase.js";
+import { releaseStruggleTask, setStruggleTaskDone } from "../../../firebaseData.js";
 import { useStruggleTasks } from "../../hooks/useStruggleTasks.js";
 import { clusterTasks, STATE_RANK } from "./struggleTasks.js";
 

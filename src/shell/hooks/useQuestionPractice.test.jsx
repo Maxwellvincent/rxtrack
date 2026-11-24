@@ -1,6 +1,6 @@
 import React,{act,useEffect} from 'react';import {createRoot} from 'react-dom/client';import {it,expect,vi} from 'vitest';import {installDomStorage} from '../../stores/testEnv.js';import {notifyExamSessionChange} from '../../examSessionChanges.js';
 const list=vi.hoisted(()=>vi.fn(async()=>[]));
-vi.mock('../../supabase.js',()=>({listExamSessions:(...args)=>list(...args)}));
+vi.mock('../../firebaseData.js',()=>({listExamSessions:(...args)=>list(...args)}));
 vi.mock('./useStudyAnswerHistory.js',()=>({useStudyAnswerHistory:()=>({studyAnswers:[],historicalStudy:{},loading:false})}));
 vi.mock('./useStoreResource.js',()=>({useStoreResource:()=>({data:{},loading:false})}));
 vi.mock('../../stores/questionRatings.js',()=>({read:()=>({ratings:{}}),subscribe:()=>()=>{}}));

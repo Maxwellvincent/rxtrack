@@ -1,6 +1,6 @@
 import { it, expect, vi } from 'vitest';
 const state=vi.hoisted(()=>({sessions:[],weak:{b:[{id:'manual',concept:'Keep manual note'},{id:'exam:b:l',missCount:2}]}}));
-vi.mock('../supabase.js',()=>({listExamSessions:vi.fn(async()=>state.sessions)}));
+vi.mock('../firebaseData.js',()=>({listExamSessions:vi.fn(async()=>state.sessions)}));
 vi.mock('./weakConcepts.js',()=>({read:()=>state.weak,writeAwait:vi.fn(async(_u,next)=>{state.weak=next;})}));
 import { reconcileQuestionQuality } from './questionQualityReconciliation.js';
 it('rebuilds only the affected exam weak-area row and can restore it from original answers', async()=>{

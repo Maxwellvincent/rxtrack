@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
 // Mock supabase before any module imports it.
-vi.mock("./supabase", () => ({
+vi.mock("./firebaseData", () => ({
   supabase: { auth: { getUser: () => Promise.resolve({ data: { user: null } }) } },
   getCurrentUser: () => Promise.resolve(null),
   scheduleDebouncedCloudPush: () => {},

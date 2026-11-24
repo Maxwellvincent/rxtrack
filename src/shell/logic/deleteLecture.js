@@ -1,6 +1,6 @@
 import * as lecturesStore from "../../stores/lectures.js";
 import * as objectivesStore from "../../stores/blockObjectives.js";
-import { addLectureTombstoneId, deleteLectureFromCloud, overwriteObjectivesInCloud } from "../../supabase.js";
+import { addLectureTombstoneId, deleteLectureFromCloud, overwriteObjectivesInCloud } from "../../firebaseData.js";
 
 /** Permanently delete one lecture while preserving imported curriculum objectives as unlinked. */
 export async function deleteLectureFully({ userId, lectureId, blockId }, deps = {}) {

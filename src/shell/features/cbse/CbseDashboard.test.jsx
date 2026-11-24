@@ -9,7 +9,7 @@ vi.mock("../../hooks/useTerms.js", () => ({ useTerms: () => ({ data: fixture.ter
 vi.mock("../../hooks/useLectures.js", () => ({ useLectures: () => ({ data: [], loading: false }) }));
 vi.mock("../../hooks/useObjectives.js", () => ({ useObjectives: () => ({ data: {}, loading: false }) }));
 vi.mock("../../hooks/useStoreResource.js", () => ({ useStoreResource: store => ({ data: fixture.reads[store.key] || {}, loading: false }) }));
-vi.mock("../../../supabase.js", () => ({ listExamSessions: vi.fn(async () => fixture.sessions), createExamSession: vi.fn(async (_user, session) => { fixture.created=session; return { ok: true }; }) }));
+vi.mock("../../../firebaseData.js", () => ({ listExamSessions: vi.fn(async () => fixture.sessions), createExamSession: vi.fn(async (_user, session) => { fixture.created=session; return { ok: true }; }) }));
 vi.mock("../exam/ExamSessionRunner.jsx", () => ({ ExamSessionRunner: props => <div>Saved session: {props.sessionId}<button onClick={() => props.onSubmitted?.()}>Complete test session</button></div> }));
 import { CbseDashboard } from "./CbseDashboard.jsx";
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;

@@ -20,7 +20,7 @@ vi.mock('../../../stores/manualPractice.js',()=>({manualPracticeStore:{read:()=>
 
 vi.mock("../../../stores/questionRatings.js",()=>({read:()=>({ratings:{}}),subscribe:()=>()=>{},isHydrated:()=>true,readError:()=>null}));
 
-vi.mock("../../../supabase.js", () => ({
+vi.mock("../../../firebaseData.js", () => ({
   listExamSessions: (...args) => listExamSessionsMock(...args),
   deleteExamSession: (...args) => deleteExamSessionMock(...args),
 }));
