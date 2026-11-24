@@ -18,13 +18,11 @@ import { touchBlock } from "../stores/blockObjectives.js";
 import { defaultBlockId, readCollapsedTerms, readLastView, writeLastView } from "./navPrefs.js";
 
 const VALID_TABS = ["today", "lectures", "objectives", "exam", "more"];
-const VALID_MORE_VIEWS = ["weak", "struggle", "calibrate", "adaptive", "diagnostics"];
+const VALID_MORE_VIEWS = ["struggle", "calibrate", "diagnostics"];
 import { Sidebar } from "./Sidebar.jsx";
 import { Header } from "./Header.jsx";
 import { TabBar } from "./TabBar.jsx";
-import { BlockHome } from "./BlockHome.jsx";
 import { CommandPalette } from "../ui/CommandPalette.jsx";
-const EngineSession=lazy(()=>import("../engine/EngineSession.jsx").then(m=>({default:m.EngineSession})));
 const CalibrationSession=lazy(()=>import("../engine/CalibrationSession.jsx").then(m=>({default:m.CalibrationSession})));
 import { Button } from "../ui/Button.jsx";
 import { PracticeModeTabs } from "./features/lectures/PracticeModeTabs.jsx";
@@ -42,7 +40,6 @@ const FocusHudLinkModal=lazy(()=>import("./FocusHudLinkModal.jsx").then(m=>({def
 const UserApiKeyModal=lazy(()=>import("./UserApiKeyModal.jsx").then(m=>({default:m.UserApiKeyModal})));
 import StudyRoutineModal, { MissNoteToast } from "../StudyRoutineModal.jsx";
 import { LectureList } from "./features/tracker/LectureList.jsx";
-import { WeakConcepts } from "./features/tracker/WeakConcepts.jsx";
 import { StruggleTasks } from "./features/tracker/StruggleTasks.jsx";
 import { StruggleTaskDrawer } from "./features/tracker/StruggleTaskDrawer.jsx";
 const ExamDateModal=lazy(()=>import("./ExamDateModal.jsx").then(m=>({default:m.ExamDateModal})));
@@ -334,7 +331,6 @@ function ShellMain({ theme, toggle, userId }) {
     [blocks]
   );
 
-  const onContinue = useCallback(() => setSessionMode("engine"), []);
   const onCalibrate = useCallback(() => setSessionMode("calibrate"), []);
 
   const switchTab = useCallback((t) => { setTab(t); setMoreView(null); }, []);
@@ -434,8 +430,7 @@ function ShellMain({ theme, toggle, userId }) {
                 <p className="mt-2 text-sm text-text-3">Exam and More will appear as soon as the schedule selection finishes loading.</p>
               </div>
             </div>
-          ) : sessionMode && activeBlockId ? (
-            sessionMode === "calibrate" ? (
+          ) : sessionMode === "calibrate" && activeBlockId ? (
               <CalibrationSession
                 userId={userId}
                 blockId={activeBlockId}
@@ -443,15 +438,6 @@ function ShellMain({ theme, toggle, userId }) {
                 newPool={[]}
                 onExit={() => setSessionMode(null)}
               />
-            ) : (
-              <EngineSession
-                userId={userId}
-                blockId={activeBlockId}
-                blockName={active?.name}
-                newPool={[]}
-                onExit={() => setSessionMode(null)}
-              />
-            )
           ) : studyLecture ? (
             <div className="relative flex-1">
               <LectureStudyFlow
@@ -507,9 +493,7 @@ function ShellMain({ theme, toggle, userId }) {
             <MoreTab
               view={moreView}
               onView={setMoreView}
-              onContinue={onContinue}
               onCalibrate={onCalibrate}
-              weak={<WeakConcepts blockId={activeBlockId} userId={userId} />}
               struggle={<StruggleTasks userId={userId} lectures={(allLectures.data || []).filter((l) => l.blockId === activeBlockId)} />}
               admin={canViewQuestionDiagnostics(userId) ? <QuestionDiagnosticsAdmin userId={userId} lectures={allLectures.data || []} /> : null}
             />
@@ -525,11 +509,6 @@ function ShellMain({ theme, toggle, userId }) {
                   onOpenExam={() => switchTab("exam")}
                 />
               </div>
-              <BlockHome
-                blockId={activeBlockId}
-                userId={userId}
-                statsOnly
-              />
             </div>
           )}
           </Suspense>
@@ -604,7 +583,7 @@ function ShellMain({ theme, toggle, userId }) {
       <StudyRoutineModal
         open={showRoutine}
         onClose={() => setShowRoutine(false)}
-        onOpenWeakConcepts={() => { setShowRoutine(false); setTab("more"); setMoreView("weak"); }}
+        onOpenWeakConcepts={() => { setShowRoutine(false); try { if (activeBlockId) localStorage.setItem(`rxt-exam-page:${activeBlockId}`, "weak"); } catch { /* optional preference */ } setTab("exam"); setMoreView(null); }}
       />
       {showApiKeyModal && <UserApiKeyModal onClose={() => setShowApiKeyModal(false)} />}
       {showFocusHudModal && <FocusHudLinkModal onClose={() => setShowFocusHudModal(false)} />}
@@ -621,15 +600,13 @@ function ShellMain({ theme, toggle, userId }) {
   );
 }
 
-function MoreTab({ view, onView, onContinue, onCalibrate, weak, struggle, admin }) {
+function MoreTab({ view, onView, onCalibrate, struggle, admin }) {
   const modes = [
-    { id: "weak", label: "Weak concepts" },
     { id: "struggle", label: "Anki struggles" },
     { id: "calibrate", label: "Calibrate" },
-    { id: "adaptive", label: "Adaptive session" },
     ...(admin ? [{ id: "diagnostics", label: "Admin" }] : []),
   ];
-  const current = modes.some((mode) => mode.id === view) ? view : "weak";
+  const current = modes.some((mode) => mode.id === view) ? view : "struggle";
   const launcher = (title, text, label, action) => <div className="flex flex-col items-start gap-3">
     <p className="max-w-2xl text-sm text-text-2"><strong className="text-text-1">{title}</strong> — {text}</p>
     <Button onClick={action}>{label}</Button>
@@ -638,14 +615,12 @@ function MoreTab({ view, onView, onContinue, onCalibrate, weak, struggle, admin 
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 p-4 sm:p-5">
       <div>
         <h2 className="text-2xl font-bold text-text-1">More</h2>
-        <p className="mt-1 text-sm text-text-3">Cross-source weak concepts, Anki struggles, calibration and admin tools.</p>
+        <p className="mt-1 text-sm text-text-3">Anki struggles, calibration and admin tools.</p>
       </div>
       <section aria-label="More" className="flex flex-col gap-3 rounded-2xl border border-border bg-bg-elevated p-4 shadow-sm sm:p-5">
         <PracticeModeTabs ariaLabel="More views" value={current} onChange={onView} modes={modes} />
-        {current === "weak" && weak}
         {current === "struggle" && struggle}
         {current === "calibrate" && launcher("Calibrate", "rate your confidence before each answer to surface the things you are sure about but get wrong.", "▸ Start calibration", onCalibrate)}
-        {current === "adaptive" && launcher("Adaptive session", "teaches a concept, shows a case, then checks you.", "▸ Start adaptive session", onContinue)}
         {current === "diagnostics" && admin && <Suspense fallback={<p className="text-sm text-text-3">Loading admin tools…</p>}>{admin}</Suspense>}
       </section>
     </div>
