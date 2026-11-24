@@ -77,10 +77,36 @@ export function cbseProgress({ sessions = [], calibration = {}, weakConcepts = {
   return { answered, correct, accuracy: answered ? correct / answered : null, unlinked, concepts, reports, itemHistory,
     history: history.sort((a,b) => b.at - a.at), objectives: objectivePracticePlan(objectiveList, evidence).rows };
 }
-export function selectCbseQuestions(pool, progress, { count = 15, mode = "balanced", source = "all", random = Math.random } = {}) {
+/** Which kind of source a pooled question came from, for CBSE practice filters. */
+export function cbseSourceGroup(question = {}) {
+  const text = `${question.sourceKind || ""} ${question.sourceFile || ""}`;
+  if (/examsoft|e-?soft/i.test(text)) return "examsoft";
+  if (/imcq/i.test(text)) return "imcq";
+  if (question.sourceBlockId === CBSE_BLOCK_ID || /nbme|usmle|step\s*1/i.test(text)) return "nbme";
+  if (/clicker|in-class/i.test(text)) return "clicker";
+  if (/supplemental|homework|practice/i.test(text)) return "practice";
+  return "other";
+}
+export const CBSE_SOURCE_OPTIONS = [
+  { id: "all", label: "All banks" },
+  { id: "school-exams", label: "ESoft + IMCQ", groups: ["examsoft", "imcq"] },
+  { id: "examsoft", label: "ESoft quizzes", groups: ["examsoft"] },
+  { id: "imcq", label: "IMCQs", groups: ["imcq"] },
+  { id: "practice", label: "Weekly practice / homework", groups: ["practice"] },
+  { id: "nbme", label: "NBME / USMLE samples", groups: ["nbme"] },
+];
+const sourceMatches = (question, source) => {
+  const option = CBSE_SOURCE_OPTIONS.find(entry => entry.id === source);
+  return !option?.groups || option.groups.includes(cbseSourceGroup(question));
+};
+export function cbseSourceCounts(pool = [], term = "all") {
+  const scoped = pool.filter(question => term === "all" || question.sourceTermName === term);
+  return Object.fromEntries(CBSE_SOURCE_OPTIONS.map(option => [option.id, scoped.filter(question => sourceMatches(question, option.id)).length]));
+}
+export function selectCbseQuestions(pool, progress, { count = 15, mode = "balanced", source = "all", term = "all", random = Math.random } = {}) {
   const weakLectures = new Set(progress.reports.flatMap(row => row.linkedLecIds || []));
   const weakObjectives = new Set(progress.objectives.filter(row => row.state === "struggling").map(row => row.id));
-  const eligible = pool.filter(q => source !== "examsoft" || /examsoft|esoft/i.test(`${q.sourceKind} ${q.sourceFile}`));
+  const eligible = pool.filter(q => sourceMatches(q, source) && (term === "all" || q.sourceTermName === term));
   const ranked = eligible.map(q => {
     const history = progress.itemHistory.get(cbseQuestionKey(q));
     const weak = history?.correct === false || weakLectures.has(q.lectureId) || q.objectiveIds?.some(id => weakObjectives.has(id));

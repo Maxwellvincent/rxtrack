@@ -42,3 +42,19 @@ it("offers an upload for CBSE-owned banks and practices them alongside school ba
   act(()=>[...host.querySelectorAll('button')].find(button=>button.textContent==='Upload CBSE question banks').click());
   expect(onUploadBanks).toHaveBeenCalled();
 });
+it("practices only IMCQ questions across terms when that source is chosen", async () => {
+  const mk=(id,stem)=>({ id, questionId:id, stem, choices:{ A:"One", B:"Two" }, correct:"A" });
+  fixture.banks={"NB IMCQ KEY 06":[mk("i1","IMCQ brainstem stem one"),mk("i2","IMCQ brainstem stem two")],"BPM2 ESOFT QUIZ 4":[mk("e1","ESoft renal stem")]};
+  fixture.reads={"rxt-question-bank-meta":{a:{filename:"NB IMCQ KEY 06",blockId:"b2",sourceKind:"imcq"},b:{filename:"BPM2 ESOFT QUIZ 4",blockId:"b1",sourceKind:"school"}}};
+  fixture.terms=[{id:"t1",name:"Term 1",blocks:[{id:"b1",name:"D&M"}]},{id:"t2",name:"Term 2",blocks:[{id:"b2",name:"NB 2"}]}]; fixture.sessions=[]; fixture.created=null;
+  const host=document.createElement("div");document.body.append(host);root=createRoot(host);
+  await act(async()=>root.render(<CbseDashboard userId="test" block={{examDate:"2026-12-09"}} onReviewLecture={()=>{}} onManageSources={()=>{}} />));
+  const source=host.querySelector('select[aria-label="Question source"]');
+  expect([...source.options].map(o=>o.textContent)).toEqual(expect.arrayContaining(["IMCQs (2)","ESoft quizzes (1)"]));
+  await act(async()=>{ source.value="imcq"; source.dispatchEvent(new Event("change",{bubbles:true})); });
+  const count=host.querySelector('input[aria-label="Question count"]');
+  await act(async()=>{ const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value").set; setter.call(count,"2"); count.dispatchEvent(new Event("input",{bubbles:true})); });
+  await act(async()=>[...host.querySelectorAll('button')].find(button=>button.textContent==='Practice quiz').click());
+  expect(fixture.created.questions.map(q=>q.sourceFile)).toEqual(["NB IMCQ KEY 06","NB IMCQ KEY 06"]);
+  expect(fixture.created.title).toBe("CBSE Prep · IMCQs");
+});

@@ -1,4 +1,4 @@
-import { expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { CBSE_OWNER, CBSE_BLOCK_ID, ensureCbseTerms, buildCbsePool, cbseProgress, selectCbseQuestions } from "./cbsePrep.js";
 const terms = [{ id: "t1", name: "Term 1", blocks: [{ id: "b1", name: "Foundations" }] }, { id: "t2", name: "Term 2", blocks: [{ id: "b2", name: "Neuro" }] }];
 const q = (stem, extra = {}) => ({ stem, choices: { A: "Key", B: "Distractor" }, correct: "A", ...extra });
@@ -39,4 +39,29 @@ it("weak and unseen practice use previous answer outcomes across blocks", () => 
   const progress = cbseProgress({ sessions: [session] });
   expect(selectCbseQuestions(pool, progress, { count: 1, mode: "weak" }).questions[0].sourceBlockId).toBe("b1");
   expect(selectCbseQuestions(pool, progress, { count: 1, mode: "unseen" }).questions[0].sourceBlockId).toBe("b2");
+});
+
+import { cbseSourceGroup, cbseSourceCounts, CBSE_SOURCE_OPTIONS } from "./cbsePrep.js";
+describe("CBSE source groups", () => {
+  const mk = (sourceKind, sourceFile, extra = {}) => ({ sourceKind, sourceFile, stem: `${sourceFile} stem`, choices: { A: "x", B: "y" }, correct: "A", ...extra });
+  const pool = [
+    mk("school", "BPM2 ESOFT QUIZ 4 F2026", { sourceTermName: "Term 1" }),
+    mk("examsoft", "Quiz.pdf", { sourceTermName: "Term 2" }),
+    mk("imcq", "NB IMCQ KEY 06", { sourceTermName: "Term 2" }),
+    mk("supplemental", "Week 15 NB NSCI Practice Questions", { sourceTermName: "Term 2" }),
+    mk("supplemental", "NBME sample - Physiology", { sourceBlockId: "cbse-prep", sourceTermName: "CBSE" }),
+  ];
+  it("classifies ESoft (including school-kind ESoft files), IMCQ, weekly practice and NBME/USMLE samples", () => {
+    expect(pool.map(cbseSourceGroup)).toEqual(["examsoft", "examsoft", "imcq", "practice", "nbme"]);
+    expect(CBSE_SOURCE_OPTIONS.map(o => o.id)).toEqual(expect.arrayContaining(["all", "examsoft", "imcq", "school-exams", "practice", "nbme"]));
+    expect(cbseSourceCounts(pool)).toMatchObject({ all: 5, examsoft: 2, imcq: 1, "school-exams": 3, practice: 1, nbme: 1 });
+  });
+  it("filters practice by source group and by term", () => {
+    const progress = { reports: [], objectives: [], itemHistory: new Map() };
+    expect(selectCbseQuestions(pool, progress, { count: 2, source: "examsoft" }).questions.map(cbseSourceGroup)).toEqual(["examsoft", "examsoft"]);
+    expect(selectCbseQuestions(pool, progress, { count: 3, source: "school-exams" }).questions).toHaveLength(3);
+    expect(selectCbseQuestions(pool, progress, { count: 1, source: "imcq" }).questions[0].sourceFile).toBe("NB IMCQ KEY 06");
+    expect(selectCbseQuestions(pool, progress, { count: 1, source: "examsoft", term: "Term 1" }).questions[0].sourceFile).toMatch(/ESOFT/);
+    expect(selectCbseQuestions(pool, progress, { count: 2, source: "examsoft", term: "Term 1" }).error).toMatch(/Only 1/);
+  });
 });
