@@ -7,7 +7,9 @@ export function CommandPalette({ open, onClose, items, onPick }) {
   const [q, setQ] = useState("");
   const [sel, setSel] = useState(0);
   const inputRef = useRef(null);
-  useEffect(() => { if (open) { setQ(""); setSel(0); setTimeout(() => inputRef.current?.focus(), 0); } }, [open]);
+  const [wasOpen, setWasOpen] = useState(open);
+  if (wasOpen !== open) { setWasOpen(open); if (open) { setQ(""); setSel(0); } }
+  useEffect(() => { if (open) setTimeout(() => inputRef.current?.focus(), 0); }, [open]);
   if (!open) return null;
   const results = fuzzyFilter(items, q).slice(0, 8);
   const selClamped = Math.min(sel, Math.max(0, results.length - 1));

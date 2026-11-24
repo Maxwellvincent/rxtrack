@@ -16,7 +16,8 @@ import { trackFocusHudActivity } from "../../focusHudSignal.js";
 export function useFocusHudSignal(kind, detail, options = {}) {
   const { enabled = true, externalRef = null } = options;
   const detailRef = useRef(detail);
-  detailRef.current = detail;
+  // Keep the latest detail for the running tracker without writing refs during render.
+  useEffect(() => { detailRef.current = detail; }, [detail]);
 
   useEffect(() => {
     if (!enabled) return undefined;

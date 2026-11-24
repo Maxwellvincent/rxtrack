@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback, useMemo } from "react";
 import * as masterGuideStore from "../../../stores/masterGuide.js";
 import * as studyGuideStore from "../../../stores/studyGuide.js";
 import { generateMasterGuide } from "../../../engine/masterGuide.js";
@@ -119,11 +119,14 @@ export function MasterGuide({ blockId, userId, lectures = [] }) {
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState(null);
 
-  // Re-read if blockId changes
-  useEffect(() => {
+  // Re-read if the block or user changes (adjusted during render, not in an effect).
+  const guideScope = `${userId}:${blockId}`;
+  const [loadedScope, setLoadedScope] = useState(guideScope);
+  if (loadedScope !== guideScope) {
+    setLoadedScope(guideScope);
     setGuide(masterGuideStore.read(userId, blockId));
     setError(null);
-  }, [blockId, userId]);
+  }
 
   const lectureMap = useMemo(() => {
     const m = {};

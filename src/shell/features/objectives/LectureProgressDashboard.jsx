@@ -1,5 +1,5 @@
 import {blockReviewPolicy} from '../../../engine/blockReviewPolicy.js';
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatLectureLabel } from "../../../lectureTitle.js";
 import { lectureReviewTiming, reviewDateLabel } from "./lectureReviewTiming.js";
 export const segments = [
@@ -35,8 +35,8 @@ export function LectureProgressDashboard({ rows = [], completion = {}, evidence 
  useEffect(() => { const timer = setInterval(() => setClock(Date.now()), 60000); return () => clearInterval(timer); }, []);
  const now = suppliedNow ?? clock;
  const suspended=blockReviewPolicy(blockMeta,now).suspended;
- const accuracyFor = row => lectureReviewAccuracy(row.lec, evidence, getLecPerf, blockId);
- const timingFor = row => lectureReviewTiming(row, blockId, completion, evidence, getLecPerf, now, blockMeta);
+ const accuracyFor = useCallback(row => lectureReviewAccuracy(row.lec, evidence, getLecPerf, blockId), [evidence, getLecPerf, blockId]);
+ const timingFor = useCallback(row => lectureReviewTiming(row, blockId, completion, evidence, getLecPerf, now, blockMeta), [blockId, completion, evidence, getLecPerf, now, blockMeta]);
  const [page, setPage] = useState(0);
  const [filter, setFilter] = useState("all"), [selectedId, setSelectedId] = useState(null);
  const ordered = useMemo(() => [...rows].filter(row => row.total > 0).filter(row => filter === "all" || (filter === "repair" ? row.st > 0 || (accuracyFor(row) != null && accuracyFor(row) < .8) : filter === "new" ? row.ut > 0 : filter === "due" || filter === "upcoming" ? timingFor(row).status === filter : lectureReviewCount(row.lec, blockId, completion, evidence, getLecPerf) > 0))
@@ -44,7 +44,7 @@ export function LectureProgressDashboard({ rows = [], completion = {}, evidence 
    const aAccuracy = accuracyFor(a), bAccuracy = accuracyFor(b);
    const aWeak = aAccuracy != null && aAccuracy < .8, bWeak = bAccuracy != null && bAccuracy < .8;
    return Number(bWeak) - Number(aWeak) || (aWeak && bWeak ? aAccuracy - bAccuracy : 0);
-  })() : 0) || (filter === "new" ? (b.ut / b.total) - (a.ut / a.total) || b.ut - a.ut : 0) || (b.st / b.total) - (a.st / a.total) || (b.ut / b.total) - (a.ut / a.total) || Number(a.lec.lectureNumber || 0) - Number(b.lec.lectureNumber || 0)), [rows, filter, blockId, blockMeta, completion, evidence, getLecPerf, now]);
+  })() : 0) || (filter === "new" ? (b.ut / b.total) - (a.ut / a.total) || b.ut - a.ut : 0) || (b.st / b.total) - (a.st / a.total) || (b.ut / b.total) - (a.ut / a.total) || Number(a.lec.lectureNumber || 0) - Number(b.lec.lectureNumber || 0)), [rows, filter, accuracyFor, timingFor, blockId, completion, evidence, getLecPerf]);
  const currentPage = Math.min(page, Math.max(0, Math.ceil(ordered.length / 6) - 1));
  const visible = ordered.slice(currentPage * 6, currentPage * 6 + 6);
  const selected = visible.find(row => row.lec.id === selectedId) || visible[0];

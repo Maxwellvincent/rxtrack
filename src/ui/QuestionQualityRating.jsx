@@ -1,6 +1,6 @@
 import { reconcileQuestionQuality } from "../stores/questionQualityReconciliation.js";
 import { QUESTION_REPORT_CATEGORIES, reportProtection } from "../engine/questionScoringPolicy.js";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import * as ratingsStore from "../stores/questionRatings.js";
 
 const ISSUES = [
@@ -13,7 +13,13 @@ export function QuestionQualityRating({ userId, question, onChange }) {
   const [note, setNote] = useState(() => ratingsStore.ratingFor(userId, question)?.sourceNote || "");
   const [syncError, setSyncError] = useState(null);
   const [reporting, setReporting] = useState(false);
-  useEffect(() => { setRating(ratingsStore.ratingFor(userId, question) || {}); setReporting(false); setNote(ratingsStore.ratingFor(userId, question)?.sourceNote || ""); }, [userId, question]);
+  const [ratedFor, setRatedFor] = useState({ userId, question });
+  if (ratedFor.userId !== userId || ratedFor.question !== question) {
+    setRatedFor({ userId, question });
+    setRating(ratingsStore.ratingFor(userId, question) || {});
+    setReporting(false);
+    setNote(ratingsStore.ratingFor(userId, question)?.sourceNote || "");
+  }
   if (!question) return null;
   const update = async (patch) => {
     setSyncError(null);

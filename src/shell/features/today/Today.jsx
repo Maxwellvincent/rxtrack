@@ -1102,26 +1102,25 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
     return todayTasks;
   }, [effectiveMode, todayTasks, daily?.lecScores]);
 
-  const planStorageKey = focusPlanKey(blockId, todayKey, effectiveMode);
-  const [focusPlan, setFocusPlan] = useState(null);
-  useEffect(() => {
+  // The plan is derived from the stored plan (or built fresh); storage writes
+  // happen in an effect. Actions bump planRevision after writing a new plan.
+  const [planRevision, setPlanRevision] = useState(0);
+  const focusPlan = useMemo(() => {
     const stored = readFocusPlan(blockId, todayKey, effectiveMode);
     if (stored) {
       const ids = reconcileScheduledFocusPlan(stored, candidateTasks);
-      if (ids.length !== stored.length) writeFocusPlan(blockId, todayKey, effectiveMode, ids);
-      setFocusPlan({ key: planStorageKey, ids });
-      return;
+      return { ids, persist: ids.length !== stored.length ? ids : null };
     }
     const ids = buildFocusPlan(candidateTasks.map((task) => task.lec.id), [...checkedForToday]);
-    if (!ids.length) {
-      setFocusPlan({ key: planStorageKey, ids: [] });
-      return;
-    }
-    writeFocusPlan(blockId, todayKey, effectiveMode, ids);
-    setFocusPlan({ key: planStorageKey, ids });
-  }, [blockId, todayKey, effectiveMode, planStorageKey, candidateTasks, checkedForToday]);
+    return { ids, persist: ids.length ? ids : null };
+    // planRevision re-reads storage after an action wrote a new plan.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blockId, todayKey, effectiveMode, candidateTasks, checkedForToday, planRevision]);
+  useEffect(() => {
+    if (focusPlan.persist) writeFocusPlan(blockId, todayKey, effectiveMode, focusPlan.persist);
+  }, [focusPlan, blockId, todayKey, effectiveMode]);
 
-  const focusPlanIds = focusPlan?.key === planStorageKey ? focusPlan.ids : [];
+  const focusPlanIds = focusPlan.ids;
   const focusPlanSet = useMemo(() => new Set(focusPlanIds), [focusPlanIds]);
   const filteredTasks = useMemo(
     () => candidateTasks.filter((task) => focusPlanSet.has(task.lec.id)),
@@ -1143,13 +1142,13 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
     if (!nextIds.length) return;
     const ids = [...focusPlanIds, ...nextIds];
     writeFocusPlan(blockId, todayKey, effectiveMode, ids);
-    setFocusPlan({ key: planStorageKey, ids });
-  }, [blockId, todayKey, effectiveMode, candidateTasks, planStorageKey, focusPlanIds, checkedForToday]);
+    setPlanRevision((revision) => revision + 1);
+  }, [blockId, todayKey, effectiveMode, candidateTasks, focusPlanIds, checkedForToday]);
   const resetTodaySet = useCallback(() => {
     const ids = buildResetFocusPlan(candidateTasks.map((task) => task.lec.id), [...checkedForToday], 3);
     writeFocusPlan(blockId, todayKey, effectiveMode, ids);
-    setFocusPlan({ key: planStorageKey, ids });
-  }, [blockId, todayKey, effectiveMode, candidateTasks, checkedForToday, planStorageKey]);
+    setPlanRevision((revision) => revision + 1);
+  }, [blockId, todayKey, effectiveMode, candidateTasks, checkedForToday]);
   const canExtendFocusPlan = candidateTasks.some((task) =>
     task.lec?.id && !focusPlanSet.has(task.lec.id) && !checkedForToday.has(task.lec.id)
   );

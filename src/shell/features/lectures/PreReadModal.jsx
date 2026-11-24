@@ -44,9 +44,8 @@ function TopicList({ topics }) {
   );
 }
 
-function Orientation({ state }) {
-  if (!state.bigPicture && !state.roadmap?.length && !state.vocabulary?.length && !state.diagramTargets?.length) return null;
-  const List = ({ title, items }) => items?.length ? (
+function OrientationList({ title, items }) {
+  return items?.length ? (
     <div>
       <div className="mb-1 font-condensed text-[13px] font-bold uppercase tracking-wide text-text-2">{title}</div>
       <ul className="space-y-1 text-[14px] leading-relaxed text-text-1">
@@ -54,13 +53,17 @@ function Orientation({ state }) {
       </ul>
     </div>
   ) : null;
+}
+
+function Orientation({ state }) {
+  if (!state.bigPicture && !state.roadmap?.length && !state.vocabulary?.length && !state.diagramTargets?.length) return null;
   return (
     <div className="space-y-4 rounded-lg border border-border bg-bg-elevated p-4">
       <div className="font-condensed text-[13px] font-bold uppercase tracking-wide text-text-2">Lecture orientation</div>
       {state.bigPicture && <p className="text-[15px] leading-relaxed text-text-1">{state.bigPicture}</p>}
-      <List title="Expected roadmap" items={state.roadmap} />
-      <List title="Vocabulary to recognize" items={state.vocabulary} />
-      <List title="Find these diagrams" items={state.diagramTargets} />
+      <OrientationList title="Expected roadmap" items={state.roadmap} />
+      <OrientationList title="Vocabulary to recognize" items={state.vocabulary} />
+      <OrientationList title="Find these diagrams" items={state.diagramTargets} />
     </div>
   );
 }

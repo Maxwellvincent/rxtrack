@@ -101,7 +101,7 @@ export function CalibrationSession({ userId, blockId, blockName, newPool = [], o
 
     // Mastery unchanged by confidence (calibration-only): record correct/wrong as usual.
     writeConcept(blockId, recordOutcome(current.concept, correct ? "correct" : "wrong"));
-  }, [current, picked, revealed, blockId]);
+  }, [current, picked, revealed, blockId, userId]);
 
   const advance = useCallback(() => {
     if (!current) return;

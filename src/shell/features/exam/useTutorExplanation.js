@@ -65,14 +65,16 @@ export function useTutorExplanation(question, { enabled = true } = {}, deps = {}
   // Question identity changed: adopt whatever's cached (instant, no
   // network), and clear any leftover text/error from a prior question. This
   // is NOT a fetch — no explainQuestion call happens here.
-  useEffect(() => {
-    const questionId = question?.questionId ?? null;
-    currentQuestionIdRef.current = questionId;
+  const questionId = question?.questionId ?? null;
+  const [shownQuestionId, setShownQuestionId] = useState(questionId);
+  if (shownQuestionId !== questionId) {
     const cached = questionId ? resultCache.get(questionId) : null;
+    setShownQuestionId(questionId);
     setText(cached?.text ?? null);
     setError(cached?.error ?? null);
     setLoading(false);
-  }, [question?.questionId]);
+  }
+  useEffect(() => { currentQuestionIdRef.current = questionId; }, [questionId]);
 
   const request = useCallback(() => {
     const questionId = question?.questionId;
