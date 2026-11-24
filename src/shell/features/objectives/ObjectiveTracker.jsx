@@ -1,6 +1,6 @@
 import { PracticeModeTabs } from "../lectures/PracticeModeTabs.jsx";
 import {ObjectiveLectureDashboard} from "./ObjectiveLectureDashboard.jsx";
-import { LectureProgressDashboard } from "./LectureProgressDashboard.jsx";
+import { lectureReviewTiming, reviewDateLabel } from "./lectureReviewTiming.js";
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useTheme, getObjStatusColor } from "../../../theme";
 import { LEVEL_COLORS, LEVEL_BG } from "../../../bloomsTaxonomy";
@@ -164,6 +164,7 @@ function LecObjectiveGroup({
   setEditingTitle = null,
   onRenameLecture = null,
   smartTruncateTitle = null,
+  reviewTiming = null,
 }) {
   const [open, setOpen] = useState(false);
   const renameEscapeRef = useRef(false);
@@ -359,6 +360,9 @@ function LecObjectiveGroup({
           <span className="desk-objective-count" style={{ fontFamily: MONO, color: aggDotColor, flexShrink: 0 }} title="Objective status in this lecture">
             {groupCounts.st > 0 ? `${groupCounts.st} repair` : groupCounts.ut > 0 ? `${groupCounts.ut} untested` : `${groupCounts.m}/${groupCounts.t} mastered`}
           </span>
+        )}
+        {reviewTiming?.nextReview && reviewTiming.status !== "suspended" && (
+          <span className="shrink-0 text-xs text-text-2" title="Next exam-aware review">{reviewTiming.status === "due" ? "⏰ due" : "↻"} {reviewDateLabel(reviewTiming.nextReview).replace(/, \d{4}$/, "")}</span>
         )}
         {reExtractingLectureId === lectureId && (
           <span
@@ -758,7 +762,7 @@ export default function ObjectiveTracker({
   const color = termColor ?? T.red;
 
   const [subView, setSubView] = useState("lecture");
-  const [lectureSort, setLectureSort] = useState("objective-count");
+  const [lectureSort, setLectureSort] = useState("priority");
   const [lectureQuery, setLectureQuery] = useState("");
   const [lectureFilter, setLectureFilter] = useState("all");
   const [lectureLimit, setLectureLimit] = useState(12);
@@ -826,12 +830,27 @@ export default function ObjectiveTracker({
     );
   }, [linkedObjectives, blockLectures]);
 
-  const sortedByLecture = useMemo(() => {
-    if (lectureSort === "objective-count") {
-      return [...byLecture].sort((a, b) => b.objectives.length - a.objectives.length || String(a.activity).localeCompare(String(b.activity), undefined, { numeric: true }));
+  // Exam-aware review timing per lecture group, shared by the row label, filter and sort.
+  const [timingNow] = useState(() => Date.now());
+  const reviewTimingByLecture = useMemo(() => {
+    const out = {};
+    for (const group of byLecture) {
+      const lec = blockLectures.find((lecture) => lecture.id === group.lectureId);
+      if (!lec) continue;
+      const statuses = group.objectives.map((objective) => objective.status || "untested");
+      const row = { lec, st: statuses.filter((x) => x === "struggling").length, m: statuses.filter((x) => x === "mastered").length, total: statuses.length };
+      out[group.lectureId] = lectureReviewTiming(row, blockId, completion, learnerEvidence || {}, getLecPerf, timingNow, blockMeta);
     }
+    return out;
+  }, [byLecture, blockLectures, blockId, completion, learnerEvidence, getLecPerf, timingNow, blockMeta]);
+  const sortedByLecture = useMemo(() => {
+    const order = (a, b) => String(a.activity).localeCompare(String(b.activity), undefined, { numeric: true });
+    const share = (group, status) => group.objectives.filter((objective) => (objective.status || "untested") === status).length / Math.max(1, group.objectives.length);
+    if (lectureSort === "objective-count") return [...byLecture].sort((a, b) => b.objectives.length - a.objectives.length || order(a, b));
+    if (lectureSort === "priority") return [...byLecture].sort((a, b) => share(b, "struggling") - share(a, "struggling") || share(b, "untested") - share(a, "untested") || order(a, b));
+    if (lectureSort === "review") return [...byLecture].sort((a, b) => String(reviewTimingByLecture[a.lectureId]?.nextReview || "9999").localeCompare(String(reviewTimingByLecture[b.lectureId]?.nextReview || "9999")) || order(a, b));
     return byLecture;
-  }, [byLecture, lectureSort]);
+  }, [byLecture, lectureSort, reviewTimingByLecture]);
 
   const filteredLectureGroups = useMemo(() => {
     const query = lectureQuery.trim().toLowerCase();
@@ -842,9 +861,10 @@ export default function ObjectiveTracker({
       if (lectureFilter === "repair" && !statuses.includes("struggling")) return false;
       if (lectureFilter === "untested" && !statuses.includes("untested")) return false;
       if (lectureFilter === "complete" && statuses.some((status) => status !== "mastered")) return false;
+      if (lectureFilter === "due" && reviewTimingByLecture[group.lectureId]?.status !== "due") return false;
       return true;
     });
-  }, [sortedByLecture, lectureQuery, lectureFilter]);
+  }, [sortedByLecture, lectureQuery, lectureFilter, reviewTimingByLecture]);
 
   useEffect(() => setLectureLimit(12), [lectureQuery, lectureFilter, lectureSort, blockId]);
 
@@ -1079,16 +1099,13 @@ export default function ObjectiveTracker({
 
       {subView === "lecture" && (
         <div style={{ display: "flex", flexDirection: "column" }}>
-          <LectureProgressDashboard rows={coverageRows} blockMeta={blockMeta} blockId={blockId} completion={completion} evidence={learnerEvidence} getLecPerf={getLecPerf} objectives={linkedObjectives} onStudy={onStudyLecture} onQuiz={onStartObjectiveQuiz} />
-          <details className="mt-4"><summary className="cursor-pointer py-3 font-semibold">Inspect individual lecture objectives</summary>
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-panel p-2.5">
-            <div className="desk-objective-library-copy"><strong>{filteredLectureGroups.length} lecture groups</strong><span>Open one group to see its objectives. The rest stay out of your way.</span></div>
-            <input value={lectureQuery} onChange={(event) => setLectureQuery(event.target.value)} placeholder="Find a lecture…" aria-label="Find a lecture" className="desk-objective-search" />
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <input value={lectureQuery} onChange={(event) => setLectureQuery(event.target.value)} placeholder="Find a lecture…" aria-label="Find a lecture" className="desk-objective-search min-w-[12rem] flex-1" />
             <select aria-label="Filter lecture groups" value={lectureFilter} onChange={(event) => setLectureFilter(event.target.value)} className="min-h-10 rounded border border-border bg-bg-elevated px-2 text-sm text-text-1">
-              <option value="all">All groups</option><option value="repair">Needs repair</option><option value="untested">Has untested</option><option value="complete">Fully mastered</option>
+              <option value="all">All lectures</option><option value="repair">Needs repair</option><option value="untested">Has untested</option><option value="due">Due for review</option><option value="complete">Fully mastered</option>
             </select>
             <select aria-label="Sort lecture groups" value={lectureSort} onChange={(event) => setLectureSort(event.target.value)} className="min-h-10 rounded border border-border bg-bg-elevated px-2 text-sm text-text-1">
-              <option value="objective-count">Most objectives</option><option value="lecture-order">Lecture order</option>
+              <option value="priority">Priority</option><option value="review">Next review</option><option value="lecture-order">Lecture order</option><option value="objective-count">Most objectives</option>
             </select>
           </div>
           <div className="desk-objective-lecture-index">
@@ -1117,6 +1134,7 @@ export default function ObjectiveTracker({
                 setEditingTitle={setEditingTitle}
                 onRenameLecture={onRenameLecture}
                 smartTruncateTitle={smartTruncateTitle}
+                reviewTiming={reviewTimingByLecture[group.lectureId] || null}
               />
             ))}
           </div>
@@ -1126,7 +1144,6 @@ export default function ObjectiveTracker({
               No lecture groups match this view. Clear the search or choose All groups.
             </p>
           )}
-          </details>
         </div>
       )}
 

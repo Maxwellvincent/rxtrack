@@ -150,3 +150,27 @@ it("opens the Reference sources view without crashing and explains reference-onl
   expect(view.host.textContent).toContain("1 lecture objective still needs a title match");
   view.close();
 });
+
+it("lists lectures by priority with exam-aware review dates and filters to reviews due", () => {
+  const host = document.createElement("div"); document.body.append(host); const root = createRoot(host);
+  const lectures = [
+    { id: "calm", blockId: "B", lectureType: "LEC", lectureNumber: 1, lectureTitle: "Calm lecture" },
+    { id: "weak", blockId: "B", lectureType: "LEC", lectureNumber: 2, lectureTitle: "Weak lecture" },
+  ];
+  const objectives = [
+    { id: "c1", linkedLecId: "calm", objective: "Calm objective" },
+    { id: "w1", linkedLecId: "weak", objective: "Weak objective" },
+  ];
+  const evidence = { objectives: { w1: { attempts: 3, correct: 0, recent: [false, false, false] } } };
+  const completion = { "calm__B": { lastActivityDate: "2020-01-01", activityLog: [{ activityType: "review", date: "2020-01-01" }] } };
+  act(() => root.render(<ObjectiveTracker blockId="B" blockLectures={lectures} objectives={objectives} learnerEvidence={evidence} completion={completion} onSelfRate={vi.fn()} onStartObjectiveQuiz={vi.fn()} />));
+  const text = host.textContent;
+  expect(text.indexOf("Weak lecture")).toBeLessThan(text.indexOf("Calm lecture"));
+  expect(text).toContain("⏰ due");
+  expect(host.querySelector('[aria-label="Lecture progress dashboard"]')).toBeNull();
+  const filter = host.querySelector('[aria-label="Filter lecture groups"]');
+  act(() => { filter.value = "due"; filter.dispatchEvent(new Event("change", { bubbles: true })); });
+  expect(host.textContent).toContain("Calm lecture");
+  expect(host.textContent).not.toContain("Weak lecture");
+  act(() => root.unmount()); host.remove();
+});

@@ -1,6 +1,6 @@
 import {useState} from 'react';
 import {formatLectureLabel} from '../../../lectureTitle.js';
-import {segments,segmentStyle} from './LectureProgressDashboard.jsx';
+import {segments,segmentStyle} from './statusSegments.js';
 
 /** Six readable lectures at a time; filters only change ranking, never evidence. */
 export function ObjectiveLectureDashboard({rows=[],title,description,metric='tested',metricLabel='covered',onStudy,onQuiz,objectives=[],blockId,children}){
