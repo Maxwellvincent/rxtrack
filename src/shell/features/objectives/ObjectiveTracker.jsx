@@ -793,6 +793,13 @@ export default function ObjectiveTracker({
   const covSrc = linkedObjectives;
 
   const unlinkedCount = unlinkedObjectives.length;
+  // SG/DLA/LAB sources are kept as reference only; unlinked LEC objectives still
+  // need a lecture title match. Used by the Reference sources view.
+  const referenceOnlyCount = unlinkedObjectives.filter((objective) =>
+    normalizedSourceActivity(objective.activity || objective.lectureType) !== "LEC"
+  ).length;
+  const lectureMatchCount = unlinkedCount - referenceOnlyCount;
+  const validLecIds = useMemo(() => new Set((blockLectures || []).map((lecture) => lecture.id)), [blockLectures]);
 
   const byLecture = useMemo(() => {
     const map = new Map();

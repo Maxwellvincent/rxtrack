@@ -126,3 +126,27 @@ it("uses the same totals and evidence states as Today, excluding conflicting lec
  expect(view.host.textContent).toContain("Reference sources");
  view.close();
 });
+
+it("opens the Reference sources view without crashing and explains reference-only versus unmatched objectives", () => {
+  const view = mount(
+    <ObjectiveTracker
+      blockId="block-1"
+      blockLectures={[{ id: "lec-1", lectureType: "LEC", lectureNumber: 1, lectureTitle: "Hormone signaling" }]}
+      objectives={[
+        { id: "obj-1", linkedLecId: "lec-1", objective: "Explain receptor signaling", status: "untested" },
+        { id: "obj-dla", activity: "DLA", objective: "Read about glycolysis", status: "untested" },
+        { id: "obj-lec", activity: "LEC", objective: "Describe feedback loops", status: "untested" },
+      ]}
+      onSelfRate={vi.fn()}
+      onStartObjectiveQuiz={vi.fn()}
+      onStudyLecture={vi.fn()}
+    />
+  );
+  const tab = [...view.host.querySelectorAll("button")].find((button) => button.textContent.trim() === "Reference sources");
+  expect(tab).toBeTruthy();
+  act(() => tab.click());
+  expect(view.host.textContent).toContain("2 unlinked source objectives");
+  expect(view.host.textContent).toContain("1 SG/DLA/LAB objectives are preserved as reference-only");
+  expect(view.host.textContent).toContain("1 lecture objective still needs a title match");
+  view.close();
+});
