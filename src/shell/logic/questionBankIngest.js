@@ -153,3 +153,67 @@ export function summarizeBankUpload(results) {
     reports: (results || []).filter((r) => r.report).length,
   };
 }
+
+/** IMCQ number from a key deck ("NB+IMCQ+KEY_01"), practice deck ("NB IMCQ 11") or handout. */
+export function imcqNumber(name = "") {
+  const match = String(name).match(/IMCQ[\s+_-]*(?:KEY[\s+_-]*)?0*(\d{1,2})\b/i);
+  return match ? Number(match[1]) : null;
+}
+
+const isExplanationHandout = (name = "") => /answer[\s+_-]*explanations?/i.test(String(name));
+
+/** Pair each IMCQ deck with the answer-explanation handout of the same IMCQ number. */
+export function pairImcqExplanationFiles(files = []) {
+  const selected = Array.from(files || []);
+  const handouts = selected.filter((file) => isExplanationHandout(file?.name) && imcqNumber(file?.name) != null);
+  const decks = selected.filter((file) => !isExplanationHandout(file?.name) && imcqNumber(file?.name) != null && !/breakdown/i.test(file?.name || ""));
+  return decks.flatMap((deckFile) => {
+    const matches = handouts.filter((file) => imcqNumber(file.name) === imcqNumber(deckFile.name));
+    return matches.length === 1 ? [{ deckFile, explanationFile: matches[0] }] : [];
+  });
+}
+
+const choiceWords = (value) => new Set(String(value || "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter((word) => word.length > 2));
+const choicesAgree = (a = {}, b = {}) => {
+  const letters = Object.keys(a).filter((letter) => letter in b);
+  if (!letters.length) return false;
+  const agree = letters.filter((letter) => {
+    const bare = String(a[letter] || "").trim();
+    // Figure items label choices only ("A", "0"); the handout adds a description.
+    if (bare.length <= 3 && String(b[letter] || "").trim().toLowerCase().startsWith(bare.toLowerCase())) return true;
+    const left = choiceWords(a[letter]), right = choiceWords(b[letter]);
+    if (!left.size || !right.size) return String(a[letter]).trim().toLowerCase() === String(b[letter]).trim().toLowerCase();
+    return [...left].some((word) => right.has(word));
+  }).length;
+  return agree / letters.length >= 0.6;
+};
+
+/**
+ * One IMCQ, one bank: the deck keeps its original vignette, figures and choices;
+ * the handout supplies the written key and per-choice reasoning. A deck slide
+ * the parser could not read falls back to the handout's summary item.
+ */
+export function mergeImcqKeyWithExplanations(deckQuestions = [], records = new Map()) {
+  const byNumber = new Map(deckQuestions.map((question, index) => [Number(question.num || index + 1), question]));
+  const compared = [...byNumber].filter(([num]) => records.has(num));
+  const mismatched = compared.filter(([num, question]) => !choicesAgree(question.choices, records.get(num).choices));
+  if (compared.length && mismatched.length / compared.length > 0.2) {
+    throw new Error(`The IMCQ deck and its answer-explanation handout do not match (questions ${mismatched.map(([num]) => num).join(", ")} have different answer choices). Nothing was saved.`);
+  }
+  const numbers = [...new Set([...byNumber.keys(), ...records.keys()])].sort((a, b) => a - b);
+  return numbers.flatMap((num) => {
+    const question = byNumber.get(num), record = records.get(num);
+    if (!record) return question ? [question] : [];
+    if (!question) return record.question ? [{ ...record.question, num }] : [];
+    const whyWrong = Object.fromEntries(Object.entries(record.explanations || {}).filter(([letter, note]) => letter in (question.choices || {}) && note));
+    return [{
+      ...question,
+      correct: record.correct,
+      whyWrong: Object.keys(whyWrong).length ? whyWrong : question.whyWrong,
+      explanation: question.explanation || null,
+      answerKeyVerified: true,
+      sourceKeyStatus: "present",
+      answerKeyEvidence: "Paired answer-explanation handout",
+    }];
+  });
+}

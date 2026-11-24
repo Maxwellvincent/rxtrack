@@ -114,6 +114,9 @@ function parseSlideQuestionText(text) {
     // A school objective (and its wrapped continuation lines) follows the
     // choices on key slides; it is never part of the last answer choice.
     if (/^SOM\.[A-Z0-9.]+\s+/i.test(line)) { inObjective = true; letter = null; continue; }
+    // Figure credits and the figure's own scattered labels are not choice text.
+    if (letter && /^(?:Images? (?:from|courtesy)|Case courtesy|Image source)\b/i.test(line)) { inObjective = true; letter = null; continue; }
+    if (letter && /^(?:[A-J0-9]\s+){2,}[A-J0-9]$/.test(line)) continue;
     const choice = line.match(/^([A-Z])[.)]\s*(.*)$/);
     if (inObjective) {
       // Wrapped objective text is skipped until the next choice in sequence.
@@ -125,7 +128,7 @@ function parseSlideQuestionText(text) {
     if (choice) {
       letter = choice[1].toUpperCase();
       // An objective printed beside a choice on the keyed slide ends the choices.
-      const inlineObjective = choice[2].search(/\s+SOM\.[A-Z]{2}\./);
+      const inlineObjective = choice[2].search(/\s+(?:SOM\.[A-Z]{2}\.|Images? (?:from|courtesy)\b|Case courtesy\b|Image source\b)/i);
       choices[letter] = (inlineObjective >= 0 ? choice[2].slice(0, inlineObjective) : choice[2]).trim();
       if (inlineObjective >= 0) { inObjective = true; letter = null; }
     } else if (letter) {
@@ -218,7 +221,7 @@ export function groupPairedKeySlides(rawPages) {
   return groups;
 }
 
-async function parsePairedKeyFormat(pages, onProgress, examTitle = "") {
+async function parsePairedKeyFormat(pages, onProgress, examTitle = "", knownKeys = null) {
   const groups = groupPairedKeySlides(pages);
   onProgress?.(`🔑 Found ${groups.length} paired school-key questions…`);
   const questions = [];
@@ -232,6 +235,18 @@ async function parsePairedKeyFormat(pages, onProgress, examTitle = "") {
       await pdfPage.render({ canvasContext: canvas.getContext("2d"), viewport: vp }).promise;
       return canvas.toDataURL("image/png").split(",")[1];
     };
+    // A paired answer-explanation handout already states this key in text.
+    const known = knownKeys?.get?.(group.num);
+    if (known?.correct && group.choices[known.correct]) {
+      questions.push({
+        id: `q${group.num}`, num: group.num, type: "clinicalVignette", imageQuestion: group.questionPage?.imgCount > 0,
+        subject: "Uploaded", topic: examTitle || "School review", stem: group.stem, choices: group.choices,
+        correct: known.correct, explanation: null, difficulty: "hard", hasImage: group.questionPage?.imgCount > 0,
+        schoolObjectiveCode: group.schoolObjectiveCode, schoolObjective: group.schoolObjective,
+      });
+      onProgress?.(`🔑 Key ${i + 1} of ${groups.length} from the explanation handout`);
+      continue;
+    }
     const images = [];
     if (group.answerPage?.pdfPage) images.push({ base64: await renderB64(group.answerPage.pdfPage), mimeType: "image/png" });
     if (group.questionPage?.pdfPage) images.push({ base64: await renderB64(group.questionPage.pdfPage), mimeType: "image/png" });
@@ -267,7 +282,8 @@ async function parsePairedKeyFormat(pages, onProgress, examTitle = "") {
     });
     onProgress?.(`🔑 Reading school key ${i + 1} of ${groups.length}…`);
   }
-  assertPairedKeysRead(questions, examTitle);
+  // With a handout, unread slides are filled from it during the merge.
+  if (!knownKeys) assertPairedKeysRead(questions, examTitle);
   return questions;
 }
 
@@ -1762,7 +1778,7 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
     onProgress?.(`✓ Parsed ${deterministic.length} questions locally — no AI used`);
     questions = deterministic;
   } else if (format === "pairedkey") {
-    questions = await parsePairedKeyFormat(pages, onProgress, examTitle);
+    questions = await parsePairedKeyFormat(pages, onProgress, examTitle, opts.knownKeys || null);
   } else if (format === "grid") {
     questions = await parseGridFormat(pages, onProgress);
   } else if (format === "slidedeck") {

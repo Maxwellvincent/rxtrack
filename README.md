@@ -61,6 +61,8 @@ Top tabs (`src/shell/TabBar.jsx`):
 
 IMCQ / school key decks (question slide followed by the same slide with the answer marked): `examParser.groupPairedKeySlides` pairs them by number, by repeated slide text (unnumbered D&M decks) or behind a running header (MSK), strips objective text from choices, and numbers unnumbered items by position. The marked answer is read by the AI image reader (one retry); if any answer cannot be read, `assertPairedKeysRead` stops the import and names the questions instead of saving them unkeyed.
 
+IMCQ deck + answer-explanation handout: uploading `NB+IMCQ+KEY_0N` (or `NB IMCQ N Practice Questions`) together with `NB IMCQ N Answer Explanations` makes one bank (`pairImcqExplanationFiles`, `mergeImcqKeyWithExplanations`): the deck keeps its original vignette, figures and choices; the handout supplies the written key (no AI image read for those items) and per-choice ✓/✗ notes as `whyWrong`; a deck slide the parser misses is filled from the handout; mismatched choice sets stop the import. Figure credits and scattered figure labels are stripped from choices.
+
 CBSE question banks: the ⋯ menu's Question banks item and the CBSE Prep page's "Upload CBSE question banks" link open the bank uploader filed under the `cbse-prep` block, defaulting to the supplemental source kind. `buildCbsePool` pools them with every block's school banks, while high-yield school emphasis ignores them. CBSE practice filters by source (`cbseSourceGroup`: All banks, ESoft + IMCQ, ESoft quizzes, IMCQs, Weekly practice / homework, NBME / USMLE samples — ESoft is recognized by filename even when filed as "school") and by term, with per-option counts.
 
 **Score reports:** ExamSoft "Strengths and Improvement Opportunities" PDFs (ESoft quiz

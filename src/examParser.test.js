@@ -188,6 +188,10 @@ describe("NB IMCQ keys with fewer than 16 questions", () => {
     expect(keyedOnly[0].choices.D).toBe("Delta site");
     const inline = groupPairedKeySlides([1, 2, 3].map((n) => ({ text: `${n}. Stem for item ${n} that is long enough to parse as a question here?\nA. Left thalamus\nB. Left subthalamus SOM.MK.I.BPM2.1.NB.1.NSCI.0202 Describe cerebellar signs\nC. Right pons` })));
     expect(inline[0].choices).toEqual({ A: "Left thalamus", B: "Left subthalamus", C: "Right pons" });
+    const credit = groupPairedKeySlides([1, 2, 3].map((n) => ({ text: `${n}. Figure item ${n} with a long enough stem to be parsed as a question here?\nA. A\nB. B Images from: Haines, Neuroanatomy Atlas` })));
+    expect(credit[0].choices).toEqual({ A: "A", B: "B" });
+    const ownLine = groupPairedKeySlides([1, 2, 3].map((n) => ({ text: `${n}. Figure item ${n} with a long enough stem to be parsed as a question here?\nA. A\nB. B\nA B C\nCase courtesy of Radiopaedia.org, rID: 1` })));
+    expect(ownLine[0].choices).toEqual({ A: "A", B: "B" });
   });
 });
 

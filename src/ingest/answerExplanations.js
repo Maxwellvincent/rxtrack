@@ -8,6 +8,9 @@ export function parseAnswerExplanations(text, title = "") {
   const clean = value => value.replace(/\[PAGE_BREAK:\d+\]/g, " ").replace(/\s+/g, " ").trim();
   const questions = [];
   const sourceIssues = [];
+  // Every well-formed item's key and per-choice notes, including figure items
+  // that cannot stand alone here but can be merged into the original deck.
+  const records = new Map();
   const seen = new Set();
   for (const [index, heading] of headings.entries()) {
     const num = Number(heading[1]);
@@ -39,6 +42,9 @@ export function parseAnswerExplanations(text, title = "") {
     else if (/\b(?:indicated|shown|pictured|histology|photomicrograph|diagram|image|figure|labeled)\b/i.test(summary)
       || letters.every(letter => /^[A-H0-9]+$/.test(choices[letter]))) reason = "required original figure or labeled exhibit is absent from this explanation handout";
     seen.add(num);
+    if (!malformed && choices[correct] && marked.length === 1 && marked[0] === correct && !records.has(num)) {
+      records.set(num, { correct, choices, explanations, summary });
+    }
     if (reason) { sourceIssues.push(`Q${num}: ${reason}`); continue; }
     const before = source.slice(0, heading.index + heading[0].length);
     const pageMarkers = [...before.matchAll(/\[PAGE_BREAK:(\d+)\]/g)];
@@ -46,7 +52,7 @@ export function parseAnswerExplanations(text, title = "") {
     questions.push({
       id: `q${num}`, num, stem: `${summary.replace(/[?.]+$/, "")}. Which option best answers this review prompt?`,
       choices, correct, explanation: letters.map(letter => `${letter}. ${choices[letter]} — ${explanations[letter]}`).join("\n\n"),
-      choiceExplanations: explanations,
+      choiceExplanations: explanations, whyWrong: explanations,
       sourceKind: "supplemental", sourcePromptSummary: summary, sourceRepresentation: "answer-explanation-summary",
       source: "Explanation-based review (abbreviated prompt)",
       sourceKeyStatus: "present", answerKeyVerified: true,
@@ -54,5 +60,6 @@ export function parseAnswerExplanations(text, title = "") {
       type: "recall", orderLevel: 1, difficulty: "medium", subject: "Uploaded", topic: title || "Explanation review",
     });
   }
-  return { questions, sourceIssues, sourceQuestionCount: headings.length };
+  for (const question of questions) if (records.has(question.num)) records.get(question.num).question = question;
+  return { questions, sourceIssues, sourceQuestionCount: headings.length, records };
 }

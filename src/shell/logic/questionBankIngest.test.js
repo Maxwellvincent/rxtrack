@@ -113,3 +113,45 @@ describe("summarizeBankUpload", () => {
     expect(summarizeBankUpload([])).toMatchObject({ files: 0, saved: 0, questions: 0 });
   });
 });
+
+import { imcqNumber, pairImcqExplanationFiles, mergeImcqKeyWithExplanations } from "./questionBankIngest.js";
+describe("IMCQ key decks paired with answer-explanation handouts", () => {
+  const f = (name) => ({ name });
+  it("reads the IMCQ number from key decks, practice decks and explanation handouts", () => {
+    expect(imcqNumber("NB+IMCQ+KEY_01.pdf")).toBe(1);
+    expect(imcqNumber("NB IMCQ 11 Practice Questions.pdf")).toBe(11);
+    expect(imcqNumber("NB IMCQ 9 Behavioral Sciences Answer Explanations.pdf")).toBe(9);
+    expect(imcqNumber("Week 15 NB NSCI Practice Questions.pdf")).toBe(null);
+  });
+  it("pairs each deck with the explanation handout of the same number and leaves the rest alone", () => {
+    const files = [f("NB+IMCQ+KEY_01.pdf"), f("NB IMCQ 1 Answer Explanations.pdf"), f("NB IMCQ 2 Answer Explanations.pdf"), f("NB IMCQ 11 Practice Questions.pdf")];
+    const pairs = pairImcqExplanationFiles(files);
+    expect(pairs.map((p) => [p.deckFile.name, p.explanationFile.name])).toEqual([["NB+IMCQ+KEY_01.pdf", "NB IMCQ 1 Answer Explanations.pdf"]]);
+  });
+  it("keeps the original vignette, takes the written key and per-choice notes, and fills a missing slide from the handout", () => {
+    const deck = [
+      { num: 2, stem: "Full vignette two", choices: { A: "Alpha", B: "Beta" }, correct: null, hasImage: true },
+      { num: 3, stem: "Full vignette three", choices: { A: "Gamma", B: "Delta" }, correct: "A" },
+    ];
+    const records = new Map([
+      [1, { correct: "B", choices: { A: "One", B: "Two" }, explanations: { A: "No.", B: "Yes." }, summary: "short one", question: { num: 1, stem: "short one. Which option best answers this review prompt?", choices: { A: "One", B: "Two" }, correct: "B" } }],
+      [2, { correct: "B", choices: { A: "Alpha", B: "Beta" }, explanations: { A: "Wrong because x.", B: "Right because y." } }],
+      [3, { correct: "B", choices: { A: "Gamma", B: "Delta" }, explanations: { A: "a", B: "b" } }],
+    ]);
+    const merged = mergeImcqKeyWithExplanations(deck, records);
+    expect(merged.map((q) => q.num)).toEqual([1, 2, 3]);
+    expect(merged[1]).toMatchObject({ stem: "Full vignette two", correct: "B", whyWrong: { A: "Wrong because x.", B: "Right because y." }, hasImage: true, answerKeyVerified: true });
+    expect(merged[2].correct).toBe("B");
+    expect(merged[0].stem).toMatch(/short one/);
+  });
+  it("treats bare figure labels in the deck as matching the handout's described labels", () => {
+    const deck = [{ num: 1, stem: "fig", choices: { A: "A", B: "B" } }, { num: 2, stem: "fig2", choices: { A: "0", B: "1" } }];
+    const records = new Map([[1, { correct: "B", choices: { A: "A (right midbrain)", B: "B (left pons)" }, explanations: { B: "yes" } }], [2, { correct: "A", choices: { A: "0 (vermis)", B: "1 (paravermal)" }, explanations: {} }]]);
+    expect(mergeImcqKeyWithExplanations(deck, records).map((q) => q.correct)).toEqual(["B", "A"]);
+  });
+  it("refuses a pair whose choices do not line up", () => {
+    const deck = [{ num: 1, stem: "v", choices: { A: "Alpha", B: "Beta" } }, { num: 2, stem: "w", choices: { A: "Gamma", B: "Delta" } }];
+    const records = new Map([[1, { correct: "A", choices: { A: "Ribosome", B: "Golgi" }, explanations: {} }], [2, { correct: "A", choices: { A: "Mitochondrion", B: "Nucleus" }, explanations: {} }]]);
+    expect(() => mergeImcqKeyWithExplanations(deck, records)).toThrow(/do not match/);
+  });
+});

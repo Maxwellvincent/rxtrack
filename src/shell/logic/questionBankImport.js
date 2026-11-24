@@ -1,13 +1,14 @@
 import * as sourceUseStore from "../../stores/sourceUse.js";
 import {allowedGenerationExamples,isEvaluationReserved} from "../../engine/sourceUse.js";
 import { archiveQuestionSource } from "../../storageUpload.js";
-import { parseExamPDF } from "../../examParser.js";
+import { parseExamPDF, assertPairedKeysRead } from "../../examParser.js";
 import { callAIJSON, callAIWithImage } from "../../aiClient.js";
 import { tryParseJSON } from "../../lib/aiJson.js";
 import * as questionBanksStore from "../../stores/questionBanks.js";
 import * as questionBankMetaStore from "../../stores/questionBankMeta.js";
 import * as weakConceptsStore from "../../stores/weakConcepts.js";
-import { extractPairedAnswerKey, isQuestionBankImage, pairQuestionBankFiles, selectQuestionBankFiles, summarizeBankUpload, tagBankQuestions } from "./questionBankIngest.js";
+import { parseAnswerExplanations } from "../../ingest/answerExplanations.js";
+import { pairImcqExplanationFiles, mergeImcqKeyWithExplanations, extractPairedAnswerKey, isQuestionBankImage, pairQuestionBankFiles, selectQuestionBankFiles, summarizeBankUpload, tagBankQuestions } from "./questionBankIngest.js";
 import { analyzeExamReportWeakConcepts, mergeExamReportConcepts, parseExamReportSummary } from "./examReportWeakConcepts.js";
 import { cleanLectureTitle } from "../../lectureTitle.js";
 import { uploadQuestionBankPage, uploadQuestionBankSource } from "../../firebaseData.js";
@@ -161,6 +162,18 @@ export async function processQuestionBankFiles({
     }
   }
 
+  // An IMCQ deck plus its answer-explanation handout become one bank.
+  const imcqExplanationRecords = new Map();
+  for (const { deckFile, explanationFile } of pairImcqExplanationFiles(files)) {
+    update(`Reading ${explanationFile.name} for ${deckFile.name}'s answers and explanations…`);
+    const handout = await parseExamPDF(explanationFile, undefined, { textOnly: true });
+    const records = parseAnswerExplanations(handout.fullText, cleanLectureTitle(explanationFile.name))?.records;
+    if (records?.size) {
+      imcqExplanationRecords.set(deckFile, records);
+      pairedAnswerFiles.add(explanationFile);
+    }
+  }
+
   for (const { questionFile, answerFile } of pairedFiles) {
     update(`Reading paired answer key ${answerFile.name}…`);
     const answerDoc = await parseExamPDF(answerFile, undefined, { textOnly: true, readBoldAnswerChoices: true });
@@ -244,6 +257,7 @@ export async function processQuestionBankFiles({
     try {
       const bankTitle = cleanLectureTitle(file.name);
       const pairedDoc = pairedAnswers.get(file);
+      const imcqRecords = imcqExplanationRecords.get(file) || null;
       const pairedKey = pairedDoc?.answerKey;
       update(`${index + 1}/${files.length} · parsing ${file.name}…`);
       const isPptx = /\.pptx$/i.test(file.name || '');
@@ -252,8 +266,14 @@ export async function processQuestionBankFiles({
         useLlm: pairedDoc?.structuredPair ? false : useLlm,
         pairedAnswerText: pairedDoc?.structuredPair ? pairedDoc.fullText : null,
         forcePairedKey: file === imcqSource && imcqKeys,
-        requireSourceKeys: !(file === imcqSource && imcqKeys || pairedKey),
+        requireSourceKeys: !(file === imcqSource && imcqKeys || pairedKey || imcqRecords),
+        knownKeys: imcqRecords,
       });
+      if (imcqRecords) {
+        parsed.questions = mergeImcqKeyWithExplanations(parsed.questions || [], imcqRecords);
+        parsed.expectedQuestions = parsed.questions.length;
+        assertPairedKeysRead(parsed.questions, bankTitle);
+      }
 
       // Some IMCQ PDFs contain repeated question/key slides. The paired-slide
       // parser can count a duplicated continuation as an extra item even when
