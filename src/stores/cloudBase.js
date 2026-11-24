@@ -138,7 +138,7 @@ function entryFor(userId, logicalKey) {
  *                                    Sidebar, Shell and ScheduleImportModal
  *   rxt-weak-concepts                weakConcepts.js + ObjectiveTracker
  *   rxt-terms                        AnkiSyncModal
- *   all of them                      supabase.js, the legacy merge-sync
+ *   all of them                      firebaseData.js, the legacy merge-sync
  *
  * Firestore is the source of truth either way; localStorage is a read-only
  * shadow for those readers. An entry comes off this list when its last direct

@@ -14,7 +14,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 // real wiring between ExamContainer and the AI transport.
 //
 // This file mocks only the true edges: the AI transport itself
-// (`aiClient.js`'s `callAIJSON`) and the Firestore write (`supabase.js`'s
+// (`aiClient.js`'s `callAIJSON`) and the Firestore write (`firebaseData.js`'s
 // `createExamSession`) — everything in between (`launchExam.js`,
 // `generation.js`, `allocation.js`, `quizLaunch.js`, `engine/mcq.js`) is the
 // REAL module. If ExamContainer ever again forgets to pass `{ callAIJSON }`

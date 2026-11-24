@@ -1,4 +1,4 @@
-// rxt-tracker-v2 conflict policy: additive KV merge — matches the tracker pull in supabase.js.
+// rxt-tracker-v2 conflict policy: additive KV merge — matches the tracker pull in firebaseData.js.
 import { readJson, writeJson, subscribeToStore } from "./base.js";
 import { mergeKvValue } from "./merge.js";
 
