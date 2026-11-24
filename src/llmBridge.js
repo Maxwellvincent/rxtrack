@@ -119,7 +119,7 @@ export async function bridgeComplete(req) {
         const raw=`bridge ${r.status}${message ? `: ${String(message).slice(0, 2000)}` : ""}`;
         const kind=capacityKind(`bridge ${r.status}: ${message || ''}`);
         if(req.backendOnly && kind){
-          const error=capacityError(req.backend,kind,retryAfterMs(r.headers?.get?.('Retry-After')));
+          const error=capacityError(req.backend,kind,retryAfterMs(r.headers?.get?.('Retry-After')),message);
           providerCooldowns.set(providerKey,error);throw error;
         }
         throw new Error(raw);
