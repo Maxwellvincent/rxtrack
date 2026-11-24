@@ -1770,8 +1770,8 @@ export function LectureStudyFlow({
   useEffect(() => {
     if (!autoOpenQuiz || autoOpenedRef.current || stage !== "quiz" || !atoms.length) return;
     autoOpenedRef.current = true;
-    setQuizPicker({ count: [5,10,15,20,25,50,100].includes(autoQuizCount) ? autoQuizCount : 15, difficulty: resolveDefaultDifficulty(qStats.accuracy) });
-  }, [autoOpenQuiz, autoQuizCount, stage, atoms.length, qStats.accuracy]);
+    setQuizPicker({ count: [5,10,15,20,25,50].includes(autoQuizCount) ? autoQuizCount : Math.min(50, Number(autoQuizCount) || 10) });
+  }, [autoOpenQuiz, autoQuizCount, stage, atoms.length]);
 
 
   /*
@@ -2429,99 +2429,40 @@ export function LectureStudyFlow({
           {/* Unified generate button — opens inline picker. This IS the Quiz feature (same
               exemplar-backed generator as the Lectures list's QUIZ button), labeled Quiz so it
               reads as one instead of a generic "make some questions" action. */}
-          {!quizPicker ? (
-            <div className="flex flex-wrap items-center gap-3">
-              <Button variant={savedLectureQuizzes.length || recentLearningRecords.length ? "outline" : "primary"}
-                onClick={() => { setQuizPreparation(null); setQuizPicker({ count: 15, difficulty: resolveDefaultDifficulty(qStats.accuracy) }); }}
+          {/* One row: pick a count, start; review due questions when any are due. */}
+          <div className="flex flex-col gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="flex items-center gap-1.5 text-sm text-text-2">Questions
+                <select aria-label="Number of questions" value={quizPicker?.count ?? 10} onChange={(event) => setQuizPicker({ count: Number(event.target.value) })}
+                  className="rounded border border-border bg-bg px-2 py-1 font-mono text-sm text-text-1">
+                  {[5, 10, 15, 20, 25, 50].map((n) => <option key={n} value={n}>{n}</option>)}
+                </select>
+              </label>
+              <Button
+                onClick={() => {
+                  const count = quizPicker?.count ?? 10;
+                  setQuizPreparation(null);
+                  setQuizPicker(null);
+                  runQuiz(count, resolveDefaultDifficulty(qStats.accuracy));
+                }}
                 disabled={!!busy||checkpointPreparing}
               >
-                {busyLabel || "▸ Quiz this lecture"}
+                {busyLabel || `▸ Start ${quizPicker?.count ?? 10}-question quiz`}
               </Button>
-              <span className="text-[12px] text-text-3">
-                {lecture?.id ? `${generatedQuestionsStore.questionsForLecture(userId, lecture.id).filter(question => generatedQuestionsStore.isQuestionUnseen(question) && hasReusableQuestionReview(question)).length} unseen questions ready` : "Questions are saved for reuse"}
-
-              </span>
-
-            </div>
-          ) : (
-            /* Inline count + difficulty picker */
-            <div className="rounded-sm border border-border bg-bg-elevated p-4 flex flex-col gap-3">
-              <div className="flex items-center gap-4">
-                <span className="font-condensed text-[12px] font-semibold uppercase tracking-wide text-text-3 w-20">Questions</span>
-                <div className="flex flex-wrap gap-1.5">
-                  {[5, 10, 15, 20, 25, 50, 100].map((n) => (
-                    <button
-                      key={n}
-                      onClick={() => setQuizPicker((p) => ({ ...p, count: n }))}
-                      className={[
-                        "rounded-sm border px-2.5 py-1 font-mono text-[12px] transition-colors",
-                        quizPicker.count === n
-                          ? "border-accent bg-accent-soft text-accent"
-                          : "border-border text-text-2 hover:border-border-strong",
-                      ].join(" ")}
-                    >
-                      {n}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <p className="text-sm text-text-2">
-                {qStats.loading ? "Loading your lecture performance…" : qStats.answered ? `${qStats.answered} answered · ${accuracyPct}% correct in this lecture. ` : "First practice for this lecture. "}
-                {!qStats.loading && <>Starting level: <strong className="capitalize text-text-1">{resolveDefaultDifficulty(qStats.accuracy)}</strong>. {qStats.answered ? "Based on your saved lecture accuracy; individual objectives guide question selection." : "Your answers will guide the next set."}</>}
-              </p>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="font-condensed text-[12px] font-semibold uppercase tracking-wide text-text-3">Generator</span>
-                {[["v2", "SGU / ExamSoft v2"]].map(([value, label]) => (
-                  <span key={value} className="rounded-sm border border-accent bg-accent-soft px-2.5 py-1 font-mono text-[12px] text-accent">
-                    {label}
-                  </span>
-                ))}
-                <span className="text-[12px] text-text-3">V2 is the active generator for every new quiz.</span>
-              </div>
-              <div className="flex flex-wrap items-center gap-3">
-                <Button
-                  onClick={() => {
-                    const { count } = quizPicker;
-                    const difficulty = resolveDefaultDifficulty(qStats.accuracy);
-                    setQuizPicker(null);
-                    runQuiz(count, difficulty);
-                  }}
-                  disabled={!!busy||checkpointPreparing}
-                >
-                  {busyLabel || `Start adaptive ${quizPicker.count}-question quiz`}
-                </Button>
-                <button onClick={() => setQuizPicker(null)} className="font-mono text-[12px] text-text-3 hover:text-text-1">
-                  cancel
-                </button>
-                <span className="font-mono text-[12px] text-text-3">
-                  {lectureObjectives.length > 0
-                    ? `Unseen questions first · struggling, then developing objectives · atoms supply the supporting facts`
-                    : `Grounded in ${atoms.length} key facts`}
-                </span>
-              </div>
               {reviewableQuizQuestions.length > 0 && (
-                <details className="border-t border-border pt-3">
-                  <summary className="cursor-pointer text-sm text-text-2 hover:text-text-1">
-                    Review previous questions ({reviewableQuizQuestions.length} due)
-                  </summary>
-                  <div className="mt-3 flex flex-wrap items-center gap-3">
-                    <Button
-                      variant="outline"
-                      disabled={!!busy||checkpointPreparing}
-                      onClick={() => {
-                        const count = quizPicker.count;
-                        setQuizPicker(null);
-                        runSavedQuiz(count);
-                      }}
-                    >
-                      Review {Math.min(quizPicker.count, reviewableQuizQuestions.length)} due question{Math.min(quizPicker.count, reviewableQuizQuestions.length) === 1 ? "" : "s"}
-                    </Button>
-                    <span className="text-[12px] text-text-3">Missed items return now; correct items return after 3, 7, then 14 days.</span>
-                  </div>
-                </details>
+                <Button variant="outline" disabled={!!busy||checkpointPreparing} title="Missed items return now; correct items return after 3, 7, then 14 days."
+                  onClick={() => { const count = quizPicker?.count ?? 10; setQuizPicker(null); runSavedQuiz(count); }}>
+                  ↻ Review {Math.min(quizPicker?.count ?? 10, reviewableQuizQuestions.length)} due
+                </Button>
               )}
             </div>
-          )}
+            <p className="text-xs text-text-3">
+              {qStats.loading ? "Loading your lecture performance…"
+                : qStats.answered ? `${qStats.answered} answered · ${accuracyPct}% correct · starts at ${resolveDefaultDifficulty(qStats.accuracy)}`
+                : "First quiz on this lecture"}
+              {" · questions follow your mastery ladder"}
+            </p>
+          </div>
 
             {quizPreparation && (
             <div role="status" aria-live="polite" className="rounded-xl border border-accent/40 bg-bg-elevated p-4">
