@@ -117,9 +117,11 @@ function isValidCalendarDate(value) {
 /** Block-wide mixed timed exam from the block's own school questions. */
 function MixedExamCard({ blockId, blockName, banks, busy, isReserved, onStart }) {
   const [count, setCount] = useState(40);
-  // Today's "Set up mixed exam" sets a one-shot highlight.
-  const [highlight] = useState(() => { const on = readPreference(`rxt-exam-mixed:${blockId}`) === "1"; if (on) writePreference(`rxt-exam-mixed:${blockId}`, ""); return on; });
+  // Today's "Set up mixed exam" sets a one-shot highlight, cleared once the card has shown it.
+  const [highlight] = useState(() => readPreference(`rxt-exam-mixed:${blockId}`) === "1");
   const preview = useMemo(() => selectMixedExamQuestions(banks, { count, isReserved }), [banks, count, isReserved]);
+  const shown = preview.available > 0;
+  useEffect(() => { if (highlight && shown) writePreference(`rxt-exam-mixed:${blockId}`, ""); }, [highlight, shown, blockId]);
   if (!preview.available) return null;
   return <section aria-label="Mixed timed exam" className={`mb-4 rounded-xl border bg-bg-elevated p-4 ${highlight ? "border-2 border-accent" : "border-border"}`}>
     <h2 className="text-sm font-bold text-text-1">Mixed timed exam · {blockName || "this block"}</h2>

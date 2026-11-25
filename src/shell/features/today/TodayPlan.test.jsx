@@ -11,15 +11,16 @@ const row = (id, number, extra = {}) => ({ id, number, type: "LEC", title: `NB $
 it("runs the day in order: Start opens the first pass, then Continue opens the review quiz", () => {
   const host = document.createElement("div"), root = createRoot(host);
   const onStudy = vi.fn(), onReview = vi.fn(), onSkim = vi.fn();
-  const day = { given: [row("a", 67)], catchUp: [], reviews: [row("r", 63, { firstPass: fp(true), strength: { accuracy: 0.56 } })] };
-  const render = (done) => act(() => root.render(<TodayPlan day={day} cap={6} unscheduled={[row("s", 70)]} doneIds={new Set(done)} onStudy={onStudy} onReview={onReview} onSkim={onSkim} />));
+  const review = row("r", 63, { firstPass: fp(true), strength: { accuracy: 0.56 } });
+  const queue = [{ row: row("a", 67), kind: "first" }, { row: review, kind: "review" }];
+  const render = (done) => act(() => root.render(<TodayPlan queue={queue} cap={6} unscheduled={[row("s", 70)]} doneIds={new Set(done)} onStudy={onStudy} onReview={onReview} onSkim={onSkim} />));
   render([]);
   expect(host.textContent).toContain("0 of 2 done today");
   act(() => [...host.querySelectorAll("button")].find((b) => b.textContent.startsWith("▸ Start today")).click());
   expect(onStudy).toHaveBeenCalledWith("a");
   render(["a"]);
   act(() => [...host.querySelectorAll("button")].find((b) => b.textContent.startsWith("▸ Continue")).click());
-  expect(onReview).toHaveBeenCalledWith(day.reviews[0]);
+  expect(onReview).toHaveBeenCalledWith(review);
   expect(host.textContent).toContain("56%");
   act(() => [...host.querySelectorAll("button")].find((b) => b.textContent === "Skim LEC 70").click());
   expect(onSkim).toHaveBeenCalled();

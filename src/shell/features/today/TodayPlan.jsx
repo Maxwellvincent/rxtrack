@@ -1,5 +1,3 @@
-import { dayQueue } from "./weekCalendar.js";
-
 const label = (row) => `${row.type}${row.number != null ? ` ${row.number}` : ""}`;
 const shortTitle = (row) => String(row.title || "").replace(/^(NB\s+)?(DLA\s+)?\d+\s*[-–:]?\s*/i, "") || row.title;
 
@@ -8,9 +6,9 @@ const shortTitle = (row) => String(row.title || "").replace(/^(NB\s+)?(DLA\s+)?\
  * passes, then reviews as 10-question quizzes on weak objectives. Start /
  * Continue opens the first item not done yet; come back here for the next one.
  */
-export function TodayPlan({ day, cap, unscheduled = [], doneIds, onStudy, onReview, onSkim, busy = null }) {
-  const queue = dayQueue(day);
-  const isDone = (item) => doneIds.has(item.row.id);
+export function TodayPlan({ queue = [], cap, unscheduled = [], doneIds, onStudy, onReview, onSkim, busy = null }) {
+  // A first pass finished earlier today counts as done even without a check.
+  const isDone = (item) => doneIds.has(item.row.id) || (item.kind === "first" && item.row.firstPass?.complete);
   const done = queue.filter(isDone).length;
   const next = queue.find((item) => !isDone(item));
   const run = (item) => item.kind === "review" ? onReview(item.row) : onStudy(item.row.id);

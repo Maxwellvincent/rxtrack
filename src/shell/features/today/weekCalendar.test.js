@@ -89,3 +89,20 @@ describe("lectureReviewNeed", () => {
     expect(lectureReviewNeed(objectives, {}, { complete: false }).need).toBe(1);
   });
 });
+
+describe("review findings", () => {
+  const fp = { complete: true, covered: 2, total: 2 };
+  it("a lecture with a struggling objective is not secure even at high overall accuracy", () => {
+    const objectives = [{ id: "o1" }, { id: "o2" }];
+    const evidence = { objectives: { o1: { attempts: 10, correct: 10, recent: [true] }, o2: { attempts: 3, correct: 2, recent: [true, true, false] } } };
+    const need = lectureReviewNeed(objectives, evidence, fp);
+    expect(need.struggling).toBe(1);
+    expect(need.secure).toBe(false);
+  });
+  it("plans nothing on or after the exam day", () => {
+    const rows = [{ id: "a", givenOn: "2026-11-20", reviews: new Set(["2026-12-02"]), firstPass: { complete: false, covered: 0, total: 3 } }];
+    const plan = planStudyLoad(rows, { todayKey: "2026-12-01", examKey: "2026-12-01" });
+    expect(plan.byDay.size).toBe(0);
+    expect(plan.unscheduled).toEqual([]);
+  });
+});

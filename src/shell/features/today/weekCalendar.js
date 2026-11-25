@@ -11,7 +11,7 @@ export function lectureReviewNeed(objectives = [], evidence = {}, firstPass = nu
   const rows = objectivePracticePlan(objectives, evidence).rows;
   const attempts = rows.reduce((n, row) => n + row.attempts, 0);
   const correct = rows.reduce((n, row) => n + row.correct, 0);
-  const struggling = rows.filter((row) => row.struggling).length;
+  const struggling = rows.filter((row) => row.state === "struggling").length;
   const accuracy = attempts ? correct / attempts : null;
   const enough = attempts >= Math.max(5, rows.length);
   const secure = !!firstPass?.complete && enough && accuracy >= OBJECTIVE_MIN_ACCURACY && struggling === 0;
@@ -54,8 +54,10 @@ export const DAILY_FIRST_PASS_LIMIT = 3; // new material per day
  * that cannot fit before the exam are returned as `unscheduled`.
  */
 export function planStudyLoad(rows, { todayKey, examKey = null, horizonDays = 14, limit = DAILY_LIMIT, firstPassLimit = DAILY_FIRST_PASS_LIMIT }) {
-  const lastKey = examKey && examKey > todayKey ? shiftKey(examKey, -1) : shiftKey(todayKey, horizonDays - 1);
+  // Exam today or passed: nothing left to plan. No exam date: plan a rolling horizon.
+  const lastKey = examKey ? shiftKey(examKey, -1) : shiftKey(todayKey, horizonDays - 1);
   const clamp = (key) => key < todayKey ? todayKey : key > lastKey ? lastKey : key;
+  if (lastKey < todayKey) return { byDay: new Map(), cap: limit, behind: 0, secure: 0, skipped: [], unscheduled: [], lastKey };
   const items = [];
   let behind = 0, secure = 0;
   for (const row of rows) {
@@ -109,7 +111,7 @@ export function planStudyLoad(rows, { todayKey, examKey = null, horizonDays = 14
     // 4. Reviews whose window ends today and found no room are dropped.
     for (const item of reviews) if (pending.has(item) && item.latest <= key) { pending.delete(item); if (!has.has(item.row.id)) skipped.push(item); }
   }
-  const unscheduled = [...pending].filter((item) => item.kind !== "review").map((item) => item.row);
+  const unscheduled = dayKeys.length ? [...pending].filter((item) => item.kind !== "review").map((item) => item.row) : [];
   return { byDay, cap: limit, behind, secure, skipped, unscheduled, lastKey };
 }
 
@@ -156,7 +158,7 @@ export function buildWeekCalendar({ lecScores = [], completion = {}, blockId, no
     const load = planned ? { lectures: planned.items.length } : null;
     return { key, date, isToday: key === todayKey, isPast: key < todayKey, isExam: key === examKey, isWeekend: i >= 5, given, catchUp, reviews, load };
   });
-  return { start, days, cap: plan.cap, behind: plan.behind, secure: plan.secure, skipped: plan.skipped.length, unscheduled: plan.unscheduled, label: `${days[0].date.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${days[6].date.toLocaleDateString("en-US", { month: "short", day: "numeric" })}` };
+  return { start, days, rows, cap: plan.cap, behind: plan.behind, secure: plan.secure, skipped: plan.skipped.length, unscheduled: plan.unscheduled, label: `${days[0].date.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${days[6].date.toLocaleDateString("en-US", { month: "short", day: "numeric" })}` };
 }
 
 /** The order a day is worked through: new lectures, catch-up first passes, then reviews. */
@@ -172,7 +174,7 @@ export function dayQueue(day) {
 /** Objectives a review quiz should aim at: struggling, then least accurate, then unanswered. */
 export function weakFocusObjectiveIds(objectives = [], evidence = {}, n = 4) {
   return objectivePracticePlan(objectives, evidence).rows
-    .map((row) => ({ id: row.id, score: row.struggling ? -1 : row.accuracy == null ? 0.5 : row.accuracy, ready: row.ready }))
+    .map((row) => ({ id: row.id, score: row.state === "struggling" ? -1 : row.accuracy == null ? 0.5 : row.accuracy, ready: row.ready }))
     .filter((row) => !row.ready)
     .sort((a, b) => a.score - b.score)
     .slice(0, n)

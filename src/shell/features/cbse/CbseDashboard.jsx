@@ -77,11 +77,14 @@ export function CbseDashboard({ userId, block, onReviewLecture, onManageSources,
   const launch = async (format, preset = null) => {
     setError(""); setBusy(true);
     try {
-      const selected = selectCbseQuestions(pool.questions, progress, preset || { count: Number(count), mode, source, term });
+      const options = preset || { count: Number(count), mode, source, term };
+      const runSource = options.source, runTerm = options.term;
+      const runLabel = CBSE_SOURCE_OPTIONS.find(option => option.id === runSource)?.label || "All banks";
+      const selected = selectCbseQuestions(pool.questions, progress, options);
       if (selected.error) throw new Error(selected.error);
       const now = Date.now(), sessionId = crypto.randomUUID();
-      const session = createSessionShape({ sessionId, blockId: CBSE_BLOCK_ID, format, title: source === "all" ? "CBSE Prep" : `CBSE Prep · ${sourceLabel}`, contentScope: "cbse:all-terms",
-        questions: selected.questions, lectureIds: [...new Set(selected.questions.map(q => q.lectureId).filter(Boolean))], sourceType: "question-bank", sourceFile: `CBSE Prep · ${source === "all" ? "mixed school questions" : sourceLabel}${term === "all" ? "" : ` · ${term}`}`,
+      const session = createSessionShape({ sessionId, blockId: CBSE_BLOCK_ID, format, title: preset ? "CBSE Prep · Today's set" : runSource === "all" ? "CBSE Prep" : `CBSE Prep · ${runLabel}`, contentScope: "cbse:all-terms",
+        questions: selected.questions, lectureIds: [...new Set(selected.questions.map(q => q.lectureId).filter(Boolean))], sourceType: "question-bank", sourceFile: `CBSE Prep · ${runSource === "all" ? "mixed school questions" : runLabel}${runTerm === "all" ? "" : ` · ${runTerm}`}`,
         startedAt: format === "exam" ? now : null, deadline: format === "exam" ? now+examDurationMs(selected.questions.length) : null });
       const result = await createExamSession(userId, session);
       if (!result?.ok) throw new Error(result?.error || "Could not save the practice session.");
