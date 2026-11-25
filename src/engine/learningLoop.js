@@ -1,3 +1,4 @@
+import { schoolQuestionIdentity } from '../shell/features/exam/schoolSourceIdentity.js';
 import {isIndependentAttempt} from './practiceAssistance.js';
 import { objectivePracticePlan } from "./objectivePractice.js";
 const compact = (value, limit=220) => (value && typeof value === "object" ? JSON.stringify(value) : String(value || "")).replace(/\s+/g," ").trim().slice(0,limit);
@@ -5,6 +6,17 @@ export function questionLearningContext(question={}, selected) {
  return { stem:String(question.stem || ""), choices:question.choices || {}, correctLetter:question.correct, selectedLetter:selected, explanation:question.explanation || null, topic:compact(question.objectiveFacet || question.topic), selected:compact(question.choices?.[selected]), keyed:compact(question.choices?.[question.correct]),
   sourceCue:compact(question.reasoningAudit?.sourceQuotes?.[0],350),
   ...Object.fromEntries(['sourceFile','sourceQuestionId','sourceImageUrl','hasImage','imageDependent','sourceFigureCropped','sourcePage'].filter(key=>question[key]!==undefined).map(key=>[key,question[key]])) };
+}
+/**
+ * What an answer event keeps: the full question for a miss or a guided answer,
+ * and for an independent correct answer only its topic plus a compact identity
+ * — enough for the Missed queue to clear the original miss without storing
+ * the stem again.
+ */
+export function missContextForAnswer(question={}, selected, correct, assisted=false) {
+ const full=questionLearningContext(question,selected);
+ if(!correct||assisted)return full;
+ return {topic:full.topic,identity:schoolQuestionIdentity({stem:question.stem,choices:question.choices,correct:question.correct})};
 }
 /** Only observed answer contrasts and explicitly saved learning notes; never infer a diagnosis. */
 export function learningFocus({objectives=[], evidence={}, blockId, lectureId, tutorProfile={}}={}) {

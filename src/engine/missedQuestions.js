@@ -8,6 +8,11 @@ export function missedQuestionGroups(evidence = {}, { blockId, lectureId } = {})
   for (const event of [...(evidence.learningJournal || []), ...(evidence.assistedJournal || [])].sort((a,b)=>Number(a.at)-Number(b.at))) {
     if ((blockId && event.blockId !== blockId) || (lectureId && event.lectureId !== lectureId)) continue;
     const context = event.learningContext;
+    // An independent correct redo keeps only the question's identity; it still clears the miss.
+    if (!context?.stem && context?.identity && event.correct && isIndependentAttempt(event)) {
+      if (latest.has(context.identity)) latest.set(context.identity, { event, question: latest.get(context.identity).question });
+      continue;
+    }
     if (!context?.stem || !context.choices || !context.correctLetter) continue;
     const question = { ...context, correct: context.correctLetter, lectureId: event.lectureId, objectiveIds: event.objectiveIds || [], source: event.source, topic: conceptName(context.topic, context.keyed) };
     const identity = schoolQuestionIdentity(question);

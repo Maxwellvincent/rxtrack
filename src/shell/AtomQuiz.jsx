@@ -2,7 +2,7 @@ import {ConnectionFeedback} from '../ui/ConnectionFeedback.jsx';
 import {HelpMeReason} from '../ui/HelpMeReason.jsx';
 import {assistanceFields,compactCoachState} from '../engine/practiceAssistance.js';
 import { hasReusableQuestionReview } from "../engine/questionReuse.js";
-import { questionLearningContext } from "../engine/learningLoop.js";
+import { questionLearningContext, missContextForAnswer } from "../engine/learningLoop.js";
 import { LearningGapNote } from "../ui/LearningGapNote.jsx";
 import * as questionRatingsStore from "../stores/questionRatings.js";
 import { QuestionExplanation, ChoiceNote, choiceNotes } from "../ui/QuestionExplanation.jsx";
@@ -176,7 +176,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
       sourceConceptKeys: q.sourceConceptKeys || [],
       objectiveFacetId:q.objectiveFacetId || null,sourceRelationshipIds:q.sourceRelationshipIds || [],relationshipSourceVersion:q.relationshipSourceVersion || null,
       difficulty: q.difficulty || null,
-      learningContext: !isCorrect||assisted?questionLearningContext(q,picked):{topic:questionLearningContext(q,picked).topic},
+      learningContext: missContextForAnswer(q,picked,isCorrect,assisted),
       misconception: !isCorrect ? (level >= 4 ? "landmine" : "knowledge-gap") : null,
       responseMs,
       taskType: classifyLeadIn(q.stem),

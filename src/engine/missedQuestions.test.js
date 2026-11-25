@@ -19,3 +19,16 @@ describe('combined missed question history',()=>{
   expect(conceptName('displacement toward substitute targets')).toBe('Displacement');
  });
 });
+describe('clearing a miss with a correct redo',()=>{
+ it('clears the original miss when the correct answer kept only the compact question identity',async()=>{
+  const {schoolQuestionIdentity}=await import('../shell/features/exam/schoolSourceIdentity.js');
+  const {missContextForAnswer}=await import('./learningLoop.js');
+  const question={stem:'A 24-year-old woman is bitten by a dog while jogging and now avoids parks.',choices:{A:'Specific phobia',B:'PTSD'},correct:'B',topic:'Trauma'};
+  const miss={questionKey:'e_old',lectureId:'l',blockId:'b',at:1,correct:false,source:'quiz',learningContext:missContextForAnswer(question,'A',false)};
+  const redo={questionKey:'e_replay',lectureId:'l',blockId:'b',at:2,correct:true,source:'quiz',learningContext:missContextForAnswer(question,'B',true)};
+  expect(redo.learningContext.stem).toBeUndefined();
+  expect(redo.learningContext.identity).toBe(schoolQuestionIdentity({stem:question.stem,choices:question.choices,correct:'B'}));
+  expect(missedQuestionGroups({learningJournal:[miss]},{blockId:'b'}).flatMap(g=>g.questions)).toHaveLength(1);
+  expect(missedQuestionGroups({learningJournal:[miss,redo]},{blockId:'b'}).flatMap(g=>g.questions)).toHaveLength(0);
+ });
+});
