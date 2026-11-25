@@ -386,7 +386,6 @@ function ShellMain({ theme, toggle, userId }) {
           onAnki={() => setShowAnki(true)}
           onExamDate={activeBlockId ? () => setShowExamDate(true) : null}
           onImportSchedule={() => setShowImport(true)}
-          onAddLecture={activeBlockId ? () => setShowAddLecture(true) : null}
           onBulkImport={activeBlockId ? () => setShowBulkImport(true) : null}
           onQuestionBanks={() => setShowQuestionBanks(true)}
           onRoutine={() => setShowRoutine(true)}
@@ -550,6 +549,7 @@ function ShellMain({ theme, toggle, userId }) {
           termId={active?.termId ?? null}
           userId={userId}
           onClose={() => setShowBulkImport(false)}
+          onCombineParts={() => { setShowBulkImport(false); setReextractLecture(null); setShowAddLecture(true); }}
         />
       )}
       {showQuestionBanks && (

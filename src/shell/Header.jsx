@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 
 export function Header({
   termName, blockName, groupTitle = "", lectureLabel = "", theme, onToggleTheme,
-  onAnki, onImportSchedule, onAddLecture, onBulkImport,
+  onAnki, onImportSchedule, onBulkImport,
   onQuestionBanks, onRoutine, onDailyPlanSettings, onApiKeySettings, onFocusHudLink, onSignOut, onExamDate,
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -33,8 +33,7 @@ export function Header({
     onApiKeySettings     && { label: "AI settings",         action: onApiKeySettings },
     onFocusHudLink       && { label: "focus-hud link",      action: onFocusHudLink },
     onImportSchedule     && { label: "Import schedule",    action: onImportSchedule },
-    onAddLecture         && { label: "Add lecture",        action: onAddLecture },
-    onBulkImport         && { label: "Import folder",      action: onBulkImport },
+    onBulkImport         && { label: "Add lectures",       action: onBulkImport },
     onQuestionBanks      && { label: "Question banks",    action: onQuestionBanks },
     onAnki               && { label: "Anki sync",         action: onAnki },
   ].filter(Boolean);

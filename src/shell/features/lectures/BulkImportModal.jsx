@@ -43,7 +43,7 @@ const STATUS_LABEL = {
   error: "failed",
 };
 
-export function BulkImportModal({ blockId, termId = null, userId = null, onClose, onImported }) {
+export function BulkImportModal({ blockId, termId = null, userId = null, onClose, onImported, onCombineParts = null }) {
   const [plan, setPlan] = useState([]);
   const [rows, setRows] = useState({}); // filename -> { status, note }
   const [running, setRunning] = useState(false);
@@ -194,33 +194,29 @@ export function BulkImportModal({ blockId, termId = null, userId = null, onClose
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={running ? undefined : onClose}>
       <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-xl border border-border bg-bg p-5" onClick={(e) => e.stopPropagation()}>
-        <div className="mb-1 text-lg font-bold text-text-1">Import a folder of lectures</div>
-        <div className="mb-3 text-xs text-text-3">
-          Point this at the folder you converted. It takes one file per lecture, preferring the markdown over
-          the source PDF, and ignores marker&apos;s per-document subfolders — so a folder holding PDFs, markdown
-          and subfolders all at once still imports cleanly. A lecture with no markdown yet falls back to OCR on
-          its PDF, which is minutes rather than a fraction of a second. Objective and supporting-fact extraction
-          then run for every lecture, three at a time.
+        <div className="mb-1 flex items-start justify-between gap-2">
+          <div className="text-lg font-bold text-text-1">Add lectures</div>
+          <button type="button" onClick={onClose} disabled={running} className="p-1 text-text-3 hover:text-text-1" aria-label="Close">✕</button>
         </div>
+        <p className="mb-3 text-xs text-text-3">One file per lecture: PDF, or the .md from pdf2md (much faster). Number and title come from the filename; a lecture already on the schedule is filled in, keeping its date. Objectives and key facts are extracted in the background.</p>
 
-        {error && <div className="mb-3 rounded-lg border border-bad bg-bg-elevated p-3 text-xs text-bad">{error}</div>}
-        {summary && <div className="mb-3 font-mono text-[13px] text-good">{summary}</div>}
+        {error && <div className="mb-3 rounded-lg border border-bad bg-bg-elevated p-3 text-xs text-bad">⚠ {error}</div>}
+        {summary && <div className="mb-3 text-[13px] text-good">✓ {summary}</div>}
 
-        <label className="mb-3 flex cursor-pointer items-center gap-2 font-mono text-[13px] text-text-2">
-          <input
-            type="checkbox"
-            checked={useLlm}
-            onChange={(e) => setUseLlm(e.target.checked)}
-            disabled={running}
-            className="accent-accent"
-          />
-          LLM cleanup (slower, better quality for dense slides)
-        </label>
-
-        <div className="mb-3 grid grid-cols-2 gap-2">
-          <label className="flex cursor-pointer items-center justify-between rounded-lg border-2 border-dashed border-border px-4 py-3 text-sm hover:border-border-strong">
-            <span className="text-text-2">Choose the whole folder</span>
-            <span className="font-mono text-[12px] text-text-3">folder</span>
+        <div className="mb-2 grid grid-cols-2 gap-2">
+          <label className="flex cursor-pointer items-center justify-center rounded-lg border-2 border-dashed border-border px-4 py-3 text-sm text-text-1 hover:border-border-strong">
+            Choose files
+            <input
+              type="file"
+              multiple
+              accept=".pdf,.md,.markdown,.txt"
+              className="hidden"
+              disabled={running}
+              onChange={(e) => { const fs = Array.from(e.target.files || []); e.target.value = ""; onFiles(fs); }}
+            />
+          </label>
+          <label className="flex cursor-pointer items-center justify-center rounded-lg border-2 border-dashed border-border px-4 py-3 text-sm text-text-1 hover:border-border-strong">
+            Choose a folder
             <input
               type="file"
               webkitdirectory=""
@@ -233,19 +229,15 @@ export function BulkImportModal({ blockId, termId = null, userId = null, onClose
               onChange={(e) => { const fs = Array.from(e.target.files || []); e.target.value = ""; onFiles(fs); }}
             />
           </label>
-          <label className="flex cursor-pointer items-center justify-between rounded-lg border-2 border-dashed border-border px-4 py-3 text-sm hover:border-border-strong">
-            <span className="text-text-2">Pick files instead</span>
-            <span className="font-mono text-[12px] text-text-3">files</span>
-            <input
-              type="file"
-              multiple
-              accept=".pdf,.md,.markdown,.txt"
-              className="hidden"
-              disabled={running}
-              onChange={(e) => { const fs = Array.from(e.target.files || []); e.target.value = ""; onFiles(fs); }}
-            />
-          </label>
         </div>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-text-2">
+          <label className="flex cursor-pointer items-center gap-2">
+            <input type="checkbox" checked={useLlm} onChange={(e) => setUseLlm(e.target.checked)} disabled={running} className="accent-accent" />
+            AI cleanup for dense or scanned slides (slower)
+          </label>
+          {onCombineParts && <button type="button" className="underline" disabled={running} onClick={onCombineParts}>Several files are one lecture? Combine them</button>}
+        </div>
+
         {plan.length > 0 && (
           <div className="mb-3 font-mono text-[13px] text-text-3">
             {counts.total} lectures{skipped > 0 && ` · ignored ${skipped} other files (source PDFs, images, marker subfolders)`}

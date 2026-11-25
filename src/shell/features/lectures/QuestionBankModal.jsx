@@ -1,5 +1,4 @@
 import {ReviewSourceStatus} from './ReviewSourceStatus.jsx';
-import * as sourceUseStore from "../../../stores/sourceUse.js";
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "../../../ui/Button.jsx";
 import { useQuestionBanks } from "../../hooks/useQuestionBanks.js";
@@ -7,12 +6,18 @@ import * as questionBanksStore from "../../../stores/questionBanks.js";
 import * as questionBankMetaStore from "../../../stores/questionBankMeta.js";
 import * as schoolResultsStore from "../../../stores/schoolResults.js";
 import { useStoreResource } from "../../hooks/useStoreResource.js";
-import { collectStyleSources, downloadStyleSources } from "../../../engine/styleDataset.js";
-import * as questionRatingsStore from "../../../stores/questionRatings.js";
-import * as questionBankAnalysisStore from "../../../stores/questionBankAnalysis.js";
 import { sourceLabel } from "../../logic/questionBankAnalysis.js";
 import { processQuestionBankFiles } from "../../logic/questionBankImport.js";
 import { startBackgroundJob } from "../../backgroundJobs.js";
+
+const IMAGE_FILE = /\.(png|jpe?g|webp)$/i;
+const ACCEPT = ".pdf,.pptx,.md,.markdown,.txt,.png,.jpg,.jpeg,.webp";
+const SOURCE_TYPES = [
+  { id: "school", label: "ExamSoft / exam", hint: "Official exam questions. They shape the style of generated questions." },
+  { id: "imcq", label: "IMCQ", hint: "IMCQ decks. Add the answer-key deck and its explanation handout together; duplicates are merged." },
+  { id: "supplemental", label: "Homework", hint: "Homework, practice sets, NBME or other outside questions. A folder of homework works too." },
+  { id: "clicker", label: "Clickers", hint: "In-class clicker slides or screenshots. Unkeyed slides are kept as examples only." },
+];
 
 export function QuestionBankModal({ blockId, blockName = "", defaultSourceKind = "school", lectures = [], objectives = [], userId = null, onClose, onUploaded }) {
   const banksRes = useQuestionBanks(userId);
@@ -22,8 +27,7 @@ export function QuestionBankModal({ blockId, blockName = "", defaultSourceKind =
   const [sourceKind, setSourceKind] = useState(defaultSourceKind);
   const [useLlm, setUseLlm] = useState(false);
   const [reserveForEvaluation,setReserveForEvaluation]=useState(false);
-  const sourceUse=useStoreResource(sourceUseStore,userId);
-  const [showManage, setShowManage] = useState(false);
+  const [confirming, setConfirming] = useState(null);
   const [showAllBanks, setShowAllBanks] = useState(false);
   const [, setMetaRevision] = useState(0);
 
@@ -79,151 +83,87 @@ export function QuestionBankModal({ blockId, blockName = "", defaultSourceKind =
   const allNames = Object.keys(banks).sort();
   const names = (showAllBanks ? allNames : allNames.filter((name) => blockNames.has(name)));
   const totalQuestions = names.reduce((n, name) => n + (banks[name]?.length || 0), 0);
-  const styleSources = collectStyleSources(banks, meta, questionRatingsStore.read(userId).ratings || {},sourceUse.data);
+
+  const disabled = banksRes.loading || !!banksRes.error || schoolResultsRes.loading || !!schoolResultsRes.error;
+  const pick = (event) => {
+    const files = Array.from(event.target.files || []);
+    event.target.value = "";
+    // Screenshots alone are clicker slides; stray images in a document folder are skipped.
+    if (files.length && files.every((file) => IMAGE_FILE.test(file.name))) return onFiles(files, "clicker");
+    onFiles(sourceKind === "clicker" ? files : files.filter((file) => !IMAGE_FILE.test(file.name)));
+  };
+  const metaFor = (name) => meta[Object.keys(meta).find((id) => meta[id]?.filename === name)];
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 sm:py-8" onClick={onClose}>
       <div className="desk-question-bank-modal flex max-h-[calc(100dvh-2rem)] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-border bg-bg shadow-xl sm:max-h-[calc(100dvh-4rem)]" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-border px-5 py-3">
-          <div className="text-lg font-bold text-text-1">Import school questions & homework</div>
+          <div>
+            <div className="text-lg font-bold text-text-1">Question banks</div>
+            <div className="text-xs text-text-3">{blockName || "This block"}{totalQuestions > 0 ? ` · ${names.length} banks · ${totalQuestions} questions` : ""}</div>
+          </div>
           <button type="button" onClick={onClose} className="p-1 text-text-3 hover:text-text-1" aria-label="Close question banks">✕</button>
         </div>
         <div className="overflow-y-auto px-5 py-4">
-        <div className="mb-4 font-mono text-[12px] text-text-3">
-          Uploaded ExamSoft, homework, IMCQ, and in-class clicker examples remain available under Exam and guide lecture quizzes and question generation.
-          Each bank is analyzed for source-key coverage, objective focus, lecture support, clinical cues, and critique.
-          A score report (with a category-by-category breakdown) also flags your weak categories automatically.
-          After you choose files, this window closes and the import continues in the background; progress and completion appear in the notification center.
-          Re-uploading the same filename replaces its existing bank.
-          {totalQuestions > 0 && <> · <span className="text-text-2">{names.length} banks · {totalQuestions} q</span></>}
-        </div>
-
-        <div className="mb-4 flex gap-1 border-b border-border" aria-label="Question bank scope">
-          <button type="button" onClick={() => setShowAllBanks(false)} className={`border-b-2 px-3 py-2 text-sm font-bold ${!showAllBanks ? "border-accent text-accent-text" : "border-transparent text-text-3"}`}>This block</button>
-          <button type="button" onClick={() => setShowAllBanks(true)} className={`border-b-2 px-3 py-2 text-sm font-bold ${showAllBanks ? "border-accent text-accent-text" : "border-transparent text-text-3"}`}>All banks · {allNames.length}</button>
-        </div>
-
-        <ReviewSourceStatus userId={userId} blockId={blockId} />
-        <details className="mb-3 text-sm"><summary className="cursor-pointer">Evaluation source settings</summary>
-          <label className="mt-2 flex items-start gap-2"><input type="checkbox" checked={reserveForEvaluation} onChange={event=>setReserveForEvaluation(event.target.checked)} />Reserve these files for evaluation</label>
-          <p className="mt-1 text-xs text-text-3">Reserved questions stay available as originals but are excluded from generation examples and style calibration. Previous exposure stays unknown; reserving does not make a question unseen.</p>
-        </details>
-        <div className="mb-3 flex flex-col gap-2">
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-4" aria-label="Question source type">
-            <button type="button" onClick={() => setSourceKind("school")} className={`rounded-lg border p-2 text-left text-xs ${sourceKind === "school" ? "border-accent bg-accent-soft text-text-1" : "border-border text-text-3"}`}>
-              <span className="block font-bold">Official school questions</span>
-              <span>Guides school-style generation</span>
-            </button>
-            <button type="button" onClick={() => setSourceKind("supplemental")} className={`rounded-lg border p-2 text-left text-xs ${sourceKind === "supplemental" ? "border-accent bg-accent-soft text-text-1" : "border-border text-text-3"}`}>
-              <span className="block font-bold">Homework / supplemental</span>
-              <span>Task types and misconceptions</span>
-            </button>
-            <button type="button" onClick={() => setSourceKind("imcq")} className={`rounded-lg border p-2 text-left text-xs ${sourceKind === "imcq" ? "border-accent bg-accent-soft text-text-1" : "border-border text-text-3"}`}>
-              <span className="block font-bold">IMCQ source</span>
-              <span>Challenge format and clues</span>
-            </button>
-            <button type="button" onClick={() => setSourceKind("clicker")} className={`rounded-lg border p-2 text-left text-xs ${sourceKind === "clicker" ? "border-accent bg-accent-soft text-text-1" : "border-border text-text-3"}`}>
-              <span className="block font-bold">In-class clickers</span>
-              <span>Clinical clues and images</span>
-            </button>
+          <p className="mb-1 text-sm font-semibold text-text-1">1 · What are you uploading?</p>
+          <div className="mb-1 grid grid-cols-2 gap-2 sm:grid-cols-4" role="radiogroup" aria-label="Question source type">
+            {SOURCE_TYPES.map((type) => (
+              <button key={type.id} type="button" role="radio" aria-checked={sourceKind === type.id} onClick={() => setSourceKind(type.id)}
+                className={`rounded-lg border px-2 py-1.5 text-left text-xs ${sourceKind === type.id ? "border-accent bg-accent-soft font-semibold text-text-1" : "border-border text-text-2"}`}>
+                {sourceKind === type.id ? "● " : "○ "}{type.label}
+              </button>
+            ))}
           </div>
-          <label className="flex cursor-pointer items-center gap-2 text-xs text-text-2">
-            <input type="checkbox" checked={wrongOnly} onChange={(e) => setWrongOnly(e.target.checked)} />
-            These are questions I got wrong
-          </label>
-          <label className="flex cursor-pointer items-center gap-2 text-xs text-text-2">
-            <input type="checkbox" checked={useLlm} onChange={(e) => setUseLlm(e.target.checked)} />
-            LLM cleanup — for scanned/image-heavy PDFs
-          </label>
-        </div>
+          <p className="mb-4 text-xs text-text-3">{SOURCE_TYPES.find((type) => type.id === sourceKind)?.hint}</p>
 
-        <label className="mb-3 flex cursor-pointer items-center justify-between rounded-lg border-2 border-dashed border-border px-4 py-3 text-sm hover:border-border-strong">
-          <span className="text-text-2">{schoolResultsRes.loading ? "Syncing school-result history…" : "Add question files"}</span>
-          <span className="font-mono text-[12px] text-text-3">pdf · pptx · md · txt</span>
-          <input
-            type="file"
-            multiple
-            accept=".pdf,.pptx,.md,.txt"
-            className="hidden"
-            disabled={banksRes.loading || !!banksRes.error || schoolResultsRes.loading || !!schoolResultsRes.error}
-            onChange={(e) => { const fs = Array.from(e.target.files || []); e.target.value = ""; onFiles(fs); }}
-          />
-        </label>
-        <p className="mb-4 text-xs text-text-3">For daily class-deck updates, upload the latest file with the same name. New questions are added; unchanged questions keep their saved progress. PowerPoint conversion runs on your local bridge.</p>
-        <p className="mb-4 rounded-lg border border-border bg-bg-elevated px-3 py-2 text-xs text-text-2"><span className="font-semibold text-text-1">Questions plus answers:</span> select both matching PDFs in the same upload. RxTrack uses the clean question copy for practice and figures, applies the supplied answer key for scoring, and keeps the completed bank available to Practice, Timed Quiz, and generated-question reference.</p>
-        <label className="mb-4 flex cursor-pointer items-center justify-between rounded-lg border border-accent/40 bg-accent-soft px-4 py-3 text-sm hover:border-accent">
-          <span className="text-text-1"><span className="block font-semibold">Import a homework folder</span><span className="text-xs text-text-3">Select a local Practice Questions folder; files are assigned to this block.</span></span>
-          <span className="font-mono text-[12px] text-accent-text">folder</span>
-          <input
-            type="file"
-            multiple
-            webkitdirectory="true"
-            directory="true"
-            accept=".pdf,.pptx,.md,.markdown,.txt"
-            className="hidden"
-            disabled={banksRes.loading || !!banksRes.error || schoolResultsRes.loading || !!schoolResultsRes.error}
-            onChange={(e) => { const fs = Array.from(e.target.files || []); e.target.value = ""; onFiles(fs, "supplemental"); }}
-          />
-        </label>
-        <label className="mb-4 flex cursor-pointer items-center justify-between rounded-lg border border-accent/40 bg-accent-soft px-4 py-3 text-sm hover:border-accent">
-          <span className="text-text-1"><span className="block font-semibold">Import in-class clicker images</span><span className="text-xs text-text-3">Select the clicker folder or its screenshots. Complete stems are grouped into one example bank; unkeyed slides stay example-only.</span></span>
-          <span className="font-mono text-[12px] text-accent-text">images</span>
-          <input
-            type="file"
-            multiple
-            webkitdirectory="true"
-            directory="true"
-            accept=".png,.jpg,.jpeg,.webp"
-            className="hidden"
-            disabled={banksRes.loading || !!banksRes.error || schoolResultsRes.loading || !!schoolResultsRes.error}
-            onChange={(e) => { const fs = Array.from(e.target.files || []); e.target.value = ""; onFiles(fs, "clicker"); }}
-          />
-        </label>
-        <label className="mb-4 flex cursor-pointer items-center justify-between rounded-lg border border-border px-4 py-3 text-sm hover:border-border-strong">
-          <span className="text-text-2">Add clicker image files</span>
-          <span className="font-mono text-[12px] text-text-3">png · jpg · webp</span>
-          <input
-            type="file"
-            multiple
-            accept=".png,.jpg,.jpeg,.webp"
-            className="hidden"
-            disabled={banksRes.loading || !!banksRes.error || schoolResultsRes.loading || !!schoolResultsRes.error}
-            onChange={(e) => { const fs = Array.from(e.target.files || []); e.target.value = ""; onFiles(fs, "clicker"); }}
-          />
-        </label>
-
-          {names.length > 0 && (
-          <div className="mb-3">
-            <button
-              onClick={() => setShowManage((s) => !s)}
-              className="font-mono text-[12px] text-text-3 hover:text-text-1"
-            >
-              {showManage ? "▾ hide" : "▸ manage"} {names.length} bank{names.length === 1 ? "" : "s"}
-            </button>
-            {showManage && (
-              <div className="mt-2 max-h-52 overflow-y-auto rounded-lg border border-border">
-                {names.map((name) => (
-                  <div key={name} className="flex items-center gap-2 border-b border-border px-3 py-1.5 last:border-0 text-[13px]">
-                    <span className="flex-1 truncate text-text-2">{name}</span>
-                    <span className="font-mono text-text-3">{banks[name]?.length || 0} q</span>
-                    <span className="font-mono text-[11px] text-text-3">{sourceLabel(meta[Object.keys(meta).find((id) => meta[id]?.filename === name)]?.sourceKind, name)}</span>
-                    {questionBankAnalysisStore.read(userId, name)?.status === "reviewed" && <span className="font-mono text-[11px] text-good">analyzed</span>}
-                    {banks[name]?.[0]?.bankType === "wrong" && <span className="font-mono text-[13px] text-warn">missed</span>}
-                    <button className="text-bad hover:underline" onClick={() => remove(name)}>✕</button>
-                  </div>
-                ))}
-              </div>
-          )}
-          <div className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-border bg-bg-elevated px-3 py-2">
-            <span className="text-xs text-text-2">Style-training export · {styleSources.length} ExamSoft/IMCQ questions</span>
-            <button type="button" disabled={!styleSources.length} onClick={() => downloadStyleSources(styleSources)} className="font-mono text-[12px] text-accent hover:underline disabled:opacity-40">export JSON</button>
+          <p className="mb-1 text-sm font-semibold text-text-1">2 · Choose files</p>
+          <div className="mb-1 grid grid-cols-2 gap-2">
+            <label className={`flex cursor-pointer items-center justify-center rounded-lg border-2 border-dashed border-border px-3 py-3 text-sm text-text-1 hover:border-border-strong ${disabled ? "opacity-50" : ""}`}>
+              {schoolResultsRes.loading ? "Syncing…" : "Choose files"}
+              <input type="file" multiple accept={ACCEPT} className="hidden" disabled={disabled} onChange={pick} />
+            </label>
+            <label className={`flex cursor-pointer items-center justify-center rounded-lg border-2 border-dashed border-border px-3 py-3 text-sm text-text-1 hover:border-border-strong ${disabled ? "opacity-50" : ""}`}>
+              Choose a folder
+              <input type="file" multiple webkitdirectory="true" directory="true" accept={ACCEPT} className="hidden" disabled={disabled} onChange={pick} />
+            </label>
           </div>
-          </div>
-        )}
+          <p className="mb-3 text-xs text-text-3">PDF, PowerPoint, text or screenshots. Pick a question file and its answer key or explanations together and they are matched. Re-uploading a filename updates that bank and keeps your progress. The import runs in the background.</p>
 
-        <div className="flex justify-end">
-          <Button variant="outline" onClick={onClose}>Done</Button>
-        </div>
+          <details className="mb-4 text-xs text-text-2">
+            <summary className="cursor-pointer text-text-3">Options</summary>
+            <div className="mt-2 flex flex-col gap-1.5">
+              <label className="flex items-center gap-2"><input type="checkbox" checked={wrongOnly} onChange={(e) => setWrongOnly(e.target.checked)} />Only questions I got wrong</label>
+              <label className="flex items-center gap-2"><input type="checkbox" checked={useLlm} onChange={(e) => setUseLlm(e.target.checked)} />AI cleanup for scanned or image-heavy PDFs (slower)</label>
+              <label className="flex items-center gap-2"><input type="checkbox" checked={reserveForEvaluation} onChange={(e) => setReserveForEvaluation(e.target.checked)} />Hold out for testing: practice only, never used as examples for new questions</label>
+            </div>
+          </details>
+
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <p className="text-sm font-semibold text-text-1">Uploaded</p>
+            <div className="flex gap-1 text-xs" role="group" aria-label="Question bank scope">
+              <button type="button" aria-pressed={!showAllBanks} onClick={() => setShowAllBanks(false)} className={`rounded border px-2 py-0.5 ${!showAllBanks ? "border-accent font-semibold" : "border-border text-text-3"}`}>This block</button>
+              <button type="button" aria-pressed={showAllBanks} onClick={() => setShowAllBanks(true)} className={`rounded border px-2 py-0.5 ${showAllBanks ? "border-accent font-semibold" : "border-border text-text-3"}`}>All · {allNames.length}</button>
+            </div>
+          </div>
+          {names.length ? (
+            <ul className="mb-3 max-h-64 overflow-y-auto rounded-lg border border-border">
+              {names.map((name) => (
+                <li key={name} className="flex items-center gap-2 border-b border-border px-3 py-1.5 text-[13px] last:border-0">
+                  <span className="min-w-0 flex-1 truncate text-text-1" title={name}>{name}</span>
+                  <span className="shrink-0 text-xs text-text-3">{sourceLabel(metaFor(name)?.sourceKind, name)} · {banks[name]?.length || 0} q{banks[name]?.[0]?.bankType === "wrong" ? " · missed" : ""}</span>
+                  {confirming === name
+                    ? <span className="flex shrink-0 gap-1 text-xs"><button type="button" className="font-semibold underline" onClick={() => { remove(name); setConfirming(null); }}>Delete</button><button type="button" className="text-text-3 underline" onClick={() => setConfirming(null)}>Keep</button></span>
+                    : <button type="button" aria-label={`Delete ${name}`} className="shrink-0 px-1 text-text-3 hover:text-text-1" onClick={() => setConfirming(name)}>✕</button>}
+                </li>
+              ))}
+            </ul>
+          ) : <p className="mb-3 text-xs text-text-3">◇ Nothing uploaded{showAllBanks ? "" : " for this block"} yet.</p>}
+
+          <ReviewSourceStatus userId={userId} blockId={blockId} />
+
+          <div className="flex justify-end">
+            <Button variant="outline" onClick={onClose}>Done</Button>
+          </div>
         </div>
       </div>
     </div>

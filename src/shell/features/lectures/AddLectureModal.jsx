@@ -21,11 +21,9 @@ import {
   saveLectureToCloud,
   uploadLectureSource,
 } from "../../../firebaseData.js";
-import { stripTeachingMap } from "../../../lectureTeachingMap.js";
 import * as objectivesStore from "../../../stores/blockObjectives.js";
 import { assessTextQuality, extractWithSmartFallback } from "../../../ingest/pdfText.js";
 import { extractObjectivesFromLecture } from "../../../ingest/objectives.js";
-import { analyzeLecture } from "../../../ingest/teachingMap.js";
 import { createObjectiveCommands, selectBlockObjectives } from "../../logic/objectives.js";
 import { extractAtoms as extractAtomsForLecture, MIN_TEXT } from "./lectureStudy.js";
 import { callAIJSON } from "../../../aiClient.js";
@@ -64,16 +62,15 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
   const [done, setDone] = useState("");
   const [progress, setProgress] = useState("");
   const [saved, setSaved] = useState(null);            // the lecture just written
-  const [objectiveResult, setObjectiveResult] = useState("");
-  const [mapResult, setMapResult] = useState("");
-  const [atomsResult, setAtomsResult] = useState("");
+  const [, setObjectiveResult] = useState("");
+  const [, setAtomsResult] = useState("");
   const [lastFiles, setLastFiles] = useState([]);
   const [combinedTitle, setCombinedTitle] = useState("");
 
   const onFiles = useCallback(
     async (fileList, overrides = {}) => {
       setError(""); setDone(""); setPreview(null); setProgress("");
-      setSaved(null); setObjectiveResult(""); setMapResult("");
+      setSaved(null); setObjectiveResult(""); setAtomsResult("");
       const files = [...(fileList || [])].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
       if (!files.length) return;
       setBusy(true);
@@ -178,51 +175,6 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
       }
     },
     [saved, blockId, userId, targetLecture]
-  );
-
-  /**
-   * The teaching map is what DeepLearn teaches from — its clinicalHook is the
-   * case DeepLearn opens with, so a lecture without one teaches with no
-   * patient. Written onto the stored lecture, not held in this component.
-   */
-  const buildTeachingMap = useCallback(
-    async (lecture) => {
-      const lec = lecture || saved;
-      if (!lec) return;
-      setProgress("Analyzing the lecture…");
-      try {
-        const map = await analyzeLecture(lec, lectureText(lec));
-        const sections = map?.sections?.length || 0;
-        if (!sections) {
-          setMapResult("⚠ The analysis came back empty — check the AI key, then run it again.");
-          return;
-        }
-
-        const teachingMapDate = new Date().toISOString();
-        // Body to Firestore, stub to the local row — DeepLearn fetches the body
-        // when it opens the lecture.
-        if (userId) {
-          const result = await saveLectureToCloud(userId, { ...lec, teachingMap: map, teachingMapDate });
-          if (!result?.saved) throw new Error(`Lecture analysis could not save (${result?.reason || "unknown reason"}).`);
-        }
-        const current = lecturesStore.read(userId) || [];
-        (userId ? lecturesStore.writeCloudSaved : lecturesStore.write)(
-          userId,
-          current.map((l) =>
-            l.id === lec.id ? stripTeachingMap({ ...l, teachingMap: map, teachingMapDate }) : l
-          )
-        );
-        setSaved((prev) => (prev ? { ...prev, teachingMap: map, teachingMapDate } : prev));
-        setMapResult(
-          `${sections} section${sections === 1 ? "" : "s"} mapped${map.clinicalHook ? " · clinical hook ready" : ""}.`
-        );
-      } catch (e) {
-        setMapResult("⚠ Analysis failed: " + (e?.message || String(e)));
-      } finally {
-        setProgress("");
-      }
-    },
-    [saved, userId]
   );
 
   /**
@@ -356,12 +308,10 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => { if (!busy) onClose?.(); }}>
       <div className="max-h-[calc(100vh-2rem)] w-full max-w-lg overflow-y-auto rounded-xl border border-border bg-bg p-5" onClick={(e) => e.stopPropagation()}>
-        <div className="mb-1 text-lg font-bold text-text-1">{targetLecture ? "Re-extract lecture" : "Add a lecture"}</div>
-        <div className="mb-4 text-xs text-text-3">
-          {targetLecture ? `Add or combine source parts for “${targetLecture.lectureTitle || targetLecture.filename || "this lecture"}”. ` : "Choose one file, or select multiple PDFs/notes that are parts of the same lecture. "}Selected files are combined into one lecture record, in filename order; original PDFs are kept as separate sources. PDFs use the local pdftotext layer first, then Marker/Mistral OCR as needed. A .md
-          from <span className="font-mono">pdf2md</span> skips the OCR step. Type, number and title
-          come from the filename.
-        </div>
+        <div className="mb-1 text-lg font-bold text-text-1">{targetLecture ? "Re-extract lecture" : "Combine lecture parts"}</div>
+        <p className="mb-4 text-xs text-text-3">
+          {targetLecture ? `New source files for “${targetLecture.lectureTitle || targetLecture.filename || "this lecture"}”. ` : "Pick every file that belongs to one lecture. "}They are joined in filename order into one lecture; each PDF is kept as a source.
+        </p>
 
         {error && <div className="mb-3 rounded-lg border border-bad bg-bg-elevated p-3 text-xs text-bad">{error}</div>}
         {done && <div className="mb-3 font-mono text-[13px] text-good">{done}</div>}
@@ -429,26 +379,6 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
                 className="rounded border border-border bg-panel px-1.5 py-0.5 text-[13px] text-text-1"
               />
             </label>
-          </div>
-        )}
-
-        {saved && (
-          <div className="mb-3 rounded-lg border border-border bg-bg-elevated p-3">
-            <div className="font-mono text-[13px] text-text-3">what came out of it</div>
-            <div className={`mt-1 font-mono text-[13px] ${objectiveResult.startsWith("⚠") ? "text-warn" : "text-good"}`}>
-              ◇ {objectiveResult || (busy ? "reading objectives…" : "—")}
-            </div>
-            <div className={`mt-1 font-mono text-[13px] ${atomsResult.startsWith("⚠") ? "text-warn" : "text-good"}`}>
-              ◆ {atomsResult || (busy ? "extracting high-yield atoms…" : "—")}
-            </div>
-            <div className="mt-2 flex flex-wrap gap-2">
-              <Button variant="outline" onClick={() => extractObjectives()} disabled={busy}>
-                ◇ Objectives again
-              </Button>
-              <Button variant="outline" onClick={() => extractAtomsStep()} disabled={busy}>
-                ◆ Atoms again
-              </Button>
-            </div>
           </div>
         )}
 
