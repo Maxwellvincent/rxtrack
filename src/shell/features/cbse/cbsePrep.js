@@ -110,7 +110,8 @@ export function selectCbseQuestions(pool, progress, { count = 15, mode = "balanc
   const ranked = eligible.map(q => {
     const history = progress.itemHistory.get(cbseQuestionKey(q));
     const weak = history?.correct === false || weakLectures.has(q.lectureId) || q.objectiveIds?.some(id => weakObjectives.has(id));
-    return { q, score: mode === "weak" ? Number(weak) * 10 + Number(!history) : mode === "unseen" ? Number(!history) * 10 : Number(weak) * 2 + Number(!history) * 2, tie: random() };
+    // "weak-first" ranks like "weak" but backfills from the rest of the pool.
+    return { q, score: mode === "weak" || mode === "weak-first" ? Number(weak) * 10 + Number(!history) : mode === "unseen" ? Number(!history) * 10 : Number(weak) * 2 + Number(!history) * 2, tie: random() };
   }).filter(item => mode !== "unseen" || !progress.itemHistory.has(cbseQuestionKey(item.q)))
     .filter(item => mode !== "weak" || item.score >= 10).sort((a,b) => b.score-a.score || a.tie-b.tie);
   if (ranked.length < count) return { error: `Only ${ranked.length} eligible questions match these settings. Choose a smaller count or widen the practice focus.`, questions: [] };

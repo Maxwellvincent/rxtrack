@@ -40,6 +40,15 @@ it("weak and unseen practice use previous answer outcomes across blocks", () => 
   expect(selectCbseQuestions(pool, progress, { count: 1, mode: "weak" }).questions[0].sourceBlockId).toBe("b1");
   expect(selectCbseQuestions(pool, progress, { count: 1, mode: "unseen" }).questions[0].sourceBlockId).toBe("b2");
 });
+it("weak-first puts missed questions first and backfills from the rest instead of failing", () => {
+  const pool = buildCbsePool(banks, meta, lectures, terms).questions;
+  const session = { sessionId: "s", status: "submitted", questions: pool, answers: [{ questionId: pool[0].questionId, value: "B" }] };
+  const progress = cbseProgress({ sessions: [session] });
+  expect(selectCbseQuestions(pool, progress, { count: 2, mode: "weak" }).error).toMatch(/Only 1/);
+  const picked = selectCbseQuestions(pool, progress, { count: 2, mode: "weak-first" });
+  expect(picked.error).toBeUndefined();
+  expect(picked.questions).toHaveLength(2);
+});
 
 import { cbseSourceGroup, cbseSourceCounts, CBSE_SOURCE_OPTIONS } from "./cbsePrep.js";
 describe("CBSE source groups", () => {

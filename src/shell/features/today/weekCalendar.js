@@ -78,7 +78,8 @@ export function planStudyLoad(rows, { todayKey, examKey = null, horizonDays = 14
   const dayKeys = [];
   for (let key = todayKey; key <= lastKey; key = shiftKey(key, 1)) dayKeys.push(key);
   const idealLoad = new Map(dayKeys.map((key) => [key, 0]));
-  for (const item of items) if (item.kind === "review") idealLoad.set(item.ideal, (idealLoad.get(item.ideal) || 0) + 1);
+  // Forecast everything that wants a day, first passes included, so reviews are pulled forward in time.
+  for (const item of items) idealLoad.set(item.ideal, (idealLoad.get(item.ideal) || 0) + 1);
 
   const byDay = new Map(dayKeys.map((key) => [key, { items: [], units: 0 }]));
   const pending = new Set(items);

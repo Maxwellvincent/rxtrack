@@ -111,7 +111,7 @@ export function CbseDashboard({ userId, block, onReviewLecture, onManageSources,
     {!loading && !loadError && pool.questions.length > 0 && <section aria-label="Today's CBSE set" className="rounded-xl border-2 border-accent p-5">
       <h2 className="text-lg font-semibold">Today&apos;s set</h2>
       <p className="mt-1 text-sm text-text-2">{Math.min(40, pool.questions.length)} questions across every term, weak areas and missed questions first, timed at 72 seconds each. One set a day until the exam{days ? ` (${days} left)` : ""}; review the misses before the next.</p>
-      <button disabled={busy} className="mt-3 rounded-lg bg-accent px-5 py-3 font-semibold text-white disabled:opacity-40" onClick={() => launch("exam", { count: Math.min(40, pool.questions.length), mode: "weak", source: "all", term: "all" })}>Start today&apos;s set</button>
+      <button disabled={busy} className="mt-3 rounded-lg bg-accent px-5 py-3 font-semibold text-white disabled:opacity-40" onClick={() => launch("exam", { count: Math.min(40, pool.questions.length), mode: "weak-first", source: "all", term: "all" })}>Start today&apos;s set</button>
     </section>}
     <section className="rounded-xl border border-accent/40 bg-panel p-5"><h2 className="text-lg font-semibold">Your next practice</h2><div className="mt-4 flex flex-wrap items-end gap-3">
       <label className="text-sm">Questions<input aria-label="Question count" type="number" min="1" max="80" value={count} onChange={e => setCount(e.target.value)} className="mt-1 block w-24 rounded border border-border bg-bg p-2" /></label>

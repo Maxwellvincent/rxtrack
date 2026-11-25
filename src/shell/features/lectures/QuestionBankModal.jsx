@@ -89,7 +89,11 @@ export function QuestionBankModal({ blockId, blockName = "", defaultSourceKind =
     const files = Array.from(event.target.files || []);
     event.target.value = "";
     // Screenshots alone are clicker slides; stray images in a document folder are skipped.
-    if (files.length && files.every((file) => IMAGE_FILE.test(file.name))) return onFiles(files, "clicker");
+    // The importer reads screenshots only as clicker slides (example-only until keyed), so say so.
+    if (files.length && files.every((file) => IMAGE_FILE.test(file.name))) {
+      if (sourceKind !== "clicker" && !window.confirm("Screenshots import as clicker examples: practice-only until keyed, and not used in mixed exams. For scored questions, upload the PDF instead. Continue?")) return;
+      return onFiles(files, "clicker");
+    }
     onFiles(sourceKind === "clicker" ? files : files.filter((file) => !IMAGE_FILE.test(file.name)));
   };
   const metaFor = (name) => meta[Object.keys(meta).find((id) => meta[id]?.filename === name)];

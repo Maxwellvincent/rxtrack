@@ -99,6 +99,13 @@ describe("review findings", () => {
     expect(need.struggling).toBe(1);
     expect(need.secure).toBe(false);
   });
+  it("counts tomorrow's first passes when deciding to pull reviews forward into today", () => {
+    const first = Array.from({ length: 3 }, (_, i) => ({ id: `new${i}`, givenOn: "2026-11-26", reviews: new Set(), firstPass: { complete: false, covered: 0, total: 3 } }));
+    const reviews = Array.from({ length: 4 }, (_, i) => ({ id: `rev${i}`, givenOn: "2026-11-10", reviews: new Set(["2026-11-26"]), firstPass: fp }));
+    const plan = planStudyLoad([...first, ...reviews], { todayKey: "2026-11-25", examKey: "2026-12-01" });
+    expect(plan.byDay.get("2026-11-25").items.some((item) => item.kind === "review")).toBe(true);
+    expect(plan.skipped).toEqual([]);
+  });
   it("plans nothing on or after the exam day", () => {
     const rows = [{ id: "a", givenOn: "2026-11-20", reviews: new Set(["2026-12-02"]), firstPass: { complete: false, covered: 0, total: 3 } }];
     const plan = planStudyLoad(rows, { todayKey: "2026-12-01", examKey: "2026-12-01" });
