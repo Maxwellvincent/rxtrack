@@ -1,5 +1,23 @@
 import { computeReviewDates } from "../../logic/completionLog.js";
 import { lectureCompletion } from "../../../engine/lectureCompletion.js";
+import { objectivePracticePlan, OBJECTIVE_MIN_ACCURACY } from "../../../engine/objectivePractice.js";
+
+/**
+ * How much a lecture still needs review, from independent answers on its objectives.
+ * secure: first pass done, >=80% over enough questions, nothing struggling → no tail-end reviews.
+ * need: 0 (secure) … 1 (weak or no evidence); low-need reviews give way when a day is full.
+ */
+export function lectureReviewNeed(objectives = [], evidence = {}, firstPass = null) {
+  const rows = objectivePracticePlan(objectives, evidence).rows;
+  const attempts = rows.reduce((n, row) => n + row.attempts, 0);
+  const correct = rows.reduce((n, row) => n + row.correct, 0);
+  const struggling = rows.filter((row) => row.struggling).length;
+  const accuracy = attempts ? correct / attempts : null;
+  const enough = attempts >= Math.max(5, rows.length);
+  const secure = !!firstPass?.complete && enough && accuracy >= OBJECTIVE_MIN_ACCURACY && struggling === 0;
+  const need = secure ? 0 : accuracy == null ? 1 : Math.min(1, Math.max(0.1, 1 - accuracy + (struggling ? 0.3 : 0) + (enough ? 0 : 0.2)));
+  return { accuracy, attempts, struggling, secure, need };
+}
 
 const pad = (n) => String(n).padStart(2, "0");
 export const dateKey = (value) => { const d = new Date(value); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
@@ -38,7 +56,8 @@ export function planStudyLoad(rows, { todayKey, examKey = null, horizonDays = 14
   const lastKey = examKey && examKey > todayKey ? shiftKey(examKey, -1) : shiftKey(todayKey, horizonDays - 1);
   const clamp = (key) => key < todayKey ? todayKey : key > lastKey ? lastKey : key;
   const items = [];
-  let behind = 0;
+  let behind = 0, secure = 0;
+  const skipped = [];
   for (const row of rows) {
     const needsFirstPass = row.firstPass.total > 0 && !row.firstPass.complete && row.givenOn;
     if (needsFirstPass && row.givenOn <= lastKey) {
@@ -47,9 +66,11 @@ export function planStudyLoad(rows, { todayKey, examKey = null, horizonDays = 14
       const ideal = clamp(row.givenOn);
       items.push({ row, kind: late ? "catchup" : "first", ideal, earliest: ideal, latest: clamp(shiftKey(ideal, late ? 2 : 1)), units: FIRST_PASS_UNITS });
     }
+    const need = row.strength?.need ?? 1;
+    if (row.strength?.secure) { if (row.reviews.size) secure += 1; continue; } // ≥80% and stable: skip reviews
     for (const key of row.reviews) {
       if (key < todayKey || key > lastKey || key === row.givenOn) continue;
-      items.push({ row, kind: "review", ideal: key, earliest: clamp(shiftKey(key, -2)), latest: clamp(shiftKey(key, 1)), units: 1 });
+      items.push({ row, kind: "review", ideal: key, earliest: clamp(shiftKey(key, -2)), latest: clamp(shiftKey(key, 1)), units: 1, need });
     }
   }
   const dayKeys = [];
@@ -62,18 +83,26 @@ export function planStudyLoad(rows, { todayKey, examKey = null, horizonDays = 14
 
   const byDay = new Map(dayKeys.map((key) => [key, { items: [], units: 0 }]));
   const pending = new Set(items);
-  const order = (a, b) => (a.kind === "review") - (b.kind === "review") || a.latest.localeCompare(b.latest) || a.ideal.localeCompare(b.ideal);
+  // First passes, then the reviews that are needed most; deadline breaks ties.
+  const order = (a, b) => (a.kind === "review") - (b.kind === "review") || (b.need ?? 1) - (a.need ?? 1) || a.latest.localeCompare(b.latest) || a.ideal.localeCompare(b.ideal);
   for (const key of dayKeys) {
     const day = byDay.get(key);
     const has = new Set();
     const place = (item) => {
+      if (has.has(item.row.id)) { // same lecture already today: wait for another day, or merge at the deadline
+        if (item.latest <= key) pending.delete(item);
+        return;
+      }
       pending.delete(item);
-      if (has.has(item.row.id)) return; // same lecture already today: one sitting covers both
       has.add(item.row.id);
       day.items.push(item); day.units += item.units;
     };
     const ready = [...pending].filter((item) => item.earliest <= key).sort(order);
-    for (const item of ready) if (item.latest <= key) place(item); // deadline today: must go
+    for (const item of ready) {
+      if (item.latest > key) continue; // deadline today: place it, unless a full day can drop a well-known lecture
+      if (item.kind === "review" && item.need < 0.5 && day.units + item.units > cap) { pending.delete(item); skipped.push(item); continue; }
+      place(item);
+    }
     for (const item of ready) if (pending.has(item) && item.ideal <= key && day.units + item.units <= cap) place(item);
     for (const item of ready) {
       if (!pending.has(item) || item.ideal <= key || day.units + item.units > cap) continue;
@@ -82,7 +111,7 @@ export function planStudyLoad(rows, { todayKey, examKey = null, horizonDays = 14
       place(item);
     }
   }
-  return { byDay, cap, behind, lastKey };
+  return { byDay, cap, behind, secure, skipped, lastKey };
 }
 
 /**
@@ -96,7 +125,9 @@ export function buildWeekCalendar({ lecScores = [], completion = {}, blockId, no
   const rows = lecScores.map((row) => {
     const lec = row.lec;
     const entry = completion[`${lec.id}__${blockId}`];
-    const firstPass = lectureCompletion(objectivesFor(lec.id), evidence);
+    const objectives = objectivesFor(lec.id);
+    const firstPass = lectureCompletion(objectives, evidence);
+    const strength = lectureReviewNeed(objectives, evidence, firstPass);
     return {
       id: lec.id,
       title: lec.lectureTitle || lec.fileName || lec.filename || "Lecture",
@@ -105,6 +136,7 @@ export function buildWeekCalendar({ lecScores = [], completion = {}, blockId, no
       givenOn: row.availableDate ? dateKey(row.availableDate) : null,
       reviews: reviewDaysFor(entry, row.nextReview, examDate),
       firstPass,
+      strength,
       lastActivity: entry?.lastActivityDate || null,
     };
   });
@@ -122,5 +154,5 @@ export function buildWeekCalendar({ lecScores = [], completion = {}, blockId, no
     const load = planned ? { units: planned.units, lectures: planned.items.length, over: planned.units > plan.cap } : null;
     return { key, date, isToday: key === todayKey, isPast: key < todayKey, isExam: key === examKey, isWeekend: i >= 5, given, catchUp, reviews, load };
   });
-  return { start, days, cap: plan.cap, behind: plan.behind, label: `${days[0].date.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${days[6].date.toLocaleDateString("en-US", { month: "short", day: "numeric" })}` };
+  return { start, days, cap: plan.cap, behind: plan.behind, secure: plan.secure, skipped: plan.skipped.length, label: `${days[0].date.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${days[6].date.toLocaleDateString("en-US", { month: "short", day: "numeric" })}` };
 }

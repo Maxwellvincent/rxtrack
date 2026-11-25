@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildWeekCalendar, planStudyLoad, weekStart } from "./weekCalendar.js";
+import { buildWeekCalendar, lectureReviewNeed, planStudyLoad, weekStart } from "./weekCalendar.js";
 
 const local = (s) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
 const now = local("2026-11-25").getTime() + 9 * 3600000; // Wednesday
@@ -61,5 +61,30 @@ describe("planStudyLoad", () => {
     const rows = Array.from({ length: 30 }, (_, i) => row(`r${i}`, "2026-11-10", ["2026-11-28", "2026-11-30"]));
     const plan = planStudyLoad(rows, { todayKey: "2026-11-25", examKey: "2026-12-01" });
     expect(plan.cap).toBe(Math.ceil(60 / 6));
+  });
+});
+
+describe("review priority by mastery", () => {
+  const done = { complete: true, covered: 4, total: 4 };
+  const row = (id, need, secure = false) => ({ id, givenOn: "2026-11-10", reviews: new Set(["2026-11-29", "2026-11-30"]), firstPass: done, strength: { need, secure } });
+
+  it("skips reviews for secure lectures and drops low-need reviews before weak ones when the tail end is full", () => {
+    const rows = [row("secure", 0, true), ...Array.from({ length: 6 }, (_, i) => row(`weak${i}`, 0.9)), ...Array.from({ length: 6 }, (_, i) => row(`ok${i}`, 0.2))];
+    const plan = planStudyLoad(rows, { todayKey: "2026-11-28", examKey: "2026-12-01" });
+    const placed = [...plan.byDay.values()].flatMap((day) => day.items.map((item) => item.row.id));
+    expect(plan.secure).toBe(1);
+    expect(placed).not.toContain("secure");
+    for (let i = 0; i < 6; i++) expect(placed.filter((id) => id === `weak${i}`).length).toBe(2);
+    expect(plan.skipped.every((item) => item.row.id.startsWith("ok"))).toBe(true);
+  });
+});
+
+describe("lectureReviewNeed", () => {
+  const objectives = [{ id: "o1" }, { id: "o2" }];
+  const ev = (a, c) => ({ objectives: { o1: { attempts: a, correct: c, recent: [true] }, o2: { attempts: a, correct: c, recent: [true] } } });
+  it("marks a lecture secure at 80%+ with enough independent answers", () => {
+    expect(lectureReviewNeed(objectives, ev(5, 5), { complete: true }).secure).toBe(true);
+    expect(lectureReviewNeed(objectives, ev(5, 2), { complete: true }).secure).toBe(false);
+    expect(lectureReviewNeed(objectives, {}, { complete: false }).need).toBe(1);
   });
 });

@@ -13,6 +13,7 @@ function LectureChip({ row, onStudy, review = false }) {
       className="flex w-full items-start gap-1.5 rounded border border-border px-2 py-1 text-left text-xs hover:border-border-strong">
       <span aria-hidden="true" className="font-mono">{review ? "↻" : passMark(row.firstPass)}</span>
       <span className="min-w-0"><span className="font-semibold">{label}</span> <span className="line-clamp-2 text-text-2">{row.title}</span>
+        {review && row.strength?.accuracy != null && <span className="block text-[11px] text-text-3">{Math.round(row.strength.accuracy * 100)}% correct{row.strength.struggling ? ` · ⚠ ${row.strength.struggling} struggling` : ""}</span>}
         {row.movedFrom && <span className="block text-[11px] text-text-3">moved from {shortDay(row.movedFrom)} to even out the load</span>}
         <span className="sr-only"> · {review ? "review due" : passText(row.firstPass)}</span></span>
     </button>
@@ -34,7 +35,7 @@ export function WeekCalendar({ lecScores = [], completion = {}, blockId, examDat
     <div className="flex flex-wrap items-center justify-between gap-2">
       <div><h3 className="text-sm font-semibold">Week of {cal.label}</h3>
         <p className="text-xs text-text-3">{given ? `${done}/${given} lectures through first pass` : "No lectures dated this week"} · ✓ first pass done · ◐ in progress · ○ not started · ↻ review due</p>
-        <p className="text-xs text-text-2">Daily limit {cal.cap} (review = 1, first pass = 2) so the work fits before the exam{cal.behind ? ` · ⚠ ${cal.behind} first pass${cal.behind === 1 ? "" : "es"} behind, scheduled as catch-up` : ""}</p></div>
+        <p className="text-xs text-text-2">Daily limit {cal.cap} (review = 1, first pass = 2) so the work fits before the exam{cal.behind ? ` · ⚠ ${cal.behind} first pass${cal.behind === 1 ? "" : "es"} behind, scheduled as catch-up` : ""}{cal.secure ? ` · ✓ ${cal.secure} lecture${cal.secure === 1 ? "" : "s"} at 80%+ need no more review` : ""}{cal.skipped ? ` · ${cal.skipped} lower-priority review${cal.skipped === 1 ? "" : "s"} dropped to stay under the limit` : ""}</p></div>
       <div className="flex items-center gap-1 text-sm">
         <button type="button" aria-label="Previous week" onClick={() => setOffset((v) => v - 1)} className="rounded border border-border px-2 py-0.5">‹</button>
         {offset !== 0 && <button type="button" onClick={() => setOffset(0)} className="rounded border border-border px-2 py-0.5 text-xs">This week</button>}
