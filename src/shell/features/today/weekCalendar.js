@@ -43,75 +43,74 @@ export function reviewDaysFor(entry, perfNextReview, examDate) {
 }
 
 const shiftKey = (key, days) => { const d = keyToDate(key); d.setDate(d.getDate() + days); return dateKey(d); };
-const FIRST_PASS_UNITS = 2; // a first pass costs about two reviews
-export const MIN_DAILY_UNITS = 5;
+export const DAILY_LIMIT = 6;          // lectures per day, first passes and reviews together
+export const DAILY_FIRST_PASS_LIMIT = 3; // new material per day
 
 /**
- * Spread the remaining work (behind/new first passes + exam-aware reviews) over
- * today … the day before the exam so no day is overloaded. Each item may move
- * inside a small window around its ideal day; earliest deadline goes first.
- * Returns { byDay: Map(key → { items, units }), cap, behind }.
+ * Plan today … the day before the exam with at most DAILY_LIMIT lectures a day.
+ * First passes come first (oldest first, at most DAILY_FIRST_PASS_LIMIT a day);
+ * reviews fill the rest in order of need. A review whose window passes with no
+ * room is dropped (lowest need first) instead of overloading a day; first passes
+ * that cannot fit before the exam are returned as `unscheduled`.
  */
-export function planStudyLoad(rows, { todayKey, examKey = null, horizonDays = 14 }) {
+export function planStudyLoad(rows, { todayKey, examKey = null, horizonDays = 14, limit = DAILY_LIMIT, firstPassLimit = DAILY_FIRST_PASS_LIMIT }) {
   const lastKey = examKey && examKey > todayKey ? shiftKey(examKey, -1) : shiftKey(todayKey, horizonDays - 1);
   const clamp = (key) => key < todayKey ? todayKey : key > lastKey ? lastKey : key;
   const items = [];
   let behind = 0, secure = 0;
-  const skipped = [];
   for (const row of rows) {
     const needsFirstPass = row.firstPass.total > 0 && !row.firstPass.complete && row.givenOn;
     if (needsFirstPass && row.givenOn <= lastKey) {
       const late = row.givenOn < todayKey;
       if (late) behind += 1;
       const ideal = clamp(row.givenOn);
-      items.push({ row, kind: late ? "catchup" : "first", ideal, earliest: ideal, latest: clamp(shiftKey(ideal, late ? 2 : 1)), units: FIRST_PASS_UNITS });
+      items.push({ row, kind: late ? "catchup" : "first", ideal, earliest: ideal, latest: lastKey });
     }
+    if (row.strength?.secure) { if (row.reviews.size) secure += 1; continue; } // ≥80% and stable: no reviews
     const need = row.strength?.need ?? 1;
-    if (row.strength?.secure) { if (row.reviews.size) secure += 1; continue; } // ≥80% and stable: skip reviews
     for (const key of row.reviews) {
       if (key < todayKey || key > lastKey || key === row.givenOn) continue;
-      items.push({ row, kind: "review", ideal: key, earliest: clamp(shiftKey(key, -2)), latest: clamp(shiftKey(key, 1)), units: 1, need });
+      items.push({ row, kind: "review", ideal: key, earliest: clamp(shiftKey(key, -2)), latest: clamp(shiftKey(key, 1)), need });
     }
   }
   const dayKeys = [];
   for (let key = todayKey; key <= lastKey; key = shiftKey(key, 1)) dayKeys.push(key);
-  const total = items.reduce((n, item) => n + item.units, 0);
-  const cap = Math.max(MIN_DAILY_UNITS, Math.ceil(total / Math.max(1, dayKeys.length)));
-  // Ideal load per day, used to decide when pulling work forward is worth it.
   const idealLoad = new Map(dayKeys.map((key) => [key, 0]));
-  for (const item of items) idealLoad.set(item.ideal, (idealLoad.get(item.ideal) || 0) + item.units);
+  for (const item of items) if (item.kind === "review") idealLoad.set(item.ideal, (idealLoad.get(item.ideal) || 0) + 1);
 
   const byDay = new Map(dayKeys.map((key) => [key, { items: [], units: 0 }]));
   const pending = new Set(items);
-  // First passes, then the reviews that are needed most; deadline breaks ties.
-  const order = (a, b) => (a.kind === "review") - (b.kind === "review") || (b.need ?? 1) - (a.need ?? 1) || a.latest.localeCompare(b.latest) || a.ideal.localeCompare(b.ideal);
+  const skipped = [];
+  const firstOrder = (a, b) => a.ideal.localeCompare(b.ideal) || (a.row.number ?? 999) - (b.row.number ?? 999);
+  const reviewOrder = (a, b) => b.need - a.need || a.latest.localeCompare(b.latest) || a.ideal.localeCompare(b.ideal);
   for (const key of dayKeys) {
     const day = byDay.get(key);
     const has = new Set();
-    const place = (item) => {
-      if (has.has(item.row.id)) { // same lecture already today: wait for another day, or merge at the deadline
-        if (item.latest <= key) pending.delete(item);
-        return;
-      }
-      pending.delete(item);
-      has.add(item.row.id);
-      day.items.push(item); day.units += item.units;
-    };
-    const ready = [...pending].filter((item) => item.earliest <= key).sort(order);
-    for (const item of ready) {
-      if (item.latest > key) continue; // deadline today: place it, unless a full day can drop a well-known lecture
-      if (item.kind === "review" && item.need < 0.5 && day.units + item.units > cap) { pending.delete(item); skipped.push(item); continue; }
+    const room = () => day.items.length < limit;
+    const place = (item) => { pending.delete(item); has.add(item.row.id); day.items.push(item); day.units = day.items.length; };
+    const ready = [...pending].filter((item) => item.earliest <= key);
+    // 1. First passes, oldest first, capped so reviews still get time.
+    let firsts = 0;
+    for (const item of ready.filter((i) => i.kind !== "review").sort(firstOrder)) {
+      if (firsts >= firstPassLimit || !room()) break;
+      if (has.has(item.row.id)) continue;
+      place(item); firsts += 1;
+    }
+    const reviews = ready.filter((i) => i.kind === "review" && pending.has(i)).sort(reviewOrder);
+    // 2. Reviews due by today (or already late), most needed first.
+    for (const item of reviews) if (item.ideal <= key && room() && !has.has(item.row.id)) place(item);
+    // 3. Pull later reviews forward only when their own day is already over the limit.
+    for (const item of reviews) {
+      if (!pending.has(item) || item.ideal <= key || !room() || has.has(item.row.id)) continue;
+      if ((idealLoad.get(item.ideal) || 0) <= limit) continue;
+      idealLoad.set(item.ideal, idealLoad.get(item.ideal) - 1);
       place(item);
     }
-    for (const item of ready) if (pending.has(item) && item.ideal <= key && day.units + item.units <= cap) place(item);
-    for (const item of ready) {
-      if (!pending.has(item) || item.ideal <= key || day.units + item.units > cap) continue;
-      if ((idealLoad.get(item.ideal) || 0) <= cap) continue; // its own day has room
-      idealLoad.set(item.ideal, idealLoad.get(item.ideal) - item.units);
-      place(item);
-    }
+    // 4. Reviews whose window ends today and found no room are dropped.
+    for (const item of reviews) if (pending.has(item) && item.latest <= key) { pending.delete(item); if (!has.has(item.row.id)) skipped.push(item); }
   }
-  return { byDay, cap, behind, secure, skipped, lastKey };
+  const unscheduled = [...pending].filter((item) => item.kind !== "review").map((item) => item.row);
+  return { byDay, cap: limit, behind, secure, skipped, unscheduled, lastKey };
 }
 
 /**
@@ -144,15 +143,17 @@ export function buildWeekCalendar({ lecScores = [], completion = {}, blockId, no
   const days = Array.from({ length: 7 }, (_, i) => {
     const date = new Date(start); date.setDate(start.getDate() + i);
     const key = dateKey(date);
-    const given = rows.filter((row) => row.givenOn === key)
-      .sort((a, b) => (a.number ?? 999) - (b.number ?? 999) || a.title.localeCompare(b.title));
     // Past days show what was given; today on shows the balanced plan.
     const planned = plan.byDay.get(key);
+    const plannedHere = new Set((planned?.items || []).map((item) => item.row.id));
+    // A lecture given today on whose first pass was planned elsewhere shows only on that day.
+    const given = rows.filter((row) => row.givenOn === key && (!planned || plannedHere.has(row.id) || row.firstPass.complete || !row.firstPass.total))
+      .sort((a, b) => (a.number ?? 999) - (b.number ?? 999) || a.title.localeCompare(b.title));
     const withMove = (item) => ({ ...item.row, movedFrom: item.ideal !== key ? item.ideal : null });
     const reviews = planned ? planned.items.filter((item) => item.kind === "review").map(withMove) : [];
     const catchUp = planned ? planned.items.filter((item) => item.kind === "catchup" || (item.kind === "first" && item.row.givenOn !== key)).map(withMove) : [];
-    const load = planned ? { units: planned.units, lectures: planned.items.length, over: planned.units > plan.cap } : null;
+    const load = planned ? { lectures: planned.items.length } : null;
     return { key, date, isToday: key === todayKey, isPast: key < todayKey, isExam: key === examKey, isWeekend: i >= 5, given, catchUp, reviews, load };
   });
-  return { start, days, cap: plan.cap, behind: plan.behind, secure: plan.secure, skipped: plan.skipped.length, label: `${days[0].date.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${days[6].date.toLocaleDateString("en-US", { month: "short", day: "numeric" })}` };
+  return { start, days, cap: plan.cap, behind: plan.behind, secure: plan.secure, skipped: plan.skipped.length, unscheduled: plan.unscheduled, label: `${days[0].date.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${days[6].date.toLocaleDateString("en-US", { month: "short", day: "numeric" })}` };
 }

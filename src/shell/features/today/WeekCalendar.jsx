@@ -3,24 +3,38 @@ import { buildWeekCalendar } from "./weekCalendar.js";
 
 const passMark = (fp) => fp.complete ? "✓" : fp.covered > 0 ? "◐" : "○";
 const passText = (fp) => !fp.total ? "No objectives yet" : fp.complete ? "First pass complete" : `${fp.covered}/${fp.total} objectives covered`;
-
 const shortDay = (key) => { const [y, m, d] = key.split("-").map(Number); return new Date(y, m - 1, d).toLocaleDateString("en-US", { weekday: "short" }); };
+// "NB 58 Trauma- and Stressor-…" → "Trauma- and Stressor-…": the code is already in the label.
+const shortTitle = (row) => String(row.title || "").replace(/^(NB\s+)?(DLA\s+)?\d+\s*[-–:]?\s*/i, "") || row.title;
 
-function LectureChip({ row, onStudy, review = false }) {
+function LectureRow({ row, onStudy, review = false }) {
   const label = `${row.type}${row.number != null ? ` ${row.number}` : ""}`;
+  const meta = [
+    review && row.strength?.accuracy != null ? `${Math.round(row.strength.accuracy * 100)}%${row.strength.struggling ? " ⚠" : ""}` : null,
+    row.movedFrom ? `from ${shortDay(row.movedFrom)}` : null,
+  ].filter(Boolean).join(" · ");
   return <li>
-    <button type="button" onClick={() => onStudy?.(row.id)} title={`${row.title} · ${passText(row.firstPass)}`}
-      className="flex w-full items-start gap-1.5 rounded border border-border px-2 py-1 text-left text-xs hover:border-border-strong">
-      <span aria-hidden="true" className="font-mono">{review ? "↻" : passMark(row.firstPass)}</span>
-      <span className="min-w-0"><span className="font-semibold">{label}</span> <span className="line-clamp-2 text-text-2">{row.title}</span>
-        {review && row.strength?.accuracy != null && <span className="block text-[11px] text-text-3">{Math.round(row.strength.accuracy * 100)}% correct{row.strength.struggling ? ` · ⚠ ${row.strength.struggling} struggling` : ""}</span>}
-        {row.movedFrom && <span className="block text-[11px] text-text-3">moved from {shortDay(row.movedFrom)} to even out the load</span>}
-        <span className="sr-only"> · {review ? "review due" : passText(row.firstPass)}</span></span>
+    <button type="button" onClick={() => onStudy?.(row.id)}
+      title={`${row.title} · ${review ? "review" : passText(row.firstPass)}${row.strength?.accuracy != null ? ` · ${Math.round(row.strength.accuracy * 100)}% correct` : ""}${row.movedFrom ? ` · moved from ${shortDay(row.movedFrom)} to keep the day under the limit` : ""}`}
+      className="flex w-full items-baseline gap-1.5 rounded px-1.5 py-1 text-left text-xs hover:bg-bg">
+      <span aria-hidden="true" className="w-3 shrink-0 font-mono">{review ? "↻" : passMark(row.firstPass)}</span>
+      <span className="shrink-0 font-semibold">{label}</span>
+      <span className="min-w-0 flex-1 truncate text-text-2">{shortTitle(row)}</span>
+      {meta && <span className="shrink-0 text-[11px] text-text-3">{meta}</span>}
+      <span className="sr-only"> · {review ? "review" : passText(row.firstPass)}</span>
     </button>
   </li>;
 }
 
-/** Week view of lectures on the day they were given, with exam-aware reviews due each day. */
+function Group({ title, rows, onStudy, review = false }) {
+  if (!rows.length) return null;
+  return <div>
+    {title && <p className="px-1.5 pt-1 text-[11px] font-semibold uppercase tracking-wide text-text-3">{title}</p>}
+    <ul>{rows.map((row) => <LectureRow key={`${row.id}-${review}`} row={row} onStudy={onStudy} review={review} />)}</ul>
+  </div>;
+}
+
+/** Week view: lectures on the day they were given, then a planned day (≤ limit) from today to the exam. */
 export function WeekCalendar({ lecScores = [], completion = {}, blockId, examDate, objectivesFor, evidence, onStudy, now: nowProp = null }) {
   const [mountedAt] = useState(() => Date.now());
   const now = nowProp ?? mountedAt;
@@ -28,43 +42,43 @@ export function WeekCalendar({ lecScores = [], completion = {}, blockId, examDat
   const cal = useMemo(() => buildWeekCalendar({ lecScores, completion, blockId, now, weekOffset: offset, examDate, objectivesFor, evidence }),
     [lecScores, completion, blockId, now, offset, examDate, objectivesFor, evidence]);
   const days = cal.days.filter((day) => !day.isWeekend || day.given.length || day.catchUp.length || day.reviews.length || day.isExam || day.isToday);
-  const given = cal.days.reduce((n, day) => n + day.given.length, 0);
-  const done = cal.days.reduce((n, day) => n + day.given.filter((row) => row.firstPass.complete).length, 0);
+  const status = [
+    cal.behind ? `⚠ ${cal.behind} first pass${cal.behind === 1 ? "" : "es"} behind` : null,
+    cal.secure ? `✓ ${cal.secure} at 80%+ skip review` : null,
+    cal.skipped ? `${cal.skipped} low-priority review${cal.skipped === 1 ? "" : "s"} dropped` : null,
+  ].filter(Boolean);
 
   return <section aria-label="Week calendar" className="rounded-xl border border-border bg-bg-elevated p-3">
-    <div className="flex flex-wrap items-center justify-between gap-2">
-      <div><h3 className="text-sm font-semibold">Week of {cal.label}</h3>
-        <p className="text-xs text-text-3">{given ? `${done}/${given} lectures through first pass` : "No lectures dated this week"} · ✓ first pass done · ◐ in progress · ○ not started · ↻ review due</p>
-        <p className="text-xs text-text-2">Daily limit {cal.cap} (review = 1, first pass = 2) so the work fits before the exam{cal.behind ? ` · ⚠ ${cal.behind} first pass${cal.behind === 1 ? "" : "es"} behind, scheduled as catch-up` : ""}{cal.secure ? ` · ✓ ${cal.secure} lecture${cal.secure === 1 ? "" : "s"} at 80%+ need no more review` : ""}{cal.skipped ? ` · ${cal.skipped} lower-priority review${cal.skipped === 1 ? "" : "s"} dropped to stay under the limit` : ""}</p></div>
-      <div className="flex items-center gap-1 text-sm">
+    <div className="flex items-start justify-between gap-2">
+      <div className="min-w-0">
+        <h3 className="text-sm font-semibold">Week of {cal.label} <span className="font-normal text-text-3">· up to {cal.cap} lectures a day</span></h3>
+        {status.length > 0 && <p className="text-xs text-text-2">{status.join(" · ")}</p>}
+      </div>
+      <div className="flex shrink-0 items-center gap-1 text-sm">
         <button type="button" aria-label="Previous week" onClick={() => setOffset((v) => v - 1)} className="rounded border border-border px-2 py-0.5">‹</button>
         {offset !== 0 && <button type="button" onClick={() => setOffset(0)} className="rounded border border-border px-2 py-0.5 text-xs">This week</button>}
         <button type="button" aria-label="Next week" onClick={() => setOffset((v) => v + 1)} className="rounded border border-border px-2 py-0.5">›</button>
       </div>
     </div>
-    <ol className="mt-3 grid gap-2" style={{ gridTemplateColumns: `repeat(auto-fit, minmax(9.5rem, 1fr))` }}>
+    {cal.unscheduled.length > 0 && <p className="mt-1 text-xs">⚠ No room before the exam for: {cal.unscheduled.map((row) => `${row.type} ${row.number ?? ""}`.trim()).join(", ")}. Skim these or raise your pace.</p>}
+    <ol className="mt-2 grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(12rem, 1fr))" }}>
       {days.map((day) => {
         const next = day.catchUp[0] || day.given.find((row) => !row.firstPass.complete) || day.reviews[0] || day.given[0];
+        const count = day.load?.lectures ?? 0;
         return <li key={day.key} aria-current={day.isToday ? "date" : undefined}
-          className={`flex flex-col gap-1.5 rounded-lg border p-2 ${day.isToday ? "border-accent border-2" : "border-border"} ${day.isPast && !day.isToday ? "opacity-80" : ""}`}>
-          <div className="flex items-baseline justify-between gap-1 text-xs">
+          className={`flex flex-col rounded-lg border p-1.5 ${day.isToday ? "border-2 border-accent" : "border-border"} ${day.isPast && !day.isToday ? "opacity-75" : ""}`}>
+          <div className="flex items-baseline justify-between gap-1 px-1.5 text-xs">
             <span className="font-semibold">{day.isToday ? "● Today" : day.date.toLocaleDateString("en-US", { weekday: "short" })} <span className="font-normal text-text-3">{day.date.toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span></span>
-            {day.isExam && <span className="font-semibold">🎯 Exam</span>}
+            {day.isExam ? <span className="font-semibold">🎯 Exam</span> : day.load && count > 0 && <span className="text-text-3">{count}/{cal.cap}</span>}
           </div>
-          {day.load && day.load.lectures > 0 && <p className="text-[11px] text-text-3">{day.load.lectures} lecture{day.load.lectures === 1 ? "" : "s"} · load {day.load.units}/{cal.cap}{day.load.over ? " · ⚠ over limit" : ""}</p>}
-          {day.given.length > 0 && <ul className="flex flex-col gap-1">{day.given.map((row) => <LectureChip key={row.id} row={row} onStudy={onStudy} />)}</ul>}
-          {day.catchUp.length > 0 && <>
-            <p className="mt-1 text-[11px] font-semibold text-text-3">Catch up (first pass)</p>
-            <ul className="flex flex-col gap-1">{day.catchUp.map((row) => <LectureChip key={row.id} row={row} onStudy={onStudy} />)}</ul>
-          </>}
-          {day.reviews.length > 0 && <>
-            <p className="mt-1 text-[11px] font-semibold text-text-3">Review</p>
-            <ul className="flex flex-col gap-1">{day.reviews.map((row) => <LectureChip key={row.id} row={row} onStudy={onStudy} review />)}</ul>
-          </>}
-          {!day.given.length && !day.catchUp.length && !day.reviews.length && <p className="text-xs text-text-3">{day.isExam ? "Exam day" : "Nothing scheduled"}</p>}
-          {next && onStudy && <button type="button" onClick={() => onStudy(next.id)} className="mt-auto rounded bg-accent px-2 py-1 text-xs font-semibold text-white">▸ Go through {day.isToday ? "today" : day.date.toLocaleDateString("en-US", { weekday: "short" })}</button>}
+          <Group title={day.isPast ? null : day.given.length && (day.catchUp.length || day.reviews.length) ? "New" : null} rows={day.given} onStudy={onStudy} />
+          <Group title="Catch up" rows={day.catchUp} onStudy={onStudy} />
+          <Group title="Review" rows={day.reviews} onStudy={onStudy} review />
+          {!day.given.length && !day.catchUp.length && !day.reviews.length && <p className="px-1.5 py-1 text-xs text-text-3">{day.isExam ? "Exam day" : "Nothing scheduled"}</p>}
+          {next && onStudy && !day.isPast && <button type="button" onClick={() => onStudy(next.id)} className="mt-auto rounded bg-accent px-2 py-1 text-xs font-semibold text-white">▸ Start {day.isToday ? "today" : shortDay(day.key)}</button>}
         </li>;
       })}
     </ol>
+    <p className="mt-2 text-[11px] text-text-3">✓ first pass done · ◐ in progress · ○ not started · ↻ review · % = your accuracy · hover a row for details</p>
   </section>;
 }

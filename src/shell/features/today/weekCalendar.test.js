@@ -43,8 +43,8 @@ describe("planStudyLoad", () => {
     const rows = Array.from({ length: 8 }, (_, i) => row(`r${i}`, "2026-11-10", ["2026-11-25", "2026-11-27", "2026-11-30"]));
     const plan = planStudyLoad(rows, { todayKey: "2026-11-25", examKey: "2026-12-01" });
     const loads = [...plan.byDay.values()].map((day) => day.units);
-    expect(Math.max(...loads)).toBeLessThanOrEqual(plan.cap);
-    expect(loads.reduce((a, b) => a + b, 0)).toBe(24); // every review still scheduled once
+    expect(Math.max(...loads)).toBeLessThanOrEqual(6);
+    expect(loads.reduce((a, b) => a + b, 0) + plan.skipped.length).toBe(24); // each review placed or explicitly dropped
     expect(plan.byDay.get("2026-11-26").units).toBeGreaterThan(0); // the empty day takes some
   });
 
@@ -54,13 +54,14 @@ describe("planStudyLoad", () => {
     expect(plan.behind).toBe(2);
     const placed = [...plan.byDay.entries()].flatMap(([key, day]) => day.items.map((item) => [item.row.id, key, item.kind]));
     expect(placed.map(([id]) => id).sort()).toEqual(["late1", "late2"]);
-    expect(placed.every(([, key, kind]) => key >= "2026-11-25" && key <= "2026-11-27" && kind === "catchup")).toBe(true);
+    expect(placed.every(([, key, kind]) => key === "2026-11-25" && kind === "catchup")).toBe(true);
   });
 
-  it("raises the daily limit when the remaining work cannot fit under the minimum", () => {
-    const rows = Array.from({ length: 30 }, (_, i) => row(`r${i}`, "2026-11-10", ["2026-11-28", "2026-11-30"]));
-    const plan = planStudyLoad(rows, { todayKey: "2026-11-25", examKey: "2026-12-01" });
-    expect(plan.cap).toBe(Math.ceil(60 / 6));
+  it("never goes over the daily limit, caps first passes per day and reports what cannot fit", () => {
+    const behind = Array.from({ length: 30 }, (_, i) => row(`f${i}`, "2026-11-20", [], fp(false)));
+    const plan = planStudyLoad(behind, { todayKey: "2026-11-25", examKey: "2026-12-01" });
+    for (const day of plan.byDay.values()) expect(day.items.length).toBeLessThanOrEqual(3);
+    expect(plan.unscheduled.length).toBe(30 - 3 * 6);
   });
 });
 
