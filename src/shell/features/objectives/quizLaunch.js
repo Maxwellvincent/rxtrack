@@ -660,6 +660,38 @@ export async function startObjectiveQuiz(args, deps = {}) {
   };
 }
 
+// Review issues that mean the requested depth or connection was not reachable
+// for this objective from the supplied source (not that the item was unsafe).
+const UNREACHABLE_TARGET_ISSUES = new Set(["order_level_mismatch", "insufficient_reasoning_depth", "unverified_integration_depth", "connection_target_unverified", "allocation_or_reasoning_depth"]);
+export function countUnreachableTargetRejections(counts, rejections = []) {
+  for (const rejection of rejections) {
+    if (!(rejection?.issues || []).some(issue => UNREACHABLE_TARGET_ISSUES.has(issue))) continue;
+    for (const id of new Set((rejection.objectiveIds || []).map(String))) counts.set(id, (counts.get(id) || 0) + 1);
+  }
+  return counts;
+}
+/**
+ * The mastery ladder asks for third-order items (or a specific source connection)
+ * once application is secure, but some lectures only support one-relationship
+ * items for an objective. The reviewer then correctly rejects every draft and
+ * the quiz stalls short of the requested count. After repeated depth/connection
+ * rejections in one run, ask for a reviewed second-order application item for
+ * that objective instead. Questions keep their verified orderLevel, so a relaxed
+ * slot never counts as integration practice.
+ */
+export function relaxUnreachableTargets(plan = [], counts = new Map(), threshold = 2) {
+  const relaxed = [];
+  const next = plan.map(objective => {
+    const id = String(objective.id || objective.code);
+    if ((counts.get(id) || 0) < threshold || objective._depthRelaxed) return objective;
+    if (objective._targetOrder !== "third-order" && !objective._connectionTargetIds?.length) return objective;
+    relaxed.push(id);
+    const { _connectionTargetIds: _ignored, ...rest } = objective;
+    return { ...rest, _targetOrder: "second-order", _transferOrder: objective._transferOrder === "third-order" ? "second-order" : objective._transferOrder, _depthRelaxed: true };
+  });
+  return { plan: relaxed.length ? next : plan, relaxed };
+}
+
 export function remainingObjectiveAllocation(plan = [], answered = [], limit = 5) {
   const used = new Map();
   for (const question of answered) {
@@ -763,6 +795,8 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
   let lastError = "";
   let consecutiveEmptyRounds = 0;
   const rejectionFeedback = [];
+  const unreachableTargetCounts = new Map();
+  const relaxedObjectiveIds = new Set();
   const challenge = args.reasoningPolicy === "challenge";
   const isProviderFailure = (message = "") => {
     // A malformed model response is retryable; the word "bridge" in a JSON
@@ -780,7 +814,12 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
   const pendingJobs = new Map();
   // Near-complete batches get three bounded final-slot attempts, but never
   // override an explicit caller ceiling, a provider failure or the shared clock.
-  const attemptLimit = () => attempts + (!deps.maxPrepareAttempts && deps.continueAfterEmptyRounds && accepted.length >= Math.ceil(requested * 0.75) ? 3 : 0);
+  // Production preparation (continueAfterEmptyRounds) keeps refilling while
+  // rounds still yield reviewed questions: strict review often accepts ~1 item
+  // per round, so the fixed ceiling used to stop a 10-question quiz at 7-8 with
+  // most of the time budget unused. Cost stays bounded by the shared deadline,
+  // the empty-round stop and this cap of two extra rounds per requested slot.
+  const attemptLimit = () => attempts + (!deps.maxPrepareAttempts && deps.continueAfterEmptyRounds ? Math.max(3, requested * 2) : 0);
   while ((nextAttempt <= attemptLimit() || pendingJobs.size) && accepted.length < requested) {
     if (deps.signal?.aborted || Date.now() >= preparationDeadline) {
       lastError = deps.signal?.aborted ? "Question preparation stopped. Reviewed questions are saved." : preparationTimeout;
@@ -898,6 +937,7 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
         for (const issue of rejection.issues || []) reject(issue);
         rejectionFeedback.push({ objectiveIds: rejection.objectiveIds || [], text: `Previous candidate rejected: ${String(rejection.rationale || "").slice(0, 600)}; issues: ${(rejection.issues || []).join(", ")}. Address this in a NEW ${challenge ? "causal problem" : "source-grounded school-style question"}; do not repeat the rejected route.` });
       }
+      countUnreachableTargetRejections(unreachableTargetCounts, result.rejections || []);
       if (result.failureKind === "source_shortfall") {
         const reportedIds = (result.rejections || [])
           .filter(rejection => rejection.issues?.includes("writer_reported_shortfall"))
@@ -922,7 +962,11 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
         if (enforceAllocation) {
           const target = remainingObjectiveAllocation(allocationPlan, [...(args.initialQuestions || []), ...accepted], requested).find(objective => question.objectiveIds?.[0] === (objective.id || objective.code));
           const levels = ["first-order", "second-order", "third-order"];
-          if (!target || !hasCurrentReasoningAudit(question) || (target._targetOrder && levels.indexOf(question.orderLevel) < levels.indexOf(target._targetOrder))) { reject("allocation_or_reasoning_depth"); continue; }
+          if (!target || !hasCurrentReasoningAudit(question) || (target._targetOrder && levels.indexOf(question.orderLevel) < levels.indexOf(target._targetOrder))) {
+            reject("allocation_or_reasoning_depth");
+            if (target && hasCurrentReasoningAudit(question)) countUnreachableTargetRejections(unreachableTargetCounts, [{ objectiveIds: question.objectiveIds, issues: ["allocation_or_reasoning_depth"] }]);
+            continue;
+          }
         }
         if (enforceAllocation && question.orderLevel === "third-order" && question.reasoningAudit?.orderLevel !== "third-order") { reject("unverified_integration_depth"); continue; }
         const repeatsPriorQuestion = avoidedQuestions.some((other) => areNearDuplicateQuestions(question, other));
@@ -937,6 +981,16 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
         if (accepted.length >= requested) break;
       }
       consecutiveEmptyRounds = newlyAccepted.length ? 0 : consecutiveEmptyRounds + 1;
+      if (enforceAllocation && accepted.length < requested) {
+        const relaxation = relaxUnreachableTargets(allocationPlan, unreachableTargetCounts);
+        if (relaxation.relaxed.length) {
+          allocationPlan = relaxation.plan;
+          for (const id of relaxation.relaxed) relaxedObjectiveIds.add(id);
+          // A changed request is a fresh chance, not another failed round.
+          consecutiveEmptyRounds = 0;
+          rejectionFeedback.push({ objectiveIds: relaxation.relaxed, text: "DEPTH ADJUSTED: The supplied lecture does not support a verified two-relationship or connection item for these objectives. Write a clear, source-supported second-order application item instead; do not label it third-order." });
+        }
+      }
       diagnostics.accepted = accepted.length;
       if (newlyAccepted.length) deps.onAccepted?.(newlyAccepted);
       reportProgress({ requested, ready: accepted.length, attempt, phase: accepted.length >= requested ? "ready" : "reviewing" });
@@ -983,6 +1037,7 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
     questions: accepted.slice(0, requested),
     requested,
     incomplete: false,
+    ...(relaxedObjectiveIds.size ? { warning: `${relaxedObjectiveIds.size} objective${relaxedObjectiveIds.size === 1 ? "" : "s"} could not support a deeper integration question from this lecture, so application questions were used instead.`, relaxedObjectiveIds: [...relaxedObjectiveIds] } : {}),
     diagnostics: diagnosticSnapshot(),
     fallbackCount: accepted.filter((question) => question.generationMode === "grounded-fallback").length,
   };

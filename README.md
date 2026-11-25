@@ -302,6 +302,7 @@ is superseded.
 | Integrated exam tab: prepared sets, reserve refill, timed 72 s/question, tutor mode, persisted choice elimination | **Done** |
 | Weak-concept repair loop, focused drills, delayed retests | **Done** |
 | Objective connection maps + third-order construction (within a lecture) | **Done** (2026-11-23) |
+| Requested quiz length is filled: objectives whose lecture cannot support a verified third-order or connection item fall back to reviewed second-order items after 2 depth rejections; refill continues while rounds still yield questions (bounded by the time budget and 3 empty rounds) | **Done** (2026-11-25) |
 | Lecture checkpoints, school alignment on exam results | **Done** (2026-11-23/24) |
 | Learned question links (headings + precedents), manual linking, score-report upload, high-yield panel | **Done** (2026-11-24) |
 | Mastery ladder (per-objective rungs, discrimination step, delayed retest, readiness) | **Done** (2026-11-24); live behaviour still to be observed |
