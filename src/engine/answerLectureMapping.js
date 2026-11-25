@@ -22,7 +22,7 @@ export function applyAnsweredLectureMappings(session,changes) {
  if(!byId.size)return session;
  return {...session,questions:(session.questions || []).map(q=>{
   const patch=byId.get(q.questionId);if(!patch || q.curriculumLinkStatus==='user-confirmed')return q;
-  const {sessionId,questionId,...metadata}=patch;
+  const {sessionId:_sessionId,questionId:_questionId,...metadata}=patch;
   return {...q,...metadata};
  })};
 }

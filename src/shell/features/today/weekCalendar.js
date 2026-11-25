@@ -117,7 +117,7 @@ export function planStudyLoad(rows, { todayKey, examKey = null, horizonDays = 14
  * One week of lectures by the day they were given, plus reviews due each day.
  * lecScores rows come from generateDailySchedule (lec, availableDate, nextReview).
  */
-export function buildWeekCalendar({ lecScores = [], completion = {}, blockId, now = Date.now(), weekOffset = 0, examDate = null, objectivesFor = () => [], evidence = {} }) {
+export function buildWeekCalendar({ lecScores = [], completion = {}, blockId, now = Date.now(), weekOffset = 0, examDate = null, objectivesFor = () => [], evidence = {}, limit = DAILY_LIMIT }) {
   const start = weekStart(now, weekOffset);
   const todayKey = dateKey(now);
   const examKey = examDate ? dateKey(keyToDate(String(examDate).slice(0, 10))) : null;
@@ -129,6 +129,7 @@ export function buildWeekCalendar({ lecScores = [], completion = {}, blockId, no
     const strength = lectureReviewNeed(objectives, evidence, firstPass);
     return {
       id: lec.id,
+      lec,
       title: lec.lectureTitle || lec.fileName || lec.filename || "Lecture",
       type: lec.lectureType || "Lec",
       number: lec.lectureNumber ?? null,
@@ -139,7 +140,7 @@ export function buildWeekCalendar({ lecScores = [], completion = {}, blockId, no
       lastActivity: entry?.lastActivityDate || null,
     };
   });
-  const plan = planStudyLoad(rows, { todayKey, examKey });
+  const plan = planStudyLoad(rows, { todayKey, examKey, limit, firstPassLimit: Math.min(4, Math.max(1, Math.floor(limit / 2))) });
   const days = Array.from({ length: 7 }, (_, i) => {
     const date = new Date(start); date.setDate(start.getDate() + i);
     const key = dateKey(date);
@@ -156,4 +157,24 @@ export function buildWeekCalendar({ lecScores = [], completion = {}, blockId, no
     return { key, date, isToday: key === todayKey, isPast: key < todayKey, isExam: key === examKey, isWeekend: i >= 5, given, catchUp, reviews, load };
   });
   return { start, days, cap: plan.cap, behind: plan.behind, secure: plan.secure, skipped: plan.skipped.length, unscheduled: plan.unscheduled, label: `${days[0].date.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${days[6].date.toLocaleDateString("en-US", { month: "short", day: "numeric" })}` };
+}
+
+/** The order a day is worked through: new lectures, catch-up first passes, then reviews. */
+export function dayQueue(day) {
+  if (!day) return [];
+  return [
+    ...day.given.filter((row) => !row.firstPass.complete && row.firstPass.total > 0).map((row) => ({ row, kind: "first" })),
+    ...day.catchUp.map((row) => ({ row, kind: "first" })),
+    ...day.reviews.map((row) => ({ row, kind: "review" })),
+  ];
+}
+
+/** Objectives a review quiz should aim at: struggling, then least accurate, then unanswered. */
+export function weakFocusObjectiveIds(objectives = [], evidence = {}, n = 4) {
+  return objectivePracticePlan(objectives, evidence).rows
+    .map((row) => ({ id: row.id, score: row.struggling ? -1 : row.accuracy == null ? 0.5 : row.accuracy, ready: row.ready }))
+    .filter((row) => !row.ready)
+    .sort((a, b) => a.score - b.score)
+    .slice(0, n)
+    .map((row) => row.id);
 }

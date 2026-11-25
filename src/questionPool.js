@@ -211,7 +211,7 @@ export function createQuestionPool(userId, blockId, database = db) {
         return { ok: true };
       });
     },
-    async appendToSession(sessionId, question, { requestedCount, durationMinutes, generationDone = false } = {}) {
+    async appendToSession(sessionId, question, { requestedCount, durationMinutes: _durationMinutes, generationDone = false } = {}) {
       if (!question?.poolId) return { ok: false, reason: "missing-pool-id" };
       const sessionRef = doc(db, "users", userId, "examSessions", sessionId);
       const questionRef = doc(records, question.poolId);
@@ -273,7 +273,7 @@ export function createQuestionPool(userId, blockId, database = db) {
         return next;
       });
     },
-    async finishSessionFill(sessionId, { requestedCount, durationMinutes, error = "", blockedLectureIds = [] } = {}) {
+    async finishSessionFill(sessionId, { requestedCount, durationMinutes: _durationMinutes, error = "", blockedLectureIds = [] } = {}) {
       const sessionRef = doc(db, "users", userId, "examSessions", sessionId);
       return runTransaction(db, async tx => {
         const snap = await tx.get(sessionRef);

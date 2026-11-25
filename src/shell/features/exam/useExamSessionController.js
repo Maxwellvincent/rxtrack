@@ -151,7 +151,7 @@ export function useExamSessionController(sessionId, userId) {
     return () => {
       mountedRef.current = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `load` itself
+     
     // is derived from [userId, sessionId], so re-running on those is enough.
   }, [userId, sessionId]);
 
@@ -236,7 +236,7 @@ export function useExamSessionController(sessionId, userId) {
       document.removeEventListener("visibilitychange", bump);
       window.removeEventListener("focus", bump);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only the
+     
     // primitives below should re-arm the timer; `session` itself changes
     // identity on every optimistic answer merge and would otherwise thrash
     // the interval/listeners for no reason.

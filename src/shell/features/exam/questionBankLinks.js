@@ -207,6 +207,6 @@ export function lectureReviewSummary(session, labels = {}, objectivesById = {}) 
     }
     rows.set(q.lectureId, row);
   }
-  return [...rows.values()].map(row => ({ ...row, concepts: row.concepts.map(({ key, ...concept }) => concept) }))
+  return [...rows.values()].map(row => ({ ...row, concepts: row.concepts.map(({ key: _key, ...concept }) => concept) }))
     .sort((a, b) => b.misses - a.misses || a.correct / a.answered - b.correct / b.answered);
 }

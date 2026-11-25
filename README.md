@@ -5,7 +5,7 @@
 > updates this file in the same commit as the code. If it disagrees with the
 > tree, this file is the bug.
 >
-> Last verified against the tree: 2026-11-24
+> Last verified against the tree: 2026-11-25
 
 RXTrack is a personal medical-school study app: lectures and their learning
 objectives go in, and the app drives the study loop around them — pre-reads,
@@ -53,17 +53,21 @@ Top tabs (`src/shell/TabBar.jsx`):
 
 | Tab | Feature dir | What |
 |-----|-------------|------|
-| Today | `features/today` | one header line (date · exam countdown · day type), the week calendar (lectures on the day given + reviews due), then one card with tabs Focus (today's queue, work ahead, day schedule) · Exam sprint · Reviews (school review, slides-and-notes retrieval) · Progress (daily score, block practice, readiness) |
+| Today | `features/today` | one header line (date · exam countdown · day type), the planned week calendar (see Review spacing), then one card with tabs Today's plan (`TodayPlan.jsx`: today's calendar column as one queue with Start/Continue, reviews launched as 10-question quizzes on the lecture's weakest objectives, Skim for first passes that cannot fit; work ahead; day schedule) · Exam sprint (mixed timed exam link, school review, top-two sprint) · Progress (projected score `ProjectedScoreCard.jsx` / `projectedScore.js`: school-emphasis-weighted smoothed objective accuracy vs 80% with the five biggest gains; daily score, block practice, readiness) |
 | Lectures | `features/tracker` + `features/lectures` | list view: one stats line + search, tabs Focus (urgency-ranked released lectures) · Library (status/type/week/sort dropdowns, week groups, bulk select); compact rows with progress, accuracy, weak/ready counts and next review, Study/Quiz and a ⋯ menu (log study, date & details, rename, delete). Lecture workspace: pre-read, study flow; Practice tab is one card with a mastery-ladder status line and modes Quiz · Weak spots · Missed · Checkpoint (`PracticeModeTabs.jsx`), full ladder on the Progress tab; Learn tab is one card with modes Connections · Repairs (the Guide tab, guided tutor, mental-model, study-guide and lecture-facts views were removed, and lecture import no longer generates study guides or mental models; atoms are still extracted because quizzes use them); objective coverage/connections (incl. ✓/⚠ check that every slide objective code is uploaded, `objectiveCompleteness.js`), figures, question bank upload |
 | Objectives | `features/objectives` | objective tracker per block: one stats line and one tab bar with counts (By lecture · Needs repair · No answer evidence · Developing · Mastered · Coverage · Reference sources); By lecture is a single searchable list sorted by priority (or next review, lecture order, objective count) with each lecture's exam-aware next review date and a Due-for-review filter; PDF objective import, re-extract all and the answer-history audit live under ⋯ Tools; quiz launch |
-| Exam | `features/exam` | one stats line + tabs Start (resume, Practice a topic, prepared sets, optional subject weighting) · High yield · Weak concepts · Missed questions · Results (80% goal validation, dashboards, school-style alignment) · Question banks (bank uploads + score-report upload); timed/tutor exam sessions, **Practice a topic** (`TopicPractice.jsx` / `topicFocus.js`: type e.g. "PICA vs AICA, medial medulla"; matches objectives, key facts and on-demand lecture text in the block, case-sensitive abbreviations, then launches a focused repair set that follows the mastery ladder), prepared question sets, results (high-yield ranking `HighYieldPanel` / `blockHighYield.js`, score-report upload, school alignment panel, dashboards, weak areas, calibration, blueprint coverage) |
+| Exam | `features/exam` | one stats line + tabs Start (resume, Mixed timed exam — `mixedExam.js`, keyed school questions from every lecture in the block, round-robin by lecture, shuffled, 20–80 at 72 s; Practice a topic, prepared sets, optional subject weighting) · High yield · Weak concepts · Missed questions · Results (80% goal validation, dashboards, school-style alignment) · Question banks (bank uploads + score-report upload); timed/tutor exam sessions, **Practice a topic** (`TopicPractice.jsx` / `topicFocus.js`: type e.g. "PICA vs AICA, medial medulla"; matches objectives, key facts and on-demand lecture text in the block, case-sensitive abbreviations, then launches a focused repair set that follows the mastery ladder), prepared question sets, results (high-yield ranking `HighYieldPanel` / `blockHighYield.js`, score-report upload, school alignment panel, dashboards, weak areas, calibration, blueprint coverage) |
 | More | `Shell.jsx` `MoreTab` | one card with tabs Anki struggles (Struggle Tracker) · Admin (question diagnostics, allow-listed users only). Weak concepts live on the Exam tab and per lecture; the adaptive session, the calibration session and BlockHome were removed (saved calibration history is still read by readiness views) |
 
 IMCQ / school key decks (question slide followed by the same slide with the answer marked): `examParser.groupPairedKeySlides` pairs them by number, by repeated slide text (unnumbered D&M decks) or behind a running header (MSK), strips objective text from choices, and numbers unnumbered items by position. The marked answer is read by the AI image reader (one retry); if any answer cannot be read, `assertPairedKeysRead` stops the import and names the questions instead of saving them unkeyed.
 
 IMCQ deck + answer-explanation handout: uploading `NB+IMCQ+KEY_0N` (or `NB IMCQ N Practice Questions`) together with `NB IMCQ N Answer Explanations` makes one bank (`pairImcqExplanationFiles`, `mergeImcqKeyWithExplanations`): the deck keeps its original vignette, figures and choices; the handout supplies the written key (no AI image read for those items) and per-choice ✓/✗ notes as `whyWrong`; a deck slide the parser misses is filled from the handout; mismatched choice sets stop the import. Figure credits and scattered figure labels are stripped from choices.
 
-CBSE question banks: the ⋯ menu's Question banks item and the CBSE Prep page's "Upload CBSE question banks" link open the bank uploader filed under the `cbse-prep` block, defaulting to the supplemental source kind. `buildCbsePool` pools them with every block's school banks, while high-yield school emphasis ignores them. CBSE practice filters by source (`cbseSourceGroup`: All banks, ESoft + IMCQ, ESoft quizzes, IMCQs, Weekly practice / homework, NBME / USMLE samples — ESoft is recognized by filename even when filed as "school") and by term, with per-option counts.
+Importing: the ⋯ menu's **Add lectures** (`BulkImportModal.jsx`) takes files or a folder, one lecture per file, filling scheduled rows; its "Combine them" link opens `AddLectureModal.jsx` for several files that make one lecture (also used by re-extract). **Question banks** (`QuestionBankModal.jsx`) is one type picker (ExamSoft/exam · IMCQ · Homework · Clickers), one files/folder chooser (image-only selections import as clickers; stray images in document folders are skipped), Options (wrong-only, AI cleanup, hold out for testing) and the uploaded-bank list with confirm-before-delete.
+
+Missed questions can be marked learned (`MissedQuestions.jsx` → `rxt-dismissed-misses-v1`, `stores/dismissedMisses.js`): they leave the redo queue, accuracy history is unchanged, and a newer miss brings the question back.
+
+CBSE question banks: the ⋯ menu's Question banks item and the CBSE Prep page's "Upload CBSE question banks" link open the bank uploader filed under the `cbse-prep` block, defaulting to the supplemental source kind. `buildCbsePool` pools them with every block's school banks, while high-yield school emphasis ignores them. The CBSE page opens with **Today's set** (40 questions across all terms, weak areas and missed questions first, timed). After a block's exam day passes, the shell no longer restores that block on load and opens the next upcoming exam (NB 3 → CBSE Prep); a block picked during the session stays. CBSE practice filters by source (`cbseSourceGroup`: All banks, ESoft + IMCQ, ESoft quizzes, IMCQs, Weekly practice / homework, NBME / USMLE samples — ESoft is recognized by filename even when filed as "school") and by term, with per-option counts.
 
 **Score reports:** ExamSoft "Strengths and Improvement Opportunities" PDFs (ESoft quiz
 or NB main exam) are uploaded from CBSE Prep or Exam → Results (`ScoreReportUpload.jsx`,
@@ -221,10 +225,19 @@ which also pull older stored dates forward), and the lecture dashboard's
 1/3/7/14/30-day spacing still applies.
 
 The Today tab opens with a Monday-first week calendar (`features/today/WeekCalendar.jsx`,
-logic in `weekCalendar.js`): each day lists the lectures given that day with
-first-pass status (✓ done · ◐ in progress · ○ not started) and the exam-aware
-reviews due (↻). ‹ › pages between weeks; "Go through" opens the day's first
-unfinished lecture.
+logic in `weekCalendar.js`). Past days list the lectures given that day with
+first-pass status (✓ done · ◐ in progress · ○ not started). From today to the
+day before the exam, `planStudyLoad` plans each day under a daily limit
+(default 6 lectures, 4–8 selectable and stored per block as
+`rxt-daily-limit:{blockId}`): first passes first, oldest first, at most half
+the limit a day; then reviews (↻) ordered by need from `lectureReviewNeed`
+(lower accuracy, struggling objectives and thin evidence rank higher).
+Lectures with first pass done, ≥80% independent accuracy over enough answers
+and nothing struggling get no reviews. Reviews may move two days earlier or one
+later; one whose window passes with no room is dropped, lowest need first.
+First passes that cannot fit are listed for skimming. Rows are one line (code,
+short title, accuracy, origin day); ‹ › pages between weeks; Start opens the
+day's first item.
 
 ## Environment variables (client)
 
@@ -294,6 +307,8 @@ is superseded.
 | Mastery ladder (per-objective rungs, discrimination step, delayed retest, readiness) | **Done** (2026-11-24); live behaviour still to be observed |
 | NB Exam 2 scope + subject weighting, pre-test 80% validation | **Done**; live accuracy still being measured |
 | Cross-lecture integration questions (exam practice, 25% of each lecture's slots) | **Done** (2026-11-24); live yield not yet measured |
+| Capacity-planned Today (daily limit, need-ranked reviews, Today's plan queue, projected score, mixed timed exam, CBSE daily set) | **Done** (2026-11-25) |
+| Shared access for another user | **Not started** (needs a rules/auth design) |
 
 ## Other docs
 

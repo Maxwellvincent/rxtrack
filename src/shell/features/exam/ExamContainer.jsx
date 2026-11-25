@@ -16,6 +16,8 @@ import { QuestionBankManualLinks } from "./QuestionBankManualLinks.jsx";
 import { ScoreReportUpload } from "./ScoreReportUpload.jsx";
 import { HighYieldPanel } from "./HighYieldPanel.jsx";
 import { TopicPractice } from "./TopicPractice.jsx";
+import { selectMixedExamQuestions } from "./mixedExam.js";
+import { readPreference, writePreference } from "../../../browserStorage.js";
 import { blockBlueprintContext, blockBlueprintBanks } from "./blueprintScope.js";
 import { BpmBlueprintDashboard } from "./BpmBlueprintDashboard.jsx";
 import { recoverExamPreparation } from "./preparationRecovery.js";
@@ -110,6 +112,23 @@ function isValidCalendarDate(value) {
   const [year, month, day] = value.split("-").map(Number);
   const date = new Date(`${value}T12:00:00`);
   return !Number.isNaN(date.getTime()) && date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
+}
+
+/** Block-wide mixed timed exam from the block's own school questions. */
+function MixedExamCard({ blockId, blockName, banks, busy, isReserved, onStart }) {
+  const [count, setCount] = useState(40);
+  // Today's "Set up mixed exam" sets a one-shot highlight.
+  const [highlight] = useState(() => { const on = readPreference(`rxt-exam-mixed:${blockId}`) === "1"; if (on) writePreference(`rxt-exam-mixed:${blockId}`, ""); return on; });
+  const preview = useMemo(() => selectMixedExamQuestions(banks, { count, isReserved }), [banks, count, isReserved]);
+  if (!preview.available) return null;
+  return <section aria-label="Mixed timed exam" className={`mb-4 rounded-xl border bg-bg-elevated p-4 ${highlight ? "border-2 border-accent" : "border-border"}`}>
+    <h2 className="text-sm font-bold text-text-1">Mixed timed exam · {blockName || "this block"}</h2>
+    <p className="mt-1 text-sm text-text-2">Keyed school questions from {preview.lectures} lectures, spread evenly and shuffled, at 72 seconds each. {preview.available} available.</p>
+    <div className="mt-2 flex flex-wrap items-center gap-2">
+      <label className="text-sm">Questions <select aria-label="Mixed exam length" value={count} onChange={(event) => setCount(Number(event.target.value))} className="rounded border border-border bg-bg p-1">{[20, 40, 60, 80].map((n) => <option key={n} value={n} disabled={n > preview.available && n !== 20}>{n}</option>)}</select></label>
+      <Button disabled={busy || !preview.questions.length} onClick={() => onStart(selectMixedExamQuestions(banks, { count, isReserved }).questions)}>Start {Math.min(count, preview.available)}-question timed exam</Button>
+    </div>
+  </section>;
 }
 
 export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture }) {
@@ -862,7 +881,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
         { id: "banks", label: "Question banks", badge: blockQuestionBanks.length || null },
       ]} /></div>
       {examPageSection==='results'&&<>{validationError&&<p role="alert">{validationError}</p>}<ReadinessValidation key={blockId} userId={userId} blockId={blockId} blockName={blockName} lectures={lectures} objectives={objectives} evidence={blueprintEvidenceRes.data||{}} ratings={questionRatingsRes.data?.ratings||{}} sessions={validationSessions} loading={validationLoading||!!validationError||lecturesRes.loading||!!lecturesRes.error||objectivesRes.loading||!!objectivesRes.error||blueprintEvidenceRes.loading||!!blueprintEvidenceRes.error||questionRatingsRes.loading||!!questionRatingsRes.error} onRefresh={refreshBankAttempts}/></>}
-      {examPageSection === 'missed' && <MissedQuestions evidence={blueprintEvidenceRes.data || {}} blockId={blockId} lectures={lectures} busy={!!bankLaunching} onReplay={questions=>handleBankLaunch({filename:'Missed questions · all sources',questions},'practice',questions)} onStudy={group=>onNavigateToLecture?.(group.lectureId,{focusObjectiveIds:[...new Set(group.questions.flatMap(q=>q.objectiveIds||[]))],weakConcept:group.concept})} />}
+      {examPageSection === 'missed' && <MissedQuestions userId={userId} evidence={blueprintEvidenceRes.data || {}} blockId={blockId} lectures={lectures} busy={!!bankLaunching} onReplay={questions=>handleBankLaunch({filename:'Missed questions · all sources',questions},'practice',questions)} onStudy={group=>onNavigateToLecture?.(group.lectureId,{focusObjectiveIds:[...new Set(group.questions.flatMap(q=>q.objectiveIds||[]))],weakConcept:group.concept})} />}
 
       {showLaunchModal && (
         <ExamLaunchModal
@@ -916,6 +935,10 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           }}>Remove</Button></div>
         </div>)}</div>
       </section>}
+
+      <MixedExamCard blockId={blockId} blockName={blockName} banks={blockQuestionBanks} busy={!!bankLaunching || sourceUseRes.loading || !!sourceUseRes.error}
+        isReserved={question => isEvaluationReserved(question, sourceUseRes.data || {})}
+        onStart={questions => handleBankLaunch({ filename: `Mixed timed exam · ${blockName || "block"}`, questions }, "exam", questions)} />
 
       <TopicPractice blockId={blockId} userId={userId} lectures={lectures} objectives={objectives} onPractice={openExamLaunch} />
 

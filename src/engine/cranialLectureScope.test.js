@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { cranialNerveScope, repairCranialLectureLinks } from './cranialLectureScope.js';
-import { matchLectureToSection, extractCodeDelimited } from '../ingest/objectives.js';
+import { matchLectureToSection } from '../ingest/objectives.js';
 const lecture={id:'17',blockId:'nb',lectureTitle:'NB 17 Cranial Nerves IX and X'};
 const other={id:'13',blockId:'nb',lectureTitle:'NB 13 Cranial Nerves V and VII'};
 const incoming=[175,176,177].map(n=>({id:`new-${n}`,code:`SOM.ANAT.0${n}`,linkedLecId:'17',sourceFile:'17',objective:'Describe glossopharyngeal nerve'}));

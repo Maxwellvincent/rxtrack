@@ -32,3 +32,11 @@ describe('clearing a miss with a correct redo',()=>{
   expect(missedQuestionGroups({learningJournal:[miss,redo]},{blockId:'b'}).flatMap(g=>g.questions)).toHaveLength(0);
  });
 });
+describe('marking a miss as learned',()=>{
+ it('hides a miss marked learned after it happened, and a newer miss brings it back',()=>{
+  const first=missedQuestionGroups({learningJournal:[event('1','Projection',5)]});
+  const id=first[0].questions[0].questionId;
+  expect(missedQuestionGroups({learningJournal:[event('1','Projection',5)]},{dismissed:{ids:{[id]:6}}})).toHaveLength(0);
+  expect(missedQuestionGroups({learningJournal:[event('1','Projection',5),event('1','Projection',7)]},{dismissed:{ids:{[id]:6}}})).toHaveLength(1);
+ });
+});

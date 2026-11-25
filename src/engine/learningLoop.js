@@ -19,7 +19,7 @@ export function missContextForAnswer(question={}, selected, correct, assisted=fa
  return {topic:full.topic,identity:schoolQuestionIdentity({stem:question.stem,choices:question.choices,correct:question.correct})};
 }
 /** Only observed answer contrasts and explicitly saved learning notes; never infer a diagnosis. */
-export function learningFocus({objectives=[], evidence={}, blockId, lectureId, tutorProfile={}}={}) {
+export function learningFocus({objectives=[], evidence={}, blockId, lectureId:_lectureId, tutorProfile={}}={}) {
  const ids=new Set(objectives.map(o=>String(o.id || o.code)));
  const relevant=item=>(!blockId || !item.blockId || item.blockId===blockId) && (item.objectiveIds || (item.objectiveId ? [item.objectiveId] : [])).some(id=>ids.has(String(id)));
  const events=(evidence.learningJournal || evidence.evidenceJournal || []).filter(event=>isIndependentAttempt(event)&&relevant(event));

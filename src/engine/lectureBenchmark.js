@@ -23,10 +23,6 @@ function matchesAny(text, patterns = []) {
   });
 }
 
-function codeSet(value) {
-  return new Set((Array.isArray(value) ? value : [value]).filter(Boolean).map(String));
-}
-
 function normalizeObjectiveCode(code) {
   return String(code || "").replace(/\s+/g, "").replace(/^SOM\.?/i, "SOM.");
 }

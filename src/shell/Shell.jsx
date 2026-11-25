@@ -210,10 +210,17 @@ function ShellMain({ theme, toggle, userId }) {
   // Exam dates decide where an unselected shell lands: the block whose exam is
   // next is the one being studied.
   const examDates = useExamDates(userId);
+  // A block restored from last session whose exam has passed gives way to the
+  // next upcoming exam (NB 3 → CBSE the day after); a block picked this session stays.
+  const [pickedThisSession, setPickedThisSession] = useState(false);
+  const pickBlock = useCallback((id) => { setPickedThisSession(true); setSelectedBlockId(id); }, []);
+  const [openedOn] = useState(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; });
+  const planningExamDates = useMemo(() => ({ ...Object.fromEntries(blocks.filter((b) => b.examDate).map((b) => [b.id, b.examDate])), ...(examDates.data || {}) }), [blocks, examDates.data]);
+  const restoredExamPassed = !pickedThisSession && !!selectedBlockId && String(planningExamDates[selectedBlockId] || "9999").slice(0, 10) < openedOn;
   const activeBlockId =
-    selectedBlockId && blocks.some((b) => b.id === selectedBlockId)
+    selectedBlockId && blocks.some((b) => b.id === selectedBlockId) && !restoredExamPassed
       ? selectedBlockId
-      : defaultBlockId(blocks, readCollapsedTerms(), examDates.data);
+      : defaultBlockId(blocks, readCollapsedTerms(), planningExamDates);
   useEffect(()=>{
     if(!userId||termsResource.loading||termsResource.error||reviewModuleForBlock(termsResource.data,activeBlockId)!=='NB2')return;
     import('../stores/reviewLibrary.js').then(store=>store.ensureReviewLibrary(userId,activeBlockId)).catch(error=>console.warn('NB2 review-source sync:',error.message));
@@ -339,12 +346,12 @@ function ShellMain({ theme, toggle, userId }) {
   const onStudyLecture = useCallback((lectureId, opts = {}) => {
     const lecture = (lecturesStore.read(userId) || []).find((l) => l?.id === lectureId);
     if (!lecture) return;
-    setSelectedBlockId(lecture.blockId);
+    pickBlock(lecture.blockId);
     setStudyLecture(lecture);
     setStudyFocusObjectiveIds(opts.focusObjectiveIds || null);
     setExamRepairContext(opts.repairContext || null);
     setPendingAutoQuiz(opts.autoQuiz ? { focusObjectiveIds: opts.focusObjectiveIds || null, questionCount: opts.questionCount } : null);
-  }, [userId]);
+  }, [userId, pickBlock]);
 
   // Every "Quiz" button used to call this directly (objectives, lectureTitle, blockId, extraMeta)
   // to launch Shell's OWN generation + a separate top-level AtomQuiz overlay — a second runner
@@ -367,7 +374,7 @@ function ShellMain({ theme, toggle, userId }) {
         userId={userId}
         activeBlockId={activeBlockId}
         onSelectBlock={(id) => {
-          setSelectedBlockId(id);
+          pickBlock(id);
           setTab("today");
           setMoreView(null);
           setStudyLecture(null);
@@ -441,7 +448,7 @@ function ShellMain({ theme, toggle, userId }) {
               />
             </div>
           ) : activeBlockId === CBSE_BLOCK_ID ? (
-            <CbseDashboard userId={userId} block={active} onReviewLecture={id => { switchTab("lectures"); onStudyLecture(id); }} onManageSources={id => { setSelectedBlockId(id); setShowQuestionBanks(true); }} onUploadBanks={() => setShowQuestionBanks(true)} />
+            <CbseDashboard userId={userId} block={active} onReviewLecture={id => { switchTab("lectures"); onStudyLecture(id); }} onManageSources={id => { pickBlock(id); setShowQuestionBanks(true); }} onUploadBanks={() => setShowQuestionBanks(true)} />
           ) : tab === "lectures" && activeBlockId ? (
             <LectureList
               blockId={activeBlockId}
@@ -502,7 +509,7 @@ function ShellMain({ theme, toggle, userId }) {
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}
         items={paletteItems}
-        onPick={(it) => { setSelectedBlockId(it.id); setTab("today"); setMoreView(null); setStudyLecture(null); setPendingAutoQuiz(null); }}
+        onPick={(it) => { pickBlock(it.id); setTab("today"); setMoreView(null); setStudyLecture(null); setPendingAutoQuiz(null); }}
       />
       {showImportObjectives && activeBlockId && (
         <ImportObjectivesPdfModal

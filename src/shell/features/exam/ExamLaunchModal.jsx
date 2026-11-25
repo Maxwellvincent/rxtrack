@@ -41,8 +41,8 @@ export function examBlueprint(eligibleLectures = [], questionCount = 0) {
  *     can't fire a second launch.
  */
 export function ExamLaunchModal({
-  blockId,
-  userId,
+  blockId: _blockId,
+  userId: _userId,
   eligibleLectures = [],
   defaultBlueprintExam = "",
   defaultStudyMode = "balanced",

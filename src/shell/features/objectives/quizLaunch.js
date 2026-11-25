@@ -14,7 +14,7 @@ import {linkedConceptPlan, linkedConceptInstruction, attributeLinkedConcept, obj
 import { learningFocus } from "../../../engine/learningLoop.js";
 import { getLearnerProfile } from "../../../stores/tutorSessions.js";
 import { feedbackFor } from "../../../stores/questionRatings.js";
-import { lectureSourceObjectives, repairSourceObjectiveLinks, sourceObjectiveTextConflict, sourceObjectiveMatch } from "../../../engine/sourceObjectiveScope.js";
+import { lectureSourceObjectives, repairSourceObjectiveLinks, sourceObjectiveMatch } from "../../../engine/sourceObjectiveScope.js";
 import { cleanSchoolQuestion } from "../../../engine/schoolSourceText.js";
 import { preparationErrorMessage, preparationReviewSummary } from "../../../preparationError.js";
 import { withDeadline } from "../../../asyncDeadline.js";

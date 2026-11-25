@@ -5,6 +5,7 @@ import {objectivesWithConnectionGaps} from '../../../engine/objectiveConnections
 import {UnfinishedLectureQuizzes} from "./UnfinishedLectureQuizzes.jsx";
 import {MissedQuestions} from '../../../ui/MissedQuestions.jsx';
 import {missedQuestionGroups} from '../../../engine/missedQuestions.js';
+import * as dismissedMissesStore from '../../../stores/dismissedMisses.js';
 import {PracticeModeTabs} from './PracticeModeTabs.jsx';
 import {repairTransferPlan,repairTransferPrompt} from "../../../engine/repairTransfer.js";
 import {isIndependentAttempt} from '../../../engine/practiceAssistance.js';
@@ -607,7 +608,8 @@ export function LectureStudyFlow({
   }, [lectureObjectives, focusObjectiveIds, learnerEvidence.data]);
 
   const practiceExamDate=useMemo(()=>{ const raw = examDates?.[blockId]?.examDate ?? examDates?.[blockId]; const ms = raw ? Date.parse(raw) : NaN; return Number.isFinite(ms) ? ms : null; },[examDates,blockId]);
-  const missedCount=useMemo(()=>missedQuestionGroups(learnerEvidence.data||{},{blockId,lectureId:lecture?.id}).reduce((n,group)=>n+group.questions.length,0),[learnerEvidence.data,blockId,lecture?.id]);
+  const dismissedMisses=useStoreResource(dismissedMissesStore,userId);
+  const missedCount=useMemo(()=>missedQuestionGroups(learnerEvidence.data||{},{blockId,lectureId:lecture?.id,dismissed:dismissedMisses.data}).reduce((n,group)=>n+group.questions.length,0),[learnerEvidence.data,blockId,lecture?.id,dismissedMisses.data]);
 
   const [, setPreparationDetails] = useState(null);
   useEffect(() => { setPreparationDetails(readQuestionDiagnostics(userId, lecture?.id)); }, [userId, lecture?.id]);
@@ -1487,7 +1489,7 @@ export function LectureStudyFlow({
             })}
           </ul>
         </div> : <p className="text-sm text-text-3">✓ No active weak concepts in this lecture.</p>)}
-        {practiceMode === "missed" && <MissedQuestions bare evidence={learnerEvidence.data || {}} blockId={blockId} lectureId={lecture?.id} lectures={[lecture]} busy={!!busy||checkpointPreparing || !!questions} onReplay={items=>{setAdHocQuiz(true);startQuizSession(items);}} onStudy={()=>setWorkspace('learn')} />}
+        {practiceMode === "missed" && <MissedQuestions bare userId={userId} evidence={learnerEvidence.data || {}} blockId={blockId} lectureId={lecture?.id} lectures={[lecture]} busy={!!busy||checkpointPreparing || !!questions} onReplay={items=>{setAdHocQuiz(true);startQuizSession(items);}} onStudy={()=>setWorkspace('learn')} />}
         {practiceMode === "checkpoint" && <LectureCheckpoint bare userId={userId} lecture={lecture} blockId={blockId} busy={!!busy||checkpointPreparing||!!questions||schoolExamplesLoading||learnerEvidence.loading} onOpenSession={setCheckpointSession} onWorkingChange={setCheckpointPreparing} config={{objectives:objectivesWithConnectionGaps(orderedObjectives,relationshipResource.data,learnerEvidence.data||{},connectionScope),evidenceModel:learnerEvidence.data,lectureText:text,sourcePages:connectionScope.pages,atoms,exemplars:schoolExemplars,difficulty:resolveDefaultDifficulty(qStats.accuracy)}} />}
       </section>
 

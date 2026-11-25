@@ -74,10 +74,10 @@ export function CbseDashboard({ userId, block, onReviewLecture, onManageSources,
   const loading = resources.some(resource => resource.loading) || history.userId !== userId;
   const loadError = resources.find(resource => resource.error)?.error?.message || (history.userId === userId ? history.error : null);
   const completed = useCallback(() => { setActive(null); setRefresh(value => value+1); }, []);
-  const launch = async format => {
+  const launch = async (format, preset = null) => {
     setError(""); setBusy(true);
     try {
-      const selected = selectCbseQuestions(pool.questions, progress, { count: Number(count), mode, source, term });
+      const selected = selectCbseQuestions(pool.questions, progress, preset || { count: Number(count), mode, source, term });
       if (selected.error) throw new Error(selected.error);
       const now = Date.now(), sessionId = crypto.randomUUID();
       const session = createSessionShape({ sessionId, blockId: CBSE_BLOCK_ID, format, title: source === "all" ? "CBSE Prep" : `CBSE Prep · ${sourceLabel}`, contentScope: "cbse:all-terms",
@@ -105,6 +105,11 @@ export function CbseDashboard({ userId, block, onReviewLecture, onManageSources,
     <header><p className="text-sm font-semibold text-accent">All terms · comprehensive practice</p><h1 className="mt-1 text-3xl font-bold">CBSE Prep</h1><p className="mt-2 text-text-2">Practice → review → repair → retest · Exam window {block.examDate || examStart} – {block.examWindowEnd || examEnd} · {days} days to the earlier date</p></header>
     {loading && <p role="status">Loading school sources and performance across your terms…</p>}
     {(error || loadError) && <div role="alert" className="rounded-lg border border-bad p-3">{error || loadError}<button className="ml-3 underline" onClick={() => setRefresh(value => value+1)}>Reload results</button></div>}
+    {!loading && !loadError && pool.questions.length > 0 && <section aria-label="Today's CBSE set" className="rounded-xl border-2 border-accent p-5">
+      <h2 className="text-lg font-semibold">Today&apos;s set</h2>
+      <p className="mt-1 text-sm text-text-2">{Math.min(40, pool.questions.length)} questions across every term, weak areas and missed questions first, timed at 72 seconds each. One set a day until the exam{days ? ` (${days} left)` : ""}; review the misses before the next.</p>
+      <button disabled={busy} className="mt-3 rounded-lg bg-accent px-5 py-3 font-semibold text-white disabled:opacity-40" onClick={() => launch("exam", { count: Math.min(40, pool.questions.length), mode: "weak", source: "all", term: "all" })}>Start today&apos;s set</button>
+    </section>}
     <section className="rounded-xl border border-accent/40 bg-panel p-5"><h2 className="text-lg font-semibold">Your next practice</h2><div className="mt-4 flex flex-wrap items-end gap-3">
       <label className="text-sm">Questions<input aria-label="Question count" type="number" min="1" max="80" value={count} onChange={e => setCount(e.target.value)} className="mt-1 block w-24 rounded border border-border bg-bg p-2" /></label>
       <label className="text-sm">Focus<select value={mode} onChange={e => setMode(e.target.value)} className="mt-1 block rounded border border-border bg-bg p-2"><option value="balanced">Mixed review</option><option value="weak">Weak areas & missed questions</option><option value="unseen">Unseen school questions</option></select></label>

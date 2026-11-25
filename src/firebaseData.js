@@ -20,7 +20,7 @@ import { encodeDocId, decodeDocId } from "./idCodec";
 import {writeJson} from "./stores/base.js";
 import { storeForKey } from "./stores/index.js";
 import { applyLocalCap, SKIP_ON_PULL } from "./stores/capped.js";
-import { createSessionShape, sessionBytes, MAX_EXAM_SESSION_BYTES } from "./examSessions.js";
+import { sessionBytes, MAX_EXAM_SESSION_BYTES } from "./examSessions.js";
 import { stripLectureBodyForLocalCache } from "./shell/logic/lectureMetaCache.js";
 import { hasLectureMetadata } from "./shell/logic/lectureCloudRecord.js";
 import { stripUndefined } from "./stores/cloudBase.js";

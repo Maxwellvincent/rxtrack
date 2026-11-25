@@ -11,7 +11,6 @@ import { practiceSection, practiceSections, sectionQuestionIndices, firstSection
 import { restoreVisualChoices } from "../../../engine/visualChoiceLabels.js";
 import { splitQuestionStemSource } from "../../../engine/questionStemSource.js";
 import { ObjectiveLearningReport } from "../../../ui/ObjectiveLearningReport.jsx";
-import { questionLearningContext } from "../../../engine/learningLoop.js";
 import * as learnerEvidenceStore from "../../../stores/learnerEvidence.js";
 import * as questionFigures from "../../../stores/questionFigures.js";
 import { useStoreResource } from "../../hooks/useStoreResource.js";

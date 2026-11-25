@@ -3,11 +3,13 @@ import { readPreference, writePreference } from "../../../browserStorage.js";
 import { useCallback, useState, useMemo, useEffect } from "react";
 import { Button } from "../../../ui/Button.jsx";
 import { useToday } from "./useToday.js";
-import { ModelRetrievalCard } from "./ModelRetrievalCard.jsx";
 import { SchoolReviewCard } from "./SchoolReviewCard.jsx";
 import { BlockReadinessDashboard } from "./BlockReadinessDashboard.jsx";
 import { ExamSprintCard } from "./ExamSprintCard.jsx";
 import { WeekCalendar } from "./WeekCalendar.jsx";
+import { TodayPlan } from "./TodayPlan.jsx";
+import { ProjectedScoreCard } from "./ProjectedScoreCard.jsx";
+import { buildWeekCalendar, weakFocusObjectiveIds, DAILY_LIMIT } from "./weekCalendar.js";
 import { PracticeModeTabs } from "../lectures/PracticeModeTabs.jsx";
 import { DailyQuestionScore } from "./DailyQuestionScore.jsx";
 import { CompactQuestionProgress } from "./BlockPracticeCard.jsx";
@@ -15,7 +17,7 @@ import { PreReadModal } from "../lectures/PreReadModal.jsx";
 import { usePreReadPrefetch } from "../lectures/usePreReadPrefetch.js";
 import * as examDatesStore from "../../../stores/examDates.js";
 import * as termsStore from "../../../stores/terms.js";
-import { buildResetFocusPlan, readChecked, writeChecked } from "./todayProgress.js";
+import { readChecked, writeChecked } from "./todayProgress.js";
 import { evidenceAwareObjectives } from "../../logic/schedule.js";
 
 // ─── Day mode ────────────────────────────────────────────────────────────────
@@ -31,6 +33,7 @@ function dayModeKey(blockId, todayKey) { return `rxt-day-mode-${blockId}-${today
 function readDayMode(blockId, todayKey) { const saved = readPreference(dayModeKey(blockId, todayKey)); return DAY_MODES.some(mode => mode.id === saved) ? saved : null; }
 function writeDayMode(blockId, todayKey, mode) { return writePreference(dayModeKey(blockId, todayKey), mode || ""); }
 
+function readDailyLimit(blockId) { const n = Number(readPreference(`rxt-daily-limit:${blockId}`)); return n >= 4 && n <= 8 ? n : DAILY_LIMIT; }
 function sleepWakeKey(blockId) { return `rxt-sleepwake-${blockId}-${studyDayDate().toDateString()}`; }
 function readSleepWake(blockId) {
   try { return JSON.parse(readPreference(sleepWakeKey(blockId)) || "{}"); }
@@ -298,30 +301,8 @@ export function computeSchedule(mode, wakeTime, lectureTime, lectureDuration, co
 
 // ─── Checked + session state (day-scoped per block) ───────────────────────
 
-function focusPlanKey(blockId, todayKey, mode) {
-  // v2 invalidates the old exam plan once so the evidence-aware repair +
-  // coverage selection reaches an already-open day without repeatedly
-  // reshuffling the plan after that migration.
-  return `rxt-focus-plan-v2-${blockId}-${todayKey}-${mode || "default"}`;
-}
 
-function readFocusPlan(blockId, todayKey, mode) {
-  try {
-    const key = focusPlanKey(blockId, todayKey, mode);
-    const saved = sessionStorage.getItem(key) || localStorage.getItem(key);
-    const parsed = JSON.parse(saved || "null");
-    return Array.isArray(parsed) ? parsed.filter(Boolean) : null;
-  } catch {
-    return null;
-  }
-}
 
-function writeFocusPlan(blockId, todayKey, mode, ids) {
-  const key = focusPlanKey(blockId, todayKey, mode);
-  const value = JSON.stringify(ids);
-  try { localStorage.setItem(key, value); } catch { /* full browser cache */ }
-  try { sessionStorage.setItem(key, value); } catch { /* in-memory state remains */ }
-}
 
 /** Freeze today's initial workload; completed rows count before any scheduler backfill. */
 export function reconcileScheduledFocusPlan(stored = [], tasks = []) {
@@ -920,7 +901,7 @@ function ExamDatePicker({ blockId, userId }) {
 // ─── Main Today component ─────────────────────────────────────────────────────
 
 export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, onOpenExam, quizBusyLectureId = null }) {
-  const { context, daily, todayTasks, todayReason, nextDay, examDate, daysLeft, logActivity, logPreRead, preReadFor, workAhead, objectivesForTask, nextReviewByLectureId, todayKey } =
+  const { context, daily, examDate, daysLeft, logPreRead, preReadFor, workAhead, objectivesForTask, todayKey } =
     useToday(blockId, userId);
 
   const [preReadTarget, setPreReadTarget] = useState(null);
@@ -938,11 +919,12 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
   const [dayMode, setDayMode] = useState(() => readDayMode(blockId, todayKey));
   const [modePickerOpen, setModePickerOpen] = useState(false);
   const [checked, setChecked] = useState(() => readChecked(blockId));
-  const [sessionCounts, setSessionCounts] = useState(() => readSessionCounts(blockId));
+  const [, setSessionCounts] = useState(() => readSessionCounts(blockId));
   const [wakeTime, setWakeTime] = useState(() => readSleepWake(blockId).wakeTime ?? null);
   const [lecConfig, setLecConfig] = useState(() => readLecConfig(blockId));
   const [logFeedback, setLogFeedback] = useState(null);
-  const [todayView, setTodayView] = useState("focus");
+  const [todayView, setTodayView] = useState("plan");
+  const [dailyLimit, setDailyLimit] = useState(() => readDailyLimit(blockId));
   const completedQuizIds = useMemo(
     () => completedLectureQuizIdsToday(context?.lecturePerformance, todayKey),
     [context?.lecturePerformance, todayKey]
@@ -991,28 +973,6 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
     setStorageNotice(saved ? "" : "Browser storage is full. Your mode is active for this session but may reset after a reload.");
     setModePickerOpen(false);
   }, [blockId, todayKey]);
-
-  const handleCheck = useCallback((id) => {
-    setChecked((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      writeChecked(blockId, next);
-      return next;
-    });
-  }, [blockId]);
-
-  const onLog = useCallback((lectureId, activityType, confidenceRating) => {
-    const entry = logActivity({ lectureId, activityType, confidenceRating });
-    setLogFeedback(entry ? `Logged — next review ${entry.reviewDates?.[0] ?? "scheduled"}` : "Could not log.");
-    // Auto-check on log
-    setChecked((prev) => {
-      const next = new Set(prev);
-      next.add(lectureId);
-      writeChecked(blockId, next);
-      return next;
-    });
-    setTimeout(() => setLogFeedback(null), 4000);
-  }, [logActivity, blockId]);
 
   // Auto-check when LectureStudyFlow reports ≥60% of rounds done
   useEffect(() => {
@@ -1066,6 +1026,29 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
     onStartObjectiveQuiz?.(objectives, title, blockId, { lectureId: task.lec.id, focusObjectiveIds, questionCount: task.questionCount });
   }, [objectivesForTask, onStartObjectiveQuiz, blockId, preReadFor, currentLearnerEvidence, effectiveMode]);
 
+  const changeDailyLimit = useCallback((n) => { setDailyLimit(n); writePreference(`rxt-daily-limit:${blockId}`, String(n)); }, [blockId]);
+  const evidenceForPlan = context?.learnerEvidence;
+  const planCompletion = context?.completion, planNow = context?.now, planLectures = context?.lectures;
+  const todayCal = useMemo(() => examDate ? buildWeekCalendar({ lecScores: daily?.lecScores || [], completion: planCompletion || {}, blockId, now: planNow, examDate, objectivesFor: objectivesForTask, evidence: evidenceForPlan || {}, limit: dailyLimit }) : null,
+    [daily?.lecScores, planCompletion, planNow, blockId, examDate, objectivesForTask, evidenceForPlan, dailyLimit]);
+  const todayDay = todayCal?.days.find((day) => day.isToday) || null;
+  // A review is a short quiz aimed at the lecture's weakest objectives.
+  const onReview = useCallback((row) => {
+    onQuiz({ lec: row.lec, matchReason: "review", questionCount: 10, focusObjectiveIds: weakFocusObjectiveIds(objectivesForTask(row.id), evidenceForPlan || {}) });
+  }, [onQuiz, objectivesForTask, evidenceForPlan]);
+  const onSkim = useCallback((row) => {
+    onQuiz({ lec: row.lec, matchReason: "skim", questionCount: 5, focusObjectiveIds: [] });
+  }, [onQuiz]);
+  const onPracticeObjective = useCallback((objective) => {
+    const lec = (planLectures || []).find((lecture) => lecture.id === objective.lectureId);
+    if (lec) onQuiz({ lec, matchReason: "repair", questionCount: 6, focusObjectiveIds: [objective.id] });
+  }, [planLectures, onQuiz]);
+  const openMixedExam = useCallback(() => {
+    writePreference(`rxt-exam-page:${blockId}`, "start");
+    writePreference(`rxt-exam-mixed:${blockId}`, "1");
+    onOpenExam?.();
+  }, [blockId, onOpenExam]);
+
   const onPreReadDone = useCallback(({ lectureId, gapObjectiveIds, durationMinutes }) => {
     const entry = logPreRead({ lectureId, gapObjectiveIds, durationMinutes });
     setLogFeedback(
@@ -1075,84 +1058,6 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
     );
     setTimeout(() => setLogFeedback(null), 4000);
   }, [logPreRead]);
-
-  // Day mode proposes a workload. A daily snapshot below prevents the scheduler
-  // from silently replacing completed rows and resetting apparent progress.
-  const candidateTasks = useMemo(() => {
-    const mode = effectiveMode;
-    if (!mode) return todayTasks;
-    if (mode === "lecture") {
-      const scheduled = todayTasks.filter((t) => t.matchReason === "scheduled-day");
-      const due = todayTasks.filter((t) => t.matchReason === "spaced-rep-due").slice(0, 2);
-      const catchUp = todayTasks.filter((t) => t.matchReason === "catch-up").slice(0, Math.max(0, 2 - due.length));
-      return [...scheduled, ...due, ...catchUp];
-    }
-    if (mode === "review") {
-      return todayTasks
-        .filter((t) => t.matchReason !== "scheduled-day")
-        .slice(0, 2);
-    }
-    if (mode === "exam") {
-      return selectExamPrepTasks(daily?.lecScores || todayTasks, 3);
-    }
-    if (mode === "triage") {
-      const seen = todayTasks.filter((t) => (t.sessions ?? 0) > 0);
-      const pool = seen.length >= 2 ? seen : todayTasks;
-      return pool.slice(0, 2);
-    }
-    return todayTasks;
-  }, [effectiveMode, todayTasks, daily?.lecScores]);
-
-  // The plan is derived from the stored plan (or built fresh); storage writes
-  // happen in an effect. Actions bump planRevision after writing a new plan.
-  const [planRevision, setPlanRevision] = useState(0);
-  const focusPlan = useMemo(() => {
-    const stored = readFocusPlan(blockId, todayKey, effectiveMode);
-    if (stored) {
-      const ids = reconcileScheduledFocusPlan(stored, candidateTasks);
-      return { ids, persist: ids.length !== stored.length ? ids : null };
-    }
-    const ids = buildFocusPlan(candidateTasks.map((task) => task.lec.id), [...checkedForToday]);
-    return { ids, persist: ids.length ? ids : null };
-    // planRevision re-reads storage after an action wrote a new plan.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [blockId, todayKey, effectiveMode, candidateTasks, checkedForToday, planRevision]);
-  useEffect(() => {
-    if (focusPlan.persist) writeFocusPlan(blockId, todayKey, effectiveMode, focusPlan.persist);
-  }, [focusPlan, blockId, todayKey, effectiveMode]);
-
-  const focusPlanIds = focusPlan.ids;
-  const focusPlanSet = useMemo(() => new Set(focusPlanIds), [focusPlanIds]);
-  const filteredTasks = useMemo(
-    () => candidateTasks.filter((task) => focusPlanSet.has(task.lec.id)),
-    [candidateTasks, focusPlanSet]
-  );
-  const doneCount = useMemo(() => focusPlanIds.filter((id) => checkedForToday.has(id)).length, [focusPlanIds, checkedForToday]);
-  const planComplete = focusPlanIds.length > 0 && doneCount === focusPlanIds.length;
-  const firstUnchecked = useMemo(() => filteredTasks.find((t) => !checkedForToday.has(t.lec.id))?.lec.id ?? null, [filteredTasks, checkedForToday]);
-
-  const startAnotherSet = useCallback(() => {
-    // Keep today's completed rows and extend the day's plan with newly surfaced
-    // recommendations. Starting another set must not turn 3/3 back into 0/3.
-    const planned = new Set(focusPlanIds);
-    const completed = new Set(checkedForToday);
-    const nextIds = candidateTasks
-      .map((task) => task.lec.id)
-      .filter((id, index, ids) => id && !planned.has(id) && !completed.has(id) && ids.indexOf(id) === index)
-      .slice(0, 3);
-    if (!nextIds.length) return;
-    const ids = [...focusPlanIds, ...nextIds];
-    writeFocusPlan(blockId, todayKey, effectiveMode, ids);
-    setPlanRevision((revision) => revision + 1);
-  }, [blockId, todayKey, effectiveMode, candidateTasks, focusPlanIds, checkedForToday]);
-  const resetTodaySet = useCallback(() => {
-    const ids = buildResetFocusPlan(candidateTasks.map((task) => task.lec.id), [...checkedForToday], 3);
-    writeFocusPlan(blockId, todayKey, effectiveMode, ids);
-    setPlanRevision((revision) => revision + 1);
-  }, [blockId, todayKey, effectiveMode, candidateTasks, checkedForToday]);
-  const canExtendFocusPlan = candidateTasks.some((task) =>
-    task.lec?.id && !focusPlanSet.has(task.lec.id) && !checkedForToday.has(task.lec.id)
-  );
 
   const today = studyDayDate(context.now, userId);
   const dateStr = today.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
@@ -1176,71 +1081,18 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
       </div>
       {modePickerOpen && <div><DayModePicker mode={effectiveMode} onChange={handleDayMode} suggested={suggestedMode} />{dayMode && <button className="today-text-button mt-2" onClick={()=>handleDayMode(null)}>Use automatic day type</button>}</div>}
 
-      <WeekCalendar lecScores={daily?.lecScores || []} completion={context?.completion || {}} blockId={blockId} examDate={examDate} objectivesFor={objectivesForTask} evidence={context?.learnerEvidence || {}} onStudy={onStudy} />
+      <WeekCalendar lecScores={daily?.lecScores || []} completion={context?.completion || {}} blockId={blockId} examDate={examDate} objectivesFor={objectivesForTask} evidence={context?.learnerEvidence || {}} onStudy={onStudy} onReview={onReview} limit={dailyLimit} onLimitChange={changeDailyLimit} />
 
       <section aria-label="Today" className="flex flex-col gap-3 rounded-2xl border border-border bg-bg-elevated p-4 shadow-sm sm:p-5">
         <PracticeModeTabs ariaLabel="Today views" value={todayView} onChange={setTodayView} modes={[
-          { id: "focus", label: "Focus", badge: focusPlanIds.length ? `${doneCount}/${focusPlanIds.length}` : null },
+          { id: "plan", label: "Today's plan" },
           { id: "sprint", label: "Exam sprint" },
-          { id: "reviews", label: "Reviews" },
           { id: "progress", label: "Progress" },
         ]} />
-        <div hidden={todayView !== "focus"} className="flex flex-col gap-3">
-          {focusPlanIds.length > 0 && <div className="today-progress-wrap"><ProgressBar done={doneCount} total={focusPlanIds.length} /></div>}
+        <div hidden={todayView !== "plan"} className="flex flex-col gap-3">
           {daily?.reviewsSuspended && <div className="today-note" role="status">Routine reviews paused: this block has ended. History and manual review remain available, along with comprehensive/CBSE practice.</div>}
           {logFeedback && <div className="today-feedback" role="status">{logFeedback}</div>}
-          {todayReason === "urgency-fallback" && nextDay && <div className="today-note">Nothing is scheduled today — showing the highest-urgency work ahead of {nextDay.dateStr}.</div>}
-
-          {(filteredTasks.length === 0 ? (
-        planComplete ? (
-          <div className="rounded-sm border border-good/40 bg-good/5 p-4 text-sm text-text-2">
-            <strong className="text-text-1">Today&apos;s planned focus is complete.</strong> New recommendations will wait unless you choose another set.
-          </div>
-        ) :
-        todayTasks.length > 0 && effectiveMode ? (
-          <div className="rounded-sm border border-border p-4 text-xs text-text-3">
-            No tasks match <span className="text-text-1">{DAY_MODES.find((m) => m.id === effectiveMode)?.label}</span> today.
-            {effectiveMode === "review" && " All available lectures are scheduled for today — switch to Lecture day."}
-            {effectiveMode === "triage" && " No previously-studied lectures available — showing top pick below."}
-          </div>
-        ) : nextDay ? (
-          <div className="rounded-sm border border-border p-4 text-xs text-text-3">
-            Nothing due today. Block starts{" "}
-            <span className="text-text-1">{nextDay.dateStr}</span> — {nextDay.daysFromNow} days away,{" "}
-            {nextDay.tasks.length} lecture{nextDay.tasks.length === 1 ? "" : "s"}.
-            <div className="mt-2 flex flex-col gap-0.5">
-              {nextDay.tasks.slice(0, 4).map((t) => (
-                <span key={t.lec.id} className="font-mono text-[12px]">
-                  {t.studyMode?.icon} {t.lec.lectureTitle || t.lec.fileName || t.lec.filename}
-                </span>
-              ))}
-            </div>
-          </div>
-        ) : (
-          <div className="rounded-sm border border-border p-4 text-xs text-text-3">
-            Nothing to do — every lecture is mastered or not yet available.
-          </div>
-        )
-          ) : (
-        <div className="flex flex-col gap-3">
-          {filteredTasks.map((task) => (
-            <TaskRow
-              key={task.lec.id}
-              task={task}
-              checked={checkedForToday.has(task.lec.id)}
-              isNext={task.lec.id === firstUnchecked}
-              sessionCount={sessionCounts[task.lec.id] ?? 0}
-              nextReviewDate={nextReviewByLectureId?.[task.lec.id] ?? null}
-              preRead={preReadFor(task.lec.id)}
-              onCheck={handleCheck}
-              onStudy={onStudy}
-              onQuiz={onQuiz}
-              onLog={onLog}
-              busy={quizBusyLectureId}
-            />
-          ))}
-        </div>
-          ))}
+          <TodayPlan day={todayDay} cap={dailyLimit} unscheduled={todayCal?.unscheduled || []} doneIds={checkedForToday} onStudy={onStudy} onReview={onReview} onSkim={onSkim} busy={quizBusyLectureId} />
 
           <WorkAheadSection
         workAhead={workAhead}
@@ -1251,35 +1103,19 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
         }}
         onPreRead={(ls) => setPreReadTarget(ls)}
           />
-      {planComplete && canExtendFocusPlan ? (
-        <button
-          onClick={startAnotherSet}
-          className="self-start rounded-sm border border-border px-3 py-2 font-mono text-[12px] font-semibold text-text-2 hover:border-border-strong hover:text-text-1"
-        >
-          Add another focus set
-        </button>
-      ) : doneCount > 0 && canExtendFocusPlan && (
-        <button
-          onClick={startAnotherSet}
-          className="self-start font-mono text-[12px] text-text-3 hover:text-text-1"
-        >
-          Add another focus set
-        </button>
-      )}
-      {focusPlanIds.length > 0 && <button
-        type="button"
-        onClick={resetTodaySet}
-        title="Rebuild today’s queue from unchecked recommendations. Completed checkmarks, quiz answers, and objective progress are preserved."
-        className="self-start font-mono text-[12px] text-text-3 hover:text-text-1"
-      >Reset today&apos;s set <span className="text-text-3">· keeps completed work and history</span></button>}
           {effectiveMode && <details className="text-sm"><summary className="cursor-pointer text-text-2">Day schedule</summary><RoutineSchedulePanel mode={effectiveMode} wakeTime={wakeTime} lecConfig={lecConfig} /></details>}
         </div>
-        <div hidden={todayView !== "sprint"}><ExamSprintCard key={blockId} context={context} userId={userId} daysLeft={daysLeft} onStudy={onStudy} onQuiz={onQuiz} busy={quizBusyLectureId} /></div>
-        <div hidden={todayView !== "reviews"} className="flex flex-col gap-3">
+        <div hidden={todayView !== "sprint"} className="flex flex-col gap-3">
+          <section className="rounded-xl border border-border p-4">
+            <h3 className="font-semibold">Mixed timed exam</h3>
+            <p className="mt-1 text-sm text-text-2">School questions from every lecture in this block, shuffled, at exam timing (72 s each). Do one in the last two days: single-lecture quizzes overstate readiness.</p>
+            <button type="button" onClick={openMixedExam} className="mt-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white">Set up mixed exam →</button>
+          </section>
           <SchoolReviewCard blockId={blockId} userId={userId} examDate={examDate} onOpenExam={onOpenExam} />
-          <ModelRetrievalCard key={`${userId}:${blockId}`} userId={userId} blockId={blockId} examDate={examDate} objectivesForLecture={objectivesForTask} evidenceModel={context?.learnerEvidence} />
+          <ExamSprintCard key={blockId} context={context} userId={userId} daysLeft={daysLeft} onStudy={onStudy} onQuiz={onQuiz} busy={quizBusyLectureId} />
         </div>
         <div hidden={todayView !== "progress"} className="flex flex-col gap-3">
+          <ProjectedScoreCard userId={userId} blockId={blockId} lectures={context?.lectures || []} objectives={context?.objectives || []} evidence={context?.learnerEvidence || {}} onPractice={onPracticeObjective} />
           <DailyQuestionScore userId={userId} blockId={blockId} />
           <CompactQuestionProgress userId={userId} blockId={blockId} />
           <BlockReadinessDashboard blockId={blockId} userId={userId} compact onStudyLecture={onStudy} />

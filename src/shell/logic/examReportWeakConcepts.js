@@ -151,7 +151,7 @@ export function matchCategoryToObjectives(category, objectives = [], lectures = 
   const matches = candidates.map((objective) => {
     const objectiveText = [objective?.objective, objective?.text, objective?.content, objective?.code].filter(Boolean).join(" ");
     const lecture = lectures.find((item) => item?.id && item.id === (objective?.linkedLecId || objective?.lectureId));
-    const match = matchTextToCandidates(category, [objective], (item) => `${objectiveText} ${lecture?.lectureTitle || lecture?.fileName || ""}`, threshold);
+    const match = matchTextToCandidates(category, [objective], () => `${objectiveText} ${lecture?.lectureTitle || lecture?.fileName || ""}`, threshold);
     return match ? { objective, score: match.score } : null;
   }).filter(Boolean).sort((a, b) => b.score - a.score);
   if (!matches.length) return [];

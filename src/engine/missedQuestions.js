@@ -3,7 +3,8 @@ import { isIndependentAttempt } from './practiceAssistance.js';
 import { schoolQuestionIdentity } from '../shell/features/exam/schoolSourceIdentity.js';
 
 /** Original questions retained by the common answer journal, across every source. */
-export function missedQuestionGroups(evidence = {}, { blockId, lectureId } = {}) {
+export function missedQuestionGroups(evidence = {}, { blockId, lectureId, dismissed = null } = {}) {
+  const learned = dismissed?.ids || {};
   const latest = new Map();
   for (const event of [...(evidence.learningJournal || []), ...(evidence.assistedJournal || [])].sort((a,b)=>Number(a.at)-Number(b.at))) {
     if ((blockId && event.blockId !== blockId) || (lectureId && event.lectureId !== lectureId)) continue;
@@ -23,6 +24,8 @@ export function missedQuestionGroups(evidence = {}, { blockId, lectureId } = {})
   const groups = new Map();
   for (const {event, question} of latest.values()) {
     if (event.correct) continue;
+    // Marked learned after this miss: hidden until a newer miss brings it back.
+    if (learned[question.questionId] && Number(learned[question.questionId]) >= Number(event.at || 0)) continue;
     const key = JSON.stringify([event.blockId, event.lectureId, conceptKey(question.topic)]);
     if (!groups.has(key)) groups.set(key, { key, lectureId: event.lectureId, concept: question.topic, questions: [], sources: new Set() });
     const group = groups.get(key);
