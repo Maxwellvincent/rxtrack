@@ -74,6 +74,7 @@ import {
   readStoredLabels,
   selectCandidates,
 } from "../../../lectureFigures.js";
+import { pendingQuizAction } from "./lectureQuizRetry.js";
 import { PREPARE_BATCH_SIZE, buildAdaptiveObjectivePlan, prepareObjectiveQuiz, readClinicalAnalysesForBlock, resolveDefaultDifficulty, selectClinicalExamplesForBlock, selectExemplarsForBlock } from "../objectives/quizLaunch.js";
 import { useQuestionBanks } from "../../hooks/useQuestionBanks.js";
 import { useQuestionBankMeta } from "../../hooks/useQuestionBankMeta.js";
@@ -303,7 +304,7 @@ export function LectureStudyFlow({
     if (!session?.questions?.length) return;
     quizMetaRef.current = session;
     if (Number(session.requestedCount) > session.questions.length) {
-      setPendingQuiz({ questions: session.questions, count: Number(session.requestedCount), difficulty: session.questions[0]?.difficulty || "medium", reason: session.preparationShortfall || "The original requested set was only partially prepared." });
+      setPendingQuiz({ sessionId: session.id, questions: session.questions, count: Number(session.requestedCount), difficulty: session.questions[0]?.difficulty || "medium", reason: session.preparationShortfall || "The original requested set was only partially prepared." });
     }
     setQuizResumeState(session.progress || null);
     setActiveRequestedCount(session.requestedCount || session.questions.length);
@@ -648,7 +649,10 @@ export function LectureStudyFlow({
     }
     const continuing = continueSession && !!quizMetaRef.current;
     const jobKey = preparationJobKey(userId, lecture?.id);
-    if (getPreparationJob(jobKey)?.status === "running") return;
+    if (getPreparationJob(jobKey)?.status === "running") {
+      setError("Questions for this lecture are still being prepared in the background. Wait for that run to finish, then retry. Your answers are saved.");
+      return;
+    }
     preparationControllerRef.current?.abort();
     const controller = new AbortController();
     preparationControllerRef.current = controller;
@@ -845,7 +849,7 @@ export function LectureStudyFlow({
       }
       if (progressiveQuestions.length < count) {
         const reason = preparationErrorMessage(result.reason || result.error, "Remaining questions did not pass review.");
-        setPendingQuiz({ questions: [...progressiveQuestions], count, difficulty, reason });
+        setPendingQuiz({ sessionId: quizMetaRef.current?.id, questions: [...progressiveQuestions], count, difficulty, reason });
         setObjectiveNotice("");
       }
       return;
@@ -1123,6 +1127,9 @@ export function LectureStudyFlow({
             setCompletedQuizSessionId(quizSessionId);
             lectureQuizSessionsStore.remove(userId, quizMetaRef.current?.id);
             quizMetaRef.current = null;
+            // Finished means submitted: offering "Retry"/"Start with N" here rebuilt the
+            // same questions as a new quiz from question 1.
+            setPendingQuiz(null);
             // An ad-hoc quiz doesn't advance the round-resume bookmark — there is no sequence
             // for it to be a position in. Linked answer evidence is recorded independently.
             const nextDone = adHocQuiz ? done : Math.max(done, round + 1);
@@ -1337,8 +1344,17 @@ export function LectureStudyFlow({
         <p className="mt-1 text-text-2">Your ready questions are saved. Finish or exit the current quiz before retrying the remaining {pendingQuiz.count - pendingQuiz.questions.length} slots, or choose a shorter quiz.</p>
         <details className="mt-2 text-xs text-text-3"><summary className="cursor-pointer">Why preparation stopped</summary><p className="mt-1">{pendingQuiz.reason}</p></details>
         <div className="mt-3 flex flex-wrap gap-2">
-          <Button onClick={() => runQuiz(pendingQuiz.count, pendingQuiz.difficulty, pendingQuiz.questions)} disabled={!!busy||checkpointPreparing || !!questions}>Retry missing questions</Button>
-          <Button onClick={() => { setAdHocQuiz(true); startQuizSession(pendingQuiz.questions); setPendingQuiz(null); }} disabled={!!busy||checkpointPreparing || !!questions}>Start with {pendingQuiz.questions.length}</Button>
+          <Button onClick={() => {
+            const action = pendingQuizAction(pendingQuiz, savedLectureQuizzes, "retry");
+            if (action.type === "resume-and-prepare") { resumeLectureQuiz(action.session); runQuiz(action.count, pendingQuiz.difficulty, action.session.questions, true); }
+            else runQuiz(action.count, pendingQuiz.difficulty, action.questions);
+          }} disabled={!!busy||checkpointPreparing || !!questions}>{pendingQuizAction(pendingQuiz, savedLectureQuizzes).type === "resume-and-prepare" ? "Resume and prepare the rest" : "Retry missing questions"}</Button>
+          <Button onClick={() => {
+            const action = pendingQuizAction(pendingQuiz, savedLectureQuizzes, "start");
+            if (action.type === "resume") { quizMetaRef.current = action.session; lectureQuizSessionsStore.save(userId, action.session); resumeLectureQuiz(action.session); }
+            else { setAdHocQuiz(true); startQuizSession(action.questions); }
+            setPendingQuiz(null);
+          }} disabled={!!busy||checkpointPreparing || !!questions}>{pendingQuizAction(pendingQuiz, savedLectureQuizzes).type === "resume-and-prepare" ? "Continue" : "Start"} with {pendingQuiz.questions.length}</Button>
         </div>
       </div>}
       {objectiveNotice && <p role="status" className="my-2 text-sm text-good">{objectiveNotice}</p>}
