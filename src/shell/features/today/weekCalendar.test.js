@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildWeekCalendar, weekStart } from "./weekCalendar.js";
+import { buildWeekCalendar, planStudyLoad, weekStart } from "./weekCalendar.js";
 
 const local = (s) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
 const now = local("2026-11-25").getTime() + 9 * 3600000; // Wednesday
@@ -31,5 +31,35 @@ describe("buildWeekCalendar", () => {
     expect(prev.days[2].given.map((row) => row.id)).toEqual(["c"]);
     const next = buildWeekCalendar({ lecScores, completion, blockId: "blk", now, weekOffset: 1, examDate: "2026-12-01" });
     expect(next.days[1].isExam).toBe(true);
+  });
+});
+
+describe("planStudyLoad", () => {
+  const fp = (complete, total = 4) => ({ complete, covered: complete ? total : 0, total });
+  const row = (id, givenOn, reviews = [], firstPass = fp(true)) => ({ id, givenOn, reviews: new Set(reviews), firstPass });
+
+  it("spreads clustered reviews so no day goes over the daily limit", () => {
+    // Eight lectures all due for review on the same two days, as on the Today calendar.
+    const rows = Array.from({ length: 8 }, (_, i) => row(`r${i}`, "2026-11-10", ["2026-11-25", "2026-11-27", "2026-11-30"]));
+    const plan = planStudyLoad(rows, { todayKey: "2026-11-25", examKey: "2026-12-01" });
+    const loads = [...plan.byDay.values()].map((day) => day.units);
+    expect(Math.max(...loads)).toBeLessThanOrEqual(plan.cap);
+    expect(loads.reduce((a, b) => a + b, 0)).toBe(24); // every review still scheduled once
+    expect(plan.byDay.get("2026-11-26").units).toBeGreaterThan(0); // the empty day takes some
+  });
+
+  it("schedules first passes that fell behind as catch-up from today, never in the past", () => {
+    const rows = [row("late1", "2026-11-23", [], fp(false)), row("late2", "2026-11-24", [], fp(false)), row("noObj", "2026-11-20", [], fp(false, 0))];
+    const plan = planStudyLoad(rows, { todayKey: "2026-11-25", examKey: "2026-12-01" });
+    expect(plan.behind).toBe(2);
+    const placed = [...plan.byDay.entries()].flatMap(([key, day]) => day.items.map((item) => [item.row.id, key, item.kind]));
+    expect(placed.map(([id]) => id).sort()).toEqual(["late1", "late2"]);
+    expect(placed.every(([, key, kind]) => key >= "2026-11-25" && key <= "2026-11-27" && kind === "catchup")).toBe(true);
+  });
+
+  it("raises the daily limit when the remaining work cannot fit under the minimum", () => {
+    const rows = Array.from({ length: 30 }, (_, i) => row(`r${i}`, "2026-11-10", ["2026-11-28", "2026-11-30"]));
+    const plan = planStudyLoad(rows, { todayKey: "2026-11-25", examKey: "2026-12-01" });
+    expect(plan.cap).toBe(Math.ceil(60 / 6));
   });
 });
