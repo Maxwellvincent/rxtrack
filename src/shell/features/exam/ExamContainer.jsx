@@ -12,6 +12,7 @@ import {questionProgress} from "./questionProgress.js";
 import {missedBankQuestions} from "./missedBankQuestions.js";
 import * as questionRatingsStore from "../../../stores/questionRatings.js";
 import {QuestionBankMappingStatus} from './QuestionBankMappingStatus.jsx';
+import { RelinkQuestionBanks } from './RelinkQuestionBanks.jsx';
 import { QuestionBankManualLinks } from "./QuestionBankManualLinks.jsx";
 import { ScoreReportUpload } from "./ScoreReportUpload.jsx";
 import { HighYieldPanel } from "./HighYieldPanel.jsx";
@@ -135,8 +136,9 @@ function MixedExamCard({ blockId, blockName, banks, busy, isReserved, onStart })
   </section>;
 }
 
-export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture }) {
-  const [activeSessionId, setActiveSessionId] = useState(null);
+export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture, initialSessionId = null, onInitialSessionOpened = null }) {
+  const [activeSessionId, setActiveSessionId] = useState(initialSessionId);
+  useEffect(() => { if (initialSessionId) onInitialSessionOpened?.(); }, [initialSessionId, onInitialSessionOpened]);
   const [showLaunchModal, setShowLaunchModal] = useState(false);
   const [launchError, setLaunchError] = useState(null);
   const [launching, setLaunching] = useState(false);
@@ -1078,6 +1080,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
       {examPageSection === "banks" && blockQuestionBanks.length > 0 && (
         <section className="mb-4 rounded-xl border border-border bg-bg-elevated p-3">
           <div className="mb-1 text-sm font-bold text-text-1">Original question banks · ExamSoft, IMCQ, homework & clicker examples</div>
+          <RelinkQuestionBanks userId={userId} />
           <div className="mb-3 font-mono text-[11px] text-text-3">
             {blockQuestionBanks.length ? "Authentic uploaded questions for this block." : "No uploaded bank is assigned to this block yet, so all imported banks are shown here."} Timed sessions use 72 seconds per question; practice reveals the keyed rationale after each answer. Source keys are preserved and analyzed separately from medical correctness.
           </div>

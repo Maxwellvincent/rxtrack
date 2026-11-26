@@ -338,6 +338,7 @@ function ShellMain({ theme, toggle, userId }) {
 
 
   const switchTab = useCallback((t) => { setTab(t); setMoreView(null); }, []);
+  const [openExamSessionId, setOpenExamSessionId] = useState(null);
 
   // "Study →" on a lecture row: resolve the id to the stored lecture, then hand
   // it to the flow, which sources its text (locally or from Firestore) itself.
@@ -445,6 +446,7 @@ function ShellMain({ theme, toggle, userId }) {
                 autoQuizCount={pendingAutoQuiz?.questionCount}
                 focusObjectiveIds={studyFocusObjectiveIds || pendingAutoQuiz?.focusObjectiveIds}
                 examRepairContext={examRepairContext}
+                onOpenExamSession={(sessionId) => { setStudyLecture(null); setPendingAutoQuiz(null); setStudyFocusObjectiveIds(null); setExamRepairContext(null); setOpenExamSessionId(sessionId); switchTab("exam"); }}
               />
             </div>
           ) : activeBlockId === CBSE_BLOCK_ID ? (
@@ -462,6 +464,8 @@ function ShellMain({ theme, toggle, userId }) {
               blockId={activeBlockId}
               blockName={active?.name}
               userId={userId}
+              initialSessionId={openExamSessionId}
+              onInitialSessionOpened={() => setOpenExamSessionId(null)}
               onNavigateToLecture={(lectureId, repairContext = null) => {
                 setExamFocusLectureId(lectureId);
                 switchTab("lectures");

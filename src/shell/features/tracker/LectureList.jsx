@@ -13,6 +13,9 @@ import * as atomProgressStore from "../../../stores/atomProgress.js";
 import { useStoreResource } from "../../hooks/useStoreResource.js";
 import { lectureReviewStats } from "../lectures/lectureReviewStats.js";
 import { REVIEW_TARGET, reviewLabel } from "../lectures/lectureReviewDays.js";
+import * as questionBanksStore from "../../../stores/questionBanks.js";
+import * as questionBankMetaStore from "../../../stores/questionBankMeta.js";
+import { schoolQuestionsByLecture, schoolQuestionSummary } from "../lectures/lectureSchoolQuestions.js";
 import { RenameLecture } from "../lectures/RenameLecture.jsx";
 import { useToday } from "../today/useToday.js";
 import { useLectureQuestionStats } from "../../hooks/useLectureQuestionStats.js";
@@ -124,7 +127,7 @@ function DateEdit({ row, onUpdateDate }) {
   );
 }
 
-function Row({ row, userId, stats, reviewDays = null, onStudy, onQuiz, onLog, onUpdateDate, onPreRead, onDelete, busy, deleting, focused, rowRef, selectable = false, selected = false, onToggleSelected }) {
+function Row({ row, userId, stats, reviewDays = null, schoolQuestions = null, onStudy, onQuiz, onLog, onUpdateDate, onPreRead, onDelete, busy, deleting, focused, rowRef, selectable = false, selected = false, onToggleSelected }) {
   const practiced = Math.min(row.total || 0, Math.max(0, row.practiced || 0));
   const answered = stats?.answered || 0;
   const accuracy = answered > 0 ? Math.round(((stats?.correct || 0) / answered) * 100) : null;
@@ -165,6 +168,7 @@ function Row({ row, userId, stats, reviewDays = null, onStudy, onQuiz, onLog, on
             {reviewDays?.reviews > 0 && <span title={`Days you answered questions on this lecture: ${reviewDays.days.join(", ")}. Target ${REVIEW_TARGET} spaced reviews before the exam.`}
               className={reviewDays.reviews >= REVIEW_TARGET ? "font-semibold text-text-1" : ""}>{reviewLabel(reviewDays)}</span>}
             {!row.reviewsSuspended && row.nextReview && <span>↻ {row.nextReview}</span>}
+            {schoolQuestions?.total > 0 && <span title="School questions linked to this lecture">✎ {schoolQuestionSummary(schoolQuestions)}</span>}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
@@ -248,6 +252,9 @@ export function LectureList({
   const { context, logActivity, logPreRead, objectivesForTask, reviewDaysByLectureId } = useToday(blockId, userId);
   const questionStats = useLectureQuestionStats(userId);
   const repairProgress = useStoreResource(atomProgressStore, userId);
+  const schoolBanks = useStoreResource(questionBanksStore, userId);
+  const schoolBankMeta = useStoreResource(questionBankMetaStore, userId);
+  const schoolByLecture = useMemo(() => schoolQuestionsByLecture(schoolBanks.data || {}, schoolBankMeta.data || {}), [schoolBanks.data, schoolBankMeta.data]);
   const [filter, setFilter] = useState(() => readFilterPrefs(blockId).filter);
   const [activityType, setActivityType] = useState(() => readFilterPrefs(blockId).activityType);
   const [search, setSearch] = useState(() => readFilterPrefs(blockId).search);
@@ -514,6 +521,7 @@ export function LectureList({
                   row={row}
                   stats={{ ...questionStats.data?.[row.lectureId], slideReviews: lectureReviewStats(context.completion?.[`${row.lectureId}__${blockId}`]).count }}
                   reviewDays={reviewDaysByLectureId?.[row.lectureId]}
+                  schoolQuestions={schoolByLecture[row.lectureId]}
                   busy={quizBusyLectureId}
                   onStudy={onStudyLecture}
                   onQuiz={onQuiz}
@@ -565,6 +573,7 @@ export function LectureList({
                   row={row}
                   stats={{ ...questionStats.data?.[row.lectureId], slideReviews: lectureReviewStats(context.completion?.[`${row.lectureId}__${blockId}`]).count }}
                   reviewDays={reviewDaysByLectureId?.[row.lectureId]}
+                  schoolQuestions={schoolByLecture[row.lectureId]}
                   busy={quizBusyLectureId}
                   onStudy={onStudyLecture}
                   onQuiz={onQuiz}

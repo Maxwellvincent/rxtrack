@@ -75,3 +75,30 @@ it('applies headings learned from the learner across the block and passes simila
  expect(classify).toHaveBeenCalledTimes(1);
  expect(bank.hw15[1]).toMatchObject({lectureId:'l58',lectureLinkBasis:'learned-heading',curriculumLinkStatus:'user-lecture-only'});
 });
+it('maps a CBSE-filed bank against its home block and looks at the focus week first',async()=>{
+ const lectureText={l1:'Major depressive disorder: anhedonia, depressed mood, sleep change, guilt, suicidal ideation; SSRIs first line.',l2:'Schizophrenia: hallucinations, delusions, disorganized speech; dopamine antagonists.'};
+ let bank={f:[{id:'q1',stem:'A woman has anhedonia, guilt and early waking for weeks. Diagnosis?',correct:'A',choices:{A:'Major depressive disorder',B:'Schizophrenia'}},
+  {id:'q2',stem:'A man with anhedonia, depressed mood and guilt after his job loss; which first line drug?',correct:'A',choices:{A:'SSRI',B:'Haloperidol'}}]};
+ let metadata={m:{filename:'f',blockId:'cbse-prep'}};
+ const classify=vi.fn(async(q,{blockId,focusLectureIds})=>{expect(blockId).toBe('nb3');expect(focusLectureIds[0]).toBe('l1');return null;});
+ const deps={readBanks:()=>bank,writeBanks:async(_,v)=>{bank=v},readMeta:()=>metadata,writeMeta:async(_,v)=>{metadata=v},classify,bridgeAvailable:async()=>true,
+  fetchLectureContent:async(_,id)=>({chunks:[{text:lectureText[id]}]}),review:vi.fn()};
+ const lectures=[{id:'l1',blockId:'nb3',lectureTitle:'NB 59 Depressive Disorders',lectureDate:'2026-11-18'},{id:'l2',blockId:'nb3',lectureTitle:'NB 66 Schizophrenia',lectureDate:'2026-11-25'}];
+ const result=await resumeQuestionBankMapping({userId:'u',blockId:'cbse-prep',filename:'f',recheck:true,lectures,objectives:[],scope:{homeBlockId:'nb3',focusLectureIds:['l1'],focusWeeks:['2026-11-20'],format:'imcq'}},deps);
+ expect(classify).toHaveBeenCalledTimes(2);
+ expect(result.scope).toMatchObject({homeBlockId:'nb3',filedBlockId:'cbse-prep'});
+ expect(bank.f[0].lectureId).toBe('l1');
+ expect(bank.f[0].objectiveIds).toBeUndefined();
+});
+it('week rescue runs without AI when aiMapping is off',async()=>{
+ let bank={f:[{id:'q1',stem:'Anhedonia, guilt and depressed mood for weeks with anhedonia. Diagnosis?',correct:'A',choices:{A:'Major depressive disorder',B:'Schizophrenia'}}]};
+ let metadata={m:{filename:'f',blockId:'nb3'}};
+ const bridgeAvailable=vi.fn(async()=>false);
+ const deps={readBanks:()=>bank,writeBanks:async(_,v)=>{bank=v},readMeta:()=>metadata,writeMeta:async(_,v)=>{metadata=v},bridgeAvailable,
+  fetchLectureContent:async()=>({chunks:[{text:'Major depressive disorder: anhedonia, depressed mood, guilt.'}]})};
+ const result=await resumeQuestionBankMapping({userId:'u',blockId:'nb3',filename:'f',lectures:[{id:'l1',blockId:'nb3',lectureTitle:'NB 59 Depressive Disorders'},{id:'l2',blockId:'nb3',lectureTitle:'NB 66 Schizophrenia'}],objectives:[],aiMapping:false,scope:{homeBlockId:'nb3',focusLectureIds:['l1','l2']}},deps);
+ expect(bridgeAvailable).not.toHaveBeenCalled();
+ expect(result.status).toBe('complete');
+ expect(bank.f[0]).toMatchObject({lectureId:'l1',lectureLinkBasis:'bank-week-content',curriculumLinkStatus:'content-matched'});
+ expect(result.weekRescued).toBe(1);
+});

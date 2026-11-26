@@ -67,6 +67,9 @@ import * as objectivesStore from "../../../stores/blockObjectives.js";
 import * as performanceStore from "../../../stores/performance.js";
 import * as atomTermIndex from "../../../stores/atomTermIndex.js";
 import * as lecturesStore from "../../../stores/lectures.js";
+import * as questionBanksStore from "../../../stores/questionBanks.js";
+import * as questionBankMetaStore from "../../../stores/questionBankMeta.js";
+import { launchLectureSchoolQuestions, schoolQuestionsByLecture, schoolQuestionSummary } from "./lectureSchoolQuestions.js";
 import { lectureCompletion } from "../../../engine/lectureCompletion.js";
 import { LECTURE_QUIZ_CROSS_SHARE, lectureQuizPartner } from "./lectureQuizPartner.js";
 import { normAtomKey, partitionAtomsForRound } from "../../../engine/atomNorm.js";
@@ -124,6 +127,8 @@ export function LectureStudyFlow({
   // having its own generation call to apply it to.
   focusObjectiveIds = null,
   examRepairContext = null,
+  // Opens a started exam-format session in the Exam tab (school questions).
+  onOpenExamSession = null,
 }) {
   const [workspace,setWorkspace,visitedWorkspaces]=useLectureWorkspace();
   const [practiceMode,setPracticeMode]=useState(()=>examRepairContext?.weakConcept?'weak':'quiz');
@@ -190,6 +195,22 @@ export function LectureStudyFlow({
   // remounts (and re-reads) whenever you switch lectures.
   const [done, setDone] = useState(() => readRoundProgress(userId, lecture?.id));
   const qStats=useLectureStats(userId,lecture?.id);
+  const schoolBanks = useStoreResource(questionBanksStore, userId);
+  const schoolBankMeta = useStoreResource(questionBankMetaStore, userId);
+  const schoolQuestions = useMemo(() => schoolQuestionsByLecture(schoolBanks.data || {}, schoolBankMeta.data || {})[lecture?.id] || null, [schoolBanks.data, schoolBankMeta.data, lecture?.id]);
+  const [schoolLaunch, setSchoolLaunch] = useState({ busy: false, error: null });
+  const practiceSchoolQuestions = async () => {
+    if (!schoolQuestions?.total || schoolLaunch.busy) return;
+    setSchoolLaunch({ busy: true, error: null });
+    try {
+      const result = await launchLectureSchoolQuestions({ userId, blockId, lecture, entry: schoolQuestions, lectures: lecturesStore.read(userId) || [] });
+      if (!result.ok) { setSchoolLaunch({ busy: false, error: result.error || "Could not start these questions." }); return; }
+      setSchoolLaunch({ busy: false, error: null });
+      onOpenExamSession?.(result.sessionId);
+    } catch (error) {
+      setSchoolLaunch({ busy: false, error: error.message || "Could not start these questions." });
+    }
+  };
   const reviewDays = useMemo(() => lectureReviewDays(learnerEvidence.data?.learningJournal || [], {
     objectiveLecture: Object.fromEntries((lectureObjectives || []).filter(objective => objective?.id).map(objective => [objective.id, lecture?.id])),
     objectiveCounts: { [lecture?.id]: (lectureObjectives || []).length },
@@ -1290,6 +1311,13 @@ export function LectureStudyFlow({
         {reviewDays.reviews >= REVIEW_TARGET ? "✓ " : ""}Reviewed with questions on {reviewDays.reviews} day{reviewDays.reviews === 1 ? "" : "s"} · target {REVIEW_TARGET} spaced reviews
         {reviewDays.lastReview ? ` · last ${reviewDays.lastReview}` : ""}
       </p>
+      <p aria-label="School questions" className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-text-2">
+        {schoolQuestions?.total
+          ? <>School questions: {schoolQuestionSummary(schoolQuestions)}
+              {onOpenExamSession && <button type="button" disabled={schoolLaunch.busy} onClick={practiceSchoolQuestions} className="font-semibold text-accent-text underline disabled:opacity-50">{schoolLaunch.busy ? "Starting…" : `Practice these ${schoolQuestions.total}`}</button>}</>
+          : "No homework, IMCQ or ESoft questions linked yet"}
+      </p>
+      {schoolLaunch.error && <p role="alert" className="mt-1 text-xs text-bad">{schoolLaunch.error}</p>}
       </header>
       <LectureWorkspaceNav value={workspace} onChange={setWorkspace} />
       {error && <div className="mb-3 rounded-lg border border-bad bg-bg-elevated p-3 text-xs text-bad">{error}</div>}
