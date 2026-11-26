@@ -129,8 +129,8 @@ describe("summarizePlan", () => {
       { action: "fill", fillsDate: "2026-08-12" },
       { action: "fill", fillsDate: null },
     ];
-    expect(summarizePlan(plan)).toEqual({ total: 3, add: 1, fill: 2, dated: 1 });
-    expect(summarizePlan([])).toEqual({ total: 0, add: 0, fill: 0, dated: 0 });
+    expect(summarizePlan(plan)).toEqual({ total: 3, add: 1, fill: 2, dated: 1, duplicate: 0 });
+    expect(summarizePlan([])).toEqual({ total: 0, add: 0, fill: 0, dated: 0, duplicate: 0 });
   });
 });
 
@@ -194,5 +194,14 @@ describe("runQueue", () => {
 
   it("does nothing gracefully for an empty queue", async () => {
     expect(await runQueue([], async () => 1)).toEqual([]);
+  });
+});
+
+describe("planBulkImport across blocks", () => {
+  it("marks a lecture already uploaded to another block as a duplicate instead of new", () => {
+    const other = [{ id: "f1", blockId: "ftm1", lectureType: "LEC", lectureNumber: 3, lectureTitle: "Gene Regulation" }];
+    const plan = planBulkImport([{ name: "LEC 3 - Gene Regulation.md" }, { name: "LEC 4 - Something New.md" }], [], "ftm2", { otherLectures: other });
+    expect(plan.map(p => [p.lectureTitle, p.action, p.duplicateOf?.blockId || null])).toEqual([["Gene Regulation", "duplicate", "ftm1"], ["Something New", "add", null]]);
+    expect(summarizePlan(plan).duplicate).toBe(1);
   });
 });

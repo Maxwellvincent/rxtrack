@@ -27,9 +27,37 @@ const evidenceKey = (value) => {
   return `e_${(hash >>> 0).toString(36)}`;
 };
 
-/** Stable identity for the lecture text the inventory was built from. */
+/**
+ * Stable identity for the lecture text the inventory was built from. Words only,
+ * so the lecture flow (chunk pages) and exam generation (joined text) agree.
+ */
 export function partsSourceVersion(pages = []) {
+  return stableRecordId([words(pages.map((page) => page.text).join(" ")).join(" ")], "parts-src2");
+}
+
+/** The first-release identity (page split + whitespace), still accepted. */
+export function legacyPartsSourceVersion(pages = []) {
   return stableRecordId(pages.map((page) => [Number(page.page), norm(page.text)]), "parts-src");
+}
+
+/** True when an inventory was built from this lecture text. */
+export function sourceMatches(inventory, pages = []) {
+  const version = inventory?.sourceVersion;
+  return Boolean(version) && (version === partsSourceVersion(pages) || version === legacyPartsSourceVersion(pages));
+}
+
+/**
+ * One inventory across several lectures (block and CBSE dashboards, exams).
+ * Objective ids and part ids are unique per lecture, so maps merge directly.
+ */
+export function combineInventories(inventories = []) {
+  const out = { ...emptyPartsInventory(), lectureId: null, objectives: {}, questionParts: {} };
+  for (const inventory of inventories) {
+    if (!inventory || inventory.version !== PARTS_VERSION) continue;
+    Object.assign(out.objectives, inventory.objectives || {});
+    Object.assign(out.questionParts, inventory.questionParts || {});
+  }
+  return out;
 }
 
 export function emptyPartsInventory() {
@@ -115,7 +143,7 @@ export function normalizeObjectiveParts(raw, { lectureId, objectives = [], pages
   const pageText = new Map(pages.map((page) => [Number(page.page), norm(page.text)]));
   const allText = norm(pages.map((page) => page.text).join(" "));
   // attempted: every objective sent, so one the model could not split is not re-requested each quiz.
-  const inventory = { ...emptyPartsInventory(), lectureId, sourceVersion: partsSourceVersion(pages), builtAt: now, attempted: [...known.keys()] };
+  const inventory = { ...emptyPartsInventory(), lectureId, sourceVersion: partsSourceVersion(pages), legacySourceVersion: legacyPartsSourceVersion(pages), builtAt: now, attempted: [...known.keys()] };
   const partIdsByObjective = new Map();
   for (const row of Array.isArray(raw?.objectives) ? raw.objectives : []) {
     const id = String(row?.objectiveId || "");
@@ -152,7 +180,7 @@ export function normalizeObjectiveParts(raw, { lectureId, objectives = [], pages
 
 /** True when the stored inventory still matches this lecture text and covers these objectives. */
 export function inventoryIsCurrent(inventory, { pages = [], objectives = [] } = {}) {
-  if (!inventory || inventory.version !== PARTS_VERSION || inventory.sourceVersion !== partsSourceVersion(pages)) return false;
+  if (!inventory || inventory.version !== PARTS_VERSION || !sourceMatches(inventory, pages)) return false;
   return objectives.every((objective) => inventory.objectives?.[objectiveKey(objective)] || inventory.attempted?.includes(objectiveKey(objective)));
 }
 

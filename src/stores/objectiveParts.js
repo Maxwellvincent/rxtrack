@@ -14,7 +14,8 @@ export const subscribe = (lectureId, callback) => subscribeToCloudStore(keyFor(l
  * their ids keep counting; a new source version replaces everything.
  */
 export function mergeInventory(current, incoming) {
-  if (!current || current.sourceVersion !== incoming.sourceVersion || current.version !== incoming.version) return incoming;
+  const sameSource = current?.sourceVersion && [incoming.sourceVersion, incoming.legacySourceVersion].includes(current.sourceVersion);
+  if (!current || !sameSource || current.version !== incoming.version) return incoming;
   return {
     ...incoming,
     objectives: { ...incoming.objectives, ...current.objectives },

@@ -37,6 +37,8 @@ import { useLectures } from "../../hooks/useLectures.js";
 import { useObjectives } from "../../hooks/useObjectives.js";
 import { useLectureQuestionStats } from "../../hooks/useLectureQuestionStats.js";
 import { dedupeByText, selectBlockObjectives } from "../../logic/objectives.js";
+import { useObjectivesWithParts } from "../../hooks/useObjectiveParts.js";
+import { ensureObjectiveParts } from "../objectives/objectivePartsLoader.js";
 import { statsForLecture } from "../../../stores/lectureQuestionStats.js";
 import * as weakConceptsStore from "../../../stores/weakConcepts.js";
 import * as questionBanksStore from "../../../stores/questionBanks.js";
@@ -264,10 +266,13 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   const lectures = useMemo(() => lecturesRes.data || [], [lecturesRes.data]);
   const completedQuestionTotal = useMemo(() => questionProgress(practiceHistory.studyAnswers,practiceHistory.sessions,{},practiceHistory.manualEntries,practiceHistory.historicalStudy).answered, [practiceHistory.studyAnswers,practiceHistory.sessions,practiceHistory.manualEntries,practiceHistory.historicalStudy]);
 
-  const objectives = useMemo(
+  const blockObjectives = useMemo(
     () => dedupeByText(selectBlockObjectives(objectivesRes.data, blockId)),
     [objectivesRes.data, blockId]
   );
+  // Objective parts (engine/objectiveParts.js): dashboards, readiness and the
+  // exam writer all see which lecture elements of each objective are untested.
+  const objectives = useObjectivesWithParts(userId, blockObjectives, blueprintEvidenceRes.data?.learningJournal);
 
   const lecturesById = useMemo(() => {
     const map = {};
@@ -684,7 +689,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
             eligibleLectures: scopedLectures, objectivesByLecture: scopedObjectives, atomsByLecture, lecturesById, lectures,
             ...(passConfig.blueprintExam ? {...blueprintContext,schoolBanks:allBlueprintBanks()} : {}),
             weakConceptAccuracyByLecture, weakConcepts },
-            { callAIJSON, onProgress: p => {
+            { callAIJSON, ensureObjectiveParts, onProgress: p => {
               const confirmed = Number(p.completed) || 0;
               const ready = Math.min(target, Math.max(previousPrepared, confirmed));
               report(`${Math.max(0, target - ready)} remaining · ${ready}/${target} ready · ${p.message}`);
@@ -766,7 +771,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
         // to `{}` all the way down to `generateMcqs`, so every generation
         // call threw and every launch failed with "Could not generate any
         // questions." Same DI pattern Shell.jsx uses for `startObjectiveQuiz`.
-        { callAIJSON, onProgress: setLaunchProgress }
+        { callAIJSON, ensureObjectiveParts, onProgress: setLaunchProgress }
       );
       if (result.ok) {
         setGenerationCoverage(result.coverage || null);
@@ -835,7 +840,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
         <ExamSessionRunner
           retestBusy={launching}
           onTargetedRetest={({objectives: targets,count,focusNotes})=>handleLaunch({format:"practice",questionCount:count,durationMinutes:examDurationMinutes(count),examName:`Targeted retest · ${count} questions`,focusNotes,studyMode:"repair",targetObjectiveIds:targets.map(o=>o.id),targetObjectiveOrders:Object.fromEntries(targets.filter(o=>o._transferOrder).map(o=>[o.id,o._transferOrder])),includeSeen:false,startWhilePreparing:true})}
-          onRecoverPreparation={(session,manual=false,report) => recoverExamPreparation({ session, manual, report, userId, pool: createQuestionPool(userId, blockId), generate: generateExamQuestions, context: { lecturesById, objectivesByLecture, atomsByLecture, lectures, ...(session.blueprintExam ? blueprintContext : {}), callAIJSON } })}
+          onRecoverPreparation={(session,manual=false,report) => recoverExamPreparation({ session, manual, report, userId, pool: createQuestionPool(userId, blockId), generate: generateExamQuestions, context: { lecturesById, objectivesByLecture, atomsByLecture, lectures, ...(session.blueprintExam ? blueprintContext : {}), callAIJSON, ensureObjectiveParts } })}
           sessionId={activeSessionId}
           userId={userId}
           blockId={blockId}

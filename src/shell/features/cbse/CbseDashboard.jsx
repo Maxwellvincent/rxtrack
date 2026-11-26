@@ -19,6 +19,7 @@ import { callAI } from "../../../aiClient.js";
 import { CBSE_SOURCE_OPTIONS, cbseSourceCounts, CBSE_BLOCK_ID, buildCbsePool, cbseProgress, selectCbseQuestions } from "./cbsePrep.js";
 import { ScoreReportUpload } from "../exam/ScoreReportUpload.jsx";
 import { selectBlockObjectives } from "../../logic/objectives.js";
+import { useLecturePartsInventory } from "../../hooks/useObjectiveParts.js";
 
 const percent = value => value == null ? "—" : `${Math.round(value * 100)}%`;
 export function ConceptBars({ rows, onReview }) {
@@ -67,7 +68,9 @@ export function CbseDashboard({ userId, block, onReviewLecture, onManageSources,
   const sourceCounts = useMemo(() => cbseSourceCounts(pool.questions, term), [pool.questions, term]);
   const poolTerms = useMemo(() => [...new Set(pool.questions.map(q => q.sourceTermName).filter(Boolean))].sort(), [pool.questions]);
   const sourceLabel = CBSE_SOURCE_OPTIONS.find(option => option.id === source)?.label || "All banks";
-  const progress = useMemo(() => cbseProgress({ sessions, calibration: calibration.data, weakConcepts: weak.data, objectives: objectives.data, evidence: evidence.data, lectures: lectures.data }), [sessions, calibration.data, weak.data, objectives.data, evidence.data, lectures.data]);
+  const partLectureIds = useMemo(() => (lectures.data || []).map(lecture => lecture.id), [lectures.data]);
+  const parts = useLecturePartsInventory(userId, partLectureIds);
+  const progress = useMemo(() => cbseProgress({ sessions, calibration: calibration.data, weakConcepts: weak.data, objectives: objectives.data, evidence: evidence.data, lectures: lectures.data, parts: parts.data }), [sessions, calibration.data, weak.data, objectives.data, evidence.data, lectures.data, parts.data]);
   const labels = useMemo(() => Object.fromEntries((lectures.data || []).map(l => [l.id, l.lectureTitle || l.title])), [lectures.data]);
   const objectiveMap = useMemo(() => Object.fromEntries(progress.objectives.map(o => [o.id, { id: o.id, objective: o.text }])), [progress.objectives]);
   const resources = [banks, meta, lectures, objectives, terms, weak, evidence, calibration, schoolResults];

@@ -51,6 +51,7 @@ export function BulkImportModal({ blockId, termId = null, userId = null, onClose
   const [useLlm, setUseLlm] = useState(false);
   const [error, setError] = useState("");
   const [summary, setSummary] = useState("");
+  const [includeDuplicates, setIncludeDuplicates] = useState(false);
   const cancelled = useRef(false);
 
   const counts = useMemo(() => summarizePlan(plan), [plan]);
@@ -75,7 +76,7 @@ export function BulkImportModal({ blockId, termId = null, userId = null, onClose
       }
       setSkipped(raw.length - files.length);
       const existing = lecturesStore.read(userId) || [];
-      const next = planBulkImport(files, existing.filter((l) => l.blockId === blockId), blockId);
+      const next = planBulkImport(files, existing.filter((l) => l.blockId === blockId), blockId, { otherLectures: existing });
       console.log("[bulk-import] kept", files.length, "of", raw.length, "→ planned", next.length);
       if (!next.length) {
         setError(`Could not read a lecture number or title from any of those ${files.length} files.`);
@@ -167,16 +168,19 @@ export function BulkImportModal({ blockId, termId = null, userId = null, onClose
     [blockId, termId, userId, useLlm, setRow]
   );
 
+  // Lectures already uploaded to another block are left out unless included.
+  const runnable = useMemo(() => plan.filter((p) => p.action !== "duplicate" || includeDuplicates), [plan, includeDuplicates]);
+
   const run = useCallback(() => {
-    if (!plan.length) return;
+    if (!runnable.length) return;
     cancelled.current = false;
     setRunning(true); setError(""); setSummary("");
-    const total = plan.length;
+    const total = runnable.length;
     startBackgroundJob({
       label: `Processing ${total} lecture${total === 1 ? "" : "s"}`,
       detail: `0/${total} complete`,
       run: async (update) => {
-        const results = await runQueue(plan, importOne, {
+        const results = await runQueue(runnable, importOne, {
           concurrency: 3,
           onProgress: (done, count) => update(`${done}/${count} complete · you can keep studying`),
         });
@@ -189,7 +193,7 @@ export function BulkImportModal({ blockId, termId = null, userId = null, onClose
       },
     });
     onClose?.();
-  }, [plan, importOne, userId, onImported, onClose]);
+  }, [runnable, importOne, userId, onImported, onClose]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={running ? undefined : onClose}>
@@ -248,7 +252,17 @@ export function BulkImportModal({ blockId, termId = null, userId = null, onClose
           <>
             <div className="mb-2 font-mono text-[13px] text-text-3">
               {counts.fill} filling an existing lecture ({counts.dated} of them scheduled) · {counts.add} new
+              {counts.duplicate > 0 && ` · ${counts.duplicate} already in another block`}
             </div>
+            {counts.duplicate > 0 && (
+              <div role="alert" className="mb-2 rounded border border-border p-2 text-[13px] text-warn">
+                ⚠ {counts.duplicate} of these lectures already exist in another block with the same title. They will be skipped so the block is not duplicated.
+                <label className="mt-1 flex items-center gap-2 text-text-2">
+                  <input type="checkbox" checked={includeDuplicates} onChange={(e) => setIncludeDuplicates(e.target.checked)} />
+                  Upload them anyway (only if this block really repeats those lectures)
+                </label>
+              </div>
+            )}
             <div className="mb-3 flex-1 overflow-y-auto rounded-lg border border-border">
               <table className="w-full text-left text-[13px]">
                 <tbody>
@@ -260,7 +274,7 @@ export function BulkImportModal({ blockId, termId = null, userId = null, onClose
                         <td className="px-2 py-1 font-mono text-text-3">{p.lectureType} {p.lectureNumber ?? "—"}</td>
                         <td className="px-2 py-1 text-text-1">{p.lectureTitle}</td>
                         <td className="px-2 py-1 font-mono text-text-3">
-                          {p.action === "fill" ? (p.fillsDate ? `fill · ${p.fillsDate}` : "fill") : "new"}
+                          {p.action === "fill" ? (p.fillsDate ? `fill · ${p.fillsDate}` : "fill") : p.action === "duplicate" ? (includeDuplicates ? "new · duplicate" : "skip · in another block") : "new"}
                         </td>
                         <td className={`px-2 py-1 font-mono ${status === "error" ? "text-bad" : status === "done" ? "text-good" : "text-text-2"}`}>
                           {STATUS_LABEL[status]}
@@ -276,7 +290,7 @@ export function BulkImportModal({ blockId, termId = null, userId = null, onClose
         )}
 
         <div className="flex gap-2">
-          <Button onClick={run} disabled={!plan.length || running}>
+          <Button onClick={run} disabled={!runnable.length || running}>
             {running ? "Importing…" : `Import ${counts.total || ""}`.trim()}
           </Button>
           {running && (

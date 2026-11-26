@@ -97,6 +97,7 @@ export function objectivePracticePlan(objectives = [], evidenceModel = {}) {
       applicationSecure,
       progressionReason:targetOrder==='third-order'?'Repeated independent application supports an integration attempt; this is not mastery.':!profile.allowed.includes('third-order')?'Practice application; the current source map does not yet establish supported integration.':'Build at least three correct independent applications at 80% or higher; confidence alone cannot advance the target.',
       missingRequirements,
+      parts: (objective._parts || []).map(({ id, label, covered }) => ({ id, label, covered })),
       remaining,
       recovery,
       readinessBasis:recovery.recovered ? "recent-fresh-recovery" : ready ? "lifetime-practice" : "insufficient",

@@ -56,6 +56,9 @@ export function ObjectiveProgressChart({ rows = [] }) {
         <span>{selected.attempts} questions · {selected.correct} correct</span>
         <span>Next: {selected.targetOrder?.replace("-order", " order") || "Not established"}</span>
       </div>
+      {selected.parts?.length > 0 && <p className="mt-2 text-xs text-text-2" aria-label={`Parts answered ${selected.parts.filter(part => part.covered).length} of ${selected.parts.length}: ${selected.parts.map(part => `${part.label} ${part.covered ? "answered" : "untested"}`).join(", ")}`}>
+        Parts {selected.parts.filter(part => part.covered).length}/{selected.parts.length}: {selected.parts.map(part => `${part.covered ? "✓" : "○"} ${part.label}`).join(" · ")}
+      </p>}
       <details className="mt-2 text-xs text-text-3"><summary className="cursor-pointer">Practice details</summary>
         <p className="mt-2">{selected.code}</p>
         <p>{selected.missingRequirements?.join(" · ") || "Readiness floor met · spaced maintenance"}</p>

@@ -4,6 +4,7 @@ import {
   storageKeyFor,
   flattenEntry,
   dedupeById,
+  withoutNewDuplicateObjectives,
   toEntry,
   dedupeByText,
   selectBlockObjectives,
@@ -330,4 +331,25 @@ it('tracks review-only coverage independently from testing and supports undo',()
  const reviewed=selfRate([{id:'r',status:'untested',attempts:0}],'r','reviewed',NOW);
  expect(reviewed[0]).toMatchObject({status:'untested',attempts:0,reviewedAt:NOW});
  expect(selfRate(reviewed,'r','reviewed',NOW)[0].reviewedAt).toBe(null);
+});
+
+describe("duplicate objectives are not added", () => {
+  const linked = { id: "a", objective: "Describe the formation of the vesicles of the brain.", linkedLecId: "L1", code: "SOM.NSCI.0543" };
+  it("drops a new unlinked or same-lecture copy (typo, punctuation, truncation) but keeps existing rows", () => {
+    const next = [linked,
+      { id: "b", objective: "Describe the formation of the vessicles of the brain", linkedLecId: "imported" },
+      { id: "c", objective: "Describe the formation of the vesicles of the brain", linkedLecId: "L1" },
+      { id: "d", objective: "Describe fractures of the orbit and their clinical consequences including extraocular muscle", linkedLecId: null }];
+    const existing = [linked, { id: "e", objective: "Describe fractures of the orbit and their clinical consequences including extraocular muscle entrapment", linkedLecId: "L2" }];
+    expect(withoutNewDuplicateObjectives(existing, [...next, existing[1]]).map(o => o.id)).toEqual(["a", "e"]);
+  });
+  it("keeps the same wording in a different lecture or under a different school code", () => {
+    const next = [linked, { id: "f", objective: linked.objective, linkedLecId: "L9" }, { id: "g", objective: linked.objective, linkedLecId: "L1", code: "SOM.NSCI.0999" }];
+    expect(withoutNewDuplicateObjectives([linked], next).map(o => o.id)).toEqual(["a", "f", "g"]);
+  });
+  it("toEntry applies the guard on every write", () => {
+    const entry = toEntry({ imported: [linked], extracted: [] }, [linked, { id: "b", objective: linked.objective, linkedLecId: null }]);
+    expect(entry.extracted).toEqual([]);
+    expect(entry.imported.map(o => o.id)).toEqual(["a"]);
+  });
 });

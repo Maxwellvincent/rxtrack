@@ -142,7 +142,7 @@ export function computeObjectiveReadiness(sessions, objectives = [], { restrictT
   const attempts = testedIds.reduce((sum, id) => sum + stats[id].attempts, 0);
   const correct = testedIds.reduce((sum, id) => sum + stats[id].correct, 0);
   const readinessEvidence=readinessEvents.sort((a,b)=>a.at-b.at).reduce((data,event)=>learnerEvidenceStore.applyEvidence(data,event),{});
-  const readyIds=new Set(objectivePracticePlan(testedIds.map(id=>({id})),readinessEvidence).rows.filter(row=>row.ready).map(row=>row.id));
+  const readyIds=new Set(objectivePracticePlan(testedIds.map(id=>(objectives||[]).find(o=>o?.id===id)||{id}),readinessEvidence).rows.filter(row=>row.ready).map(row=>row.id));
   const ready = readyIds.size;
   const provisional = testedIds.filter((id) => {
     const stat = stats[id];

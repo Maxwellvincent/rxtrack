@@ -68,6 +68,65 @@ export function dedupeById(objectives) {
   return out;
 }
 
+const objectiveWords = (objective) => String(objective?.objective || objective?.text || "").normalize("NFKC").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+// Discipline + number ("nsci.0543"): the prefix carries school typos (BPM2/BMP2)
+// and competency tags that differ between copies of the same objective.
+const objectiveCode = (objective) => String(objective?.code || objective?.objectiveCode || "").replace(/\s/g, "").toLowerCase().split(".").slice(-2).join(".");
+const lectureOf = (objective) => (objective?.linkedLecId && objective.linkedLecId !== "imported" ? objective.linkedLecId : null);
+function bigrams(text) {
+  const out = new Map();
+  for (let index = 0; index < text.length - 1; index += 1) { const pair = text.slice(index, index + 2); out.set(pair, (out.get(pair) || 0) + 1); }
+  return out;
+}
+/** Same wording, allowing typos, punctuation and a truncated copy. */
+export function sameObjectiveWording(a, b) {
+  const x = objectiveWords(a), y = objectiveWords(b);
+  if (x.length < 12 || y.length < 12) return x === y && !!x;
+  if (x === y) return true;
+  const [short, long] = x.length <= y.length ? [x, y] : [y, x];
+  if (short.length >= 40 && long.startsWith(short) && short.length / long.length >= 0.8) return true;
+  const bx = bigrams(x), by = bigrams(y);
+  let shared = 0;
+  for (const [pair, count] of bx) shared += Math.min(count, by.get(pair) || 0);
+  return (2 * shared) / Math.max(1, x.length - 1 + y.length - 1) >= 0.95;
+}
+
+/**
+ * True when `candidate` repeats `other`: same wording, and either the same
+ * lecture or the candidate is unlinked. Distinct school codes are never
+ * duplicates (the school repeats wording across sessions on purpose), and the
+ * same wording linked to two different lectures is kept.
+ */
+export function isDuplicateObjective(candidate, other) {
+  if (!candidate || !other || candidate === other || (candidate.id && candidate.id === other.id)) return false;
+  const [codeA, codeB] = [objectiveCode(candidate), objectiveCode(other)];
+  if (codeA && codeB && codeA !== codeB) return false;
+  const [lecA, lecB] = [lectureOf(candidate), lectureOf(other)];
+  if (lecA && lecA !== lecB) return false;
+  return sameObjectiveWording(candidate, other);
+}
+
+/**
+ * Objectives an upload or import is ADDING (ids not in `existingFlat`) that
+ * repeat one already in the block are dropped. Existing rows are never removed
+ * here, so evidence keyed to them is safe.
+ */
+export function withoutNewDuplicateObjectives(existingFlat = [], nextFlat = []) {
+  const existingIds = new Set((existingFlat || []).map((o) => o?.id).filter(Boolean));
+  const isNew = (objective) => (objective?.id ? !existingIds.has(objective.id) : true);
+  const keptExisting = (nextFlat || []).filter((objective) => !isNew(objective));
+  const keptNew = [];
+  const out = [];
+  for (const objective of nextFlat || []) {
+    if (isNew(objective)) {
+      if ([...keptExisting, ...keptNew].some((other) => isDuplicateObjective(objective, other))) continue;
+      keptNew.push(objective);
+    }
+    out.push(objective);
+  }
+  return out;
+}
+
 /**
  * Fold a flat list back into an entry, preserving the existing storage shape.
  * The codebase migrated from a flat legacy array to { imported, extracted };
@@ -75,7 +134,9 @@ export function dedupeById(objectives) {
  * whichever bucket they came from and brand-new items go to `extracted`.
  */
 export function toEntry(existingEntry, nextFlat) {
-  const deduped = dedupeById(nextFlat);
+  // Every import, upload and re-extract writes through here: refuse to add a
+  // copy of an objective the block already has.
+  const deduped = withoutNewDuplicateObjectives(flattenEntry(existingEntry), dedupeById(nextFlat));
   if (existingEntry && typeof existingEntry === "object" && !Array.isArray(existingEntry)) {
     const importedIds = new Set(
       (Array.isArray(existingEntry.imported) ? existingEntry.imported : [])

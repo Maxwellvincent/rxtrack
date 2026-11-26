@@ -56,6 +56,8 @@ vi.mock("../../../questionPool.js", async importOriginal => ({
 }));
 
 vi.mock("../../hooks/useQuestionPractice.js", () => ({useQuestionPractice: () => ({sessions: [], study: {}, manual: {}, loading: false, refresh: vi.fn()})}));
+// Parts inventories are covered by objectiveParts tests; keep this transport sequence unchanged.
+vi.mock("../objectives/objectivePartsLoader.js", () => ({ ensureObjectiveParts: vi.fn(async () => null) }));
 vi.mock("./BpmBlueprintDashboard.jsx", () => ({BpmBlueprintDashboard: () => null}));
 
 vi.mock("./tutorPrefs.js", () => ({

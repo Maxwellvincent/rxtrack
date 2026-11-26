@@ -23,13 +23,14 @@ describe.skipIf(!globalThis.process?.env?.FIRESTORE_EMULATOR_HOST || !globalThis
     expect(got).toEqual([{ id: "t1", name: "Term 1" }]);
   });
 
-  it("push writes state/terms, pull merges it back", async () => {
-    localStorage.setItem("rxt-terms", JSON.stringify([{ id: "t1", blocks: [{ id: "b1" }] }]));
+  it("pull makes the cloud terms authoritative and push never re-adds a deleted block", async () => {
+    await __test.writeDoc(__test.stateRef(uid, "terms"), [{ id: "t1", blocks: [{ id: "b1" }] }]);
+    localStorage.setItem("rxt-terms", JSON.stringify([{ id: "t1", blocks: [{ id: "b1" }, { id: "deleted" }] }]));
     const { pushAllLocalDataToCloud, pullAllDataFromCloud } = await import("./firebaseData");
     await pushAllLocalDataToCloud(uid);
-    localStorage.removeItem("rxt-terms");
+    expect((await __test.readDoc(__test.stateRef(uid, "terms")))[0].blocks.map(b => b.id)).toEqual(["b1"]);
     await pullAllDataFromCloud(uid);
-    expect(JSON.parse(localStorage.getItem("rxt-terms"))[0].id).toBe("t1");
+    expect(JSON.parse(localStorage.getItem("rxt-terms"))[0].blocks.map(b => b.id)).toEqual(["b1"]);
   });
 
   it("pull is not empty for a kv-only account (no state/objectives/lectures)", async () => {

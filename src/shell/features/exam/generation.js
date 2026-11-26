@@ -17,6 +17,9 @@ import { getLecText } from "../../../lectureText.js";
 import { loadExamLectureEvidence } from "./lectureEvidence.js";
 import { objectiveOrderProfile } from "../../../engine/questionOrder.js";
 import { buildStyleProfile } from "../../../engine/styleProfile.js";
+import { relationshipPages } from "../../../engine/sourceRelationships.js";
+import { withPartTargets, validatedPartId } from "../../../engine/objectiveParts.js";
+import { read as readObjectiveParts } from "../../../stores/objectiveParts.js";
 import { crossLecturePartners, crossLectureCount, combinedLectureText, crossLectureFocusNotes, verifiedCrossLectureQuotes } from "./crossLecture.js";
 
 const MAX_ATTEMPTS = 3;
@@ -122,6 +125,18 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
       } catch (error) {
         sourceError = error.message;
       }
+    }
+    // Objective parts: build the lecture's inventory once (opt-in through deps),
+    // then steer the writer to untested parts and tag accepted questions.
+    let partsInventory = null;
+    if (!sourceError && objectives.length) {
+      try {
+        partsInventory = typeof deps.ensureObjectiveParts === "function" && !deps.savedOnly
+          ? await deps.ensureObjectiveParts({ userId, lectureId, objectives: objectivesByLecture?.[lectureId] || objectives,
+              pages: relationshipPages(lecture || {}, lectureText), history }, { callAIJSON: deps.callAIJSON, signal: deps.signal, timeoutMs: 60000 })
+          : readObjectiveParts(userId, lectureId);
+      } catch { partsInventory = null; }
+      if (partsInventory) objectives = withPartTargets(objectives, partsInventory, evidenceModel?.learningJournal || []);
     }
     const sourceBlockId = subject ? lecture?.blockId || blockId : blockId;
     const exemplars = sourceBlockId === blockId ? baseExemplars : readExemplarsForBlock(userId, sourceBlockId);
@@ -245,6 +260,7 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
         const stamped = { ...q, ...(crossTurn ? { crossLecture: { partnerLectureId: partner.id, partnerTitle: partner.title } } : {}), ...(subject ? { blueprintSlot: allocationId, blueprintSubject: subject, sourceBlockId } : {}), difficulty, questionId: crypto.randomUUID(), blockId, lectureId,
           taskType: studyMode === "repair" ? repairTaskForIndex(obtained) : (q.taskType || null),
           objectiveIds,
+          objectivePartId: partsInventory ? validatedPartId({ ...q, objectiveIds }, partsInventory) : (q.objectivePartId || null),
           fingerprint: questionFingerprint(q), schoolStyleScore: schoolStyleSimilarity(q, exemplars),
           source: exemplars.length ? "school-style generated" : "lecture generated" };
         // Reserve in this run before awaiting storage, preventing worker races.

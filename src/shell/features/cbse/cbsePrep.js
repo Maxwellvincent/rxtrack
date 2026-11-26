@@ -3,6 +3,7 @@ import { questionEvidenceKey } from "../../../stores/learnerEvidence.js";
 import { prepareQuestionBankQuestions, validBankQuestion } from "../exam/launchQuestionBank.js";
 import { flattenObjectiveEntry } from "../../data.js";
 import { objectivePracticePlan } from "../../../engine/objectivePractice.js";
+import { withPartTargets } from "../../../engine/objectiveParts.js";
 export const CBSE_BLOCK_ID = "cbse-prep";
 export const CBSE_OWNER = "KX9K9IK4DgU0dBoAD6pj6Q4CEgr1";
 export function ensureCbseTerms(terms = [], userId) {
@@ -39,7 +40,7 @@ export function buildCbsePool(banks = {}, metadata = {}, lectures = [], terms = 
 export function uniqueSessions(sessions = []) {
   return [...new Map(sessions.filter(s => s?.sessionId || s?.id).map(s => [s.sessionId || s.id, s])).values()];
 }
-export function cbseProgress({ sessions = [], calibration = {}, weakConcepts = {}, objectives = {}, evidence = {}, lectures = [] } = {}) {
+export function cbseProgress({ sessions = [], calibration = {}, weakConcepts = {}, objectives = {}, evidence = {}, lectures = [], parts = null } = {}) {
   const lectureMap = new Map(lectures.map(lecture => [lecture.id, lecture]));
   const rows = new Map(), history = [], itemHistory = new Map();
   let answered = 0, correct = 0, unlinked = 0;
@@ -75,7 +76,7 @@ export function cbseProgress({ sessions = [], calibration = {}, weakConcepts = {
   const reports = Object.entries(weakConcepts).flatMap(([blockId, entries]) => (Array.isArray(entries) ? entries : []).map(entry => ({ ...entry, blockId }))).filter(entry => entry.masteryLevel !== "mastered").sort((a,b) => (b.reportGap || b.missCount || 0) - (a.reportGap || a.missCount || 0));
   const objectiveList = [...new Map(Object.values(objectives).flatMap(flattenObjectiveEntry).filter(o => o?.id).map(o => [o.id, o])).values()];
   return { answered, correct, accuracy: answered ? correct / answered : null, unlinked, concepts, reports, itemHistory,
-    history: history.sort((a,b) => b.at - a.at), objectives: objectivePracticePlan(objectiveList, evidence).rows };
+    history: history.sort((a,b) => b.at - a.at), objectives: objectivePracticePlan(parts ? withPartTargets(objectiveList, parts, evidence?.learningJournal || []) : objectiveList, evidence).rows };
 }
 /** Which kind of source a pooled question came from, for CBSE practice filters. */
 export function cbseSourceGroup(question = {}) {

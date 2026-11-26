@@ -34,6 +34,7 @@ import {
   appendLectureParts,
   parseLectureFilename,
   upsertLecture,
+  findLectureInOtherBlocks,
 } from "../../logic/lectureIngest.js";
 import { toLocalRow } from "../../logic/bulkIngest.js";
 import { startBackgroundJob } from "../../backgroundJobs.js";
@@ -59,6 +60,7 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
   const [useLlm, setUseLlm] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [allowDuplicate, setAllowDuplicate] = useState(false);
   const [done, setDone] = useState("");
   const [progress, setProgress] = useState("");
   const [saved, setSaved] = useState(null);            // the lecture just written
@@ -115,7 +117,9 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
           fillsDate: merged?.lectureDate ?? null,
           chars: combinedLecture.fullText?.length ?? combinedLecture.chunks.reduce((n, c) => n + (c.markdown || c.text || "").length, 0),
           quality: qualities.find((quality) => quality?.quality === "poor") || null,
+          duplicateOf: !filledId && !targetLecture ? findLectureInOtherBlocks(current, combined.lecture) : null,
         });
+        setAllowDuplicate(false);
       } catch (e) {
         setError("Could not read selected lecture file(s): " + (e?.message || String(e)));
       } finally {
@@ -370,6 +374,15 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
                 {lastFiles.length > 0 && <button type="button" className="ml-2 underline" disabled={busy} onClick={() => { setUseLlm(true); onFiles(lastFiles, { useLlm: true }); }}>retry selected files with LLM cleanup</button>}
               </div>
             )}
+            {preview.duplicateOf && (
+              <div role="alert" className="mt-2 text-[13px] text-warn">
+                ⚠ “{preview.duplicateOf.lectureTitle || preview.duplicateOf.filename}” is already uploaded in another block. Adding it here creates a duplicate copy.
+                <label className="mt-1 flex items-center gap-2 text-text-2">
+                  <input type="checkbox" checked={allowDuplicate} onChange={(e) => setAllowDuplicate(e.target.checked)} />
+                  Add it anyway — this block really repeats the lecture
+                </label>
+              </div>
+            )}
             <label className="mt-2 flex items-center gap-2 font-mono text-[12px] text-text-3">
               date (optional — lets Today schedule it)
               <input
@@ -383,7 +396,7 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
         )}
 
         <div className="flex gap-2">
-          <Button onClick={addAndProcess} disabled={!preview || busy}>
+          <Button onClick={addAndProcess} disabled={!preview || busy || (preview.duplicateOf && !allowDuplicate)}>
             {busy ? "Working…" : preview?.action === "filled" ? "Fill and process" : "Add and process"}
           </Button>
           <Button variant="outline" onClick={onClose} disabled={busy}>Close</Button>

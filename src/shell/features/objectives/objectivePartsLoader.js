@@ -1,5 +1,5 @@
 import * as partsStore from "../../../stores/objectiveParts.js";
-import { buildObjectivePartsPrompt, normalizeObjectiveParts, inventoryIsCurrent, partsSourceVersion, answeredForParts } from "../../../engine/objectiveParts.js";
+import { buildObjectivePartsPrompt, normalizeObjectiveParts, inventoryIsCurrent, sourceMatches, answeredForParts } from "../../../engine/objectiveParts.js";
 import { quizAnswerKey } from "../../../engine/questionHistory.js";
 
 const SYSTEM = "You map medical-school learning objectives to the exact lecture content they cover. Return compact JSON only.";
@@ -15,7 +15,7 @@ export async function ensureObjectiveParts({ userId = null, lectureId, objective
   if (!lectureId || !objectives.length || !pages.some((page) => String(page.text || "").trim().length > 200)) return store.read(userId, lectureId);
   const stored = store.read(userId, lectureId);
   if (inventoryIsCurrent(stored, { pages, objectives })) return stored;
-  const sameSource = stored?.sourceVersion === partsSourceVersion(pages);
+  const sameSource = sourceMatches(stored, pages);
   const missing = sameSource ? objectives.filter((objective) => !stored.objectives?.[String(objective.id || objective.code)] && !stored.attempted?.includes(String(objective.id || objective.code))) : objectives;
   if (!missing.length || typeof deps.callAIJSON !== "function") return stored;
   const flightKey = `${userId}:${lectureId}:${missing.map((objective) => objective.id).sort().join(",")}`;

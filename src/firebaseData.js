@@ -425,36 +425,6 @@ function mergeCompletion(cloud = {}, local = {}) {
   return result;
 }
 
-/** Merge objectives for a single block: union by id, trust the entry with more drill evidence. */
-function mergeBlockObjectives(cloud, local) {
-  if (!cloud) return local;
-  if (!local) return cloud;
-  const cloudById = {};
-  (cloud.imported || []).forEach((o) => { if (o.id) cloudById[o.id] = o; });
-  const localById = {};
-  (local.imported || []).forEach((o) => { if (o.id) localById[o.id] = o; });
-  const allIds = new Set([...Object.keys(cloudById), ...Object.keys(localById)]);
-  const merged = [];
-  for (const id of allIds) {
-    const c = cloudById[id];
-    const l = localById[id];
-    if (!c) { merged.push(l); continue; }
-    if (!l) { merged.push(c); continue; }
-    const cDrills = c.drillCount || 0;
-    const lDrills = l.drillCount || 0;
-    // Prefer whichever has more drill evidence; ties go to local (more recent)
-    merged.push(lDrills >= cDrills ? { ...c, ...l } : { ...l, ...c });
-  }
-  // Union extracted arrays too
-  const extractedIds = new Set([...(cloud.extracted || []).map((e) => e.id || e), ...(local.extracted || []).map((e) => e.id || e)]);
-  const allExtracted = [...(cloud.extracted || []), ...(local.extracted || [])].filter((e) => {
-    const id = e.id || e;
-    if (!extractedIds.has(id)) return false;
-    extractedIds.delete(id);
-    return true;
-  });
-  return { ...cloud, ...local, imported: merged, extracted: allExtracted };
-}
 
 /** Merge rxt-weak-concepts: union concepts per block by id, keep highest missCount. */
 function mergeWeakConcepts(cloud = {}, local = {}) {
@@ -469,27 +439,6 @@ function mergeWeakConcepts(cloud = {}, local = {}) {
     result[blockId] = Object.values(byId);
   }
   return result;
-}
-
-/** Merge rxt-terms: union term/block arrays by id. */
-function mergeTerms(cloud, local) {
-  if (!cloud) return local;
-  if (!local) return cloud;
-  if (!Array.isArray(cloud) || !Array.isArray(local)) return local ?? cloud;
-  const byId = {};
-  [...cloud, ...local].forEach((t) => {
-    if (!t.id) return;
-    if (!byId[t.id]) { byId[t.id] = t; return; }
-    const existingBlocks = byId[t.id].blocks || [];
-    const newBlocks = t.blocks || [];
-    const blockIds = new Set(existingBlocks.map((b) => b.id));
-    byId[t.id] = {
-      ...byId[t.id],
-      ...t,
-      blocks: [...existingBlocks, ...newBlocks.filter((b) => !blockIds.has(b.id))],
-    };
-  });
-  return Object.values(byId);
 }
 
 /** Generic additive merge for user_kv values: arrays → union, objects → deep merge, primitives → local wins. */
@@ -559,8 +508,10 @@ export async function pushAllLocalDataToCloud(userId) {
   const errors = [];
 
   // ── 1-5. STATE STORES (transactional merge, write merged back to localStorage) ──
+  // rxt-terms is Firestore-first (stores/terms.js writes the cloud doc directly);
+  // the local copy is a read-only shadow. Union-merging it back here resurrected
+  // every deleted block from a stale device, so it is no longer pushed.
   for (const [lsKey, name, mergeFn] of [
-    ["rxt-terms", "terms", mergeTerms],
     ["rxt-performance", "performance", mergePerformance],
     ["rxt-completion", "completion", mergeCompletion],
     ["rxt-weak-concepts", "weak_concepts", mergeWeakConcepts],
@@ -582,25 +533,10 @@ export async function pushAllLocalDataToCloud(userId) {
     }
   }
 
-  // ── 6. OBJECTIVES (merge per block, encoded ids) ──────────────────
-  const objStore = JSON.parse(localStorage.getItem("rxt-block-objectives") || "{}");
-  for (const [blockId, local] of Object.entries(objStore)) {
-    try {
-      if (JSON.stringify(local).length > MAX_DOC_BYTES) {
-        errors.push({ store: `objectives:${blockId}`, error: { message: "oversized, skipped" } });
-        continue;
-      }
-      const merged = await mergeDoc(
-        doc(db, "users", userId, "objectives", encodeDocId(blockId)),
-        local,
-        mergeBlockObjectives
-      );
-      objStore[blockId] = merged;
-    } catch (e) {
-      errors.push({ store: `objectives:${blockId}`, error: { message: e?.message || String(e) } });
-    }
-  }
-  try { persistLocal("rxt-block-objectives", objStore); } catch {}
+  // ── 6. OBJECTIVES — not pushed ──────────────────
+  // Objectives are Firestore-first (one document per block, written through
+  // stores/objectives.js); the local copy is a read-only shadow. Union-merging
+  // that shadow back here resurrected deleted objectives, so it is not pushed.
 
   // ── 7. LECTURES (chunked batch, encoded ids) ──────────────────
   // Tombstoned ids are the ONE thing that gets deleted up here: without this a
@@ -723,9 +659,9 @@ export async function pullAllDataFromCloud(userId) {
 
   // Terms: merge cloud into local (union blocks)
   if (terms != null) {
-    const localTermsRaw = localStorage.getItem("rxt-terms");
-    const mergedTerms = mergeTerms(localTermsRaw ? JSON.parse(localTermsRaw) : null, terms);
-    persistLocal("rxt-terms", mergedTerms);
+    // Cloud is authoritative: a block deleted on another device must not
+    // survive in this device's shadow copy (and be pushed back from it).
+    persistLocal("rxt-terms", terms);
   }
 
   // Lectures: cloud adds to local, local stubs preserved. All slide text stays
@@ -743,19 +679,19 @@ export async function pullAllDataFromCloud(userId) {
       // localStorage for large blocks and prevented the following objective pull.
       return lec;
     });
-    const local = storeForKey("rxt-lec-meta").read(userId) || [];
-    const cloudIds = new Set(fromCloud.map((l) => l.id));
-    const localOnly = local.filter((l) => !cloudIds.has(l.id));
-    storeForKey("rxt-lec-meta").writeCloudSaved(userId, [...fromCloud, ...localOnly]);
+    // Uploads are confirmed in Firestore before they reach this cache, so a
+    // lecture missing from the cloud was deleted; keeping it locally let the
+    // next push recreate it.
+    storeForKey("rxt-lec-meta").writeCloudSaved(userId, fromCloud);
   }
 
   // Objectives: merge per block using same merge function as push
   if (!objsSnap.empty) {
-    const local = JSON.parse(localStorage.getItem("rxt-block-objectives") || "{}");
-    const objMap = { ...local };
+    // Cloud is authoritative for objectives (see the push note above).
+    const objMap = {};
     objsSnap.docs.forEach((d) => {
       const blockId = decodeDocId(d.id);
-      objMap[blockId] = mergeBlockObjectives(local[blockId] ?? null, d.data()?.data ?? null);
+      objMap[blockId] = d.data()?.data ?? null;
     });
     persistLocal("rxt-block-objectives", objMap);
   }

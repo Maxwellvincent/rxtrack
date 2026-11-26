@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import {
   buildObjectivePartsPrompt, normalizeObjectiveParts, inventoryIsCurrent, partCoverage, withPartTargets,
   objectivePartsPrompt, validatedPartId, answeredForParts, nextParts, quoteSupported,
+  combineInventories, sourceMatches, legacyPartsSourceVersion,
 } from "./objectiveParts.js";
+import { generateExamQuestions } from "../shell/features/exam/generation.js";
+import { cbseProgress } from "../shell/features/cbse/cbsePrep.js";
 import { ladderForObjective } from "./masteryLadder.js";
 import { objectivePracticePlan } from "./objectivePractice.js";
 import { mergeInventory } from "../stores/objectiveParts.js";
@@ -139,6 +142,43 @@ describe("quiz preparation with parts", () => {
       { callAIJSON, ensureObjectiveParts, prepareBatchSize: 1, reviewBatchSize: 1, maxPrepareAttempts: 1, skipQuestionAudit: true }
     );
     expect(ensureObjectiveParts).toHaveBeenCalledWith(expect.objectContaining({ lectureId: "L67", pages }), expect.objectContaining({ callAIJSON }));
+    expect(callAIJSON.mock.calls[0][1]).toContain("OBJECTIVE PARTS (required)");
+    expect(result.questions[0]?.objectivePartId).toBe(duration.id);
+  });
+});
+
+describe("parts across lectures (exam and CBSE dashboards)", () => {
+  it("recognises the same lecture text whether it arrives as chunk pages or joined text, and the first-release version", () => {
+    const joined = [{ page: 1, text: pages.map(page => page.text).join("\n\f\n") }];
+    expect(sourceMatches(inventory, joined)).toBe(true);
+    expect(sourceMatches({ ...inventory, sourceVersion: legacyPartsSourceVersion(pages) }, pages)).toBe(true);
+    expect(sourceMatches(inventory, [{ page: 1, text: "different lecture" }])).toBe(false);
+    const stale = { ...inventory, sourceVersion: legacyPartsSourceVersion(pages) };
+    expect(mergeInventory(stale, normalizeObjectiveParts(raw, { lectureId: "L67", objectives: [objective], pages })).objectives.o115.parts[0].id).toBe(duration.id);
+  });
+
+  it("combines lecture inventories so block objectives each carry their own parts", () => {
+    const other = { ...inventory, lectureId: "L2", objectives: { o2: { parts: [{ id: "p-x", label: "Other part" }] } }, questionParts: { e_x: "p-x" } };
+    const combined = combineInventories([inventory, other, null]);
+    expect(Object.keys(combined.objectives).sort()).toEqual(["o115", "o2"]);
+    const [a, b] = withPartTargets([objective, { id: "o2", objective: "Other" }], combined, []);
+    expect(a._parts).toHaveLength(3);
+    expect(b._parts.map(part => part.label)).toEqual(["Other part"]);
+  });
+
+  it("CBSE progress rows show parts and stay not-ready while parts are untested", () => {
+    const progress = cbseProgress({ objectives: { b: [objective] }, evidence: { learningJournal: [] }, parts: inventory });
+    expect(progress.objectives[0].parts.map(part => part.covered)).toEqual([false, false, false]);
+    expect(progress.objectives[0].missingRequirements.join(" ")).toMatch(/untested parts/);
+  });
+
+  it("exam generation builds the lecture inventory, prompts with parts and tags accepted questions", async () => {
+    const lecture = { id: "L67", blockId: "b", lectureTitle: "Psychotic disorders", chunks: pages.map(page => ({ markdown: page.text.repeat(3), pageNumber: page.page })) };
+    const question = { stem: "A 24-year-old has had hallucinations for six weeks with full recovery. Which diagnosis best fits?", choices: { A: "Schizophreniform disorder", B: "Brief psychotic disorder", C: "Schizophrenia", D: "Delusional disorder" }, correct: "A", explanation: "Duration 1 to 6 months.", objectiveIds: ["o115"], objectivePartId: duration.id };
+    const callAIJSON = vi.fn().mockResolvedValue({ questions: [question] });
+    const ensureObjectiveParts = vi.fn().mockResolvedValue(inventory);
+    const result = await generateExamQuestions({ allocation: { L67: 1 }, lecturesById: { L67: lecture }, lectures: [lecture], objectivesByLecture: { L67: [objective] }, atomsByLecture: {}, blockId: "b", userId: null }, { callAIJSON, ensureObjectiveParts, skipQuestionAudit: true });
+    expect(ensureObjectiveParts).toHaveBeenCalledWith(expect.objectContaining({ lectureId: "L67" }), expect.anything());
     expect(callAIJSON.mock.calls[0][1]).toContain("OBJECTIVE PARTS (required)");
     expect(result.questions[0]?.objectivePartId).toBe(duration.id);
   });

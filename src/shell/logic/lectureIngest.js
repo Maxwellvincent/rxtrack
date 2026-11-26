@@ -357,6 +357,16 @@ export function findFillTarget(lectures, lecture) {
 }
 
 /**
+ * The same lecture already uploaded to a DIFFERENT block — the usual sign that a
+ * whole block was uploaded into the wrong slot (FTM 1 landing again as FTM 2).
+ * Within a block, findFillTarget already fills the existing row instead.
+ */
+export function findLectureInOtherBlocks(lectures, lecture) {
+  if (!lecture?.blockId) return null;
+  return (lectures || []).find((l) => l && !l.mergedInto && l.blockId && l.blockId !== lecture.blockId && sameTitle(l, lecture)) || null;
+}
+
+/**
  * Land an upload in the list.
  *
  * Default is to fill the row that is already there — keeping its id, and with

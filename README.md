@@ -183,7 +183,22 @@ practice keeps its credit. Quizzes steer the writer to untested parts first (`ob
 and tag each accepted question with `objectivePartId`; answer events carry it. An objective is not
 Mastered on the ladder, nor `ready` in the practice plan, until every part has one independent
 correct answer. The lecture's ladder panel lists the parts with ✓ tested / ○ untested. The
-inventory is rebuilt when the lecture text changes; parts stay stable while it does not.
+inventory is rebuilt when the lecture text changes; parts stay stable while it does not (the source
+version hashes the lecture's words, so chunk pages and joined exam text agree). The exam page
+(`ExamContainer` via `useObjectivesWithParts`) and the CBSE dashboard (`useLecturePartsInventory`)
+attach the stored parts to every block objective, so their readiness, high-yield ladder and the
+objective chart ("Parts x/y") apply the same rule; exam generation (`generation.js`) builds a
+lecture's inventory when it is missing, steers each lecture batch to untested parts and tags
+accepted questions.
+
+**Duplicate guard:** `toEntry` drops any objective an upload, import or re-extract is adding when
+it repeats one the block already has (`isDuplicateObjective`: same wording allowing typos,
+punctuation or truncation; same lecture or unlinked; never across distinct school codes or two
+different lectures). Bulk and single lecture upload mark a lecture whose title already exists in
+another block and skip it unless the learner explicitly includes it. The legacy merge-sync
+(`pushAllLocalDataToCloud` / `pullAllDataFromCloud`) no longer union-merges terms, objectives or
+lectures from the local shadow copy; the cloud is authoritative for them, which is what let deleted
+blocks and objectives come back.
 
 **Reasoning depth and connections**
 
@@ -314,7 +329,8 @@ is superseded.
 | Integrated exam tab: prepared sets, reserve refill, timed 72 s/question, tutor mode, persisted choice elimination | **Done** |
 | Weak-concept repair loop, focused drills, delayed retests | **Done** |
 | Objective connection maps + third-order construction (within a lecture) | **Done** (2026-11-23) |
-| Objective parts: objectives that span several lecture elements are split into source-quoted parts; quizzes target untested parts and Mastered requires every part | **Done** (2026-11-26) |
+| Objective parts: objectives that span several lecture elements are split into source-quoted parts; quizzes target untested parts and Mastered requires every part | **Done** (2026-11-26; lecture flow, exam page and CBSE dashboard) |
+| Duplicate prevention: objective writes drop new copies, uploads flag lectures already in another block, legacy sync no longer resurrects deletions | **Done** (2026-11-26) |
 | Requested quiz length is filled: objectives whose lecture cannot support a verified third-order or connection item fall back to reviewed second-order items after 2 depth rejections; refill continues while rounds still yield questions (bounded by the time budget and 3 empty rounds) | **Done** (2026-11-25) |
 | Lecture checkpoints, school alignment on exam results | **Done** (2026-11-23/24) |
 | Learned question links (headings + precedents), manual linking, score-report upload, high-yield panel | **Done** (2026-11-24) |

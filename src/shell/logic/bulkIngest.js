@@ -11,7 +11,7 @@ import { stripLectureBodyForLocalCache } from "./lectureMetaCache.js";
  *
  * Pure. The caller owns extraction, the store writes and the AI passes.
  */
-import { findFillTarget, parseLectureFilename, upsertLecture } from "./lectureIngest.js";
+import { findFillTarget, findLectureInOtherBlocks, parseLectureFilename, upsertLecture } from "./lectureIngest.js";
 import { cleanLectureTitle } from "../../lectureTitle.js";
 
 
@@ -64,7 +64,7 @@ export function selectBestFiles(files) {
  * Duplicate filenames inside one selection collapse to the first — picking a
  * folder twice should not queue every lecture twice.
  */
-export function planBulkImport(files, existingLectures, blockId) {
+export function planBulkImport(files, existingLectures, blockId, { otherLectures = [] } = {}) {
   const seen = new Set();
   const plan = [];
 
@@ -77,6 +77,8 @@ export function planBulkImport(files, existingLectures, blockId) {
     const { type, number, title } = parseLectureFilename(name);
     const candidate = { blockId, lectureType: type, lectureNumber: number, lectureTitle: title };
     const existing = findFillTarget(existingLectures || [], candidate);
+    // Already uploaded to another block: skipped unless the learner includes it.
+    const duplicate = existing ? null : findLectureInOtherBlocks(otherLectures, candidate);
 
     plan.push({
       file,
@@ -86,7 +88,8 @@ export function planBulkImport(files, existingLectures, blockId) {
       lectureTitle: title,
       // "fill" is the normal case for a scheduled block: the row exists with
       // its date, and the upload is the content it has been waiting for.
-      action: existing ? "fill" : "add",
+      action: existing ? "fill" : duplicate ? "duplicate" : "add",
+      duplicateOf: duplicate ? { id: duplicate.id, blockId: duplicate.blockId } : null,
       fillsId: existing?.id ?? null,
       fillsDate: existing?.lectureDate ?? null,
       status: "queued",
@@ -105,8 +108,9 @@ export function planBulkImport(files, existingLectures, blockId) {
 export function summarizePlan(plan) {
   const add = (plan || []).filter((p) => p.action === "add").length;
   const fill = (plan || []).filter((p) => p.action === "fill").length;
+  const duplicate = (plan || []).filter((p) => p.action === "duplicate").length;
   const dated = (plan || []).filter((p) => p.fillsDate).length;
-  return { total: (plan || []).length, add, fill, dated };
+  return { total: (plan || []).length, add, fill, dated, duplicate };
 }
 
 /**
