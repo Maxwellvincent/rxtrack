@@ -12,6 +12,7 @@ import { Button } from "../../../ui/Button.jsx";
 import * as atomProgressStore from "../../../stores/atomProgress.js";
 import { useStoreResource } from "../../hooks/useStoreResource.js";
 import { lectureReviewStats } from "../lectures/lectureReviewStats.js";
+import { REVIEW_TARGET, reviewLabel } from "../lectures/lectureReviewDays.js";
 import { RenameLecture } from "../lectures/RenameLecture.jsx";
 import { useToday } from "../today/useToday.js";
 import { useLectureQuestionStats } from "../../hooks/useLectureQuestionStats.js";
@@ -123,7 +124,7 @@ function DateEdit({ row, onUpdateDate }) {
   );
 }
 
-function Row({ row, userId, stats, onStudy, onQuiz, onLog, onUpdateDate, onPreRead, onDelete, busy, deleting, focused, rowRef, selectable = false, selected = false, onToggleSelected }) {
+function Row({ row, userId, stats, reviewDays = null, onStudy, onQuiz, onLog, onUpdateDate, onPreRead, onDelete, busy, deleting, focused, rowRef, selectable = false, selected = false, onToggleSelected }) {
   const practiced = Math.min(row.total || 0, Math.max(0, row.practiced || 0));
   const answered = stats?.answered || 0;
   const accuracy = answered > 0 ? Math.round(((stats?.correct || 0) / answered) * 100) : null;
@@ -161,6 +162,8 @@ function Row({ row, userId, stats, onStudy, onQuiz, onLog, onUpdateDate, onPreRe
             {row.struggling > 0 && <span>⚠ {row.struggling} weak</span>}
             {row.mastered > 0 && <span>✓ {row.mastered} ready</span>}
             {row.repairCount > 0 && <span>◈ {row.repairCount} repairs</span>}
+            {reviewDays?.reviews > 0 && <span title={`Days you answered questions on this lecture: ${reviewDays.days.join(", ")}. Target ${REVIEW_TARGET} spaced reviews before the exam.`}
+              className={reviewDays.reviews >= REVIEW_TARGET ? "font-semibold text-text-1" : ""}>{reviewLabel(reviewDays)}</span>}
             {!row.reviewsSuspended && row.nextReview && <span>↻ {row.nextReview}</span>}
           </div>
         </div>
@@ -242,7 +245,7 @@ export function LectureList({
   quizBusyLectureId = null,
   focusLectureId = null,
 }) {
-  const { context, logActivity, logPreRead, objectivesForTask } = useToday(blockId, userId);
+  const { context, logActivity, logPreRead, objectivesForTask, reviewDaysByLectureId } = useToday(blockId, userId);
   const questionStats = useLectureQuestionStats(userId);
   const repairProgress = useStoreResource(atomProgressStore, userId);
   const [filter, setFilter] = useState(() => readFilterPrefs(blockId).filter);
@@ -510,6 +513,7 @@ export function LectureList({
                   key={row.lectureId}
                   row={row}
                   stats={{ ...questionStats.data?.[row.lectureId], slideReviews: lectureReviewStats(context.completion?.[`${row.lectureId}__${blockId}`]).count }}
+                  reviewDays={reviewDaysByLectureId?.[row.lectureId]}
                   busy={quizBusyLectureId}
                   onStudy={onStudyLecture}
                   onQuiz={onQuiz}
@@ -560,6 +564,7 @@ export function LectureList({
                   key={row.lectureId}
                   row={row}
                   stats={{ ...questionStats.data?.[row.lectureId], slideReviews: lectureReviewStats(context.completion?.[`${row.lectureId}__${blockId}`]).count }}
+                  reviewDays={reviewDaysByLectureId?.[row.lectureId]}
                   busy={quizBusyLectureId}
                   onStudy={onStudyLecture}
                   onQuiz={onQuiz}

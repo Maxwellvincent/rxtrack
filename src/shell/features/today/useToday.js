@@ -1,3 +1,4 @@
+import { lectureReviewDays, objectiveLectureMap } from "../lectures/lectureReviewDays.js";
 import {contextBlockReviewPolicy} from '../../../engine/blockReviewPolicy.js';
 import { studyDayDate, studyDayKey, nextStudyDayDelay } from "../../../studyDay.js";
 /**
@@ -226,9 +227,18 @@ export function useToday(blockId, userId, { now } = {}) {
     [context.lectures, context.objectives]
   );
 
+  // Days with enough answers on each lecture's objectives (lectureReviewDays.js).
+  const reviewDaysByLectureId = useMemo(() => {
+    const objectives = context.objectives || [];
+    const objectiveCounts = {};
+    for (const objective of objectives) if (objective?.linkedLecId) objectiveCounts[objective.linkedLecId] = (objectiveCounts[objective.linkedLecId] || 0) + 1;
+    return lectureReviewDays(learnerEvidence.data?.learningJournal || [], { objectiveLecture: objectiveLectureMap(objectives), objectiveCounts });
+  }, [learnerEvidence.data, context.objectives]);
+
   return {
     context,
     daily,
+    reviewDaysByLectureId,
     study,
     todayTasks,
     todayReason,

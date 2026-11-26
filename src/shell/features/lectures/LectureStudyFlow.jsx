@@ -98,6 +98,7 @@ import * as questionRatingsStore from "../../../stores/questionRatings.js";
 import * as lectureQuizSessionsStore from "../../../stores/lectureQuizSessions.js";
 import { deleteLectureFully } from "../../logic/deleteLecture.js";
 import { RenameLecture } from "./RenameLecture.jsx";
+import { lectureReviewDays, REVIEW_TARGET } from "./lectureReviewDays.js";
 import { ModelRepairs } from "./ModelRepairs.jsx";
 import { LectureRetrievalEnrollment } from "./LectureRetrievalEnrollment.jsx";
 import { ObjectiveCoverage } from "./ObjectiveCoverage.jsx";
@@ -189,6 +190,10 @@ export function LectureStudyFlow({
   // remounts (and re-reads) whenever you switch lectures.
   const [done, setDone] = useState(() => readRoundProgress(userId, lecture?.id));
   const qStats=useLectureStats(userId,lecture?.id);
+  const reviewDays = useMemo(() => lectureReviewDays(learnerEvidence.data?.learningJournal || [], {
+    objectiveLecture: Object.fromEntries((lectureObjectives || []).filter(objective => objective?.id).map(objective => [objective.id, lecture?.id])),
+    objectiveCounts: { [lecture?.id]: (lectureObjectives || []).length },
+  })[lecture?.id] || { reviews: 0, days: [], lastReview: null }, [learnerEvidence.data, lectureObjectives, lecture?.id]);
   // The real progress bar: atoms answered correctly at least once, out of the atoms this lecture
   // actually has right now. Empty until atoms load (the effect below recomputes it then), refreshed at round/quiz end and on manual exit.
   const [_atomMastery, setAtomMastery] = useState({ masteredCount: 0, totalCount: 0 });
@@ -1281,6 +1286,10 @@ export function LectureStudyFlow({
         </div>
       <p className="mb-1 font-condensed text-xs font-semibold uppercase tracking-[0.16em] text-accent">Lecture</p>
       <RenameLecture inline userId={userId} lectureId={lecture?.id} title={renamedTitle || title} onRenamed={(name) => { setRenamedTitle(name); onLectureRenamed?.(name); }} />
+      <p aria-label="Question reviews" className="mt-1 text-xs text-text-2" title={reviewDays.days.length ? `Days with questions: ${reviewDays.days.join(", ")}` : undefined}>
+        {reviewDays.reviews >= REVIEW_TARGET ? "✓ " : ""}Reviewed with questions on {reviewDays.reviews} day{reviewDays.reviews === 1 ? "" : "s"} · target {REVIEW_TARGET} spaced reviews
+        {reviewDays.lastReview ? ` · last ${reviewDays.lastReview}` : ""}
+      </p>
       </header>
       <LectureWorkspaceNav value={workspace} onChange={setWorkspace} />
       {error && <div className="mb-3 rounded-lg border border-bad bg-bg-elevated p-3 text-xs text-bad">{error}</div>}
