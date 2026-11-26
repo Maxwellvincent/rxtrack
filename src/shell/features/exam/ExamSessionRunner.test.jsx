@@ -152,7 +152,7 @@ describe("ExamSessionRunner", () => {
     expect(menu.querySelector('[aria-label="Question navigation"]')).toBeTruthy();
     expect(menu.textContent).toContain('Repair from original PDF');
     expect(menu.textContent).toContain('Copy question');
-    expect(menu.textContent).toContain('Cover the options first');
+    expect(host.textContent).toContain('Write my reasoning first: Off');
     expect(host.querySelector('[aria-label="Practice header"]').textContent).toContain('Question 1 of 2');
     expect([...host.querySelectorAll('button')].filter(b=>b.textContent==='Save & exit')).toHaveLength(1);
     act(()=>{menu.open=true;menu.querySelector('[aria-label="Question 2, unanswered"]').click();});
@@ -890,7 +890,7 @@ it("hides the choices until a prediction is committed, then asks for a self-chec
  expect(host.querySelector('[aria-label="Check your reasoning"]').textContent).toContain('✓ You marked your reason as matching.');
  unmount();
 });
-it("lets the learner skip covering, and never covers timed exams", () => {
+it("lets the learner skip covering, covers timed exams only when on", () => {
  localStorage.setItem("rxt-cover-options-v1", "on");
  const practice=baseController({session:{...baseController().session,format:"practice"},syncCoverAnswer:vi.fn()});
  controllerMock.mockReturnValue(practice);
@@ -900,7 +900,11 @@ it("lets the learner skip covering, and never covers timed exams", () => {
  first.unmount();
  controllerMock.mockReturnValue(baseController());
  const exam=render(<ExamSessionRunner sessionId="s1" userId="u1"/>);
+ expect(exam.host.querySelector('[aria-label="Cover the options"]')).toBeTruthy();
+ const toggle=[...exam.host.querySelectorAll('label')].find(l=>l.textContent.includes('Write my reasoning first'));
+ act(()=>toggle.querySelector('input').click());
  expect(exam.host.querySelector('[aria-label="Cover the options"]')).toBeFalsy();
+ expect(localStorage.getItem("rxt-cover-options-v1")).toBe("off");
  exam.unmount();
 });
 it("shows the missed concept and never recommends a perfect-score lecture as repair", () => {

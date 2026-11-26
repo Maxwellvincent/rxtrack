@@ -17,7 +17,7 @@ import { recordAtomAnswer } from "../stores/atomProgress.js";
 import { quizAnswerKey, questionHistory } from "../engine/questionHistory.js";
 import { ExplainOtherChoicesButton, mergeAiChoiceNotes } from "../ui/ExplainOtherChoices.jsx";
 import { questionEvidenceKey, read as readLearnerEvidence, recordEvidenceAwait, recordReflection, recordSelfCheck } from "../stores/learnerEvidence.js";
-import { CoverOptions, PredictionCheck } from "./features/exam/CoverOptions.jsx";
+import { CoverOptions, PredictionCheck, ReasoningToggle } from "./features/exam/CoverOptions.jsx";
 import { coverAnswerEntry, readCoverPreference, selfCheckObjectiveIds, shouldCoverOptions, writeCoverPreference } from "../engine/activeRecall.js";
 import { classifyLeadIn, ERROR_REASONS } from "./features/exam/questionReading.js";
 import * as objectivesStore from "../stores/blockObjectives.js";
@@ -293,6 +293,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
             className="mb-2 max-h-64 w-full rounded-lg border border-border bg-panel object-contain"
           />
         )}
+        <div className="mb-2 flex justify-end"><ReasoningToggle on={coverOn} onChange={on => { setCoverOn(on); writeCoverPreference(on); }} /></div>
         <div className="quiz-stem-wrap">
         <LabAnnotatedText
           text={q.stem}

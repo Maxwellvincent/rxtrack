@@ -3,7 +3,7 @@ import {LectureCheckpointReport} from '../lectures/LectureCheckpointReport.jsx';
 import {ConnectionFeedback} from '../../../ui/ConnectionFeedback.jsx';
 import {sessionEvidenceEvent} from "./sessionEvidence.js";
 import {markReasoningAssistance,saveReasoningCoach,saveCoverAnswer} from './reasoningCoachSession.js';
-import {CoverOptions,PredictionCheck} from './CoverOptions.jsx';
+import {CoverOptions,PredictionCheck,ReasoningToggle} from './CoverOptions.jsx';
 import {readCoverPreference,writeCoverPreference,shouldCoverOptions,coverAnswerEntry,selfCheckObjectiveIds} from '../../../engine/activeRecall.js';
 import {HelpMeReason} from '../../../ui/HelpMeReason.jsx';
 import {ReservedAssessmentReport,ReservedAssessmentFigure} from './ReservedAssessmentReport.jsx';
@@ -403,6 +403,26 @@ function QuestionNavigator({ questions, session, currentIndex, onSelect, indices
   );
 }
 
+/** "Write my reasoning first": per-viewer switch plus this session's predictions. */
+function useCoverAnswers({ session, q, picked, userId, controller }) {
+  const [coverOn, setCoverOn] = useState(() => readCoverPreference());
+  const [localCovers, setLocalCovers] = useState({});
+  const [coverSaveError, setCoverSaveError] = useState("");
+  const coverEntry = q ? (localCovers[q.questionId] || q.coverAnswer || null) : null;
+  const covered = shouldCoverOptions({ session, question: q ? { ...q, coverAnswer: coverEntry } : null, picked, enabled: coverOn });
+  // Optimistic: the prediction shows at once; the session save follows.
+  const recordCover = (patch) => {
+    if (!q) return;
+    const questionId = q.questionId;
+    setLocalCovers(current => ({ ...current, [questionId]: coverAnswerEntry(current[questionId] || q.coverAnswer, patch) }));
+    setCoverSaveError("");
+    saveCoverAnswer(userId, session.sessionId, questionId, patch)
+      .then(saved => controller.syncCoverAnswer?.(saved.questions.find(item => item.questionId === questionId)))
+      .catch(error => setCoverSaveError(error?.message || "Your prediction was not saved."));
+  };
+  return { coverOn, setCoverOn, coverEntry, covered, recordCover, coverSaveError };
+}
+
 function ExamFormat({ controller, submitOpts, objectivesById, lectureLabelsByLectureId, userId, saveExitAction }) {
   const { session, currentIndex, setCurrentIndex, remainingMs, answerQuestion, setEliminatedChoices, submit, submitting } =
     controller;
@@ -413,6 +433,8 @@ function ExamFormat({ controller, submitOpts, objectivesById, lectureLabelsByLec
   const incompleteDiagnostic = session.sourceType !== "question-bank" && targetQuestionCount > questions.length;
   const [textToolsTarget, setTextToolsTarget] = useState(null);
   const display = splitQuestionStemSource(q?.stem);
+  const examPicked = q ? pickedFor(session, q.questionId) : null;
+  const { coverOn, setCoverOn, coverEntry, covered, recordCover, coverSaveError } = useCoverAnswers({ session, q, picked: examPicked, userId, controller });
   const section = q ? (q.sourceSectionTitle || q.sourceSection || lectureLabelsByLectureId?.[q.lectureId] || q.topic || "Mixed block") : "";
 
   return (
@@ -434,10 +456,13 @@ function ExamFormat({ controller, submitOpts, objectivesById, lectureLabelsByLec
 
       {q && (
         <div className="rounded-lg bg-bg-elevated p-4 sm:p-5">
+          <div className="mb-2 flex justify-end"><ReasoningToggle on={coverOn} onChange={on => { setCoverOn(on); writeCoverPreference(on); }} /></div>
           <QuestionStem text={display.stem} questionId={q.questionId} toolsTarget={textToolsTarget} toolsInBody={false} />
           {isIndependentAssessment(session) ? <ReservedAssessmentFigure question={q}/> : <SchoolQuestionFigure question={q} userId={userId} />}
           {display.sourceNote && <p className="mb-3 text-[11px] text-text-3">Figure source: {display.sourceNote.replace(/^Underlying\s+(?:schematic|image|figure)\s+from\s+/i, "")}</p>}
-          <ChoiceList
+          {coverEntry?.prediction && !covered && <p className="mb-2 text-xs text-text-2"><span className="font-semibold text-text-1">Your reasoning:</span> {coverEntry.prediction}</p>}
+          {coverSaveError && <p role="alert" className="mb-2 text-xs text-bad">{coverSaveError}</p>}
+          {covered ? <CoverOptions key={q.questionId} question={q} onCommit={text => recordCover({ prediction: text })} onSkip={() => recordCover({ skipped: true })} onDisable={() => { setCoverOn(false); writeCoverPreference(false); }} /> : <ChoiceList
             questionId={q.questionId}
             choices={q.choices}
             choiceColumns={q.choiceColumns}
@@ -447,7 +472,7 @@ function ExamFormat({ controller, submitOpts, objectivesById, lectureLabelsByLec
             revealed={false}
             onPick={(letter) => answerQuestion(q.questionId, letter)}
             onCrossedChange={(letters) => setEliminatedChoices?.(q.questionId, letters)}
-          />
+          />}
         </div>
       )}
 
@@ -544,25 +569,11 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
   const revealed = picked != null && savedAnswer?.revealed !== false;
   const toolsRef = useRef(null);
   const [textToolsTarget, setTextToolsTarget] = useState(null);
-  const [coverOn, setCoverOn] = useState(() => readCoverPreference());
-  const [localCovers, setLocalCovers] = useState({});
-  const [coverSaveError, setCoverSaveError] = useState("");
   const [, setChoiceNotesRevision] = useState(0);
   const isCorrect = revealed && !!q?.correct && picked === q.correct;
   const [diagnostics, setDiagnostics] = useState({});
   const showAnswer = revealed;
-  const coverEntry = q ? (localCovers[q.questionId] || q.coverAnswer || null) : null;
-  const covered = shouldCoverOptions({ session, question: q ? { ...q, coverAnswer: coverEntry } : null, picked, enabled: coverOn });
-  // Optimistic: the prediction shows at once; the session save follows.
-  const recordCover = (patch) => {
-    if (!q) return;
-    const questionId = q.questionId;
-    setLocalCovers(current => ({ ...current, [questionId]: coverAnswerEntry(current[questionId] || q.coverAnswer, patch) }));
-    setCoverSaveError("");
-    saveCoverAnswer(userId, session.sessionId, questionId, patch)
-      .then(saved => controller.syncCoverAnswer?.(saved.questions.find(item => item.questionId === questionId)))
-      .catch(error => setCoverSaveError(error?.message || "Your prediction was not saved."));
-  };
+  const { coverOn, setCoverOn, coverEntry, covered, recordCover, coverSaveError } = useCoverAnswers({ session, q, picked, userId, controller });
   const practiceNotes = showAnswer && q ? mergeAiChoiceNotes(q, choiceNotes({ text: q.explanation, whyWrong: q.whyWrong, choices: q.choices, correctLetter: q.correct, sourceType: q.sourceType || session.sourceType }).notes) : { notes: null, aiLetters: null };
   if (!q) return null; // Preparation status is shown once above the question area.
 
@@ -589,12 +600,12 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
           <QuestionMeta question={q} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} />
           <LeadInCue stem={q.stem} />
           <div ref={setTextToolsTarget} />
-          <label className="inline-flex items-center gap-2 text-xs text-text-2"><input type="checkbox" checked={coverOn} onChange={event => { setCoverOn(event.target.checked); writeCoverPreference(event.target.checked); }} />Cover the options first</label>
           <QuestionQualityRating userId={userId} question={q} />
           {abandonAction}
         </div></details>
       </header>
       <div className="rounded-lg border border-border bg-bg-elevated p-4">
+        <div className="mb-2 flex justify-end"><ReasoningToggle on={coverOn} onChange={on => { setCoverOn(on); writeCoverPreference(on); }} /></div>
         {q.sourceVisualChoicesUnverified && !q.sourceVisualLabelsConfirmed && <p role="status" className="mb-3 text-sm text-text-2">Diagram choice count is not confirmed. Confirm the labels using the source figure controls below; this item is excluded from scoring until confirmed.</p>}
         {!q.correct && <p role="status" className="mb-3 rounded border border-warn p-3 text-sm">Source key needs verification. This question is excluded from scoring; you can continue. {q.sourceKeyCritique}</p>}
         <QuestionStem text={display.stem} questionId={q.questionId} toolsTarget={textToolsTarget} toolsInBody={false} />
@@ -810,6 +821,7 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, object
             <QuestionStem text={q.stem} questionId={q.questionId} />
             <SchoolQuestionFigure question={q} userId={userId} />
             <ChoiceList questionId={q.questionId} choices={q.choices} choiceColumns={q.choiceColumns} choiceLayout={q.choiceLayout} picked={picked} crossedChoices={(session.answers || []).find(answer => answer.questionId === q.questionId)?.eliminatedChoices || []} revealed correct={q.correct} notes={reviewNotes.notes} aiLetters={reviewNotes.aiLetters} onPick={() => {}} />
+            {q.coverAnswer?.prediction && <p className="mt-2 text-xs text-text-2"><span className="font-semibold text-text-1">Your reasoning:</span> {q.coverAnswer.prediction}</p>}
             <div className="mt-2"><ExplainOtherChoicesButton question={q} notes={reviewNotes.notes} onDone={() => setReviewNotesRevision((value) => value + 1)} /></div>
             {(q.explanation || Object.keys(q.whyWrong || {}).length > 0) ? (
               <div className="mt-3">

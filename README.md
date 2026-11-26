@@ -250,16 +250,18 @@ failure leaves the block in place to retry. Exam sessions and answer evidence ar
     touching the partner objective's parts. Ownership (allocation, parts, the
     key-blind solve) stays with the primary objective.
 
-**Cover the options** (`activeRecall.js`, `CoverOptions.jsx`): in untimed
-practice (exam practice and lecture quizzes) the stem shows first and the
-choices stay hidden until you type your answer and the linking reason in one
-line, or press *Skip this time*. After the reveal your line sits beside the
-question's own reasoning (plan link, deciding clue, partner lecture; school items
+**Write my reasoning first** (`activeRecall.js`, `CoverOptions.jsx`): opt-in, off by
+default. The **✎ Write my reasoning first: On/Off** switch sits above every question in
+lecture quizzes, exam practice and timed exams (remembered per browser; *Turn off
+reasoning first* under the box also turns it off). When on, the stem shows first and
+the choices stay hidden until you type your answer and the linking reason in one
+line, or press *Skip this time*. In practice, after the reveal your line sits beside
+the question's own reasoning (plan link, deciding clue, partner lecture; school items
 fall back to the explanation's first sentence) and you mark ✓ matched or ✕ missed.
+In timed exams the timer keeps running while you write; your line shows under the
+stem and again beside the question in the submitted review.
 Nothing is graded by a model. Self-checks go to `selfCheckJournal` in learner
-evidence and project per objective (`projectSelfChecks`); timed exams never
-cover. *Stop hiding choices* (or the practice-tools checkbox) turns it off per
-browser.
+evidence and project per objective (`projectSelfChecks`).
 
 **Linking uploaded school questions** (`semanticObjectiveMapping.js`, run from the
 question-bank screen): two agreeing AI reviews on Ollama Cloud (DeepSeek first)
@@ -397,7 +399,7 @@ is superseded.
 | Mastery ladder (per-objective rungs, discrimination step, delayed retest, readiness) | **Done** (2026-11-24); live behaviour still to be observed |
 | NB Exam 2 scope + subject weighting, pre-test 80% validation | **Done**; live accuracy still being measured |
 | Cross-lecture integration questions: exam practice by school format (Homework 0% / IMCQ 40% / ESoft 50% / Custom 25%), lecture quizzes 20% after the first pass, ranked partners, partner-objective credit | **Done** (2026-11-24, formats and lecture quizzes 2026-11-26); live yield not yet measured |
-| Cover the options: commit an answer and reason before the choices show, then self-check ✓/✕ against the question's reasoning (untimed practice) | **Done** (2026-11-26); self-checks recorded, not yet shown on dashboards |
+| Write my reasoning first (opt-in switch in quizzes and exams): commit an answer and reason before the choices show, then self-check ✓/✕ against the question's reasoning | **Done** (2026-11-26); self-checks recorded, not yet shown on dashboards |
 | Capacity-planned Today (daily limit, need-ranked reviews, Today's plan queue, projected score, mixed timed exam, CBSE daily set) | **Done** (2026-11-25) |
 | Shared access for another user | **Not started** (needs a rules/auth design) |
 

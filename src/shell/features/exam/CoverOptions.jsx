@@ -2,6 +2,16 @@ import { useState } from "react";
 import { Button } from "../../../ui/Button.jsx";
 import { keyReasoning, MAX_PREDICTION_LENGTH } from "../../../engine/activeRecall.js";
 
+/** Visible on/off switch for writing reasoning before the choices. */
+export function ReasoningToggle({ on, onChange }) {
+  return (
+    <label className="inline-flex min-h-9 cursor-pointer items-center gap-2 rounded-lg border border-border px-2 py-1 text-xs text-text-2">
+      <input type="checkbox" checked={on} onChange={event => onChange(event.target.checked)} />
+      <span>✎ Write my reasoning first: <strong className="text-text-1">{on ? "On" : "Off"}</strong></span>
+    </label>
+  );
+}
+
 /**
  * Choices stay hidden until the learner commits an answer and the reason that
  * links the clue to it. Skipping is allowed and recorded as a skip.
@@ -30,7 +40,7 @@ export function CoverOptions({ question, onCommit, onSkip, onDisable = null }) {
       <div className="flex flex-wrap items-center gap-3">
         <Button disabled={!ready} onClick={() => onCommit(text)}>Show choices</Button>
         <button type="button" className="text-xs text-text-3 underline" onClick={onSkip}>Skip this time</button>
-        {onDisable && <button type="button" className="text-xs text-text-3 underline" onClick={onDisable}>Stop hiding choices</button>}
+        {onDisable && <button type="button" className="text-xs text-text-3 underline" onClick={onDisable}>Turn off reasoning first</button>}
       </div>
     </section>
   );

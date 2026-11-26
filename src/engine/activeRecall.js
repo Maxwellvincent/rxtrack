@@ -1,5 +1,5 @@
-// Active recall before the choices ("cover the options"). In untimed practice
-// the stem shows first; the learner commits an answer and the linking reason
+// Active recall before the choices ("cover the options"). Opt-in: when the
+// learner turns "Write my reasoning first" on (quizzes and exams), the stem shows first; the learner commits an answer and the linking reason
 // in their own words, then the choices appear. After the reveal they compare
 // their reason with the question's own reasoning chain and mark it matched or
 // missed. Nothing here calls a model: the comparison is a self-check.
@@ -7,9 +7,9 @@
 export const COVER_PREF_KEY = "rxt-cover-options-v1";
 export const MAX_PREDICTION_LENGTH = 600;
 
-/** Read the per-viewer preference; covering is on unless turned off. */
+/** Read the per-viewer preference; covering is off unless turned on. */
 export function readCoverPreference(storage = globalThis.localStorage) {
-  try { return storage?.getItem(COVER_PREF_KEY) !== "off"; } catch { return true; }
+  try { return storage?.getItem(COVER_PREF_KEY) === "on"; } catch { return false; }
 }
 
 export function writeCoverPreference(on, storage = globalThis.localStorage) {
@@ -18,12 +18,13 @@ export function writeCoverPreference(on, storage = globalThis.localStorage) {
 
 /**
  * Whether this question's choices stay hidden until the learner commits a
- * prediction. Only untimed practice, only before any answer is picked, and
+ * prediction. Only when turned on, only in a session still in progress (any
+ * format: practice, tutor or timed), only before any answer is picked, and
  * never once a prediction (or a skip) is on record.
  */
 export function shouldCoverOptions({ session, question, picked = null, enabled = true } = {}) {
   if (!enabled || !question || !session) return false;
-  if (session.format !== "practice" || session.status !== "in_progress") return false;
+  if (session.status !== "in_progress") return false;
   if (picked != null) return false;
   if (!question.choices || !Object.keys(question.choices).length) return false;
   if (question.sourceVisualChoicesUnverified && !question.sourceVisualLabelsConfirmed) return false;

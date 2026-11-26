@@ -5,9 +5,10 @@ const practice = { format: "practice", status: "in_progress" };
 const question = { questionId: "q1", choices: { A: "a", B: "b" }, explanation: "The medial medulla holds the hypoglossal nucleus. More text." };
 
 describe("active recall (cover the options)", () => {
-  it("covers only untimed practice questions with no pick and no prediction yet", () => {
+  it("covers any in-progress session when on, before a pick or prediction", () => {
     expect(shouldCoverOptions({ session: practice, question })).toBe(true);
-    expect(shouldCoverOptions({ session: { ...practice, format: "exam" }, question })).toBe(false);
+    expect(shouldCoverOptions({ session: { ...practice, format: "exam" }, question })).toBe(true);
+    expect(shouldCoverOptions({ session: { ...practice, status: "completed" }, question })).toBe(false);
     expect(shouldCoverOptions({ session: practice, question, picked: "A" })).toBe(false);
     expect(shouldCoverOptions({ session: practice, question, enabled: false })).toBe(false);
     expect(shouldCoverOptions({ session: practice, question: { ...question, coverAnswer: { prediction: "x" } } })).toBe(false);
@@ -30,12 +31,14 @@ describe("active recall (cover the options)", () => {
     expect(selfCheckSummary([{ coverAnswer: checked }, { coverAnswer: { prediction: "y", selfCheck: "matched" } }, {}])).toEqual({ predicted: 2, matched: 1, missed: 1 });
   });
 
-  it("defaults covering on and remembers turning it off", () => {
+  it("defaults covering off and remembers turning it on", () => {
     const store = new Map();
     const storage = { getItem: k => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) };
+    expect(readCoverPreference(storage)).toBe(false);
+    writeCoverPreference(true, storage);
     expect(readCoverPreference(storage)).toBe(true);
     writeCoverPreference(false, storage);
     expect(readCoverPreference(storage)).toBe(false);
-    expect(readCoverPreference({ getItem: () => { throw new Error("blocked"); } })).toBe(true);
+    expect(readCoverPreference({ getItem: () => { throw new Error("blocked"); } })).toBe(false);
   });
 });
