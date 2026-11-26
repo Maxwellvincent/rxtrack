@@ -231,6 +231,16 @@ describe("curriculum-wide exemplars", () => {
     expect(selectClinicalExamplesForBlock([row], "nb3")).toHaveLength(1);
     expect(selectClinicalExamplesForBlock([row], "nb2")).toHaveLength(0);
   });
+
+  it("includes banks marked as the block's exam material though taught in another block", () => {
+    const [row] = selectExemplarsForBlock({ "IMCQ 8": [{ stem: "MLF?", choices: { A: "a" } }] }, {
+      m: { filename: "IMCQ 8", blockId: "cbse-prep", examBlockIds: ["nb3"], mappingProgress: { scope: { homeBlockId: "nb2" } } },
+    });
+    expect(row).toMatchObject({ linkedBlockId: "nb2", examBlockIds: ["nb3"] });
+    expect(selectClinicalExamplesForBlock([row], "nb3")).toHaveLength(1);
+    expect(selectClinicalExamplesForBlock([row], "nb2")).toHaveLength(1);
+    expect(selectClinicalExamplesForBlock([row], "nb1")).toHaveLength(0);
+  });
 });
 
 describe("startObjectiveQuiz", () => {

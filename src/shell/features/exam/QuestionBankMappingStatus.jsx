@@ -3,9 +3,11 @@ import {useState} from 'react';
 import * as meta from '../../../stores/questionBankMeta.js';
 import {useStoreResource} from '../../hooks/useStoreResource.js';
 import {relinkAllQuestionBanks} from '../../logic/relinkQuestionBanks.js';
-export function QuestionBankMappingStatus({userId,blockId,filename,lectures,objectives}){
+// One meta entry per filename, so a bank shown under its exam block still
+// shows the linking done against the block that taught it.
+export function QuestionBankMappingStatus({userId,filename}){
  const resource=useStoreResource(meta,userId);
- const state=Object.values(resource.data||{}).find(m=>m.filename===filename&&m.blockId===blockId)?.mappingProgress;
+ const state=Object.values(resource.data||{}).find(m=>m.filename===filename)?.mappingProgress;
  const [busy,setBusy]=useState(false),[error,setError]=useState('');
  const linked=state?.linked||0,evaluated=state?.evaluated||0;
  const older=state?.version!=null&&state.version<MAPPING_VERSION;

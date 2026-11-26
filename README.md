@@ -305,6 +305,15 @@ no objective credit. Exam → Question banks → **Re-link all banks**
 at a time (a failure pauses that bank and moves on); each bank's status shows its home
 block, focus weeks and week-rescued count, and its Resume/Recheck button uses the same path.
 
+**Exam material for another block** (`bankExamBlocks.js`, `BankExamMaterial.jsx`): a quiz
+given during one block can test an earlier block's lectures (IMCQ 7–9 and ESoft 7–8 are
+NB 3 quizzes on NB 2 neuro and behavioral lectures). Each bank row has "Also exam material
+for [block]", saved as `examBlockIds` on the bank's meta entry. A marked bank is listed in
+that block's question banks and counts as that block's clinical/style exemplar
+(`selectClinicalExamplesForBlock`, `readClinicalAnalysesForBlock`); its lecture and objective
+links still go to the lectures its questions test. The linking status is looked up by
+filename, so it shows under any block that lists the bank.
+
 Pipeline details and live-run notes: [docs/question-preparation-pipeline.md](docs/question-preparation-pipeline.md),
 [docs/question-writing-standard.md](docs/question-writing-standard.md),
 [docs/quality/](docs/quality/).

@@ -45,6 +45,7 @@ import { objectivesWithPracticeEvidence } from "../../../engine/objectivePractic
 import { read as readLearnerEvidence } from "../../../stores/learnerEvidence.js";
 import { buildOrderBlueprint } from "../../../engine/questionOrder.js";
 import { buildStyleProfile, STYLE_PROFILE_VERSION } from "../../../engine/styleProfile.js";
+import { listedForBlock, markedExamBlockIds } from "../../logic/bankExamBlocks.js";
 
 // Three source-focused items keep local-model drafts small while the preparation
 // loop preserves quotas, fills missing slots, and saves each verified batch.
@@ -271,6 +272,9 @@ export function selectExemplarsForBlock(banks = {}, _meta = {}, _blockId = null,
           // Where bank linking found it was taught (a CBSE-filed IMCQ that
           // taught NB 3 is an NB 3 example too).
           ...(upload?.mappingProgress?.scope?.homeBlockId ? { linkedBlockId: upload.mappingProgress.scope.homeBlockId } : {}),
+          // Exams the learner marked it for (an IMCQ given during NB 3 that
+          // tests NB 2 lectures still shapes NB 3 wording).
+          ...(markedExamBlockIds(upload).length ? { examBlockIds: markedExamBlockIds(upload) } : {}),
         };
       })
   );
@@ -283,7 +287,7 @@ export function selectExemplarsForBlock(banks = {}, _meta = {}, _blockId = null,
  */
 export function selectClinicalExamplesForBlock(examples = [], blockId = null) {
   if (!blockId) return examples || [];
-  return (examples || []).filter((question) => question?.blockId === blockId || question?.linkedBlockId === blockId);
+  return (examples || []).filter((question) => question?.blockId === blockId || question?.linkedBlockId === blockId || question?.examBlockIds?.includes(blockId));
 }
 
 /**
@@ -346,7 +350,7 @@ export function readClinicalAnalysesForBlock(userId = null, blockId = null) {
     const registry=sourceUseStore.read(userId);
     if(!sourceUseStore.isHydrated(userId) || sourceUseStore.readError(userId) || Object.values(registry.items || {}).some(item=>item.reserved)) return [];
     const entries = Object.values(meta).filter((entry) => !registry.sources?.[entry?.filename]?.reserved &&
-      entry && entry.filename && (!blockId || entry.blockId === blockId)
+      entry && entry.filename && (!blockId || listedForBlock(entry, blockId))
     );
     return entries
       .map((entry) => {

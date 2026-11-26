@@ -69,6 +69,8 @@ import { namePreparedReplacementAttempt } from "./preparedSetNaming.js";
 import { updateQuestionBankMetadata } from "../../logic/questionBankMetadataEdits.js";
 import { prepareBankQuestionSet, scoreAnsweredQuestions } from "./questionBankLinks.js";
 import { BPM_BLUEPRINTS, questionSlot } from "./bpmBlueprint.js";
+import { listedForBlock } from '../../logic/bankExamBlocks.js';
+import { BankExamMaterial } from './BankExamMaterial.jsx';
 
 const DEFAULT_QUESTION_COUNT_FALLBACK = 20;
 
@@ -374,7 +376,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture,
   const blockQuestionBanks = useMemo(() => {
     const banks = questionBanksStore.read(userId) || {};
     const meta = questionBankMetaStore.read?.(userId) || {};
-    const scoped = new Set(Object.values(meta).filter((entry) => entry?.blockId === blockId && banks[entry.filename]).map((entry) => entry.filename));
+    const scoped = new Set(Object.values(meta).filter((entry) => listedForBlock(entry, blockId) && banks[entry.filename]).map((entry) => entry.filename));
     // Older uploads can have questions stamped with a block but no surviving
     // metadata row. Keep them visible instead of hiding a valid homework bank.
     for (const [filename, questions] of Object.entries(banks)) {
@@ -1109,6 +1111,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture,
                     <div className="truncate text-[13px] font-medium text-text-1">{bank.displayName || cleanLectureTitle(bank.filename)}</div>
                     <div className="font-mono text-[11px] text-text-3">{distinctQuestionSet.questions.length} distinct questions{distinctQuestionSet.removedDuplicateCount ? ` · ${distinctQuestionSet.removedDuplicateCount} repeats skipped` : ""} · {minutes} min timed · {sourceLabel(bank.sourceKind, bank.filename)}{bank.assignedDate ? ` · assigned ${bank.assignedDate}` : ""} · {stats.attempts} practice attempt{stats.attempts === 1 ? "" : "s"}{stats.latest ? ` · latest ${stats.latest.score}%` : ""}{stats.improvement != null ? ` · ${stats.improvement >= 0 ? "+" : ""}${stats.improvement}% change` : ""}</div>
                     <QuestionBankMappingStatus userId={userId} blockId={blockId} filename={bank.filename} lectures={lectures} objectives={objectives}/>
+                    {!exampleOnly && <BankExamMaterial userId={userId} filename={bank.filename}/>}
                     {!exampleOnly && <QuestionBankManualLinks userId={userId} blockId={blockId} filename={bank.filename} questions={bank.questions} lectures={lectures} objectives={objectives} blockBankFilenames={blockQuestionBanks.map(item => item.filename)}/>}
                     {analysis && <div className="mt-1 text-[11px] text-text-2">Question analysis: {analysis.clinicalQuestionCount || 0} clinical cue item{analysis.clinicalQuestionCount === 1 ? "" : "s"}{focusSummary ? ` · ${focusSummary}` : ""} · uploaded source preserved</div>}
                     {stats.latest?.missed?.length > 0 && <div className="mt-1 text-[11px] text-text-2">Mental-model repair: {stats.latest.missed.length} missed concept{stats.latest.missed.length === 1 ? "" : "s"}</div>}
