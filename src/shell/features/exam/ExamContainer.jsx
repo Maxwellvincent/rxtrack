@@ -67,7 +67,7 @@ import { filterLecturesByScope } from "../../logic/weekScope.js";
 import { namePreparedReplacementAttempt } from "./preparedSetNaming.js";
 import { updateQuestionBankMetadata } from "../../logic/questionBankMetadataEdits.js";
 import { prepareBankQuestionSet, scoreAnsweredQuestions } from "./questionBankLinks.js";
-import { questionSlot } from "./bpmBlueprint.js";
+import { BPM_BLUEPRINTS, questionSlot } from "./bpmBlueprint.js";
 
 const DEFAULT_QUESTION_COUNT_FALLBACK = 20;
 
@@ -175,9 +175,11 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   const [selectedBlueprint, setSelectedBlueprint] = useState("");
   const [launchStudyMode, setLaunchStudyMode] = useState("balanced");
   const [launchTarget, setLaunchTarget] = useState({ objectiveIds: [], focusNotes: "" });
+  const [launchKind, setLaunchKind] = useState("");
 
-  const openExamLaunch = ({ studyMode = "balanced", blueprint = "", objectiveIds = [], focusNotes = "" } = {}) => {
+  const openExamLaunch = ({ studyMode = "balanced", blueprint = "", objectiveIds = [], focusNotes = "", kind = "" } = {}) => {
     setLaunchError(null);
+    setLaunchKind(kind);
     setSelectedBlueprint(String(blueprint));
     setLaunchStudyMode(studyMode);
     setLaunchTarget({ objectiveIds, focusNotes });
@@ -875,7 +877,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
             <input type="checkbox" checked={tutorModeEnabled} onChange={toggleTutorMode} />
             Tutor mode
           </label>
-          <Button onClick={() => openExamLaunch()}>▸ Start Integrated Exam</Button>
+          <Button onClick={() => openExamLaunch()}>+ New practice set</Button>
         </div>
       </div>
 
@@ -895,6 +897,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           blockId={blockId}
           userId={userId}
           defaultBlueprintExam={selectedBlueprint}
+          defaultKind={launchKind}
           defaultStudyMode={launchStudyMode}
           defaultTargetObjectiveIds={launchTarget.objectiveIds}
           defaultFocusNotes={launchTarget.focusNotes}
@@ -942,6 +945,23 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           }}>Remove</Button></div>
         </div>)}</div>
       </section>}
+
+      <section aria-label="Start practice" className="mb-4 rounded-xl border border-border bg-bg-elevated p-4">
+        <h3 className="text-base font-semibold text-text-1">Start a practice set</h3>
+        <p className="mt-0.5 text-sm text-text-3">Pick the school format to practice. You choose the lecture or week next.</p>
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {[
+            { kind: "homework", label: "Homework", note: "One lecture" },
+            { kind: "imcq", label: "IMCQ", note: "One week" },
+            { kind: "esoft", label: "ESoft", note: "2–3 weeks" },
+            { kind: "full", label: "Full NB exam", note: "Whole block, timed" },
+          ].map(item => <button key={item.kind} type="button" onClick={() => openExamLaunch(item.kind === "full" ? { blueprint: Object.keys(BPM_BLUEPRINTS).slice(-1)[0] || "", kind: "full" } : { kind: item.kind })}
+            className="rounded-lg border border-border bg-panel p-3 text-left hover:border-accent">
+            <span className="block text-sm font-semibold text-text-1">{item.label}</span>
+            <span className="block text-xs text-text-3">{item.note}</span>
+          </button>)}
+        </div>
+      </section>
 
       <MixedExamCard blockId={blockId} blockName={blockName} banks={blockQuestionBanks} busy={!!bankLaunching || sourceUseRes.loading || !!sourceUseRes.error}
         isReserved={question => isEvaluationReserved(question, sourceUseRes.data || {})}
@@ -1047,7 +1067,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
             <button type="button" disabled={deletingSet} onClick={() => { setDeleteSetError(null); setConfirmDeleteSetId(confirmDeleteSetId === set.id ? null : set.id); }} className="rounded-lg border border-bad/40 px-3 py-2 text-sm font-semibold text-bad hover:bg-bad/5 disabled:opacity-50">Delete</button>
             </div>
           </li>;
-        })}</ul> : <p className="mt-2 text-sm text-text-3">No named sets prepared yet. Use the single “Start Integrated Exam” button above and choose Prepare for later.</p>}
+        })}</ul> : <p className="mt-2 text-sm text-text-3">No named sets prepared yet. Start a practice set above and choose “Prepare for later”.</p>}
       </section>
       <details className="mb-5 rounded-xl border border-border p-3"><summary className="cursor-pointer text-sm font-semibold">Optional school subject weighting</summary>
       <BpmBlueprintDashboard blockId={blockId} userId={userId} objectivesByLecture={blueprintContext.objectivesByLecture} lectures={blueprintContext.lectures}

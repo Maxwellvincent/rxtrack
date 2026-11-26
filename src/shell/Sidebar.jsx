@@ -163,17 +163,17 @@ export function Sidebar({ activeBlockId, onSelectBlock, onOpenPalette, userId = 
           const open = isTermVisible(term, { collapsed, activeBlockId });
           const hasActive = term.blocks.some((b) => b.id === activeBlockId);
           return (
-            <div key={term.id}>
+            <div key={term.id} className="mt-2 border-t border-border first:mt-0 first:border-t-0">
               <button
                 onClick={() => persist(toggleTerm(collapsed, term.id))}
                 title={collapsed.has(term.id) ? "Expand term" : "Collapse term"}
-                className="flex w-full items-center justify-between px-5 pb-1 pt-3 font-condensed text-[12px] font-bold uppercase tracking-widest text-text-3 hover:text-text-2"
+                className="flex w-full items-center justify-between px-4 pb-1.5 pt-4 font-mono text-[10.5px] font-semibold uppercase tracking-[0.14em] text-text-3 hover:text-text-2"
               >
                 <span className="flex items-center gap-1.5 truncate">
                   <span className={"transition-transform " + (open ? "" : "-rotate-90")}>▾</span>
                   {term.name}
                 </span>
-                <span className="font-mono text-[13px] opacity-60">
+                <span className="font-mono text-[10.5px] opacity-70">
                   {open ? term.blocks.length : `${term.blocks.length} hidden`}
                 </span>
               </button>
@@ -197,19 +197,19 @@ export function Sidebar({ activeBlockId, onSelectBlock, onOpenPalette, userId = 
                   key={group.key}
                   role={group.title ? "group" : undefined}
                   aria-label={group.title || undefined}
-                  className={group.title ? "mx-3 mt-1 border-l-2 border-accent/25 pl-2" : ""}
+                  className={group.title ? "mt-1" : ""}
                 >
                   {group.title && <button
                     type="button"
                     aria-expanded={groupOpen}
                     onClick={() => persistGroups(toggleGroup(collapsedGroups, group.key))}
-                    className="flex w-full items-center justify-between gap-2 pb-1 pt-2 pl-2 pr-1 text-left font-mono text-[11px] font-bold uppercase tracking-wider text-text-2 hover:text-text-1"
+                    className="flex w-full items-center justify-between gap-2 px-4 pb-1 pt-2 text-left text-sm font-semibold text-text-1 hover:text-accent-text"
                     title={groupOpen ? `Collapse ${group.title}` : `Expand ${group.title}`}
                   >
                     <span className="flex min-w-0 items-center gap-1.5 truncate"><span className={groupOpen ? "" : "-rotate-90"}>▾</span>{group.title}</span>
-                    <span className="shrink-0 text-[10px] text-text-3">{!groupOpen && hasActiveBlock ? "current · " : ""}{groupOpen ? group.blocks.length : `${group.blocks.length} hidden`}</span>
+                    <span className="shrink-0 text-[11px] font-normal text-text-3">{!groupOpen && hasActiveBlock ? "current · " : ""}{groupOpen ? group.blocks.length : `${group.blocks.length} hidden`}</span>
                   </button>}
-                  {groupOpen && group.blocks.map((b) => {
+                  {groupOpen && <div className={group.title ? "ml-6 border-l border-border" : ""}>{group.blocks.map((b) => {
                   const cov = blockCoverage(objectives.data, b.id);
                   const active = b.id === activeBlockId;
                   return (
@@ -217,10 +217,10 @@ export function Sidebar({ activeBlockId, onSelectBlock, onOpenPalette, userId = 
                       key={b.id}
                       onClick={() => onSelectBlock(b.id)}
                       className={[
-                        "flex w-full items-center justify-between border-l-[3px] py-2 text-left text-xs transition-colors",
-                        group.title ? "pl-4 pr-2" : "px-4",
+                        "flex w-full items-center justify-between border-l-[3px] py-1.5 text-left text-[13px] transition-colors",
+                        group.title ? "-ml-px pl-3 pr-2" : "px-4",
                         active
-                          ? "border-accent bg-accent-soft text-text-1"
+                          ? "border-accent bg-accent-soft font-semibold text-text-1"
                           : "border-transparent text-text-2 hover:bg-bg-elevated hover:text-text-1",
                       ].join(" ")}
                     >
@@ -238,13 +238,13 @@ export function Sidebar({ activeBlockId, onSelectBlock, onOpenPalette, userId = 
                       )}
                     </button>
                   );
-                  })}
+                  })}</div>}
                 </div>;
                 });
               })()}
 
               {!open && hasActive && (
-                <div className="px-5 pb-1 font-mono text-[13px] text-text-3">(showing current)</div>
+                <div className="px-4 pb-1 font-mono text-[11px] text-text-3">(showing current)</div>
               )}
             </div>
           );

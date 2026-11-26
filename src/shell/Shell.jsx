@@ -4,7 +4,6 @@ import { CBSE_BLOCK_ID, ensureCbseTerms } from "./features/cbse/cbsePrep.js";
 import { useTerms } from "./hooks/useTerms.js";
 import * as termsStore from "../stores/terms.js";
 import { canViewQuestionDiagnostics } from "../diagnosticsAccess.js";
-const QuestionDiagnosticsAdmin=lazy(()=>import("./QuestionDiagnosticsAdmin.jsx").then(m=>({default:m.QuestionDiagnosticsAdmin})));
 import "../theme/tokens.css";
 import "../theme/tailwind.css";
 import "../theme/readability.css";
@@ -52,6 +51,7 @@ import { useLectures } from "./hooks/useLectures.js";
 import { useObjectives } from "./hooks/useObjectives.js";
 import { BackgroundJobCenter } from "./BackgroundJobCenter.jsx";
 import { formatLectureLabel } from "../lectureTitle.js";
+const QuestionDiagnosticsAdmin=lazy(()=>import("./QuestionDiagnosticsAdmin.jsx").then(m=>({default:m.QuestionDiagnosticsAdmin})));
 
 const LectureStudyFlow = lazy(() => import("./features/lectures/LectureStudyFlow.jsx").then((m) => ({ default: m.LectureStudyFlow })));
 const QuestionBankModal = lazy(() => import("./features/lectures/QuestionBankModal.jsx").then((m) => ({ default: m.QuestionBankModal })));

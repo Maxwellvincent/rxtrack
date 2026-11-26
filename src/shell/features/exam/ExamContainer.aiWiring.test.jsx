@@ -215,7 +215,7 @@ describe("ExamContainer -> real AI transport wiring (final-review fix C1)", () =
     );
 
     const startButton = Array.from(host.querySelectorAll("button")).find((b) =>
-      b.textContent.includes("Start Integrated Exam")
+      b.textContent.includes("New practice set")
     );
     act(() => startButton.click());
 
@@ -265,7 +265,7 @@ describe("ExamContainer -> real AI transport wiring (final-review fix C1)", () =
     );
 
     const startButton = Array.from(host.querySelectorAll("button")).find((b) =>
-      b.textContent.includes("Start Integrated Exam")
+      b.textContent.includes("New practice set")
     );
     act(() => startButton.click());
 
@@ -296,7 +296,7 @@ describe("ExamContainer -> real AI transport wiring (final-review fix C1)", () =
       return Promise.resolve(response);
     });
     const {host, unmount} = render(<ExamContainer blockId="b1" userId="u1" onNavigateToLecture={vi.fn()} />);
-    act(() => [...host.querySelectorAll("button")].find(button => button.textContent.includes("Start Integrated Exam")).click());
+    act(() => [...host.querySelectorAll("button")].find(button => button.textContent.includes("New practice set")).click());
     await act(async () => host.querySelector('[data-testid="fire-launch"]').click());
     await vi.waitFor(() => expect(host.querySelector('[role="alert"]')?.textContent).toContain("Could not generate any questions"));
     expect(createExamSessionMock).not.toHaveBeenCalled();
@@ -312,7 +312,7 @@ describe("ExamContainer -> real AI transport wiring (final-review fix C1)", () =
     );
 
     const startButton = Array.from(host.querySelectorAll("button")).find((b) =>
-      b.textContent.includes("Start Integrated Exam")
+      b.textContent.includes("New practice set")
     );
     act(() => startButton.click());
 

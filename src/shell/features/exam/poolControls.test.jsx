@@ -9,9 +9,9 @@ it("prepares the selected count without launching an exam", () => {
   const host = document.createElement("div"), root = createRoot(host);
   const onPrepare = vi.fn(), onLaunch = vi.fn();
   act(() => root.render(<ExamLaunchModal eligibleLectures={[{ lectureId: "l", objectiveCount: 30 }]} defaultQuestionCount={30} onPrepare={onPrepare} onLaunch={onLaunch} />));
-  const prepare = [...host.querySelectorAll("button")].find(b => b.textContent === "Prepare questions for later");
+  const prepare = [...host.querySelectorAll("button")].find(b => b.textContent === "Prepare for later");
   act(() => prepare.click());
-  expect(onPrepare).toHaveBeenCalledWith(expect.objectContaining({ format: "exam", examName: expect.stringMatching(/^Timed exam · Block so far · 30 questions ·/), questionCount: 30, durationMinutes: 36 }));
+  expect(onPrepare).toHaveBeenCalledWith(expect.objectContaining({ format: "practice", examName: expect.stringMatching(/^Practice quiz · Block so far · 30 questions ·/), questionCount: 30, durationMinutes: null }));
   expect(onLaunch).not.toHaveBeenCalled();
   act(() => root.unmount());
 });

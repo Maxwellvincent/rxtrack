@@ -63,6 +63,11 @@ export function filterLecturesByScope(lectures = [], scope = "block-so-far", now
       return value >= start && value <= end;
     });
   }
+  const weekRange = String(scope).match(/^week-range:(\d+):(\d+)$/);
+  if (weekRange) {
+    const low = Math.min(Number(weekRange[1]), Number(weekRange[2])), high = Math.max(Number(weekRange[1]), Number(weekRange[2]));
+    return list.filter((lecture) => { const week = Number(numericWeek(lecture)); return numericWeek(lecture) != null && week >= low && week <= high; });
+  }
   if (scope.startsWith("week-number:") || /^\d+$/.test(String(scope))) {
     const wanted = scope.startsWith("week-number:") ? scope.slice("week-number:".length) : String(scope);
     return list.filter((lecture) => numericWeek(lecture) === wanted);
@@ -88,6 +93,8 @@ export function scopeLabel(scope, lectures = []) {
   }
   const range = String(scope || "").match(/^date-range:(\d{4}-\d{2}-\d{2}):(\d{4}-\d{2}-\d{2})$/);
   if (range) return `${range[1]} → ${range[2]}`;
+  const weekRange = String(scope || "").match(/^week-range:(\d+):(\d+)$/);
+  if (weekRange) return weekRange[1] === weekRange[2] ? `Week ${weekRange[1]}` : `Weeks ${weekRange[1]}–${weekRange[2]}`;
   return {
     "current-week": "This week · ends Friday",
     "past-two-weeks": "Past 2 weeks · Friday cutoff",

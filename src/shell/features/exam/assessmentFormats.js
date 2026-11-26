@@ -23,7 +23,7 @@ export function scopeAllowed(formatId, scope) {
   const value = String(scope || "");
   if (formatId === "homework") return value.startsWith("lecture:");
   if (formatId === "imcq") return value === "current-week" || /^\d+$/.test(value) || value.startsWith("week-number:");
-  if (formatId === "esoft") return value === "past-two-weeks" || value === "custom-dates" || value.startsWith("date-range:");
+  if (formatId === "esoft") return value === "past-two-weeks" || value === "custom-dates" || value.startsWith("date-range:") || value.startsWith("week-range:");
   return true;
 }
 

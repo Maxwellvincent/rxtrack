@@ -239,7 +239,7 @@ describe("ExamContainer", () => {
       .mockResolvedValueOnce({ ok: true, prepared: 30 })
       .mockResolvedValueOnce({ ok: true, sessionId: "prepared-quiz-session" });
     const { host, unmount } = render(<ExamContainer blockId="b1" userId="u1" onNavigateToLecture={vi.fn()} />);
-    const start = Array.from(host.querySelectorAll("button")).find(button => button.textContent.includes("Start Integrated Exam"));
+    const start = Array.from(host.querySelectorAll("button")).find(button => button.textContent.includes("New practice set"));
     act(() => start.click());
     await act(async () => host.querySelector('[data-testid="prepare-exam"]').click());
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
@@ -322,7 +322,7 @@ describe("ExamContainer", () => {
     launchExamSessionMock.mockResolvedValue({ ok: true, sessionId: "saved-session" });
     const { host, unmount } = render(<ExamContainer blockId="b1" userId="u1" onNavigateToLecture={vi.fn()} />);
     await flush();
-    const start = Array.from(host.querySelectorAll("button")).find((button) => button.textContent.includes("Start Integrated Exam"));
+    const start = Array.from(host.querySelectorAll("button")).find((button) => button.textContent.includes("New practice set"));
     expect(start).toBeTruthy();
     expect(Array.from(host.querySelectorAll("button")).some(button => button.textContent.includes("Choose scope, name & count"))).toBe(false);
     await act(async () => start.click());
@@ -432,8 +432,8 @@ describe("ExamContainer", () => {
       <ExamContainer blockId="b1" userId="u1" onNavigateToLecture={vi.fn()} />
     );
 
-    expect(host.textContent).toMatch(/Integrated Exam/);
-    expect(host.textContent).toMatch(/Start Integrated Exam/);
+    expect(host.textContent).toMatch(/New practice set/);
+    expect(host.textContent).toMatch(/New practice set/);
     expect(host.querySelector('[data-testid="exam-dashboard"]')).toBeFalsy();
     const resultsTab = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Results");
     act(() => resultsTab.click());
@@ -492,7 +492,7 @@ describe("ExamContainer", () => {
     );
 
     const startButton = Array.from(host.querySelectorAll("button")).find((b) =>
-      b.textContent.includes("Start Integrated Exam")
+      b.textContent.includes("New practice set")
     );
     act(() => startButton.click());
     expect(host.querySelector('[data-testid="launch-modal"]')).toBeTruthy();
@@ -528,7 +528,7 @@ describe("ExamContainer", () => {
     );
 
     const startButton = Array.from(host.querySelectorAll("button")).find((b) =>
-      b.textContent.includes("Start Integrated Exam")
+      b.textContent.includes("New practice set")
     );
     act(() => startButton.click());
 
@@ -552,7 +552,7 @@ describe("ExamContainer", () => {
     );
 
     const startButton = Array.from(host.querySelectorAll("button")).find((b) =>
-      b.textContent.includes("Start Integrated Exam")
+      b.textContent.includes("New practice set")
     );
     act(() => startButton.click());
     await act(async () => {
@@ -595,7 +595,7 @@ describe("ExamContainer", () => {
       // actually reaches ExamSessionRunner's tutorModeEnabled prop.
       launchExamSessionMock.mockResolvedValue({ ok: true, sessionId: "sess-tutor" });
       const startButton = Array.from(host.querySelectorAll("button")).find((b) =>
-        b.textContent.includes("Start Integrated Exam")
+        b.textContent.includes("New practice set")
       );
       act(() => startButton.click());
       await act(async () => {
@@ -622,7 +622,7 @@ describe("ExamContainer", () => {
       );
 
       const startButton = Array.from(host.querySelectorAll("button")).find((b) =>
-        b.textContent.includes("Start Integrated Exam")
+        b.textContent.includes("New practice set")
       );
       act(() => startButton.click());
 
@@ -653,7 +653,7 @@ describe("ExamContainer", () => {
       );
 
       const startButton = Array.from(host.querySelectorAll("button")).find((b) =>
-        b.textContent.includes("Start Integrated Exam")
+        b.textContent.includes("New practice set")
       );
       act(() => startButton.click());
 
@@ -679,7 +679,7 @@ it("starts a short fresh retest restricted to the requested objective IDs", asyn
  launchExamSessionMock.mockResolvedValueOnce({ok:true,sessionId:"initial"}).mockResolvedValueOnce({ok:true,sessionId:"retest"});
  const ui=render(<ExamContainer userId="u1" blockId="b1" blockName="NB 1"/>);
  await flush();
- act(()=>[...ui.host.querySelectorAll("button")].find(button=>button.textContent.includes("Start Integrated Exam")).click());
+ act(()=>[...ui.host.querySelectorAll("button")].find(button=>button.textContent.includes("New practice set")).click());
  await act(async()=>ui.host.querySelector('[data-testid="fire-launch"]').click());await flush();
  await act(async()=>ui.host.querySelector('[data-testid="targeted-retest"]').click());await flush();
  const config=launchExamSessionMock.mock.calls[1][0];

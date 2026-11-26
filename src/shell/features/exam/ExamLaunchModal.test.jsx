@@ -39,57 +39,95 @@ const ELIGIBLE = [
 
 beforeEach(() => installDomStorage());
 
+const buttons = (host) => Array.from(host.querySelectorAll("button"));
+const byText = (host, text) => buttons(host).find((b) => b.textContent === text);
+const byIncl = (host, text) => buttons(host).find((b) => b.textContent.includes(text));
+const startButton = (host) => byText(host, "Start");
+const durationInput = (host) => host.querySelector('[aria-label="Duration (minutes)"]');
+const countInput = (host) => host.querySelector('[aria-label="Number of questions"]');
+const timed = (host) => act(() => byText(host, "Timed exam").click());
+
+const WEEKS = [
+  { lectureId: "l1", lectureLabel: "Lecture 1", objectiveCount: 5, weekNumber: 1, lectureDate: "2026-11-02" },
+  { lectureId: "l2", lectureLabel: "Lecture 2", objectiveCount: 7, weekNumber: 2, lectureDate: "2026-11-09" },
+  { lectureId: "l3", lectureLabel: "Lecture 3", objectiveCount: 4, weekNumber: 2, lectureDate: "2026-11-10" },
+  { lectureId: "l4", lectureLabel: "Lecture 4", objectiveCount: 6, weekNumber: 3, lectureDate: "2026-11-16" },
+];
+
 describe("ExamLaunchModal", () => {
   it("offers an immediate start that will fill the remaining questions after a provider shortfall", () => {
     const onStartSaved = vi.fn();
     const { host, unmount } = render(
-      <ExamLaunchModal blockId="b1" userId="u1" eligibleLectures={ELIGIBLE} defaultQuestionCount={30}
+      <ExamLaunchModal eligibleLectures={WEEKS} defaultQuestionCount={30}
         onLaunch={vi.fn()} onCancel={vi.fn()} error="28/30 ready" partialLaunch={{ readyCount: 28 }} onStartSaved={onStartSaved} />
     );
-    const button = Array.from(host.querySelectorAll("button")).find((item) => item.textContent.includes("Start with 28 saved questions"));
-    expect(button).toBeTruthy();
-    act(() => button.click());
-    expect(onStartSaved).toHaveBeenCalledTimes(1);
+    act(() => byIncl(host, "Start with 28 saved questions").click());
+    expect(onStartSaved).toHaveBeenCalledWith(expect.objectContaining({ questionCount: 28, assessmentFormat: "imcq", weekNumber: "3" }));
     unmount();
   });
 
-  it("renders format, question count, and duration controls (duration shown by default: exam format)", () => {
-    const { host, unmount } = render(
-      <ExamLaunchModal
-        blockId="b1"
-        userId="u1"
-        eligibleLectures={ELIGIBLE}
-        defaultQuestionCount={20}
-        onLaunch={vi.fn()}
-        onCancel={vi.fn()}
-      />
-    );
-
-    expect(host.textContent).toMatch(/Exam conditions/);
-    expect(host.textContent).toMatch(/Practice/);
-    expect(host.querySelector('input[type="number"]')).toBeTruthy();
-    expect(host.textContent).toMatch(/Duration/);
-
+  it("opens on IMCQ for the latest week, untimed, when lectures have weeks", () => {
+    const onLaunch = vi.fn();
+    const { host, unmount } = render(<ExamLaunchModal eligibleLectures={WEEKS} defaultQuestionCount={20} onLaunch={onLaunch} onCancel={vi.fn()} />);
+    expect(host.querySelector('[role="radio"][aria-checked="true"]').textContent).toContain("IMCQ");
+    expect(host.querySelector('[aria-label="Week"]').value).toBe("3");
+    expect(durationInput(host)).toBeNull();
+    act(() => startButton(host).click());
+    expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({
+      format: "practice", assessmentFormat: "imcq", weekNumber: "3", questionCount: 20, durationMinutes: null, startWhilePreparing: true,
+      examName: expect.stringMatching(/^Practice quiz · IMCQ · Week 3 ·/),
+    }));
     unmount();
   });
 
-  it("duration control is hidden when format is practice", () => {
-    const { host, unmount } = render(
-      <ExamLaunchModal
-        blockId="b1"
-        userId="u1"
-        eligibleLectures={ELIGIBLE}
-        defaultQuestionCount={20}
-        onLaunch={vi.fn()}
-        onCancel={vi.fn()}
-      />
-    );
+  it("IMCQ can pick another week and says how many items join two lectures", () => {
+    const onLaunch = vi.fn();
+    const { host, unmount } = render(<ExamLaunchModal eligibleLectures={WEEKS} defaultQuestionCount={10} onLaunch={onLaunch} onCancel={vi.fn()} />);
+    act(() => setInputValue(host.querySelector('[aria-label="Week"]'), "2"));
+    const summary = host.querySelector('[aria-label="Set summary"]').textContent;
+    expect(summary).toContain("2 lectures · 11 objectives");
+    expect(summary).toContain("about 40% of questions link two lectures");
+    act(() => startButton(host).click());
+    expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({ assessmentFormat: "imcq", weekNumber: "2" }));
+    unmount();
+  });
 
-    const practiceBtn = Array.from(host.querySelectorAll("button")).find((b) => b.textContent === "Practice");
-    act(() => practiceBtn.click());
+  it("homework practices one lecture, newest first", () => {
+    const onLaunch = vi.fn();
+    const { host, unmount } = render(<ExamLaunchModal eligibleLectures={WEEKS} defaultQuestionCount={10} onLaunch={onLaunch} onCancel={vi.fn()} />);
+    act(() => byIncl(host, "Homework").click());
+    const lecture = host.querySelector('[aria-label="Lecture"]');
+    expect(lecture.value).toBe("lecture:l4");
+    act(() => setInputValue(lecture, "lecture:l2"));
+    expect(host.querySelector('[aria-label="Set summary"]').textContent).toContain("1 lecture · 7 objectives");
+    act(() => startButton(host).click());
+    expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({ assessmentFormat: "homework", contentScope: "lecture:l2" }));
+    unmount();
+  });
 
-    expect(host.textContent).not.toMatch(/Duration/);
+  it("ESoft spans a range of weeks", () => {
+    const onLaunch = vi.fn();
+    const { host, unmount } = render(<ExamLaunchModal eligibleLectures={WEEKS} defaultQuestionCount={10} onLaunch={onLaunch} onCancel={vi.fn()} />);
+    act(() => byIncl(host, "ESoft").click());
+    expect(host.querySelector('[aria-label="From week"]').value).toBe("2");
+    expect(host.querySelector('[aria-label="Through week"]').value).toBe("3");
+    act(() => setInputValue(host.querySelector('[aria-label="From week"]'), "1"));
+    expect(host.querySelector('[aria-label="Set summary"]').textContent).toContain("4 lectures · 22 objectives");
+    act(() => startButton(host).click());
+    expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({ assessmentFormat: "esoft", contentScope: "week-range:1:3" }));
+    unmount();
+  });
 
+  it("can open preset to a format from the Exam tab", () => {
+    const { host, unmount } = render(<ExamLaunchModal eligibleLectures={WEEKS} defaultKind="esoft" onLaunch={vi.fn()} onCancel={vi.fn()} />);
+    expect(host.querySelector('[role="radio"][aria-checked="true"]').textContent).toContain("ESoft");
+    unmount();
+  });
+
+  it("falls back to custom scope when lectures have no weeks", () => {
+    const { host, unmount } = render(<ExamLaunchModal eligibleLectures={ELIGIBLE} onLaunch={vi.fn()} onCancel={vi.fn()} />);
+    expect(host.querySelector('[aria-label="Content scope"]').value).toBe("block-so-far");
+    expect(host.textContent).toContain("Custom scope");
     unmount();
   });
 
@@ -97,376 +135,151 @@ describe("ExamLaunchModal", () => {
     const onLaunch = vi.fn();
     const { host, unmount } = render(<ExamLaunchModal eligibleLectures={ELIGIBLE} defaultQuestionCount={12} onLaunch={onLaunch} />);
     const name = host.querySelector("#exam-name");
-    expect(name.value).toMatch(/^Timed exam · Block so far · 12 questions ·/);
+    expect(name.value).toMatch(/^Practice quiz · Block so far · 12 questions ·/);
     act(() => setInputValue(name, "My custom exam"));
-    const practice = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Practice");
-    act(() => practice.click());
+    timed(host);
     expect(name.value).toBe("My custom exam");
-    const start = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Start quiz / exam now");
-    act(() => start.click());
-    expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({ examName: "My custom exam" }));
+    act(() => startButton(host).click());
+    expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({ examName: "My custom exam", format: "exam" }));
     unmount();
   });
 
-  it("launch button is disabled when eligibleLectures is empty, and shows the no-material message", () => {
+  it("launch button is disabled when there are no lectures", () => {
     const onLaunch = vi.fn();
-    const { host, unmount } = render(
-      <ExamLaunchModal
-        blockId="b1"
-        userId="u1"
-        eligibleLectures={[]}
-        defaultQuestionCount={20}
-        onLaunch={onLaunch}
-        onCancel={vi.fn()}
-      />
-    );
-
-    expect(host.textContent).toMatch(/No lectures in this block have objectives yet/);
-    const startBtn = Array.from(host.querySelectorAll("button")).find((b) => b.textContent === "Start quiz / exam now");
-    expect(startBtn.disabled).toBe(true);
-
-    act(() => startBtn.click());
+    const { host, unmount } = render(<ExamLaunchModal eligibleLectures={[]} defaultQuestionCount={20} onLaunch={onLaunch} onCancel={vi.fn()} />);
+    expect(host.textContent).toMatch(/No lectures with objectives in this choice/);
+    expect(startButton(host).disabled).toBe(true);
+    act(() => startButton(host).click());
     expect(onLaunch).not.toHaveBeenCalled();
-
     unmount();
   });
 
-  it("onLaunch is called with the right shape on confirm (practice format: durationMinutes null)", () => {
+  it("timed mode defaults to 72 seconds per question", () => {
     const onLaunch = vi.fn();
-    const { host, unmount } = render(
-      <ExamLaunchModal
-        blockId="b1"
-        userId="u1"
-        eligibleLectures={ELIGIBLE}
-        defaultQuestionCount={15}
-        onLaunch={onLaunch}
-        onCancel={vi.fn()}
-      />
-    );
-
-    const practiceBtn = Array.from(host.querySelectorAll("button")).find((b) => b.textContent === "Practice");
-    act(() => practiceBtn.click());
-
-    const startBtn = Array.from(host.querySelectorAll("button")).find((b) => b.textContent === "Start quiz / exam now");
-    act(() => startBtn.click());
-
-    expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({ format: "practice", examName: expect.stringMatching(/^Practice quiz ·/), questionCount: 15, durationMinutes: null, startWhilePreparing: true }));
-
+    const { host, unmount } = render(<ExamLaunchModal eligibleLectures={ELIGIBLE} defaultQuestionCount={20} onLaunch={onLaunch} onCancel={vi.fn()} />);
+    timed(host);
+    expect(durationInput(host).value).toBe("24");
+    act(() => startButton(host).click());
+    expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({ format: "exam", examName: expect.stringMatching(/^Timed exam ·/), questionCount: 20, durationMinutes: 24 }));
     unmount();
   });
 
-  it("duration defaults to 72 seconds per question and launch is enabled without typing", () => {
-    const onLaunch = vi.fn();
-    const { host, unmount } = render(
-      <ExamLaunchModal
-        blockId="b1"
-        userId="u1"
-        eligibleLectures={ELIGIBLE}
-        defaultQuestionCount={20}
-        onLaunch={onLaunch}
-        onCancel={vi.fn()}
-      />
-    );
-
-    const durationInput = host.querySelectorAll('input[type="number"]')[1];
-    expect(durationInput.value).toBe("24");
-
-    const startBtn = Array.from(host.querySelectorAll("button")).find((b) => b.textContent === "Start quiz / exam now");
-    expect(startBtn.disabled).toBe(false);
-    act(() => startBtn.click());
-    expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({ format: "exam", examName: expect.stringMatching(/^Timed exam ·/), questionCount: 20, durationMinutes: 24, startWhilePreparing: true }));
-
+  it("duration follows question count until edited directly", () => {
+    const { host, unmount } = render(<ExamLaunchModal eligibleLectures={ELIGIBLE} defaultQuestionCount={20} onLaunch={vi.fn()} onCancel={vi.fn()} />);
+    timed(host);
+    act(() => setInputValue(countInput(host), "10"));
+    expect(durationInput(host).value).toBe("12");
+    act(() => byText(host, "40").click());
+    expect(durationInput(host).value).toBe("48");
+    act(() => setInputValue(durationInput(host), "60"));
+    act(() => setInputValue(countInput(host), "15"));
+    expect(durationInput(host).value).toBe("60");
     unmount();
   });
 
-  it("launches a distinct focused-repair mode when selected", () => {
+  it("an empty duration blocks a timed launch", () => {
     const onLaunch = vi.fn();
-    const { host, unmount } = render(<ExamLaunchModal blockId="b1" userId="u1" eligibleLectures={ELIGIBLE}
-      defaultQuestionCount={10} onLaunch={onLaunch} onCancel={vi.fn()} />);
-    const repair = Array.from(host.querySelectorAll("button")).find((button) => button.textContent.includes("Focused repair"));
-    act(() => repair.click());
-    expect(host.textContent).toContain("fresh retest");
-    const start = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Start focused repair");
-    act(() => start.click());
-    expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({ format: "exam", examName: expect.stringMatching(/^Timed exam ·/), studyMode: "repair", questionCount: 10, durationMinutes: 12, startWhilePreparing: true }));
+    const { host, unmount } = render(<ExamLaunchModal eligibleLectures={ELIGIBLE} defaultQuestionCount={15} onLaunch={onLaunch} onCancel={vi.fn()} />);
+    timed(host);
+    act(() => setInputValue(durationInput(host), ""));
+    expect(startButton(host).disabled).toBe(true);
+    act(() => setInputValue(durationInput(host), "60"));
+    act(() => startButton(host).click());
+    expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({ durationMinutes: 60, questionCount: 15 }));
     unmount();
   });
 
-  it("can open with focused repair already selected", () => {
-    const onLaunch = vi.fn();
-    const { host, unmount } = render(<ExamLaunchModal blockId="b1" userId="u1" eligibleLectures={ELIGIBLE}
-      defaultQuestionCount={10} defaultStudyMode="repair" onLaunch={onLaunch} onCancel={vi.fn()} />);
-    expect(host.textContent).toContain("fresh retest");
-    const start = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Start focused repair");
-    expect(start).toBeTruthy();
-    act(() => start.click());
-    expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({ studyMode: "repair" }));
+  it("caps question count at 100 and defaults to 20", () => {
+    const { host, unmount } = render(<ExamLaunchModal eligibleLectures={ELIGIBLE} onLaunch={vi.fn()} onCancel={vi.fn()} />);
+    expect(countInput(host).value).toBe("20");
+    act(() => setInputValue(countInput(host), "999"));
+    expect(countInput(host).value).toBe("100");
     unmount();
   });
 
-  it("keeps a narrowed priority objective set in the focused repair launch", () => {
-    const onLaunch = vi.fn();
-    const onStartSaved = vi.fn();
-    const { host, unmount } = render(<ExamLaunchModal eligibleLectures={ELIGIBLE} defaultQuestionCount={8}
+  it("starts within the limit when a saved default exceeds 100", () => {
+    const { host, unmount } = render(<ExamLaunchModal eligibleLectures={ELIGIBLE} defaultQuestionCount={150} onLaunch={vi.fn()} onCancel={vi.fn()} />);
+    expect(countInput(host).value).toBe("100");
+    timed(host);
+    expect(durationInput(host).value).toBe("120");
+    unmount();
+  });
+
+  it("focused repair opens More options and keeps its targets on every action", () => {
+    const onLaunch = vi.fn(), onPrepare = vi.fn();
+    const { host, unmount } = render(<ExamLaunchModal eligibleLectures={WEEKS} defaultQuestionCount={8}
       defaultStudyMode="repair" defaultTargetObjectiveIds={["o-priority"]} defaultFocusNotes="Prioritize pupillary reflexes"
-      savedQuestionCount={3} onStartSaved={onStartSaved} onLaunch={onLaunch} onCancel={vi.fn()} />);
+      onPrepare={onPrepare} onLaunch={onLaunch} onCancel={vi.fn()} />);
+    expect(host.querySelector("details").open).toBe(true);
     expect(host.querySelector("#exam-focus-notes").value).toContain("pupillary reflexes");
-    act(() => Array.from(host.querySelectorAll("button")).find(button => button.textContent === "Start focused repair").click());
-    expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({ targetObjectiveIds: ["o-priority"], focusNotes: "Prioritize pupillary reflexes" }));
-    act(() => Array.from(host.querySelectorAll("button")).find(button => button.textContent.includes("Start now · reuse saved questions")).click());
-    expect(onStartSaved).toHaveBeenCalledWith(expect.objectContaining({ studyMode: "repair", targetObjectiveIds: ["o-priority"], focusNotes: "Prioritize pupillary reflexes" }));
+    act(() => byText(host, "Start focused repair").click());
+    expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({ studyMode: "repair", targetObjectiveIds: ["o-priority"], focusNotes: "Prioritize pupillary reflexes" }));
+    act(() => byText(host, "Prepare for later").click());
+    expect(onPrepare).toHaveBeenCalledWith(expect.objectContaining({ studyMode: "repair", targetObjectiveIds: ["o-priority"] }));
     unmount();
   });
 
-  it("passes an explicit medium difficulty to the launch and prepare actions", () => {
-    const onLaunch = vi.fn();
-    const onPrepare = vi.fn();
-    const { host, unmount } = render(<ExamLaunchModal blockId="b1" userId="u1" eligibleLectures={ELIGIBLE}
-      defaultQuestionCount={10} onLaunch={onLaunch} onPrepare={onPrepare} onCancel={vi.fn()} />);
-    const medium = Array.from(host.querySelectorAll("button")).find((button) => button.textContent.includes("Build fluency"));
-    act(() => medium.click());
-    const prepare = Array.from(host.querySelectorAll("button")).find((button) => button.textContent.includes("Prepare questions for later"));
-    act(() => prepare.click());
-    expect(onPrepare).toHaveBeenCalledWith(expect.objectContaining({ difficultyOverride: "medium", questionCount: 10 }));
-    const start = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Start quiz / exam now");
-    act(() => start.click());
-    expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({ difficultyOverride: "medium", questionCount: 10 }));
+  it("passes difficulty and assessment format to Prepare for later", () => {
+    const onLaunch = vi.fn(), onPrepare = vi.fn();
+    const { host, unmount } = render(<ExamLaunchModal eligibleLectures={WEEKS} defaultQuestionCount={10} onLaunch={onLaunch} onPrepare={onPrepare} onCancel={vi.fn()} />);
+    act(() => byText(host, "Medium").click());
+    act(() => byText(host, "Prepare for later").click());
+    expect(onPrepare).toHaveBeenCalledWith(expect.objectContaining({ difficultyOverride: "medium", questionCount: 10, assessmentFormat: "imcq", weekNumber: "3" }));
+    expect(onPrepare.mock.calls[0][0].startWhilePreparing).toBeUndefined();
     unmount();
   });
 
-  it("duration auto-recalculates as question count changes, until the user edits it directly", () => {
-    const { host, unmount } = render(
-      <ExamLaunchModal
-        blockId="b1"
-        userId="u1"
-        eligibleLectures={ELIGIBLE}
-        defaultQuestionCount={20}
-        onLaunch={vi.fn()}
-        onCancel={vi.fn()}
-      />
-    );
-
-    const countInput = host.querySelector('input[type="number"]');
-    const durationInput = host.querySelectorAll('input[type="number"]')[1];
-    expect(durationInput.value).toBe("24");
-
-    act(() => setInputValue(countInput, "10"));
-    expect(durationInput.value).toBe("12");
-
-    // User types a duration directly — auto-calc stops following count.
-    act(() => setInputValue(durationInput, "60"));
-    act(() => setInputValue(countInput, "40"));
-    expect(durationInput.value).toBe("60"); // unchanged, no longer auto-calculated
-
-    unmount();
-  });
-
-  it("keeps an exact 72-second budget for every question count", () => {
-    const onLaunch = vi.fn();
-    const { host, unmount } = render(
-      <ExamLaunchModal
-        blockId="b1"
-        userId="u1"
-        eligibleLectures={ELIGIBLE}
-        defaultQuestionCount={15}
-        onLaunch={onLaunch}
-        onCancel={vi.fn()}
-      />
-    );
-    const durationInput = host.querySelectorAll('input[type="number"]')[1];
-    expect(durationInput.value).toBe("18");
-    const start = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Start quiz / exam now");
-    act(() => start.click());
-    expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({ format: "exam", examName: expect.stringMatching(/^Timed exam ·/), questionCount: 15, durationMinutes: 18, startWhilePreparing: true }));
-    unmount();
-  });
-
-  it("defaults a generated 100-question exam to 120 minutes", () => {
-    const onLaunch = vi.fn();
-    const { host, unmount } = render(
-      <ExamLaunchModal
-        blockId="b1"
-        userId="u1"
-        eligibleLectures={ELIGIBLE}
-        defaultQuestionCount={100}
-        onLaunch={onLaunch}
-        onCancel={vi.fn()}
-      />
-    );
-    const inputs = host.querySelectorAll('input[type="number"]');
-    expect(inputs[0].value).toBe("100");
-    expect(inputs[1].value).toBe("120");
-    const start = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Start quiz / exam now");
-    act(() => start.click());
-    expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({ format: "exam", examName: expect.stringMatching(/^Timed exam ·/), questionCount: 100, durationMinutes: 120, startWhilePreparing: true }));
-    unmount();
-  });
-
-  it("clearing a typed duration back to empty blocks launch (still exam format, still required)", () => {
-    const onLaunch = vi.fn();
-    const { host, unmount } = render(
-      <ExamLaunchModal
-        blockId="b1"
-        userId="u1"
-        eligibleLectures={ELIGIBLE}
-        defaultQuestionCount={15}
-        onLaunch={onLaunch}
-        onCancel={vi.fn()}
-      />
-    );
-
-    const durationInput = host.querySelectorAll('input[type="number"]')[1];
-    act(() => setInputValue(durationInput, ""));
-
-    const startBtn = Array.from(host.querySelectorAll("button")).find((b) => b.textContent === "Start quiz / exam now");
-    expect(startBtn.disabled).toBe(true);
-    act(() => startBtn.click());
-    expect(onLaunch).not.toHaveBeenCalled();
-
-    act(() => setInputValue(durationInput, "60"));
-    expect(startBtn.disabled).toBe(false);
-    act(() => startBtn.click());
-    expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({ format: "exam", examName: expect.stringMatching(/^Timed exam ·/), questionCount: 15, durationMinutes: 60, startWhilePreparing: true }));
-
-    unmount();
-  });
-
-  it("question count input is capped at 100", () => {
-    const { host, unmount } = render(
-      <ExamLaunchModal
-        blockId="b1"
-        userId="u1"
-        eligibleLectures={ELIGIBLE}
-        defaultQuestionCount={20}
-        onLaunch={vi.fn()}
-        onCancel={vi.fn()}
-      />
-    );
-
-    const countInput = host.querySelectorAll('input[type="number"]')[0];
-    act(() => setInputValue(countInput, "999"));
-
-    expect(countInput.value).toBe("100");
-
-    unmount();
-  });
-
-  it("can scope an exam to one week of lecture content", () => {
-    const onLaunch = vi.fn();
-    const { host, unmount } = render(
-      <ExamLaunchModal
-        eligibleLectures={[
-          { lectureId: "l1", objectiveCount: 5, weekNumber: 1 },
-          { lectureId: "l2", objectiveCount: 7, weekNumber: 2 },
-        ]}
-        defaultQuestionCount={10}
-        onLaunch={onLaunch}
-      />
-    );
-    const scope = host.querySelector('[aria-label="Content scope"]');
-    act(() => setInputValue(scope, "2"));
-    expect(host.textContent).toContain("7 objectives across 1 lectures");
-    const start = [...host.querySelectorAll("button")].find(button => button.textContent === "Start quiz / exam now");
-    act(() => start.click());
-    expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({ format: "exam", examName: expect.stringMatching(/^Timed exam · Week 2 ·/), questionCount: 10, durationMinutes: 12, weekNumber: "2", startWhilePreparing: true }));
-    unmount();
-  });
-
-  it("launches a plain-language concept drill against one exact lecture", () => {
+  it("launches a concept drill against one exact lecture via custom scope", () => {
     const onLaunch = vi.fn();
     const { host, unmount } = render(<ExamLaunchModal eligibleLectures={[
       { lectureId: "auditory", lectureLabel: "Auditory system", objectiveCount: 4 },
       { lectureId: "vision", lectureLabel: "Visual pathways", objectiveCount: 5 },
     ]} defaultQuestionCount={10} onLaunch={onLaunch} />);
-    expect(host.textContent).toContain("Specific concept drill");
-    const notes = host.querySelector("#exam-focus-notes");
-    act(() => setInputValue(notes, "Weber and Rinne; AC > BC; conductive vs sensorineural loss; vary laterality"));
-    const scope = host.querySelector('[aria-label="Content scope"]');
-    act(() => setInputValue(scope, "lecture:auditory"));
-    expect(host.textContent).toContain("4 objectives across 1 lectures");
-    const start = [...host.querySelectorAll("button")].find(button => button.textContent === "Start quiz / exam now");
-    act(() => start.click());
-    expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({
-      contentScope: "lecture:auditory",
-      focusNotes: "Weber and Rinne; AC > BC; conductive vs sensorineural loss; vary laterality",
-      questionCount: 10,
-    }));
+    act(() => setInputValue(host.querySelector("#exam-focus-notes"), "Weber and Rinne; conductive vs sensorineural loss"));
+    act(() => setInputValue(host.querySelector('[aria-label="Content scope"]'), "lecture:auditory"));
+    expect(host.querySelector('[aria-label="Set summary"]').textContent).toContain("1 lecture · 4 objectives");
+    act(() => startButton(host).click());
+    expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({ contentScope: "lecture:auditory", focusNotes: "Weber and Rinne; conductive vs sensorineural loss" }));
+    expect(onLaunch.mock.calls[0][0].assessmentFormat).toBeUndefined();
     unmount();
   });
 
-  it("launching=true disables both buttons and relabels Start (Task 12 review fix #2, double-launch race)", () => {
-    const onLaunch = vi.fn();
-    const onCancel = vi.fn();
-    const { host, unmount } = render(
-      <ExamLaunchModal
-        blockId="b1"
-        userId="u1"
-        eligibleLectures={ELIGIBLE}
-        defaultQuestionCount={15}
-        onLaunch={onLaunch}
-        onCancel={onCancel}
-        launching
-      />
-    );
-
-    const startBtn = Array.from(host.querySelectorAll("button")).find((b) => b.textContent.includes("Opening"));
-    const cancelBtn = Array.from(host.querySelectorAll("button")).find((b) => b.textContent === "Cancel");
-    expect(startBtn).toBeTruthy();
-    expect(startBtn.disabled).toBe(true);
-    expect(cancelBtn.disabled).toBe(true);
-
-    act(() => startBtn.click());
-    act(() => cancelBtn.click());
+  it("launching=true disables Start and Cancel", () => {
+    const onLaunch = vi.fn(), onCancel = vi.fn();
+    const { host, unmount } = render(<ExamLaunchModal eligibleLectures={ELIGIBLE} onLaunch={onLaunch} onCancel={onCancel} launching />);
+    const start = byIncl(host, "Opening");
+    const cancel = byText(host, "Cancel");
+    expect(start.disabled).toBe(true);
+    expect(cancel.disabled).toBe(true);
+    act(() => start.click());
+    act(() => cancel.click());
     expect(onLaunch).not.toHaveBeenCalled();
     expect(onCancel).not.toHaveBeenCalled();
-
     unmount();
   });
 
-  it("falls back to 20 when defaultQuestionCount is not provided", () => {
-    const { host, unmount } = render(
-      <ExamLaunchModal
-        blockId="b1"
-        userId="u1"
-        eligibleLectures={ELIGIBLE}
-        onLaunch={vi.fn()}
-        onCancel={vi.fn()}
-      />
-    );
-
-    const countInput = host.querySelectorAll('input[type="number"]')[0];
-    expect(countInput.value).toBe("20");
-
+  it("keeps settings open when clicking the backdrop", () => {
+    const onCancel = vi.fn();
+    const { host, unmount } = render(<ExamLaunchModal eligibleLectures={ELIGIBLE} onLaunch={vi.fn()} onCancel={onCancel} />);
+    act(() => setInputValue(countInput(host), "30"));
+    act(() => host.querySelector('[role="dialog"]').click());
+    expect(onCancel).not.toHaveBeenCalled();
+    expect(countInput(host).value).toBe("30");
+    act(() => host.querySelector('[aria-label="Close exam settings"]').click());
+    expect(onCancel).toHaveBeenCalledOnce();
     unmount();
   });
-});
 
-it("keeps settings open when editing question count or clicking the backdrop", () => {
- const onCancel = vi.fn();
- const { host, unmount } = render(<ExamLaunchModal eligibleLectures={ELIGIBLE} onLaunch={vi.fn()} onCancel={onCancel} />);
- const input = host.querySelector('[aria-label="Number of questions"]');
- act(() => input.click());
- act(() => setInputValue(input, "30"));
- act(() => host.querySelector('[role="dialog"]').click());
- expect(onCancel).not.toHaveBeenCalled(); expect(input.value).toBe("30");
- act(() => host.querySelector('[aria-label="Close exam settings"]').click());
- expect(onCancel).toHaveBeenCalledOnce(); unmount();
-});
-
-it("starts within the limit when a saved school-bank default exceeds 100", () => {
- const { host, unmount } = render(<ExamLaunchModal eligibleLectures={ELIGIBLE} defaultQuestionCount={150} onLaunch={vi.fn()} onCancel={vi.fn()} />);
- expect(host.querySelector('[aria-label="Number of questions"]').value).toBe("100");
- expect(host.querySelectorAll('input[type="number"]')[1].value).toBe("120");
- expect(host.querySelector('[aria-label="Number of questions"]').validity.valid).toBe(true);
- unmount();
-});
-
-it('launches Test 3 across all objective-linked lectures without requiring date scope',()=>{
- installDomStorage();const onLaunch=vi.fn();
- const candidates=[{lectureId:'all',objectiveCount:3}];
- const {host,unmount}=render(<ExamLaunchModal eligibleLectures={[]} blueprintLectures={candidates} blueprintObjectives={{all:[{id:'a',discipline:'ANAT'},{id:'n',discipline:'NSCI'},{id:'h',discipline:'HCB'}]}} defaultBlueprintExam="3" defaultQuestionCount={40} onLaunch={onLaunch} onCancel={()=>{}} />);
- expect(host.textContent).toContain('45–50%');
- act(()=>[...host.querySelectorAll('button')].find(b=>b.textContent==='Start quiz / exam now').click());
- expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({blueprintExam:3,contentScope:'entire-block',questionCount:40}));
- unmount();
+  it("Full NB exam launches the blueprint across objective-linked lectures, timed", () => {
+    const onLaunch = vi.fn();
+    const candidates = [{ lectureId: "all", objectiveCount: 3 }];
+    const { host, unmount } = render(<ExamLaunchModal eligibleLectures={[]} blueprintLectures={candidates}
+      blueprintObjectives={{ all: [{ id: "a", discipline: "ANAT" }, { id: "n", discipline: "NSCI" }, { id: "h", discipline: "HCB" }] }}
+      defaultBlueprintExam="3" defaultQuestionCount={40} onLaunch={onLaunch} onCancel={() => {}} />);
+    expect(host.querySelector('[role="radio"][aria-checked="true"]').textContent).toContain("Full NB exam");
+    expect(durationInput(host).value).toBe("48");
+    act(() => startButton(host).click());
+    expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({ blueprintExam: 3, contentScope: "entire-block", questionCount: 40, format: "exam" }));
+    unmount();
+  });
 });
