@@ -3,13 +3,18 @@
 // key-blind solve are unchanged); the partner lecture only supplies the second
 // taught rule. Acceptance requires reviewed source quotes from both lectures.
 
+import { fridayWeekKey } from "../../logic/weekScope.js";
+
 export const CROSS_LECTURE_SHARE = 0.25;
 const MIN_QUOTE_LENGTH = 20;
 const PARTNER_TEXT_BUDGET = 18000;
 
+// School week: the stored week number, else the Monday–Friday week of the
+// lecture date (as a day count, so weeks still sort and compare).
 const weekOf = lecture => {
-  const week = Number(lecture?.weekNumber);
-  return Number.isFinite(week) ? week : null;
+  if (lecture?.weekNumber != null && Number.isFinite(Number(lecture.weekNumber))) return Number(lecture.weekNumber);
+  const date = lecture?.lectureDate || lecture?.date;
+  return date ? Date.parse(`${fridayWeekKey(date)}T00:00:00Z`) / 86400000 : null;
 };
 const numberOf = lecture => {
   const value = Number(lecture?.lectureNumber);

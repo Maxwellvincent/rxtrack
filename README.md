@@ -230,8 +230,9 @@ failure leaves the block in place to retry. Exam sessions and answer evidence ar
     span; *Custom* = any scope, 25%.
   - **Launch modal** (`ExamLaunchModal.jsx`, "New practice set") is three steps:
     1 Practice like (Homework · IMCQ · ESoft · Full NB exam), 2 one picker for
-    that format (lecture, newest first · week, latest first · from/through week ·
-    blueprint test), 3 question count (10/20/40 chips or typed) and Practice vs
+    that format (lecture, newest first · week, current week first · from/through
+    week · blueprint test; `schoolWeeks` uses stored week numbers, else groups
+    lectures into Monday–Friday weeks by date and scopes them as `date-range`), 3 question count (10/20/40 chips or typed) and Practice vs
     Timed exam (untimed by default; Full NB exam defaults to timed, 72 s each). A
     summary line gives lectures, objectives and the cross-lecture share. Focus,
     difficulty, concept drill, include-answered, name and any other scope sit

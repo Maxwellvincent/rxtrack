@@ -3,7 +3,7 @@ import { ASSESSMENT_FORMATS, defaultScopeFor } from "./assessmentFormats.js";
 import { BPM_BLUEPRINTS, SUBJECT_LABELS, subjectTargets, blueprintInventory } from "./bpmBlueprint.js";
 import { useEffect, useState } from "react";
 import { examDurationMinutes } from "./examTiming.js";
-import { filterLecturesByScope, scopeLabel } from "../../logic/weekScope.js";
+import { filterLecturesByScope, fridayWeekKey, scopeLabel } from "../../logic/weekScope.js";
 import { suggestedExamName } from "./preparedSetNaming.js";
 
 // A full school-prep sitting can now reach 100 questions. Keeping the cap here
@@ -20,6 +20,59 @@ export function examBlueprint(eligibleLectures = [], questionCount = 0) {
     guaranteedLectureCoverage: Math.min(lectures.length, questionCount),
     objectiveSamplingCapacity: Math.min(objectiveCount, questionCount),
   };
+}
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const isoDay = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+const shortDay = (date) => `${MONTHS[date.getMonth()]} ${date.getDate()}`;
+
+/**
+ * School weeks of the block, oldest first. Stored week numbers win; lectures
+ * without one are grouped into Monday–Friday weeks by date and numbered in
+ * order. Each week carries the content scope that selects exactly it.
+ */
+export function schoolWeeks(lectures = []) {
+  const list = (lectures || []).filter((lecture) => lecture?.lectureId);
+  if (list.some((lecture) => lecture.weekNumber != null)) {
+    return [...new Set(list.map((lecture) => lecture.weekNumber).filter((week) => week != null).map(String))]
+      .sort((a, b) => Number(a) - Number(b))
+      .map((week) => {
+        const members = list.filter((lecture) => String(lecture.weekNumber) === week);
+        const dates = members.map((lecture) => lecture.lectureDate || lecture.date).filter(Boolean).map((date) => String(date).slice(0, 10)).sort();
+        return { id: week, number: Number(week), label: `Week ${week}`, range: "", scope: week, count: members.length, firstDate: dates[0] || "" };
+      });
+  }
+  const byFriday = new Map();
+  for (const lecture of list) {
+    const date = lecture.lectureDate || lecture.date;
+    if (!date) continue;
+    const key = fridayWeekKey(date);
+    byFriday.set(key, (byFriday.get(key) || 0) + 1);
+  }
+  return [...byFriday.keys()].sort().map((friday, index) => {
+    const end = new Date(`${friday}T00:00:00`);
+    const start = new Date(end); start.setDate(end.getDate() - 4);
+    return { id: friday, number: index + 1, label: `Week ${index + 1}`, range: `${shortDay(start)}–${shortDay(end)}`,
+      start: isoDay(start), end: friday, scope: `date-range:${isoDay(start)}:${friday}`, count: byFriday.get(friday), firstDate: isoDay(start) };
+  });
+}
+
+/** The most recent week that has started by `now`, else the last week. */
+export function currentSchoolWeek(weeks = [], now = new Date()) {
+  const today = isoDay(now);
+  const started = weeks.filter((week) => week.firstDate && week.firstDate <= today);
+  return (started[started.length - 1] || weeks[weeks.length - 1])?.id || "";
+}
+
+function weekSpanScope(from, to) {
+  if (!from || !to) return "";
+  const [low, high] = from.number <= to.number ? [from, to] : [to, from];
+  return low.start ? `date-range:${low.start}:${high.end}` : `week-range:${low.id}:${high.id}`;
+}
+
+function weekSpanLabel(from, to) {
+  const [low, high] = from.number <= to.number ? [from, to] : [to, from];
+  return low.id === high.id ? low.label : `Weeks ${low.number}–${high.number}`;
 }
 
 /**
@@ -71,9 +124,11 @@ export function ExamLaunchModal({
     const timer = setInterval(() => setElapsed(Math.floor((Date.now() - started) / 1000)), 1000);
     return () => clearInterval(timer);
   }, [launching]);
-  const availableWeeks = [...new Set(eligibleLectures.map((lecture) => lecture.weekNumber).filter((week) => week != null))]
-    .sort((a, b) => Number(a) - Number(b)).map(String);
-  const latestWeek = availableWeeks[availableWeeks.length - 1] || "";
+  const weekOptions = schoolWeeks(eligibleLectures);
+  const availableWeeks = weekOptions.map((option) => option.id);
+  const latestWeek = currentSchoolWeek(weekOptions);
+  const latestIndex = Math.max(0, availableWeeks.indexOf(latestWeek));
+  const weekById = Object.fromEntries(weekOptions.map((option) => [option.id, option]));
   const openedForTarget = !!defaultFocusNotes || defaultTargetObjectiveIds.length > 0 || defaultStudyMode === "repair";
   const requestedKind = ["homework", "imcq", "esoft", "full"].includes(defaultKind) ? defaultKind : "";
   const initialKind = defaultBlueprintExam ? "full" : requestedKind && !(requestedKind !== "homework" && !availableWeeks.length) ? requestedKind
@@ -94,7 +149,7 @@ export function ExamLaunchModal({
   const [durationTouched, setDurationTouched] = useState(false);
   const [lectureChoice, setLectureChoice] = useState(() => defaultScopeFor("homework", eligibleLectures));
   const [week, setWeek] = useState(latestWeek);
-  const [weekFrom, setWeekFrom] = useState(availableWeeks[Math.max(0, availableWeeks.length - 2)] || "");
+  const [weekFrom, setWeekFrom] = useState(availableWeeks[Math.max(0, latestIndex - 1)] || "");
   const [weekTo, setWeekTo] = useState(latestWeek);
   const [contentScope, setContentScope] = useState("block-so-far");
   const [rangeStart, setRangeStart] = useState("");
@@ -106,12 +161,14 @@ export function ExamLaunchModal({
 
   const effectiveScope = kind === "full" ? "entire-block"
     : kind === "homework" ? lectureChoice
-    : kind === "imcq" ? week
-    : kind === "esoft" ? `week-range:${weekFrom}:${weekTo}`
+    : kind === "imcq" ? (weekById[week]?.scope || "")
+    : kind === "esoft" ? weekSpanScope(weekById[weekFrom], weekById[weekTo])
     : contentScope === "custom-dates" && rangeStart && rangeEnd ? `date-range:${rangeStart}:${rangeEnd}` : contentScope;
   const assessmentFormat = ["homework", "imcq", "esoft"].includes(kind) ? kind : null;
   const scopedLectures = blueprintExam ? blueprintLectures : filterLecturesByScope(eligibleLectures, effectiveScope);
-  const effectiveScopeLabel = scopeLabel(effectiveScope, eligibleLectures);
+  const effectiveScopeLabel = kind === "imcq" && weekById[week] ? weekById[week].label
+    : kind === "esoft" && weekById[weekFrom] && weekById[weekTo] ? weekSpanLabel(weekById[weekFrom], weekById[weekTo])
+    : scopeLabel(effectiveScope, eligibleLectures);
   const inventory = blueprintInventory(blueprintLectures, blueprintObjectives);
   const noLectures = !scopedLectures || scopedLectures.length === 0;
 
@@ -168,7 +225,6 @@ export function ExamLaunchModal({
   const selectClass = "w-full rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm text-text-1";
   const lectureOptions = [...eligibleLectures].filter((lecture) => lecture?.lectureId)
     .sort((a, b) => String(b.lectureDate || b.date || "").localeCompare(String(a.lectureDate || a.date || "")) || (Number(b.lectureNumber) || 0) - (Number(a.lectureNumber) || 0));
-  const weekLectureCount = (value) => eligibleLectures.filter((lecture) => String(lecture.weekNumber) === String(value)).length;
 
   return (
     <div role="dialog" aria-modal="true" aria-label="Exam settings"
@@ -201,12 +257,12 @@ export function ExamLaunchModal({
             </select>}
             {kind === "imcq" && (availableWeeks.length
               ? <select aria-label="Week" value={week} onChange={(e) => setWeek(e.target.value)} className={selectClass}>
-                  {[...availableWeeks].reverse().map((value) => <option key={value} value={value}>Week {value} · {weekLectureCount(value)} lectures</option>)}
+                  {[...weekOptions].reverse().map((option) => <option key={option.id} value={option.id}>{option.label}{option.range ? ` · ${option.range}` : ""} · {option.count} lecture{option.count === 1 ? "" : "s"}</option>)}
                 </select>
-              : <p className="text-sm text-text-2">Your lectures have no week numbers yet. Import the schedule, or use More options → scope.</p>)}
+              : <p className="text-sm text-text-2">Your lectures have no dates or week numbers yet. Import the schedule, or use More options → scope.</p>)}
             {kind === "esoft" && <div className="grid grid-cols-2 gap-2">
-              <label className="text-xs text-text-3">From<select aria-label="From week" value={weekFrom} onChange={(e) => setWeekFrom(e.target.value)} className={`mt-1 ${selectClass}`}>{availableWeeks.map((value) => <option key={value} value={value}>Week {value}</option>)}</select></label>
-              <label className="text-xs text-text-3">Through<select aria-label="Through week" value={weekTo} onChange={(e) => setWeekTo(e.target.value)} className={`mt-1 ${selectClass}`}>{availableWeeks.map((value) => <option key={value} value={value}>Week {value}</option>)}</select></label>
+              <label className="text-xs text-text-3">From<select aria-label="From week" value={weekFrom} onChange={(e) => setWeekFrom(e.target.value)} className={`mt-1 ${selectClass}`}>{weekOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
+              <label className="text-xs text-text-3">Through<select aria-label="Through week" value={weekTo} onChange={(e) => setWeekTo(e.target.value)} className={`mt-1 ${selectClass}`}>{weekOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
             </div>}
             {kind === "full" && <>
               <select id="bpm-blueprint" aria-label="Exam blueprint" value={blueprintTest} onChange={e=>{setBlueprintTest(e.target.value);setExamNameOverride(null);}} className={selectClass}>
@@ -223,7 +279,7 @@ export function ExamLaunchModal({
                   ["block-so-far", "Block so far"],
                   ["entire-block", "Entire block"],
                   ["custom-dates", "Choose exact dates…"],
-                  ...availableWeeks.map((value) => [value, `Week ${value}`]),
+                  ...weekOptions.map((option) => [option.scope, option.label]),
                   ...eligibleLectures.filter((lecture) => lecture?.lectureId).map((lecture) => [`lecture:${encodeURIComponent(lecture.lectureId)}`, `Lecture · ${lecture.lectureLabel || lecture.lectureTitle || lecture.fileName || lecture.lectureId}`]),
                 ].map(([value, label]) => <option key={value} value={value}>{label}</option>)}
               </select>

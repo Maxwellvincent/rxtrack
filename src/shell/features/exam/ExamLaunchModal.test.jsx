@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { act } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { installDomStorage } from "../../../stores/testEnv.js";
-import { ExamLaunchModal } from "./ExamLaunchModal.jsx";
+import { ExamLaunchModal, currentSchoolWeek, schoolWeeks } from "./ExamLaunchModal.jsx";
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -280,6 +280,31 @@ describe("ExamLaunchModal", () => {
     expect(durationInput(host).value).toBe("48");
     act(() => startButton(host).click());
     expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({ blueprintExam: 3, contentScope: "entire-block", questionCount: 40, format: "exam" }));
+    unmount();
+  });
+
+  it("groups undated-week lectures into Monday–Friday weeks from their dates", () => {
+    const dated = [
+      { lectureId: "a", lectureLabel: "A", objectiveCount: 2, lectureDate: "2026-11-16" },
+      { lectureId: "b", lectureLabel: "B", objectiveCount: 3, lectureDate: "2026-11-20" },
+      { lectureId: "c", lectureLabel: "C", objectiveCount: 4, lectureDate: "2026-11-23" },
+      { lectureId: "d", lectureLabel: "D", objectiveCount: 5, lectureDate: "2026-11-30" },
+    ];
+    const weeks = schoolWeeks(dated);
+    expect(weeks.map((week) => [week.label, week.range, week.count])).toEqual([["Week 1", "Nov 16–Nov 20", 2], ["Week 2", "Nov 23–Nov 27", 1], ["Week 3", "Nov 30–Dec 4", 1]]);
+    expect(currentSchoolWeek(weeks, new Date(2026, 10, 26))).toBe("2026-11-27");
+    const onLaunch = vi.fn();
+    const { host, unmount } = render(<ExamLaunchModal eligibleLectures={dated} defaultQuestionCount={10} onLaunch={onLaunch} onCancel={vi.fn()} />);
+    expect(host.querySelector('[role="radio"][aria-checked="true"]').textContent).toContain("IMCQ");
+    act(() => setInputValue(host.querySelector('[aria-label="Week"]'), "2026-11-20"));
+    expect(host.querySelector('[aria-label="Set summary"]').textContent).toContain("2 lectures · 5 objectives");
+    act(() => startButton(host).click());
+    expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({ assessmentFormat: "imcq", contentScope: "date-range:2026-11-16:2026-11-20", examName: expect.stringMatching(/IMCQ · Week 1 ·/) }));
+    act(() => byIncl(host, "ESoft").click());
+    act(() => setInputValue(host.querySelector('[aria-label="From week"]'), "2026-11-20"));
+    act(() => setInputValue(host.querySelector('[aria-label="Through week"]'), "2026-11-27"));
+    act(() => startButton(host).click());
+    expect(onLaunch).toHaveBeenLastCalledWith(expect.objectContaining({ assessmentFormat: "esoft", contentScope: "date-range:2026-11-16:2026-11-27", examName: expect.stringMatching(/ESoft · Weeks 1–2 ·/) }));
     unmount();
   });
 });

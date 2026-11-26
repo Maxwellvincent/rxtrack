@@ -18,6 +18,14 @@ describe("crossLecturePartners", () => {
     expect(crossLecturePartners(["a", "b", "c"], byId).get("c")).toBe("b");
   });
 
+  it("uses the Monday–Friday week of the lecture date when no week number is stored", () => {
+    const dated = (id, lectureDate, lectureNumber) => ({ id, lectureDate, lectureNumber });
+    const byId = Object.fromEntries([dated("a", "2026-11-16", 1), dated("b", "2026-11-20", 2), dated("c", "2026-11-23", 3), dated("d", "2026-11-24", 4)].map(l => [l.id, l]));
+    const partners = crossLecturePartners(["a", "b", "c", "d"], byId);
+    expect(partners.get("b")).toBe("a");
+    expect(partners.get("c")).toBe("d");
+  });
+
   it("returns no partners for a single-lecture set", () => {
     expect(crossLecturePartners(["a"], { a: lecture("a", 9, 40) }).size).toBe(0);
   });
