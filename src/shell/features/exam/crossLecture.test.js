@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { crossLecturePartners, crossLectureCount, combinedLectureText, crossLectureFocusNotes, verifiedCrossLectureQuotes } from "./crossLecture.js";
+import { crossLecturePartners, crossLectureCount, combinedLectureText, crossLectureFocusNotes, verifiedCrossLectureQuotes, partnerSignals, validatedPartnerObjectiveId } from "./crossLecture.js";
 
 const lecture = (id, weekNumber, lectureNumber) => ({ id, weekNumber, lectureNumber, lectureTitle: `Lecture ${lectureNumber}` });
 
@@ -72,5 +72,39 @@ describe("verifiedCrossLectureQuotes", () => {
   it("ignores very short quotes that could match by accident", () => {
     const question = { reasoningAudit: { sourceQuotes: ["the medial", "medial lemniscus carries touch and vibration"] } };
     expect(verifiedCrossLectureQuotes(question, primary, partner)).toBe(false);
+  });
+});
+
+describe("partner choice", () => {
+  const byId = Object.fromEntries([lecture("a", 9, 40), lecture("b", 9, 41), lecture("c", 9, 42), lecture("d", 10, 45)].map(l => [l.id, l]));
+
+  it("prefers a same-week lecture the school already tests together, then shared terms, then weak objectives", () => {
+    const signals = partnerSignals({
+      schoolQuestions: [{ lectureId: "c", secondaryLectureIds: ["a"] }],
+      termIndex: { pyramid: { lectureIds: ["a", "b"] }, lemniscus: { lectureIds: ["a", "b"] } },
+      objectivesByLecture: { b: [{ id: "ob" }], c: [{ id: "oc" }] },
+      evidenceObjectives: { ob: { attempts: 5, correct: 5 } },
+    });
+    expect(crossLecturePartners(["a", "b", "c", "d"], byId, { signals }).get("a")).toBe("c");
+    expect(crossLecturePartners(["a", "b", "c", "d"], byId, { signals }).get("b")).toBe("a");
+  });
+
+  it("keeps IMCQ partners inside the week but lets ESoft reach across the span", () => {
+    const signals = partnerSignals({ schoolQuestions: [{ lectureId: "d", secondaryLectureIds: ["a"] }] });
+    expect(crossLecturePartners(["d"], byId, { candidateIds: ["a", "b", "c"], signals }).get("d")).toBe("c");
+    expect(crossLecturePartners(["d"], byId, { candidateIds: ["a", "b", "c"], window: "scope", signals }).get("d")).toBe("a");
+  });
+
+  it("ignores block-wide terms as links", () => {
+    const signals = partnerSignals({ termIndex: { neuron: { lectureIds: ["a", "b", "c", "d", "e", "f", "g"] } } });
+    expect(signals.sharedTerms.size).toBe(0);
+  });
+
+  it("credits a partner objective only when the claimed id is one of the partner's", () => {
+    const partnerObjectives = [{ id: "o46", code: "SOM.NB.0546" }];
+    expect(validatedPartnerObjectiveId({ questionPlan: { partnerObjectiveId: "o46" } }, partnerObjectives)).toBe("o46");
+    expect(validatedPartnerObjectiveId({ questionPlan: { partnerObjectiveId: "SOM.NB.0546" } }, partnerObjectives)).toBe("o46");
+    expect(validatedPartnerObjectiveId({ questionPlan: { partnerObjectiveId: "o99" } }, partnerObjectives)).toBe(null);
+    expect(crossLectureFocusNotes("A", "B", partnerObjectives)).toContain('"id":"o46"');
   });
 });

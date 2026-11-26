@@ -20,7 +20,7 @@ import { buildStyleProfile } from "../../../engine/styleProfile.js";
 import { relationshipPages } from "../../../engine/sourceRelationships.js";
 import { withPartTargets, validatedPartId } from "../../../engine/objectiveParts.js";
 import { read as readObjectiveParts } from "../../../stores/objectiveParts.js";
-import { crossLecturePartners, crossLectureCount, combinedLectureText, crossLectureFocusNotes, verifiedCrossLectureQuotes } from "./crossLecture.js";
+import { crossLecturePartners, crossLectureCount, combinedLectureText, crossLectureFocusNotes, verifiedCrossLectureQuotes, validatedPartnerObjectiveId, CROSS_LECTURE_SHARE } from "./crossLecture.js";
 
 const MAX_ATTEMPTS = 3;
 // Local Ollama completions for large, school-style prompts routinely take a little over
@@ -78,9 +78,12 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
   const history = [...(deps.pool ? await deps.pool.history() : []),...existingQuestions];
   let nextIndex = 0, cacheHits = 0, stopError = null;
   // Cross-lecture integration (IMCQ/ESoft style): each lecture borrows a second
-  // taught rule from a same-week partner for about a quarter of its slots.
-  const partners = deps.crossLecture === false || deps.savedOnly
-    ? new Map() : crossLecturePartners(lectureIds.map(id => readSlot(id).lectureId), lecturesById || {});
+  // taught rule from a partner for a share of its slots. The assessment format
+  // sets the share and the partner window (same week, or the whole span).
+  const crossShare = Number.isFinite(Number(deps.crossLectureShare)) ? Number(deps.crossLectureShare) : CROSS_LECTURE_SHARE;
+  const partners = deps.crossLecture === false || deps.savedOnly || crossShare <= 0
+    ? new Map() : crossLecturePartners(lectureIds.map(id => readSlot(id).lectureId), lecturesById || {}, {
+      candidateIds: deps.crossLecturePartnerIds || null, window: deps.crossLectureWindow || "same-week", signals: deps.crossLectureSignals || null });
   const partnerEvidence = new Map();
   const loadPartner = partnerId => {
     if (!partnerEvidence.has(partnerId)) partnerEvidence.set(partnerId, (async () => {
@@ -204,7 +207,8 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
     }
     if (sourceError) errorMessage = sourceError;
     const partner = partners.has(lectureId) && !sourceError ? await loadPartner(partners.get(lectureId)) : null;
-    const crossNeeded = partner ? crossLectureCount(requested) : 0;
+    const crossNeeded = partner ? crossLectureCount(requested, crossShare) : 0;
+    const partnerObjectives = partner ? (objectivesByLecture?.[partner.id] || []) : [];
     let crossObtained = lectureQuestions().filter(q => q.crossLecture).length, crossAttempts = 0;
     while (obtained < requested && attempt < Math.max(MAX_ATTEMPTS, Math.ceil(requested / 3) + 2) + crossAttempts && !stopError && !sourceError) {
       if (deps.savedOnly) break;
@@ -214,7 +218,7 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
       if (crossTurn) crossAttempts++;
       const batchSize = crossTurn ? Math.min(3, crossNeeded - crossObtained, requested - obtained) : Math.min(3, requested - obtained);
       const batchLectureText = crossTurn ? combinedLectureText(lectureText, partner) : lectureText;
-      const batchFocusNotes = crossTurn ? [adaptiveFocusNotes, crossLectureFocusNotes(lectureTitle, partner.title)].filter(Boolean).join("\n\n") : adaptiveFocusNotes;
+      const batchFocusNotes = crossTurn ? [adaptiveFocusNotes, crossLectureFocusNotes(lectureTitle, partner.title, partnerObjectives)].filter(Boolean).join("\n\n") : adaptiveFocusNotes;
       progress(`Writing ${crossTurn ? `cross-lecture questions (${lectureTitle} + ${partner.title})` : `questions: ${lectureTitle}`}${attempt > 1 ? ` · retry ${attempt - 1}` : ""}`, lectureId);
       let result;
       try {
@@ -257,7 +261,8 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
           errorMessage = "A cross-lecture draft was not grounded in reviewed quotes from both lectures and was not counted.";
           continue;
         }
-        const stamped = { ...q, ...(crossTurn ? { crossLecture: { partnerLectureId: partner.id, partnerTitle: partner.title } } : {}), ...(subject ? { blueprintSlot: allocationId, blueprintSubject: subject, sourceBlockId } : {}), difficulty, questionId: crypto.randomUUID(), blockId, lectureId,
+        const partnerObjectiveId = crossTurn ? validatedPartnerObjectiveId(q, partnerObjectives) : null;
+        const stamped = { ...q, ...(crossTurn ? { crossLecture: { partnerLectureId: partner.id, partnerTitle: partner.title, ...(partnerObjectiveId ? { partnerObjectiveId } : {}) }, ...(partnerObjectiveId ? { secondaryObjectiveIds: [partnerObjectiveId] } : {}) } : {}), ...(subject ? { blueprintSlot: allocationId, blueprintSubject: subject, sourceBlockId } : {}), difficulty, questionId: crypto.randomUUID(), blockId, lectureId,
           taskType: studyMode === "repair" ? repairTaskForIndex(obtained) : (q.taskType || null),
           objectiveIds,
           objectivePartId: partsInventory ? validatedPartId({ ...q, objectiveIds }, partsInventory) : (q.objectivePartId || null),

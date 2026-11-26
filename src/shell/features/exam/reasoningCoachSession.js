@@ -1,4 +1,5 @@
 import {compactCoachState} from '../../../engine/practiceAssistance.js';
+import {coverAnswerEntry} from '../../../engine/activeRecall.js';
 import {updateExamSessionTransaction} from '../../../firebaseData.js';
 function practiceQuestion(session,id){
  if(session?.status!=='in_progress'||session.format!=='practice'||session.purpose==='reserved-assessment')throw Error('Coaching is available only in untimed practice.');
@@ -30,4 +31,22 @@ export async function saveReasoningCoach(userId,sessionId,questionId,coach,deps=
 export function mergeCoachingSnapshot(session,savedQuestion){
  if(session?.format!=='practice'||session.status!=='in_progress'||session.purpose==='reserved-assessment'||!savedQuestion?.assistance?.used)return session;
  return {...session,questions:(session.questions||[]).map(q=>q.questionId===savedQuestion.questionId?{...q,assistance:savedQuestion.assistance,...(savedQuestion.reasoningCoach?{reasoningCoach:savedQuestion.reasoningCoach}:{})}:q)};
+}
+
+/**
+ * Save the learner's covered-options prediction or self-check. Unlike coaching
+ * this is not assistance: the answer stays an independent attempt.
+ */
+export async function saveCoverAnswer(userId,sessionId,questionId,patch,deps={}){
+ const result=await (deps.updateSession||updateExamSessionTransaction)(userId,sessionId,current=>{
+  if(current?.status!=='in_progress'||current.format!=='practice')throw Error('Predictions are saved only in untimed practice.');
+  const q=current.questions?.find(item=>item.questionId===questionId);if(!q)throw Error('This practice question is no longer available.');
+  return {...current,questions:current.questions.map(item=>item.questionId===questionId?{...item,coverAnswer:coverAnswerEntry(item.coverAnswer,patch)}:item)};
+ });
+ if(!result)throw Error('Could not save your prediction.');return result;
+}
+/** Merge only the saved prediction into the live session. */
+export function mergeCoverSnapshot(session,savedQuestion){
+ if(!savedQuestion?.coverAnswer)return session;
+ return {...session,questions:(session?.questions||[]).map(q=>q.questionId===savedQuestion.questionId?{...q,coverAnswer:savedQuestion.coverAnswer}:q)};
 }

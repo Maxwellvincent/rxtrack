@@ -707,6 +707,7 @@ export function normalizeQuestions(raw) {
         nearestDistractor: String(q.questionPlan.nearestDistractor || "").slice(0, 500),
         discriminator: String(q.questionPlan.discriminator || "").slice(0, 500),
         sourceQuotes: Array.isArray(q.questionPlan.sourceQuotes) ? q.questionPlan.sourceQuotes.map(String).slice(0, 3) : [],
+        ...(typeof q.questionPlan.partnerObjectiveId === "string" && q.questionPlan.partnerObjectiveId.trim() ? { partnerObjectiveId: q.questionPlan.partnerObjectiveId.trim().slice(0, 120) } : {}),
       } : null,
       bloomLevel: Number.isFinite(Number(q.bloomLevel)) ? Math.max(1, Math.min(6, Number(q.bloomLevel))) : null,
       clinicalCorrelate: q.clinicalCorrelate ? String(q.clinicalCorrelate).trim() : null,

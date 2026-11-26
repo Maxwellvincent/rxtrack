@@ -218,14 +218,38 @@ failure leaves the block in place to retry. Exam sessions and answer evidence ar
 - Third-order items are built from two source-quoted rules joined through one
   hidden intermediate (`thirdOrderConstruction.js`), anchored on reviewed
   objective connections (`objectiveConnections.js`, `sourceRelationships.js`).
-- **Cross-lecture items (exam practice).** Each lecture in a set is paired with a
-  same-week partner (`crossLecture.js`); about 25% of its slots are written with
-  both lectures' text and an integration contract (rule 1 from the primary
-  lecture, rule 2 from the partner, joined through a hidden intermediate). An
-  item counts only if its reviewed quotes (reasoning audit / key-blind solve)
-  include text unique to each lecture; otherwise the slot refills normally.
-  Ownership stays one objective in the primary lecture. Lecture quizzes and saved
-  source relationships remain single-lecture.
+- **Cross-lecture items.** A share of a set is written with two lectures' text
+  and an integration contract (rule 1 from the primary lecture, rule 2 from the
+  partner, joined through a hidden intermediate). An item counts only if its
+  reviewed quotes (reasoning audit / key-blind solve) include text unique to each
+  lecture; otherwise the slot refills normally (`crossLecture.js`).
+  - **Exam practice** picks a school format in the launch modal
+    (`assessmentFormats.js`): *Homework* = one lecture, no cross items; *IMCQ* =
+    one week, ~40% cross items, partner from the same week; *ESoft* = a 2–3 week
+    span, ~50% cross items, partner from anywhere in the span; *Custom* = any
+    scope, 25%.
+  - **Lecture quizzes** add ~20% cross items once every objective of the lecture
+    has had a first pass, pairing it with an earlier lecture of the same block
+    (`lectureQuizPartner.js`). Targeted retests stay single-lecture.
+  - **Partner choice** ranks candidates by school questions already linked to
+    both lectures, then shared key terms (`atomTermIndex`, terms in more than six
+    lectures ignored), then the partner's weak or untested objectives.
+  - **Credit:** the writer names the partner objective its second rule comes from
+    (`questionPlan.partnerObjectiveId`); if that id is one of the partner's real
+    objectives the answer also counts for it and for the partner lecture, without
+    touching the partner objective's parts. Ownership (allocation, parts, the
+    key-blind solve) stays with the primary objective.
+
+**Cover the options** (`activeRecall.js`, `CoverOptions.jsx`): in untimed
+practice (exam practice and lecture quizzes) the stem shows first and the
+choices stay hidden until you type your answer and the linking reason in one
+line, or press *Skip this time*. After the reveal your line sits beside the
+question's own reasoning (plan link, deciding clue, partner lecture; school items
+fall back to the explanation's first sentence) and you mark ✓ matched or ✕ missed.
+Nothing is graded by a model. Self-checks go to `selfCheckJournal` in learner
+evidence and project per objective (`projectSelfChecks`); timed exams never
+cover. *Stop hiding choices* (or the practice-tools checkbox) turns it off per
+browser.
 
 **Linking uploaded school questions** (`semanticObjectiveMapping.js`, run from the
 question-bank screen): two agreeing AI reviews on Ollama Cloud (DeepSeek first)
@@ -346,7 +370,8 @@ is superseded.
 | Learned question links (headings + precedents), manual linking, score-report upload, high-yield panel | **Done** (2026-11-24) |
 | Mastery ladder (per-objective rungs, discrimination step, delayed retest, readiness) | **Done** (2026-11-24); live behaviour still to be observed |
 | NB Exam 2 scope + subject weighting, pre-test 80% validation | **Done**; live accuracy still being measured |
-| Cross-lecture integration questions (exam practice, 25% of each lecture's slots) | **Done** (2026-11-24); live yield not yet measured |
+| Cross-lecture integration questions: exam practice by school format (Homework 0% / IMCQ 40% / ESoft 50% / Custom 25%), lecture quizzes 20% after the first pass, ranked partners, partner-objective credit | **Done** (2026-11-24, formats and lecture quizzes 2026-11-26); live yield not yet measured |
+| Cover the options: commit an answer and reason before the choices show, then self-check ✓/✕ against the question's reasoning (untimed practice) | **Done** (2026-11-26); self-checks recorded, not yet shown on dashboards |
 | Capacity-planned Today (daily limit, need-ranked reviews, Today's plan queue, projected score, mixed timed exam, CBSE daily set) | **Done** (2026-11-25) |
 | Shared access for another user | **Not started** (needs a rules/auth design) |
 

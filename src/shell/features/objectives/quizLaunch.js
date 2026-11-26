@@ -6,6 +6,7 @@ import { withPartTargets, validatedPartId, objectivePartsPrompt } from "../../..
 import { objectiveOrderProfile as ladderOrderProfile } from "../../../engine/questionOrder.js";
 import {repairTransferPlan} from "../../../engine/repairTransfer.js";
 import { prepareLectureQuestionContext } from '../../../engine/lectureQuestionContext.js';
+import { combinedLectureText, crossLectureCount, crossLectureFocusNotes, validatedPartnerObjectiveId, verifiedCrossLectureQuotes } from '../exam/crossLecture.js';
 import * as relationshipsStore from "../../../stores/sourceRelationships.js";
 import {relationshipPages,relationshipTargets,relationshipPrompt,bindReviewedRelationships,validSourceRelationships} from "../../../engine/sourceRelationships.js";
 import * as sourceUseStore from "../../../stores/sourceUse.js";
@@ -788,6 +789,11 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
 
   const unsupportedObjectiveIds = new Set();
   const enforceAllocation = allocationPlan.length > 0 && args.generationVersion === "v2";
+  // Cross-lecture items (after the lecture's first pass): a share of slots is
+  // written with an earlier lecture's text and must quote both lectures.
+  const crossPartner = args.crossLecturePartner?.text && args.crossLecturePartner?.id ? args.crossLecturePartner : null;
+  const crossNeeded = crossPartner ? crossLectureCount(requested, Number(args.crossLectureShare) || 0.2) : 0;
+  let crossObtained = 0, crossReserved = 0, crossAttempts = 0;
   const accepted = [];
   const seen = new Set();
   const normalizeStem = (stem) => String(stem || "").trim().toLowerCase().replace(/\s+/g, " ");
@@ -848,13 +854,16 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
         && remaining === 1;
       const starter = attempt === 1 && !(args.initialQuestions || []).length && Number(activePolicy.starterBatchSize) > 0;
       const draftSize = focusedRefill ? 1 : starter ? Math.min(activeBatchSize, Math.floor(Number(activePolicy.starterBatchSize))) : activeBatchSize;
+      const crossTurn = Boolean(crossPartner) && !focusedRefill && crossObtained + crossReserved < crossNeeded && crossAttempts < 2;
+      const turnSize = crossTurn ? Math.max(1, Math.min(draftSize, crossNeeded - crossObtained - crossReserved)) : draftSize;
       const allocationOffset = ((attempt - 1) * batchSize) % Math.max(1, allocationPlan.length);
       const rotatedPlan = [...allocationPlan.slice(allocationOffset), ...allocationPlan.slice(0, allocationOffset)];
-      const batchAllocation = remainingObjectiveAllocation(rotatedPlan, [...(args.initialQuestions || []), ...accepted, ...reserved], Math.min(remaining, draftSize));
+      const batchAllocation = remainingObjectiveAllocation(rotatedPlan, [...(args.initialQuestions || []), ...accepted, ...reserved], Math.min(remaining, turnSize));
       const batchCount = enforceAllocation
         ? batchAllocation.reduce((sum, objective) => sum + objective._targetQuestionCount, 0)
-        : Math.min(remaining, draftSize, ATOM_QUIZ_CAP);
+        : Math.min(remaining, turnSize, ATOM_QUIZ_CAP);
       if (!batchCount) break;
+      if (crossTurn) { crossAttempts += 1; crossReserved += batchCount; }
       // A capable batched reviewer can compare a few alternatives for the last
       // slots in one startup. Reserve only real slots, never the spare drafts.
       const spareCandidates = focusedRefill || requested - accepted.length > batchSize ? 0 : Math.min(2, Math.max(0, Math.floor(Number(deps.prepareSpareCandidates) || 0)));
@@ -907,6 +916,11 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
         ].filter(Boolean).join("\n"),
         avoidStems: [...(args.avoidStems || []), ...accepted.map(question => question.stem)],
       };
+      if (crossTurn) {
+        draftArgs.lectureText = combinedLectureText(args.lectureText || "", crossPartner);
+        draftArgs.lectureQuestionContext = null;
+        draftArgs.focusNotes = [draftArgs.focusNotes, crossLectureFocusNotes(args.lectureTitle || "this lecture", crossPartner.title, crossPartner.objectives || [])].filter(Boolean).join("\n");
+      }
       const draftDeps = { ...boundedDeps, ...activePolicy, callAIJSON: boundedDeps.callAIJSON, reviewAIJSON: boundedDeps.reviewAIJSON, repairAIJSON: boundedDeps.repairAIJSON, ...(focusedRefill ? { skipRepair: false, repairPartialOnly: false } : {}) };
       const promise = startObjectiveQuiz(draftArgs, draftDeps).then(async result => {
         // Some writers return an empty list rather than a smaller usable batch when
@@ -924,7 +938,7 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
         }
         return { attempt, result };
       }, error => ({ attempt, result: { questions: [], error: error?.message || String(error) } }));
-      pendingJobs.set(attempt, { promise, reserved: reserved.slice(reservationStart) });
+      pendingJobs.set(attempt, { promise, reserved: reserved.slice(reservationStart), crossTurn, crossCount: crossTurn ? batchCount : 0 });
     }
     if (!pendingJobs.size) break;
     // Independent drafts and reviews overlap, but allocation, duplicate checks, and
@@ -932,7 +946,9 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
     // Merge the first completed batch immediately; its freed slot can draft the next
     // batch while the other reviewer is still working. Preserve allocation reservations.
     const { attempt, result } = await Promise.race([...pendingJobs.values()].map(job => job.promise));
+    const finishedJob = pendingJobs.get(attempt);
     pendingJobs.delete(attempt);
+    if (finishedJob?.crossTurn) crossReserved = Math.max(0, crossReserved - finishedJob.crossCount);
     {
       if(result.failureKind === "source_tracking" || result.failureKind === "review_unavailable") {
         stopPreparation=true;
@@ -985,6 +1001,12 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
         // solely because they share an atom/topic label.
         if (!key || seen.has(key) || avoidedStemKeys.has(key) || repeatsPriorQuestion || accepted.some((other) => areNearDuplicateQuestions(question, other))) { reject("duplicate_or_recognizable_question"); continue; }
         if (exceedsAnswerConcentration(question, [...(args.initialQuestions || []), ...accepted], args.plannedCount || requested)) { reject("repeated_answer_concept"); continue; }
+        if (finishedJob?.crossTurn) {
+          if (!verifiedCrossLectureQuotes(question, args.lectureText || "", crossPartner.text)) { reject("cross_lecture_ungrounded"); continue; }
+          const partnerObjectiveId = validatedPartnerObjectiveId(question, crossPartner.objectives || []);
+          question = { ...question, crossLecture: { partnerLectureId: crossPartner.id, partnerTitle: crossPartner.title, ...(partnerObjectiveId ? { partnerObjectiveId } : {}) }, ...(partnerObjectiveId ? { secondaryObjectiveIds: [partnerObjectiveId] } : {}) };
+          crossObtained += 1;
+        }
         seen.add(key);
         if (partsInventory) question = { ...question, objectivePartId: validatedPartId(question, partsInventory) };
         accepted.push(question);

@@ -16,7 +16,9 @@ import { recordAnswer } from "../stores/lectureQuestionStats.js";
 import { recordAtomAnswer } from "../stores/atomProgress.js";
 import { quizAnswerKey, questionHistory } from "../engine/questionHistory.js";
 import { ExplainOtherChoicesButton, mergeAiChoiceNotes } from "../ui/ExplainOtherChoices.jsx";
-import { questionEvidenceKey, read as readLearnerEvidence, recordEvidenceAwait, recordReflection } from "../stores/learnerEvidence.js";
+import { questionEvidenceKey, read as readLearnerEvidence, recordEvidenceAwait, recordReflection, recordSelfCheck } from "../stores/learnerEvidence.js";
+import { CoverOptions, PredictionCheck } from "./features/exam/CoverOptions.jsx";
+import { coverAnswerEntry, readCoverPreference, selfCheckObjectiveIds, shouldCoverOptions, writeCoverPreference } from "../engine/activeRecall.js";
 import { classifyLeadIn, ERROR_REASONS } from "./features/exam/questionReading.js";
 import * as objectivesStore from "../stores/blockObjectives.js";
 import { recordObjectiveAttempt, selectBlockObjectives, storageKeyFor, toEntry } from "./logic/objectives.js";
@@ -63,6 +65,9 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
   const [done, setDone] = useState(false);
   const [crossed, setCrossed] = useState(() => new Set(initialState?.crossed || [])); // letters eliminated by user
   const [errorReason, setErrorReason] = useState(() => initialState?.errorReason ?? null);
+  // Covered options: predictions keyed by question index, saved with the quiz checkpoint.
+  const [covers, setCovers] = useState(() => initialState?.covers || {});
+  const [coverOn, setCoverOn] = useState(() => readCoverPreference());
   const questionStartedAtRef = useRef(null);
   const evidenceSessionId = useId();
   const evidenceSessionKeyRef = useRef(sessionKey || `quiz:${lectureId || blockId}:${evidenceSessionId}`);
@@ -78,7 +83,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
   // this quiz session only. New quizzes should not silently reopen old marks;
   // newly made marks are still saved for later reference.
   const [highlights, setHighlights] = useState(() => initialState?.highlights || {});
-  const checkpoint = useMemo(() => ({ i, picked, confidence, records, crossed: [...crossed], errorReason, highlights, assistance }), [i, picked, confidence, records, crossed, errorReason, highlights, assistance]);
+  const checkpoint = useMemo(() => ({ i, picked, confidence, records, crossed: [...crossed], errorReason, highlights, assistance, covers }), [i, picked, confidence, records, crossed, errorReason, highlights, assistance, covers]);
   const checkpointRef = useRef(checkpoint);
   useEffect(() => { checkpointRef.current = checkpoint; onCheckpoint?.(checkpoint); }, [checkpoint, onCheckpoint]);
   useEffect(() => () => onCheckpoint?.(checkpointRef.current), [onCheckpoint]);
@@ -124,6 +129,9 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
   const { notes: revealedNotes, aiLetters } = revealed ? mergeAiChoiceNotes(q, sourceNotes) : { notes: {}, aiLetters: new Set() };
   const correct = revealed && picked === q.correct;
   const quadrant = revealed ? classify({ confidence, correct }) : null;
+  const coverEntry = covers[currentIndex] || null;
+  const covered = shouldCoverOptions({ session: { format: "practice", status: "in_progress" }, question: { ...q, coverAnswer: coverEntry }, picked: revealed ? "revealed" : picked, enabled: coverOn });
+  const recordCover = (patch) => setCovers(previous => ({ ...previous, [currentIndex]: coverAnswerEntry(previous[currentIndex], patch) }));
 
   const rate = (level) => {
     if (picked == null || revealed || coachBusy[currentIndex]) return;
@@ -182,6 +190,9 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
       taskType: classifyLeadIn(q.stem),
       orderLevel: q.orderLevel || classifyQuestionOrder(q),
       reasoningVerified: hasCurrentReasoningAudit(q),
+      ...(q.crossLecture ? { crossLecture: true } : {}),
+      ...(q.crossLecture && q.secondaryObjectiveIds?.length ? { secondaryObjectiveIds: q.secondaryObjectiveIds, secondaryLectureId: q.crossLecture.partnerLectureId || null } : {}),
+      ...(covers[currentIndex] ? { recallAttempted: Boolean(covers[currentIndex].prediction) } : {}),
     }).catch(error=>setEvidenceSaveError(error.message));
     // Source-grounded fallbacks preserve access when AI generation is unavailable,
     // but foundational recognition is not equivalent to an independently reviewed
@@ -305,8 +316,9 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
             assistanceRef.current=next;setAssistance(next);checkpointRef.current={...checkpointRef.current,assistance:next};return onCheckpoint?.(checkpointRef.current);
           }} />}
         {revealed && assistance[currentIndex]?.used && <p className="mb-2 text-xs text-accent-text">Assisted answer · does not establish independent readiness.</p>}
+        {covered && <CoverOptions key={`cover:${currentIndex}:${q.id || q.stem}`} question={q} onCommit={text => recordCover({ prediction: text })} onSkip={() => recordCover({ skipped: true })} onDisable={() => { setCoverOn(false); writeCoverPreference(false); }} />}
         {/* Per-choice reasoning shows under each choice once revealed. */}
-        <div className="quiz-choice-list flex flex-col gap-1.5">
+        <div className="quiz-choice-list flex flex-col gap-1.5" hidden={covered}>
           {orderedChoiceEntries(q.choices).map(([letter, txt]) => {
             const isPicked = picked === letter;
             const isCrossed = !revealed && crossed.has(letter);
@@ -384,6 +396,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
 
         {revealed && (
           <div className="quiz-feedback mt-3 space-y-2">
+            <PredictionCheck question={q} entry={coverEntry} onSelfCheck={value => { recordCover({ selfCheck: value }); recordSelfCheck(userId, { questionKey: quizAnswerKey(q), objectiveIds: selfCheckObjectiveIds(q), check: value }); }} />
             <ExplainOtherChoicesButton question={q} notes={revealedNotes} onDone={() => setChoiceNotesRevision((value) => value + 1)} />
             <div className={"quiz-result text-xs " + (GAP[quadrant]?.cls || "")}>
               {correct ? "✓ " : "✕ "}{assistance[currentIndex]?.used ? (correct?"Correct after guidance — check a fresh case later.":"This connection still needs repair.") : GAP[quadrant]?.text}

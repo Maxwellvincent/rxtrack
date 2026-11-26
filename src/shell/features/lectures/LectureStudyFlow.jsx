@@ -66,6 +66,9 @@ import { useObjectives } from "../../hooks/useObjectives.js";
 import * as objectivesStore from "../../../stores/blockObjectives.js";
 import * as performanceStore from "../../../stores/performance.js";
 import * as atomTermIndex from "../../../stores/atomTermIndex.js";
+import * as lecturesStore from "../../../stores/lectures.js";
+import { lectureCompletion } from "../../../engine/lectureCompletion.js";
+import { LECTURE_QUIZ_CROSS_SHARE, lectureQuizPartner } from "./lectureQuizPartner.js";
 import { normAtomKey, partitionAtomsForRound } from "../../../engine/atomNorm.js";
 import { AtomQuiz } from "../../AtomQuiz.jsx";
 import { markTodayLectureComplete } from "../today/todayProgress.js";
@@ -796,6 +799,22 @@ export function LectureStudyFlow({
     }
     if (preparationRunRef.current !== runId || controller.signal.aborted) return;
     const preparationBudget = questionPreparationBudget(missing, preparationDeps.localFallbackAvailable);
+    // After the first pass, a share of the quiz joins this lecture with an
+    // earlier one (IMCQ/ESoft style). Retests stay on their target objectives.
+    let crossLecturePartner = null;
+    if (!retestObjectives?.length && lecture?.id) {
+      try {
+        crossLecturePartner = await lectureQuizPartner({
+          userId, lecture: { ...lecture, blockId: lecture.blockId || blockId }, lectures: lecturesStore.read(userId) || [],
+          blockObjectives: selectBlockObjectives(objectiveResource.data, blockId),
+          firstPassComplete: lectureCompletion(lectureObjectives, learnerEvidence.data || {}).complete,
+          termIndex: atomTermIndex.read(userId, blockId) || {},
+          schoolQuestions: Object.values(questionBanksRes.data || {}).flat(),
+          evidenceObjectives: learnerEvidence.data?.objectives || {},
+        }, { fetchContent: fetchLectureContent });
+      } catch { crossLecturePartner = null; }
+    }
+    if (preparationRunRef.current !== runId || controller.signal.aborted) return;
     const job = startPreparationJob(jobKey, { userId, controller, count, difficulty, initialQuestions: reserve }, currentJob => withDeadline(async (signal) => prepareObjectiveQuiz(
       {
         objectives: quizObjectives,
@@ -819,6 +838,7 @@ export function LectureStudyFlow({
         avoidStems: generatedHistory.map((q) => q.stem).filter(Boolean),
         avoidQuestions: generatedHistory,
         focusNotes: [reasoningGuidance(learnerEvidence.data?.testTaking?.missTypes, missing),transferFocus].filter(Boolean).join("\n\n"),
+        ...(crossLecturePartner ? { crossLecturePartner, crossLectureShare: LECTURE_QUIZ_CROSS_SHARE } : {}),
       },
       {
         ...preparationDeps,
@@ -938,7 +958,7 @@ export function LectureStudyFlow({
     } catch (error) {
       if (preparationRunRef.current === runId) { setBusy(""); setQuizPreparation(null); setError(error?.message || "Quiz preparation failed. Please retry."); }
     }
-  }, [checkpointPreparing, orderedObjectives, title, text, blockId, atoms, userId, lecture?.id, logActivity, startQuizSession, schoolExemplars, schoolExamplesLoading, clinicalCorrelateLibrary, objectiveById, learnerEvidence.data, mismatchedLectureObjectives.length, questionBanksRes.data, questionBankMetaRes.data, lecture, connectionScope, relationshipResource.data]);
+  }, [checkpointPreparing, orderedObjectives, title, text, blockId, atoms, userId, lecture?.id, logActivity, startQuizSession, schoolExemplars, schoolExamplesLoading, clinicalCorrelateLibrary, objectiveById, learnerEvidence.data, mismatchedLectureObjectives.length, questionBanksRes.data, questionBankMetaRes.data, lecture, connectionScope, relationshipResource.data, objectiveResource.data, lectureObjectives]);
 
   // Prepare at most one small reserve batch per active quiz, never on page load.
   // Background work only saves unseen questions; it does not create a session or grade answers.

@@ -1,4 +1,4 @@
-import {mergeCoachingSnapshot} from './reasoningCoachSession.js';
+import {mergeCoachingSnapshot,mergeCoverSnapshot} from './reasoningCoachSession.js';
 import { normalizeSessionSchoolChoices } from "../../../engine/schoolSourceText.js";
 import { checkpointExamSession } from "./checkpoint.js";
 /**
@@ -418,6 +418,10 @@ export function useExamSessionController(sessionId, userId) {
     sessionRef.current=mergeCoachingSnapshot(sessionRef.current,savedQuestion);
     setSession(current=>mergeCoachingSnapshot(current,savedQuestion));
   },[]);
+  const syncCoverAnswer=useCallback(savedQuestion=>{
+    sessionRef.current=mergeCoverSnapshot(sessionRef.current,savedQuestion);
+    setSession(current=>mergeCoverSnapshot(current,savedQuestion));
+  },[]);
 
   return {
     session,
@@ -437,5 +441,6 @@ export function useExamSessionController(sessionId, userId) {
     abandon,
     refetch: load,
     syncCoaching,
+    syncCoverAnswer,
   };
 }

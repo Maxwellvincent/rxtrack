@@ -308,6 +308,25 @@ describe("prepareObjectiveQuiz", () => {
     expect(result.incomplete).toBe(false);
     expect(onAccepted.mock.calls.flatMap(call => call[0])).toHaveLength(3);
   });
+  it("writes a share of a lecture quiz with an earlier partner lecture and counts only grounded cross items", async () => {
+    const findings = ["ataxia of the left arm", "loss of vibration in the right leg", "tongue deviation to the left", "weakness of the right hand", "absent jaw jerk", "diplopia on lateral gaze", "hoarseness and dysphagia", "facial droop sparing the forehead"];
+    const answers = ["Dorsal column", "Medial lemniscus", "Hypoglossal nucleus", "Corticospinal tract", "Trigeminal motor nucleus", "Abducens nucleus", "Nucleus ambiguus", "Corticobulbar fibers"];
+    let n = 0;
+    const callAIJSON = vi.fn(async () => { const i = n++ % findings.length; return { questions: [{ stem: `A patient develops ${findings[i]} after a small vascular lesion in an unfamiliar location. Which structure accounts for this presentation?`, choices: { A: answers[i], B: answers[(i + 1) % answers.length] }, correct: "A" }] }; });
+    const partner = { id: "nb44", title: "NB 44 Spinal cord", text: "The anterior spinal artery supplies the ventral two-thirds of the cord. ".repeat(4), objectives: [{ id: "o44", objective: "Describe cord blood supply" }] };
+    const result = await prepareObjectiveQuiz(
+      { objectives: [], lectureTitle: "NB 45 Brainstem", lectureText: "The medial lemniscus carries vibration from the contralateral body. ".repeat(6), atoms: [{ term: "Source", content: "The medial lemniscus carries vibration." }], questionCount: 5, crossLecturePartner: partner, crossLectureShare: 0.2 },
+      { callAIJSON, prepareBatchSize: 1, maxPrepareAttempts: 8, skipQuestionAudit: true }
+    );
+    const crossPrompts = callAIJSON.mock.calls.map(call => call[1]).filter(prompt => /CROSS-LECTURE INTEGRATION/.test(prompt));
+    expect(crossPrompts.length).toBeGreaterThan(0);
+    expect(crossPrompts.length).toBeLessThanOrEqual(2);
+    expect(crossPrompts[0]).toContain("PARTNER LECTURE — NB 44 Spinal cord");
+    expect(crossPrompts[0]).toContain('"id":"o44"');
+    // No independent review ran, so no item can prove quotes from both lectures.
+    expect(result.questions.some(q => q.crossLecture)).toBe(false);
+    expect(result.questions).toHaveLength(5);
+  });
   it("reallocates slots after the writer reports an unsupported objective", async () => {
     const question = { stem: "A patient has a new finding after a selective physiologic change. Which downstream response follows from the supplied lecture relationship?", choices: { A: "Supported response", B: "Alternative response" }, correct: "A" };
     const callAIJSON = vi.fn()

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyEvidence, applyMissType, applyReflection, questionEvidenceKey } from "./learnerEvidence.js";
+import { applyEvidence, applyMissType, applyReflection, projectSelfChecks, questionEvidenceKey } from "./learnerEvidence.js";
 
 describe("learner evidence", () => {
   it("replaces a miss reason without adding a second reflection", () => {
@@ -130,4 +130,26 @@ it('does not call the coached original a fresh independent retest on a later att
  const same=applyEvidence(first,{questionKey:'same',objectiveIds:['o'],correct:true,at:2});
  expect(same.objectives.o.attempts).toBe(0);expect(same.objectives.o.reinforcements).toBe(1);
  const fresh=applyEvidence(same,{questionKey:'new-case',objectiveIds:['o'],correct:true,at:3});expect(fresh.objectives.o.attempts).toBe(1);
+});
+
+describe("cross-lecture credit and self-checks", () => {
+  it("credits a verified partner objective and partner lecture without its part", () => {
+    const model = applyEvidence(null, { questionKey: "q1", correct: true, objectiveIds: ["o45"], objectivePartId: "p1", crossLecture: true,
+      secondaryObjectiveIds: ["o46", "o45"], lectureId: "nb45", secondaryLectureId: "nb46", at: 1 });
+    expect(model.objectives.o45.attempts).toBe(1);
+    expect(model.objectives.o46.attempts).toBe(1);
+    expect(model.lectures.nb46.attempts).toBe(1);
+    const plain = applyEvidence(null, { questionKey: "q2", correct: true, objectiveIds: ["o45"], secondaryObjectiveIds: ["o46"], at: 1 });
+    expect(plain.objectives.o46).toBeUndefined();
+  });
+
+  it("projects self-checks per objective, last check per question winning", () => {
+    const summary = projectSelfChecks({ selfCheckJournal: [
+      { questionKey: "a", objectiveIds: ["o1"], check: "missed" },
+      { questionKey: "a", objectiveIds: ["o1"], check: "matched" },
+      { questionKey: "b", objectiveIds: ["o1", "o2"], check: "missed" },
+      { questionKey: "c", objectiveIds: ["o2"], check: "bogus" },
+    ] });
+    expect(summary).toEqual({ matched: 1, missed: 1, byObjective: { o1: { matched: 1, missed: 1 }, o2: { matched: 0, missed: 1 } } });
+  });
 });

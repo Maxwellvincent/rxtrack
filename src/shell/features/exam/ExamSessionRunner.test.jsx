@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { act } from "react";
@@ -82,6 +83,8 @@ function render(ui) {
 
 beforeEach(() => {
   installDomStorage();
+  // Most render tests click choices directly; covered options get their own tests.
+  localStorage.setItem("rxt-cover-options-v1", "off");
   controllerMock.mockReset();
   requestMock.mockReset();
   tutorHookMock.mockClear();
@@ -149,7 +152,7 @@ describe("ExamSessionRunner", () => {
     expect(menu.querySelector('[aria-label="Question navigation"]')).toBeTruthy();
     expect(menu.textContent).toContain('Repair from original PDF');
     expect(menu.textContent).toContain('Copy question');
-    expect(menu.textContent).toContain('Reason before reveal');
+    expect(menu.textContent).toContain('Cover the options first');
     expect(host.querySelector('[aria-label="Practice header"]').textContent).toContain('Question 1 of 2');
     expect([...host.querySelectorAll('button')].filter(b=>b.textContent==='Save & exit')).toHaveLength(1);
     act(()=>{menu.open=true;menu.querySelector('[aria-label="Question 2, unanswered"]').click();});
@@ -862,17 +865,43 @@ it("can clear an unchecked answer and navigate without revealing it", () => {
  expect(controller.setCurrentIndex).toHaveBeenCalled();
  unmount();
 });
-it("offers reasoning before reveal as an explicit opt-in", () => {
- const controller=baseController({session:{...baseController().session,format:"practice",answers:[{questionId:"q1",value:"B",revealed:false}]}});
+it("hides the choices until a prediction is committed, then asks for a self-check after the reveal", () => {
+ localStorage.setItem("rxt-cover-options-v1", "on");
+ const q1={...makeQuestion('q1'),questionPlan:{inference:'Medial medulla lesion takes out CN XII and the pyramid'}};
+ const controller=baseController({session:{...baseController().session,format:"practice",questions:[q1,makeQuestion('q2')]},syncCoverAnswer:vi.fn()});
  controllerMock.mockReturnValue(controller);
  const {host,rerender,unmount}=render(<ExamSessionRunner sessionId="s1" userId="u1"/>);
- act(()=>[...host.querySelectorAll('input[type="checkbox"]')].find(input=>input.parentElement.textContent.includes('Reason before reveal')).click());
- controller.session.answers=[{questionId:'q1',value:'B',revealed:true}];
+ expect(host.querySelector('[aria-label="Cover the options"]')).toBeTruthy();
+ expect([...host.querySelectorAll('button')].some(b=>b.textContent.includes('Choice A'))).toBe(false);
+ const show=[...host.querySelectorAll('button')].find(b=>b.textContent==='Show choices');
+ expect(show.disabled).toBe(true);
+ const box=host.querySelector('[aria-label="Cover the options"] textarea');
+ act(()=>{Object.getOwnPropertyDescriptor(box.ownerDocument.defaultView.HTMLTextAreaElement.prototype,'value').set.call(box,'Left medial medulla: tongue toward lesion');box.dispatchEvent(new box.ownerDocument.defaultView.Event('input',{bubbles:true}));box.dispatchEvent(new box.ownerDocument.defaultView.Event('change',{bubbles:true}));});
+ expect(box.value).toContain('medial');expect([...host.querySelectorAll('button')].find(b=>b.textContent==='Show choices').disabled).toBe(false);
+ act(()=>[...host.querySelectorAll('button')].find(b=>b.textContent==='Show choices').click());
+ expect(host.querySelector('[aria-label="Cover the options"]')).toBeFalsy();
+ expect([...host.querySelectorAll('button')].some(b=>b.textContent.includes('Choice A'))).toBe(true);
+ controller.session.answers=[{questionId:'q1',value:'A',revealed:true}];
  rerender(<ExamSessionRunner sessionId="s1" userId="u1"/>);
- expect(host.querySelector('[data-testid="practice-reveal"]')).toBeFalsy();
- act(()=>[...host.querySelectorAll('button')].find(b=>b.textContent==='Reveal answer').click());
- expect(host.querySelector('[data-testid="practice-reveal"]')).toBeTruthy();
+ const check=host.querySelector('[aria-label="Check your reasoning"]');
+ expect(check.textContent).toContain('Left medial medulla: tongue toward lesion');
+ expect(check.textContent).toContain('Medial medulla lesion takes out CN XII');
+ act(()=>[...check.querySelectorAll('button')].find(b=>b.textContent.includes('My reason matched')).click());
+ expect(host.querySelector('[aria-label="Check your reasoning"]').textContent).toContain('✓ You marked your reason as matching.');
  unmount();
+});
+it("lets the learner skip covering, and never covers timed exams", () => {
+ localStorage.setItem("rxt-cover-options-v1", "on");
+ const practice=baseController({session:{...baseController().session,format:"practice"},syncCoverAnswer:vi.fn()});
+ controllerMock.mockReturnValue(practice);
+ const first=render(<ExamSessionRunner sessionId="s1" userId="u1"/>);
+ act(()=>[...first.host.querySelectorAll('button')].find(b=>b.textContent==='Skip this time').click());
+ expect([...first.host.querySelectorAll('button')].some(b=>b.textContent.includes('Choice A'))).toBe(true);
+ first.unmount();
+ controllerMock.mockReturnValue(baseController());
+ const exam=render(<ExamSessionRunner sessionId="s1" userId="u1"/>);
+ expect(exam.host.querySelector('[aria-label="Cover the options"]')).toBeFalsy();
+ exam.unmount();
 });
 it("shows the missed concept and never recommends a perfect-score lecture as repair", () => {
  const controller=baseController({session:{...baseController().session,status:'submitted',questions:[{...makeQuestion('q1','A'),lectureId:'clean'}, {...makeQuestion('q2','A'),lectureId:'missed',objectiveFacet:'Distinguish the crossed spinothalamic pathway from the dorsal columns'}],answers:[{questionId:'q1',value:'A'},{questionId:'q2',value:'B'}]}});

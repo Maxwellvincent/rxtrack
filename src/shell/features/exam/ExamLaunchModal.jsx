@@ -1,4 +1,5 @@
 import {SCHOOL_EXAM_TARGET_PERCENT} from "../../logic/performanceTargets.js";
+import { ASSESSMENT_FORMATS, defaultScopeFor, scopeAllowed } from "./assessmentFormats.js";
 import { BPM_BLUEPRINTS, SUBJECT_LABELS, subjectTargets, blueprintInventory } from "./bpmBlueprint.js";
 import { useEffect, useState } from "react";
 import { examDurationMinutes } from "./examTiming.js";
@@ -83,6 +84,9 @@ export function ExamLaunchModal({
   );
   const [durationTouched, setDurationTouched] = useState(false);
   const [contentScope, setContentScope] = useState("block-so-far");
+  const [assessment, setAssessment] = useState("custom");
+  const chooseAssessment = (id) => { setAssessment(id); if (id !== "custom") setContentScope(defaultScopeFor(id, eligibleLectures)); };
+  const chooseScope = (value) => { setContentScope(value); if (!scopeAllowed(assessment, value)) setAssessment("custom"); };
   const [rangeStart, setRangeStart] = useState("");
   const [rangeEnd, setRangeEnd] = useState("");
   const [includeSeen, setIncludeSeen] = useState(false);
@@ -152,6 +156,7 @@ export function ExamLaunchModal({
       includeSeen,
       ...targetPayload,
       ...scopePayload,
+      ...(!blueprintExam && assessment !== "custom" ? { assessmentFormat: assessment } : {}),
       ...(focusNotes.trim() ? { focusNotes: focusNotes.trim() } : {}),
     });
   };
@@ -263,8 +268,18 @@ export function ExamLaunchModal({
           </div>
 
           <div hidden={!!blueprintExam}>
+            <label className="mb-1 block font-mono text-[12px] font-bold uppercase tracking-wider text-text-3">School format</label>
+            <div role="radiogroup" aria-label="School format" className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {Object.values(ASSESSMENT_FORMATS).map((item) => (
+                <button key={item.id} type="button" role="radio" aria-checked={assessment === item.id} onClick={() => chooseAssessment(item.id)}
+                  className={`rounded border-2 px-2 py-1.5 text-left text-xs ${assessment === item.id ? "border-accent text-text-1" : "border-border text-text-2"}`}>
+                  <span className="block font-semibold">{assessment === item.id ? "● " : "○ "}{item.label}</span>
+                  <span className="block text-[11px] text-text-3">{item.detail}</span>
+                </button>
+              ))}
+            </div>
             <label className="mb-1 block font-mono text-[12px] font-bold uppercase tracking-wider text-text-3">Content scope</label>
-            <select aria-label="Content scope" value={contentScope} onChange={(event) => setContentScope(event.target.value)} className="w-full rounded border border-border bg-bg-elevated px-2 py-2 text-sm text-text-1">
+            <select aria-label="Content scope" value={contentScope} onChange={(event) => chooseScope(event.target.value)} className="w-full rounded border border-border bg-bg-elevated px-2 py-2 text-sm text-text-1">
               {[
                 ["current-week", "This week · ends Friday"],
                 ["past-two-weeks", "Past 2 weeks · Friday cutoff"],
@@ -275,7 +290,7 @@ export function ExamLaunchModal({
                 ...eligibleLectures.filter((lecture) => lecture?.lectureId).map((lecture) => [`lecture:${encodeURIComponent(lecture.lectureId)}`, `Lecture · ${lecture.lectureLabel || lecture.lectureTitle || lecture.fileName || lecture.lectureId}`]),
               ].map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select>
-            <button type="button" onClick={() => setContentScope("custom-dates")} className="mt-2 rounded border border-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-accent">
+            <button type="button" onClick={() => chooseScope("custom-dates")} className="mt-2 rounded border border-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-accent">
               Use exact start/end dates
             </button>
             {contentScope === "custom-dates" && <div className="mt-2 grid grid-cols-2 gap-2">

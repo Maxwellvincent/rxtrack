@@ -3,6 +3,7 @@ import {schoolQuestionIdentity} from './schoolSourceIdentity.js';
 import { missContextForAnswer } from "../../../engine/learningLoop.js";
 import { hasCurrentReasoningAudit } from "../../../engine/questionOrder.js";
 import { classifyLeadIn } from "./questionReading.js";
+import { coverAnswerEvidence } from "../../../engine/activeRecall.js";
 
 /** One durable identity per answer, shared by checkpoints and final submission. */
 export function sessionEvidenceEvent(session, question, answer) {
@@ -25,6 +26,8 @@ export function sessionEvidenceEvent(session, question, answer) {
     reasoningDepth: question.reasoningDepth || null, orderLevel: question.orderLevel || null,
     reasoningVerified: hasCurrentReasoningAudit(question),
     ...(question.crossLecture ? { crossLecture: true } : {}),
+    ...(question.crossLecture && question.secondaryObjectiveIds?.length ? { secondaryObjectiveIds: question.secondaryObjectiveIds, secondaryLectureId: question.crossLecture.partnerLectureId || null } : {}),
+    ...coverAnswerEvidence(question),
     ...(Number.isFinite(Number(answer.confidence)) ? { confidence: Number(answer.confidence) } : {}),
     questionNumber: session.questions.findIndex(q => q.questionId === question.questionId) + 1,
     at: answer.answeredAt || session.progressSavedAt || session.submittedAt || session.startedAt || Date.now(),

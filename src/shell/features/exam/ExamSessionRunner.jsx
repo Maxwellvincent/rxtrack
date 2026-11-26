@@ -2,7 +2,9 @@ import {isIndependentAssessment} from '../../../engine/reservedAssessment.js';
 import {LectureCheckpointReport} from '../lectures/LectureCheckpointReport.jsx';
 import {ConnectionFeedback} from '../../../ui/ConnectionFeedback.jsx';
 import {sessionEvidenceEvent} from "./sessionEvidence.js";
-import {markReasoningAssistance,saveReasoningCoach} from './reasoningCoachSession.js';
+import {markReasoningAssistance,saveReasoningCoach,saveCoverAnswer} from './reasoningCoachSession.js';
+import {CoverOptions,PredictionCheck} from './CoverOptions.jsx';
+import {readCoverPreference,writeCoverPreference,shouldCoverOptions,coverAnswerEntry,selfCheckObjectiveIds} from '../../../engine/activeRecall.js';
 import {HelpMeReason} from '../../../ui/HelpMeReason.jsx';
 import {ReservedAssessmentReport,ReservedAssessmentFigure} from './ReservedAssessmentReport.jsx';
 import { SourceBankRepair } from './SourceBankRepair.jsx';
@@ -58,7 +60,7 @@ import { recordReflection } from "../../../stores/learnerEvidence.js";
 import { classifyQuestionOrder, QUESTION_ORDER_LABELS } from "../../../engine/questionOrder.js";
 import { callAIJSON } from "../../../aiClient.js";
 import { diagnoseQuestionMiss, MISS_TYPE_LABELS } from "../../../engine/questionReasoning.js";
-import { recordMissType } from "../../../stores/learnerEvidence.js";
+import { recordMissType, recordSelfCheck } from "../../../stores/learnerEvidence.js";
 import { examDurationMinutes } from "./examTiming.js";
 
 export function sittingAnswers(session, baseline = []) {
@@ -542,12 +544,25 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
   const revealed = picked != null && savedAnswer?.revealed !== false;
   const toolsRef = useRef(null);
   const [textToolsTarget, setTextToolsTarget] = useState(null);
-  const [reasonFirst, setReasonFirst] = useState(false);
+  const [coverOn, setCoverOn] = useState(() => readCoverPreference());
+  const [localCovers, setLocalCovers] = useState({});
+  const [coverSaveError, setCoverSaveError] = useState("");
   const [, setChoiceNotesRevision] = useState(0);
   const isCorrect = revealed && !!q?.correct && picked === q.correct;
   const [diagnostics, setDiagnostics] = useState({});
-  const diagnosed = !!diagnostics[q?.questionId];
-  const showAnswer = revealed && (!reasonFirst || diagnosed);
+  const showAnswer = revealed;
+  const coverEntry = q ? (localCovers[q.questionId] || q.coverAnswer || null) : null;
+  const covered = shouldCoverOptions({ session, question: q ? { ...q, coverAnswer: coverEntry } : null, picked, enabled: coverOn });
+  // Optimistic: the prediction shows at once; the session save follows.
+  const recordCover = (patch) => {
+    if (!q) return;
+    const questionId = q.questionId;
+    setLocalCovers(current => ({ ...current, [questionId]: coverAnswerEntry(current[questionId] || q.coverAnswer, patch) }));
+    setCoverSaveError("");
+    saveCoverAnswer(userId, session.sessionId, questionId, patch)
+      .then(saved => controller.syncCoverAnswer?.(saved.questions.find(item => item.questionId === questionId)))
+      .catch(error => setCoverSaveError(error?.message || "Your prediction was not saved."));
+  };
   const practiceNotes = showAnswer && q ? mergeAiChoiceNotes(q, choiceNotes({ text: q.explanation, whyWrong: q.whyWrong, choices: q.choices, correctLetter: q.correct, sourceType: q.sourceType || session.sourceType }).notes) : { notes: null, aiLetters: null };
   if (!q) return null; // Preparation status is shown once above the question area.
 
@@ -574,7 +589,7 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
           <QuestionMeta question={q} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} />
           <LeadInCue stem={q.stem} />
           <div ref={setTextToolsTarget} />
-          <label className="inline-flex items-center gap-2 text-xs text-text-2"><input type="checkbox" checked={reasonFirst} onChange={event => setReasonFirst(event.target.checked)} />Reason before reveal</label>
+          <label className="inline-flex items-center gap-2 text-xs text-text-2"><input type="checkbox" checked={coverOn} onChange={event => { setCoverOn(event.target.checked); writeCoverPreference(event.target.checked); }} />Cover the options first</label>
           <QuestionQualityRating userId={userId} question={q} />
           {abandonAction}
         </div></details>
@@ -597,7 +612,7 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
           onAssist={async()=>{const saved=await markReasoningAssistance(userId,session.sessionId,q.questionId);controller.syncCoaching?.(saved.questions.find(item=>item.questionId===q.questionId));}}
           onState={async coach=>{const saved=await saveReasoningCoach(userId,session.sessionId,q.questionId,coach);controller.syncCoaching?.(saved.questions.find(item=>item.questionId===q.questionId));}} />}
         {q.assistance?.used && <p className="mb-2 text-xs text-accent-text">Assisted answer · does not establish independent readiness.</p>}
-        <ChoiceList
+        {covered ? <CoverOptions key={q.questionId} question={q} onCommit={text => recordCover({ prediction: text })} onSkip={() => recordCover({ skipped: true })} onDisable={() => { setCoverOn(false); writeCoverPreference(false); }} /> : <ChoiceList
           questionId={q.questionId}
           choices={q.choices}
           choiceColumns={q.choiceColumns}
@@ -605,15 +620,16 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
           picked={picked}
           crossedChoices={savedAnswer?.eliminatedChoices || []}
           revealed={showAnswer}
-          locked={revealed && !showAnswer}
+          locked={false}
           correct={q.correct}
           notes={practiceNotes.notes}
           aiLetters={practiceNotes.aiLetters}
           onPick={letter => answerQuestion(q.questionId, letter, { revealed: false })}
           onCrossedChange={letters => setEliminatedChoices?.(q.questionId, letters)}
-        />
+        />}
+        {coverSaveError && <p role="alert" className="mt-2 text-xs text-warn">⚠ {coverSaveError} It still shows for this session.</p>}
 
-        {!revealed && (
+        {!revealed && !covered && (
           <div className="mt-3">
             <Button variant="outline" className="mr-2" disabled={!picked || submitting} onClick={() => {
               const saved = answerQuestion(q.questionId, picked, { revealed: false });
@@ -627,8 +643,6 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
 
         {!revealed && picked != null && !inFocus && visibleIndex === questions.length - 1 && session.fillStatus !== "generating" && <Button variant="outline" disabled={submitting} onClick={() => submit(submitOpts)}>Finish without revealing</Button>}
 
-        {revealed && !showAnswer && <div className="space-y-2 rounded-lg border border-border p-3"><label className="block text-sm text-text-2">Your reasoning (optional)<textarea key={q.questionId} className="mt-1 block w-full rounded border border-border bg-panel p-2" rows={3} placeholder="What led you to this answer?" /></label><Button variant="outline" onClick={() => setDiagnostics(current => ({ ...current, [q.questionId]: { skipped: true } }))}>Reveal answer</Button></div>}
-
         {revealed && q.correct && !isCorrect && <details key={`diagnosis-${q.questionId}`} className="text-sm"><summary className="cursor-pointer py-2 text-text-3">Review this miss · optional</summary><MissDiagnosis question={q} selectedChoice={picked} initialResult={diagnostics[q.questionId]} onSkip={() => setDiagnostics(current => ({ ...current, [q.questionId]: { skipped: true } }))} onNavigateToLecture={onNavigateToLecture} onComplete={(diagnostic) => {
           recordMissType(userId, diagnostic.primaryType, `${session.sessionId}:${q.questionId}`);
           setDiagnostics(current => ({ ...current, [q.questionId]: diagnostic }));
@@ -636,6 +650,7 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
 
         {showAnswer && (
           <div className="mt-3 space-y-2">
+            <PredictionCheck question={q} entry={coverEntry} onSelfCheck={value => { recordCover({ selfCheck: value }); recordSelfCheck(userId, { questionKey: sessionEvidenceEvent(session, q, { value: picked }).questionKey, objectiveIds: selfCheckObjectiveIds(q), check: value }); }} />
             <ExplainOtherChoicesButton question={q} notes={practiceNotes.notes} onDone={() => setChoiceNotesRevision((value) => value + 1)} />
             <div data-testid="practice-reveal" className={"text-xs " + (isCorrect ? "text-good" : "text-bad")}>
               {!q.correct ? "Unscored · source key needs verification" : isCorrect ? "✓ Correct" : "✕ Incorrect"}

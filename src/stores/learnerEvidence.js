@@ -32,7 +32,7 @@ function readStoredEvidence(userId) {
 
 export function read(userId) {
   const stored = (userId && optimisticEvidence.get(userId)?.value) || readStoredEvidence(userId);
-  if (!stored.evidenceJournal && !stored.missTypeJournal && !stored.reflectionJournal && !stored.learningNotes) return stored;
+  if (!stored.evidenceJournal && !stored.missTypeJournal && !stored.reflectionJournal && !stored.learningNotes && !stored.selfCheckJournal) return stored;
   const ratings = questionRatings.read(userId).ratings || emptyRatings;
   const cached=projectionCache.get(stored);
   if(cached?.ratings===ratings)return cached.value;
@@ -51,6 +51,7 @@ export function read(userId) {
     }
   }
   const result = { ...stored, ...projected, objectives, assistedJournal:(stored.evidenceJournal || []).filter(event=>!isIndependentAttempt(event)&&!contested.has(questionEvidenceKey(event.questionKey))&&!objectiveContested.has(questionEvidenceKey(event.questionKey))), learningJournal: (stored.evidenceJournal || []).filter(event => isIndependentAttempt(event) && !contested.has(questionEvidenceKey(event.questionKey)) && !objectiveContested.has(questionEvidenceKey(event.questionKey))), learningNotes: (stored.learningNotes || []).filter(note => !contested.has(questionEvidenceKey(note.questionKey)) && !objectiveContested.has(questionEvidenceKey(note.questionKey))), evidenceBaseline: stored.evidenceBaseline, evidenceJournal: stored.evidenceJournal,
+    selfChecks: projectSelfChecks(stored, userId),
     testTaking: { ...projected.testTaking, reasons: projectReflections(stored, userId), missTypes: projectMissTypes(stored, userId), diagnosticKeys: stored.testTaking?.diagnosticKeys || [] } };
   projectionCache.set(stored,{ratings,value:result});
   return result;
@@ -132,6 +133,7 @@ function bumpObjective(bucket, id, event) {
     // Mastery ladder inputs: confidence (1-5), cross-lecture integration.
     ...(Number.isFinite(Number(event.confidence)) ? { confidence:Number(event.confidence) } : {}),
     ...(event.crossLecture ? { crossLecture:true } : {}),
+    ...(event.recallAttempted ? { recallAttempted:true } : {}),
   }].slice(-12) : previous.recentFreshAnswers || [], lastFreshAnswer: {correct:event.correct,confidence:event.confidence ?? null,orderLevel:event.orderLevel ?? null,reasoningVerified:event.reasoningVerified === true} } };
 }
 
@@ -145,6 +147,15 @@ export function applyEvidence(model, rawEvent) {
   }
   let objectives = current.objectives || {};
   for (const id of [...new Set(event.objectiveIds || [])]) objectives = bumpObjective(objectives, id, event);
+  // A verified cross-lecture item also counts for the partner lecture's
+  // objective, as integration practice (no part or facet: those belong to the
+  // primary objective).
+  if (event.crossLecture) {
+    const primary = new Set(event.objectiveIds || []);
+    for (const id of [...new Set(event.secondaryObjectiveIds || [])].filter(id => !primary.has(id))) {
+      objectives = bumpObjective(objectives, id, { ...event, objectivePartId: null, objectiveFacetId: null, objectiveFacet: null });
+    }
+  }
   const process = current.testTaking || fallback.testTaking;
   const responseMs = Number.isFinite(event.responseMs) ? Math.max(0, event.responseMs) : null;
   return {
@@ -155,7 +166,9 @@ export function applyEvidence(model, rawEvent) {
     updatedAt: event.at,
     objectives,
     atoms: bump(current.atoms || {}, event.atomKey, event),
-    lectures: bump(current.lectures || {}, event.lectureId, event),
+    lectures: event.crossLecture && event.secondaryLectureId && event.secondaryLectureId !== event.lectureId
+      ? bump(bump(current.lectures || {}, event.lectureId, event), event.secondaryLectureId, event)
+      : bump(current.lectures || {}, event.lectureId, event),
     sources: bump(current.sources || {}, event.source || "quiz", event),
     taskTypes: bump(current.taskTypes || {}, event.taskType, event),
       orderLevels: bump(current.orderLevels || {}, event.orderLevel, event),
@@ -225,6 +238,47 @@ export function applyReflection(model, reason, previousReason = null) {
       reasons,
     },
   };
+}
+
+/**
+ * Covered-options self-checks ("my reason matched / missed the link"), per
+ * objective. The last check for a question wins; excluded questions drop out.
+ */
+export function projectSelfChecks(stored, userId = null) {
+  const latest = new Map();
+  for (const event of stored?.selfCheckJournal || []) {
+    if (!event?.questionKey || (event.check !== "matched" && event.check !== "missed")) continue;
+    if (userId && questionRatings.isExcluded(userId, { questionKey: event.questionKey })) continue;
+    latest.set(event.questionKey, event);
+  }
+  const byObjective = {};
+  let matched = 0, missed = 0;
+  for (const event of latest.values()) {
+    if (event.check === "matched") matched++; else missed++;
+    for (const id of new Set(event.objectiveIds || [])) {
+      const row = byObjective[id] || { matched: 0, missed: 0 };
+      row[event.check] += 1;
+      byObjective[id] = row;
+    }
+  }
+  return { matched, missed, byObjective };
+}
+
+function withSelfCheck(model, entry) {
+  return { ...model, selfCheckJournal: [...(model?.selfCheckJournal || []), entry].slice(-1000) };
+}
+
+/** Record whether the learner's own predicted reason matched the key's reasoning. */
+export function recordSelfCheck(userId, { questionKey, objectiveIds = [], check } = {}) {
+  if (!questionKey || (check !== "matched" && check !== "missed")) return read(userId);
+  const entry = { questionKey: questionEvidenceKey(questionKey), objectiveIds: [...new Set(objectiveIds)].filter(Boolean), check, at: Date.now() };
+  const stored = userId ? readCloud(userId, key, fallback) || fallback : readJson(userId, key, fallback) || fallback;
+  const next = withSelfCheck(stored, entry);
+  const optimistic = optimisticEvidence.get(userId);
+  if (optimistic) optimistic.value = withSelfCheck(optimistic.value, entry);
+  if (userId) writeCloud(userId, key, next);
+  else writeJson(userId, key, next);
+  return next;
 }
 
 function projectReflections(stored, userId) {

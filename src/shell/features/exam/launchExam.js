@@ -13,6 +13,9 @@ import { startBackgroundJob } from "../../backgroundJobs.js";
 import { selectSchoolQuestions } from "./schoolQuestionSelection.js";
 import { allocateQuestions } from "./allocation.js";
 import { generateExamQuestions } from "./generation.js";
+import { crossLectureOptions } from "./assessmentFormats.js";
+import { partnerSignals } from "./crossLecture.js";
+import { read as readAtomTermIndex } from "../../../stores/atomTermIndex.js";
 import { createSessionShape } from "../../../examSessions.js";
 import { checkExamAccess } from "../../../firebaseData.js";
 import { createQuestionPool } from "../../../questionPool.js";
@@ -128,6 +131,7 @@ async function runLaunch(
     preparedQuestionIds = [],
     preparedAllocation = null,
     appendToPreparedSet = false,
+    assessmentFormat = null,
   },
   deps = {}
 ) {
@@ -136,9 +140,18 @@ async function runLaunch(
   // policy used elsewhere in RXTrack and consuming the user's coding quota.
   // Resolve the dedicated preparation route once for this launch and reuse it
   // for every draft, blind solve, review and repair request.
-  const preparationDeps = !savedOnly && deps.callAIJSON && !deps.preparationPolicy
+  const basePreparationDeps = !savedOnly && deps.callAIJSON && !deps.preparationPolicy
     ? { ...deps, ...await questionPreparationDeps(deps.callAIJSON, { allowCodexFallback: false }) }
     : deps;
+  // The assessment format sets the cross-lecture share and partner window;
+  // partners are ranked by school-linked pairs, shared key terms and weak
+  // partner objectives.
+  let crossSignals = null;
+  try {
+    crossSignals = partnerSignals({ termIndex: readAtomTermIndex(userId, blockId), schoolQuestions: schoolBanks.flatMap(bank => bank?.questions || []),
+      objectivesByLecture, evidenceObjectives: (learnerEvidence || readLearnerEvidence(userId))?.objectives || {} });
+  } catch { crossSignals = null; }
+  const preparationDeps = { ...basePreparationDeps, ...crossLectureOptions(assessmentFormat, eligibleLectures), crossLectureSignals: crossSignals };
   const registry=sourceUseStore.read(userId);
   schoolBanks = sourceUseStore.isHydrated(userId) && !sourceUseStore.readError(userId)
     ? schoolBanks.map(bank=>({...bank,questions:allowedGenerationExamples((bank.questions || []).map(question=>({...question,sourceFile:question.sourceFile || bank.filename})),registry)})) : [];
@@ -147,7 +160,7 @@ async function runLaunch(
   deps.onProgress?.({ message: "Checking exam storage access…", completed: 0 });
   await checkExamAccess(userId);
   const pool = deps.pool || createQuestionPool(userId, blockId);
-  await pool.begin(sessionId, { requestedCount: questionCount, prepareOnly: prepareOnly && !appendToPreparedSet, examName, contentScope: resolvedContentScope, format, durationMinutes, studyMode, difficultyOverride, focusNotes, weekNumber, ...(blueprintExam ? { blueprintExam } : {}) });
+  await pool.begin(sessionId, { ...(assessmentFormat ? { assessmentFormat } : {}), requestedCount: questionCount, prepareOnly: prepareOnly && !appendToPreparedSet, examName, contentScope: resolvedContentScope, format, durationMinutes, studyMode, difficultyOverride, focusNotes, weekNumber, ...(blueprintExam ? { blueprintExam } : {}) });
   const startedGenerationAt = Date.now();
   try {
 

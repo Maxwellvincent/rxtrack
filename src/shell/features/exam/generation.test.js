@@ -375,6 +375,18 @@ describe("cross-lecture integration items", () => {
     expect(result.questions.filter(q => q.lectureId === "nb45")).toHaveLength(4);
   });
 
+  it("lists the partner lecture's objectives for credit, and writes no cross items when the format's share is zero", async () => {
+    const callAIJSON = vi.fn(async () => ({ questions: [mcq(`Which structure is involved in finding ${callAIJSON.mock.calls.length}?`)] }));
+    const args = { allocation: { nb45: 4, nb46: 1 }, lecturesById: byId, objectivesByLecture: objectives, atomsByLecture: {}, blockId: "b1", lectures: crossLectures, weakConceptAccuracyByLecture: {}, userId: null };
+    await generateExamQuestions(args, { callAIJSON, skipQuestionAudit: true });
+    const crossPrompt = callAIJSON.mock.calls.map(call => call[1]).find(prompt => /CROSS-LECTURE INTEGRATION/.test(prompt));
+    expect(crossPrompt).toContain("partnerObjectiveId");
+    expect(crossPrompt).toContain('"id":"o46"');
+    callAIJSON.mockClear();
+    await generateExamQuestions(args, { callAIJSON, skipQuestionAudit: true, crossLectureShare: 0 });
+    expect(callAIJSON.mock.calls.some(call => /CROSS-LECTURE INTEGRATION/.test(call[1]))).toBe(false);
+  });
+
   it("does not count a cross-lecture draft grounded in only one lecture", async () => {
     const callAIJSON = vi.fn(async (_system, prompt) => /CROSS-LECTURE INTEGRATION/.test(prompt)
       ? { questions: [crossItem("A lesion causes loss of vibration in one limb. Which tract is involved?", [
