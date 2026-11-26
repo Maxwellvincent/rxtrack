@@ -12,6 +12,7 @@ import * as calibrationStore from "../../../stores/calibrationByBlock.js";
 import * as termsStore from "../../../stores/terms.js";
 import { createSessionShape } from "../../../examSessions.js";
 import { createExamSession, listExamSessions } from "../../../firebaseData.js";
+import { createQuestionPool } from "../../../questionPool.js";
 import { ExamSessionRunner } from "../exam/ExamSessionRunner.jsx";
 import { ObjectiveProgressChart } from "../lectures/ObjectiveProgressChart.jsx";
 import { examDurationMs } from "../exam/examTiming.js";
@@ -87,7 +88,10 @@ export function CbseDashboard({ userId, block, onReviewLecture, onManageSources,
     const session = createSessionShape({ sessionId, blockId: CBSE_BLOCK_ID, format, title, contentScope: "cbse:all-terms",
       questions, lectureIds: [...new Set(questions.map(q => q.lectureId).filter(Boolean))], sourceType: "question-bank", sourceFile,
       startedAt: format === "exam" ? now : null, deadline: format === "exam" ? now+examDurationMs(questions.length) : null });
-    const result = await createExamSession(userId, session);
+    // Generated questions come from the question pool: its commit saves the
+    // session and marks them used in one transaction.
+    const pooled = questions.some(q => q.poolId && q.sourceType !== "question-bank");
+    const result = pooled ? await createQuestionPool(userId, CBSE_BLOCK_ID).commit(session) : await createExamSession(userId, session);
     if (!result?.ok) throw new Error(result?.error || "Could not save the practice session.");
     setReviewing(false); setActive(sessionId);
   };
@@ -138,7 +142,7 @@ export function CbseDashboard({ userId, block, onReviewLecture, onManageSources,
       <button disabled={loading || !!loadError || busy || !Number.isInteger(Number(count)) || Number(count)<1 || Number(count)>80} className="rounded-lg bg-accent px-5 py-3 font-semibold text-white disabled:opacity-40" onClick={() => launch("practice")}>Practice quiz</button>
       <button disabled={loading || !!loadError || busy || !Number.isInteger(Number(count)) || Number(count)<1 || Number(count)>80} className="rounded-lg border border-accent px-5 py-3 font-semibold disabled:opacity-40" onClick={() => launch("exam")}>Timed practice exam</button>
     </div><p className="mt-3 text-sm text-text-2">{term === "all" ? pool.questions.length : sourceCounts.all} eligible original questions{source !== "all" ? ` · ${sourceCounts[source] || 0} ${sourceLabel}` : ""} · {pool.sources} uploaded banks · timed practice uses 72 seconds per question{onUploadBanks && <> · <button type="button" className="font-semibold text-accent underline" onClick={onUploadBanks}>Upload CBSE question banks</button></>}</p></section>
-    {!loading && !loadError && <ReportTargets userId={userId} weakConcepts={weak.data || {}} pool={pool.questions} sessions={sessions} calibration={calibration.data || {}} itemHistory={progress.itemHistory} lectureTitles={labels} blockNames={blockNames} busy={busy} onPractice={practiceCategory} onReviewLecture={onReviewLecture} />}
+    {!loading && !loadError && <ReportTargets userId={userId} weakConcepts={weak.data || {}} pool={pool.questions} sessions={sessions} calibration={calibration.data || {}} itemHistory={progress.itemHistory} lectureTitles={labels} blockNames={blockNames} busy={busy} refreshKey={refresh} onPractice={practiceCategory} onReviewLecture={onReviewLecture} />}
     {!loading && <div className="grid gap-3 sm:grid-cols-4">{[["Questions answered", progress.answered], ["Practice accuracy", percent(progress.accuracy)], ["Objectives practiced", `${progress.objectives.filter(row => row.worked).length}/${progress.objectives.length}`], ["Report weaknesses", reportRows.length]].map(([label,value]) => <div key={label} className="rounded-xl border border-border p-4"><p className="text-sm text-text-2">{label}</p><strong className="mt-2 block text-2xl">{value}</strong></div>)}</div>}
     {!!sessions.filter(s => s.blockId === CBSE_BLOCK_ID && ["in_progress", "finalizing"].includes(s.status)).length && <section className="rounded-xl border border-border p-4"><h2 className="font-semibold">Continue practice</h2>{sessions.filter(s => s.blockId === CBSE_BLOCK_ID && ["in_progress", "finalizing"].includes(s.status)).map(s => <button key={s.sessionId} className="mr-3 mt-2 rounded border border-border p-2" onClick={() => { setReviewing(false); setActive(s.sessionId); }}>Resume {s.format === "exam" ? "timed exam" : "quiz"} · {s.questions?.length} questions</button>)}</section>}
     <section className="rounded-xl border border-border p-5"><h2 className="text-lg font-semibold">What needs work</h2><p className="mt-1 text-sm text-text-2">Practice accuracy reflects your answered attempts; it is not a predicted CBSE score.</p><div className="my-4 flex gap-2">{[["concepts","Concepts"],["objectives","Objectives"],["reports","Report categories"]].map(([id,label]) => <button key={id} aria-pressed={chart === id} className={`rounded-full border px-4 py-2 ${chart === id ? "border-accent text-accent" : "border-border"}`} onClick={() => setChart(id)}>{label}</button>)}</div>

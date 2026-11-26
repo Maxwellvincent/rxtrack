@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { categoryPracticeSet, reportTargetRows, IMPROVED_ACCURACY, IMPROVED_MIN_ANSWERS, IMPROVED_MIN_DAYS } from "../../logic/reportTargets.js";
 import { mapReportTargets } from "../../logic/mapReportTargets.js";
+import { readyGeneratedForLectures } from "../../logic/reportTargetPool.js";
 import { cbseQuestionKey } from "./cbsePrep.js";
 
 const pct = value => value == null ? "—" : `${Math.round(value * 100)}%`;
@@ -16,8 +17,20 @@ export function formatCounts(formats = {}) {
  * objectives, matching school questions by format, practice since the report,
  * and a launch for that category's questions.
  */
-export function ReportTargets({ userId, weakConcepts, pool, sessions, calibration, itemHistory, lectureTitles = {}, blockNames = {}, busy = false, onPractice, onReviewLecture }) {
-  const rows = useMemo(() => reportTargetRows({ weakConcepts, pool, sessions, calibration }), [weakConcepts, pool, sessions, calibration]);
+export function ReportTargets({ userId, weakConcepts, pool, sessions, calibration, itemHistory, lectureTitles = {}, blockNames = {}, busy = false, refreshKey = 0, onPractice, onReviewLecture }) {
+  // Prepared, unused generated questions on the categories' lectures.
+  const targetLectureKey = useMemo(() => [...new Set(Object.values(weakConcepts || {}).flatMap(entries => (Array.isArray(entries) ? entries : []).flatMap(entry => entry?.reportTarget?.lectureIds || [])))].sort().join(","), [weakConcepts]);
+  const [generated, setGenerated] = useState({ key: null, questions: [], error: "" });
+  useEffect(() => {
+    let alive = true;
+    if (!userId || !targetLectureKey) return undefined;
+    readyGeneratedForLectures(userId, targetLectureKey.split(","))
+      .then(questions => { if (alive) setGenerated({ key: targetLectureKey, questions, error: "" }); })
+      .catch(problem => { if (alive) setGenerated({ key: targetLectureKey, questions: [], error: problem.message || "Could not load generated questions." }); });
+    return () => { alive = false; };
+  }, [userId, targetLectureKey, refreshKey]);
+  const generatedQuestions = useMemo(() => generated.key === targetLectureKey ? generated.questions : [], [generated, targetLectureKey]);
+  const rows = useMemo(() => reportTargetRows({ weakConcepts, pool, generated: generatedQuestions, sessions, calibration }), [weakConcepts, pool, generatedQuestions, sessions, calibration]);
   const [mapping, setMapping] = useState(false), [status, setStatus] = useState(""), [showAll, setShowAll] = useState(false);
   const unmappedBlocks = [...new Set(rows.filter(row => !row.mapped).map(row => row.entry.blockId))];
   const topics = rows.filter(row => !row.broad);
@@ -41,12 +54,13 @@ export function ReportTargets({ userId, weakConcepts, pool, sessions, calibratio
   if (!rows.length) return null;
   return <section aria-label="Report targets" className="rounded-xl border border-border p-5">
     <h2 className="text-lg font-semibold">Report targets</h2>
-    <p className="mt-1 text-sm text-text-2">Weak categories from your uploaded score reports, biggest gap on the most questions first. A category is ✓ improved after {IMPROVED_MIN_ANSWERS}+ answers on its material at {pct(IMPROVED_ACCURACY)} or better across {IMPROVED_MIN_DAYS}+ days since the report.</p>
+    <p className="mt-1 text-sm text-text-2">Weak categories from your uploaded score reports, biggest gap on the most questions first. Category practice mixes school questions with about 40% prepared generated questions on its lectures. A category is ✓ improved after {IMPROVED_MIN_ANSWERS}+ answers on its material at {pct(IMPROVED_ACCURACY)} or better across {IMPROVED_MIN_DAYS}+ days since the report.</p>
     {unmappedBlocks.length > 0 && <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
       <span>⚠ {rows.filter(row => !row.mapped).length} categories not linked to lectures and school questions yet.</span>
       <button type="button" disabled={mapping} className="rounded border border-accent px-3 py-2 font-semibold disabled:opacity-40" onClick={mapAll}>{mapping ? "Mapping…" : "Map report categories"}</button>
     </div>}
     {status && <p role="status" className="mt-2 text-sm">{status}</p>}
+    {generated.error && <p role="status" className="mt-2 text-sm">⚠ Generated questions unavailable ({generated.error}); categories use school questions only.</p>}
     <div className="mt-3 space-y-2">
       {visible.map(row => {
         const { entry, target, practice } = row;
@@ -58,9 +72,9 @@ export function ReportTargets({ userId, weakConcepts, pool, sessions, calibratio
           </div>
           {row.mapped ? <>
             <p className="mt-1 text-text-2">{practice.improved ? "✓ Improved" : "○ Open"} · since report: {practice.answered ? `${practice.correct}/${practice.answered} correct (${pct(practice.accuracy)}) over ${practice.days} day${practice.days === 1 ? "" : "s"}` : "not practiced yet"}</p>
-            <p className="mt-1 text-text-2">School questions: {row.school.length ? formatCounts(row.formats) : "none matched"}{target.objectiveIds.length ? ` · ${target.objectiveIds.length} objective${target.objectiveIds.length === 1 ? "" : "s"}` : ""}</p>
+            <p className="mt-1 text-text-2">School questions: {row.school.length ? formatCounts(row.formats) : "none matched"} · {row.generated.length} generated ready{target.objectiveIds.length ? ` · ${target.objectiveIds.length} objective${target.objectiveIds.length === 1 ? "" : "s"}` : ""}</p>
             {target.lectureIds.length > 0 && <div className="mt-1 flex flex-wrap gap-1">{target.lectureIds.map(id => <button key={id} type="button" className="rounded border border-border px-2 py-0.5 text-xs underline" onClick={() => onReviewLecture?.(id)}>{lectureTitles[id] || "Lecture"}</button>)}</div>}
-            {set.length > 0 && <button type="button" disabled={busy} className="mt-2 rounded-lg bg-accent px-4 py-2 font-semibold text-white disabled:opacity-40" onClick={() => onPractice(entry, set)}>Practice this category ({set.length})</button>}
+            {set.length > 0 && <button type="button" disabled={busy} className="mt-2 rounded-lg bg-accent px-4 py-2 font-semibold text-white disabled:opacity-40" onClick={() => onPractice(entry, set)}>Practice this category ({set.length}{set.some(q => q.sourceKind === "generated") ? ` · ${set.filter(q => q.sourceKind === "generated").length} generated` : ""})</button>}
           </> : <p className="mt-1 text-text-2">Not linked yet{entry.linkedLecIds?.length ? ` · earlier guess: ${entry.linkedLecIds.map(id => lectureTitles[id] || "lecture").join(", ")}` : ""}</p>}
         </div>;
       })}

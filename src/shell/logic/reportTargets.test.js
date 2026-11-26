@@ -64,7 +64,17 @@ describe("report targets", () => {
     });
     expect(rows.map(row => row.entry.concept)).toEqual(["big", "small"]);
     expect(rows[0].formats).toMatchObject({ imcq: 1, esoft: 1 });
-    expect(categoryPracticeSet(rows[0], { itemHistory: new Map([["q2", { correct: false }]]), random: () => 0 }).map(q => q.questionId)).toEqual(["q2", "q1", "g1"]);
+    expect(categoryPracticeSet(rows[0], { itemHistory: new Map([["q2", { correct: false }]]), random: () => 0 }).map(q => q.questionId)).toEqual(["q2", "g1", "q1"]);
+  });
+
+  it("mixes about 40% generated questions, interleaved, and backfills when one kind runs short", () => {
+    const school = Array.from({ length: 30 }, (_, i) => ({ questionId: `s${i}` }));
+    const generated = Array.from({ length: 30 }, (_, i) => ({ questionId: `g${i}`, sourceKind: "generated" }));
+    const set = categoryPracticeSet({ school, generated }, { count: 20, random: () => 0 });
+    expect(set.filter(q => q.sourceKind === "generated")).toHaveLength(8);
+    expect(set.slice(0, 5).map(q => q.questionId[0]).join("")).toMatch(/g/);
+    expect(categoryPracticeSet({ school: school.slice(0, 3), generated }, { count: 20 })).toHaveLength(20);
+    expect(categoryPracticeSet({ school, generated: generated.slice(0, 2) }, { count: 20 }).filter(q => q.sourceKind === "generated")).toHaveLength(2);
   });
 
   it("maps a block's report entries with one AI call and keeps other concepts", async () => {

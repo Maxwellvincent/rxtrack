@@ -181,9 +181,26 @@ export function reportTargetRows({ weakConcepts = {}, pool = [], generated = [],
   }).sort((a, b) => Number(a.practice.improved) - Number(b.practice.improved) || b.priority - a.priority);
 }
 
-/** Up to `count` questions for one category: unseen or missed first, school before generated. */
+/** Share of a category set drawn from generated questions when both kinds exist. */
+export const GENERATED_SHARE = 0.4;
+
+/**
+ * Up to `count` questions for one category, school and generated mixed
+ * (about 60/40, either kind filling in when the other runs short), missed and
+ * unseen first within each kind, interleaved so neither kind clumps.
+ */
 export function categoryPracticeSet(row, { count = 20, itemHistory = new Map(), keyOf = question => question.questionId, random = Math.random } = {}) {
   const rank = question => { const history = itemHistory.get(keyOf(question)); return history?.correct === false ? 0 : history ? 2 : 1; };
-  const order = list => list.map(question => ({ question, rank: rank(question), tie: random() })).sort((a, b) => a.rank - b.rank || a.tie - b.tie).map(item => item.question);
-  return [...order(row.school), ...order(row.generated)].slice(0, count);
+  const order = list => (list || []).map(question => ({ question, rank: rank(question), tie: random() })).sort((a, b) => a.rank - b.rank || a.tie - b.tie).map(item => item.question);
+  const school = order(row.school), made = order(row.generated);
+  const madeTake = Math.min(made.length, Math.max(count - school.length, Math.round(count * GENERATED_SHARE)));
+  const schoolTake = Math.min(school.length, count - madeTake);
+  const out = [];
+  let s = 0, g = 0;
+  while (s < schoolTake || g < madeTake) {
+    // Take from whichever kind is furthest behind its share.
+    if (g >= madeTake || (s < schoolTake && s / schoolTake <= g / madeTake)) out.push(school[s++]);
+    else out.push(made[g++]);
+  }
+  return out;
 }

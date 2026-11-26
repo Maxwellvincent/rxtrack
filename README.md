@@ -85,8 +85,12 @@ result is saved as `reportTarget` and mirrored to `linkedLecIds`/`objectiveIds` 
 older readers. CBSE Prep → **Report targets** (`ReportTargets.jsx`) ranks topic categories
 by gap × √questions and shows each one's lectures, objectives, matching school questions
 by format (homework · IMCQ · ESoft: linked to the category's lectures/objectives or naming
-2+ keywords in the stem), practice since the report, and **Practice this category** (up
-to 20, missed and unseen first). A category is ✓ improved after 10+ answers on its
+2+ keywords in the stem), prepared generated questions still unused on its lectures
+(`reportTargetPool.js`: ready rows of `users/{uid}/questionPool`), practice since the
+report, and **Practice this category**: up to 20 questions, about 40% generated when both
+kinds exist (either kind fills in when the other runs short), interleaved, missed and
+unseen first. A set with generated questions is saved through the question pool's
+`commit`, which marks them used in the same transaction. A category is ✓ improved after 10+ answers on its
 material at ≥ 80% over 2+ days since the report; improved categories stop steering "weak"
 CBSE sets. Reports imported before mapping get a "Map report categories" button.
 
