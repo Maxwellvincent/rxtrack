@@ -9,7 +9,7 @@ import { ExamSprintCard } from "./ExamSprintCard.jsx";
 import { WeekCalendar } from "./WeekCalendar.jsx";
 import { TodayPlan } from "./TodayPlan.jsx";
 import { ProjectedScoreCard } from "./ProjectedScoreCard.jsx";
-import { buildWeekCalendar, dayQueue, weakFocusObjectiveIds, DAILY_LIMIT } from "./weekCalendar.js";
+import { buildWeekCalendar, dayQueue, frozenDayQueue, weakFocusObjectiveIds, DAILY_LIMIT } from "./weekCalendar.js";
 import { PracticeModeTabs } from "../lectures/PracticeModeTabs.jsx";
 import { DailyQuestionScore } from "./DailyQuestionScore.jsx";
 import { CompactQuestionProgress } from "./BlockPracticeCard.jsx";
@@ -37,7 +37,10 @@ function readDailyLimit(blockId) { const n = Number(readPreference(`rxt-daily-li
 // Today's queue is frozen once built so finished items stay listed with ✓.
 const todayQueueKey = (blockId, todayKey) => `rxt-today-queue:${blockId}:${todayKey}`;
 function readTodayQueue(blockId, todayKey) {
-  try { const list = JSON.parse(readPreference(todayQueueKey(blockId, todayKey)) || "null"); return Array.isArray(list) ? list : null; } catch { return null; }
+  try {
+    const saved = JSON.parse(readPreference(todayQueueKey(blockId, todayKey)) || "null");
+    return Array.isArray(saved) || Array.isArray(saved?.items) ? saved : null;
+  } catch { return null; }
 }
 function sleepWakeKey(blockId) { return `rxt-sleepwake-${blockId}-${studyDayDate().toDateString()}`; }
 function readSleepWake(blockId) {
@@ -1042,19 +1045,13 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
   const todayDay = todayCal?.days.find((day) => day.isToday) || null;
   const freshQueue = useMemo(() => dayQueue(todayDay), [todayDay]);
   // Freeze the first non-empty queue of the day (render-time state adjustment).
-  if (!storedQueue && freshQueue.length) setStoredQueue(freshQueue.map((item) => ({ id: item.row.id, kind: item.kind })));
+  // The cap is kept with it, so only raising the daily limit adds lectures.
+  if (!storedQueue && freshQueue.length) setStoredQueue({ cap: dailyLimit, items: freshQueue.map((item) => ({ id: item.row.id, kind: item.kind })) });
   useEffect(() => {
     if (storedQueue) writePreference(todayQueueKey(blockId, todayKey), JSON.stringify(storedQueue));
   }, [storedQueue, blockId, todayKey]);
-  const todayQueue = useMemo(() => {
-    if (!storedQueue) return freshQueue;
-    const rowsById = new Map((todayCal?.rows || []).map((row) => [row.id, row]));
-    const kept = storedQueue.map((item) => rowsById.has(item.id) ? { row: rowsById.get(item.id), kind: item.kind } : null).filter(Boolean);
-    // Room left under the limit (e.g. it was raised) takes newly planned items.
-    const keys = new Set(kept.map((item) => `${item.row.id}:${item.kind}`));
-    const extra = freshQueue.filter((item) => !keys.has(`${item.row.id}:${item.kind}`)).slice(0, Math.max(0, dailyLimit - kept.length));
-    return [...kept, ...extra];
-  }, [storedQueue, freshQueue, todayCal, dailyLimit]);
+  const todayQueue = useMemo(() => frozenDayQueue({ stored: storedQueue, fresh: freshQueue, rows: todayCal?.rows || [], limit: dailyLimit }),
+    [storedQueue, freshQueue, todayCal, dailyLimit]);
   // A review is a short quiz aimed at the lecture's weakest objectives.
   const onReview = useCallback((row) => {
     onQuiz({ lec: row.lec, matchReason: "review", questionCount: 10, focusObjectiveIds: weakFocusObjectiveIds(objectivesForTask(row.id), evidenceForPlan || {}) });

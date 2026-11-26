@@ -172,6 +172,25 @@ export function dayQueue(day) {
   ];
 }
 
+/**
+ * Today's queue once frozen. `stored` is `{ cap, items: [{id, kind}] }` (or a
+ * bare items array saved before the cap was kept). Frozen items stay in order
+ * whatever the recomputed plan says; an item whose lecture has not loaded yet
+ * is left out for now but still holds its slot, so a reload never backfills a
+ * new lecture. Newly planned items join only when the daily limit was raised
+ * above the frozen cap.
+ */
+export function frozenDayQueue({ stored, fresh = [], rows = [], limit = DAILY_LIMIT }) {
+  if (!stored) return fresh;
+  const items = Array.isArray(stored) ? stored : Array.isArray(stored.items) ? stored.items : [];
+  const cap = Array.isArray(stored) ? items.length : Number(stored.cap) || items.length;
+  const rowsById = new Map(rows.map((row) => [row.id, row]));
+  const kept = items.map((item) => rowsById.has(item.id) ? { row: rowsById.get(item.id), kind: item.kind } : null).filter(Boolean);
+  const keys = new Set(items.map((item) => `${item.id}:${item.kind}`));
+  const extra = fresh.filter((item) => !keys.has(`${item.row.id}:${item.kind}`)).slice(0, Math.max(0, limit - Math.max(cap, items.length)));
+  return [...kept, ...extra];
+}
+
 /** Objectives a review quiz should aim at: struggling, then least accurate, then unanswered. */
 export function weakFocusObjectiveIds(objectives = [], evidence = {}, n = 4) {
   return objectivePracticePlan(objectives, evidence).rows

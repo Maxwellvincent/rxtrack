@@ -21,6 +21,8 @@ import { CBSE_SOURCE_OPTIONS, cbseSourceCounts, CBSE_BLOCK_ID, buildCbsePool, cb
 import { ScoreReportUpload } from "../exam/ScoreReportUpload.jsx";
 import { ReportTargets } from "./ReportTargets.jsx";
 import { reportTargetRows } from "../../logic/reportTargets.js";
+import { GENERATED_TARGET, topUpCategoryQuestions } from "../../logic/reportTargetTopUp.js";
+import * as generatedStore from "../../../stores/generatedQuestions.js";
 import { selectBlockObjectives } from "../../logic/objectives.js";
 import { useLecturePartsInventory } from "../../hooks/useObjectiveParts.js";
 
@@ -95,10 +97,16 @@ export function CbseDashboard({ userId, block, onReviewLecture, onManageSources,
     if (!result?.ok) throw new Error(result?.error || "Could not save the practice session.");
     setReviewing(false); setActive(sessionId);
   };
-  const practiceCategory = async (entry, questions) => {
+  const practiceCategory = async (entry, questions, row) => {
     setError(""); setBusy(true);
-    try { await startSession("practice", { title: `CBSE Prep · ${entry.concept}`, sourceFile: `CBSE Prep · report target · ${entry.concept}`, questions }); }
-    catch (e) { setError(e.message); } finally { setBusy(false); }
+    try {
+      await startSession("practice", { title: `CBSE Prep · ${entry.concept}`, sourceFile: `CBSE Prep · report target · ${entry.concept}`, questions });
+      // Lecture-study questions are marked presented so the next set gets fresh ones.
+      for (const question of questions.filter(q => q.generatedStore)) generatedStore.recordPresentation(userId, question.lectureId, question.stem);
+      // Restock this category in the background when generated supply runs low.
+      const left = (row?.generated?.length || 0) - questions.filter(q => q.sourceKind === "generated").length;
+      if (row?.target && left < GENERATED_TARGET) void topUpCategoryQuestions({ userId, target: row.target, have: Math.max(0, left) }).catch(() => {});
+    } catch (e) { setError(e.message); } finally { setBusy(false); }
   };
   const launch = async (format, preset = null) => {
     setError(""); setBusy(true);

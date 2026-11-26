@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildWeekCalendar, lectureReviewNeed, planStudyLoad, weekStart } from "./weekCalendar.js";
+import { buildWeekCalendar, frozenDayQueue, lectureReviewNeed, planStudyLoad, weekStart } from "./weekCalendar.js";
 
 const local = (s) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
 const now = local("2026-11-25").getTime() + 9 * 3600000; // Wednesday
@@ -111,5 +111,38 @@ describe("review findings", () => {
     const plan = planStudyLoad(rows, { todayKey: "2026-12-01", examKey: "2026-12-01" });
     expect(plan.byDay.size).toBe(0);
     expect(plan.unscheduled).toEqual([]);
+  });
+});
+
+describe("frozenDayQueue", () => {
+  const row = id => ({ id, title: id });
+  const fresh = ids => ids.map(([id, kind]) => ({ row: row(id), kind }));
+  const stored = { cap: 3, items: [{ id: "a", kind: "first" }, { id: "b", kind: "first" }, { id: "c", kind: "review" }] };
+
+  it("never backfills a frozen plan when a planned lecture is not loaded yet", () => {
+    const rows = [row("a"), row("c"), row("d")]; // "b" still loading
+    const queue = frozenDayQueue({ stored, fresh: fresh([["a", "first"], ["d", "first"], ["c", "review"]]), rows, limit: 3 });
+    expect(queue.map(item => item.row.id)).toEqual(["a", "c"]);
+  });
+
+  it("keeps the frozen items when the plan is recomputed after progress", () => {
+    const rows = ["a", "b", "c", "d"].map(row);
+    const queue = frozenDayQueue({ stored, fresh: fresh([["a", "review"], ["d", "first"], ["c", "review"]]), rows, limit: 3 });
+    expect(queue.map(item => `${item.row.id}:${item.kind}`)).toEqual(["a:first", "b:first", "c:review"]);
+  });
+
+  it("adds newly planned items only when the daily limit is raised after freezing", () => {
+    const rows = ["a", "b", "c", "d", "e"].map(row);
+    const queue = frozenDayQueue({ stored, fresh: fresh([["d", "first"], ["e", "review"]]), rows, limit: 4 });
+    expect(queue.map(item => item.row.id)).toEqual(["a", "b", "c", "d"]);
+  });
+
+  it("reads a frozen plan saved before the cap was stored as its own size", () => {
+    const rows = ["a", "b", "c", "d"].map(row);
+    expect(frozenDayQueue({ stored: stored.items, fresh: fresh([["d", "first"]]), rows, limit: 3 }).map(item => item.row.id)).toEqual(["a", "b", "c"]);
+  });
+
+  it("uses the fresh plan until one is frozen", () => {
+    expect(frozenDayQueue({ stored: null, fresh: fresh([["a", "first"]]), rows: [row("a")], limit: 3 }).map(item => item.row.id)).toEqual(["a"]);
   });
 });
