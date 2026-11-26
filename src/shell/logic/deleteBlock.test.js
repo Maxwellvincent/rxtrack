@@ -24,7 +24,9 @@ describe("delete block", () => {
   it("deletes lectures, objectives and the term entry, leaving other blocks alone", async () => {
     const stores = fakeStores();
     const deleteLecture = vi.fn(async () => true);
-    await deleteBlock({ userId: "u", blockId: "ftm2" }, { ...stores, deleteLecture });
+    const tombstone = vi.fn();
+    await deleteBlock({ userId: "u", blockId: "ftm2" }, { ...stores, deleteLecture, tombstone });
+    expect(tombstone.mock.calls.map(call => call[0])).toEqual(["b", "c"]);
     expect(deleteLecture.mock.calls.map(call => call[1])).toEqual(["b", "c"]);
     expect(stores.state.lectures.map(l => l.id)).toEqual(["a"]);
     expect(Object.keys(stores.state.objectives)).toEqual(["ftm1"]);
@@ -34,7 +36,7 @@ describe("delete block", () => {
   it("keeps the block (so it can be retried) when a lecture fails to delete", async () => {
     const stores = fakeStores();
     const deleteLecture = vi.fn(async (_u, id) => { if (id === "c") throw new Error("offline"); });
-    await expect(deleteBlock({ userId: "u", blockId: "ftm2" }, { ...stores, deleteLecture })).rejects.toThrow(/could not be deleted/);
+    await expect(deleteBlock({ userId: "u", blockId: "ftm2" }, { ...stores, deleteLecture, tombstone: vi.fn() })).rejects.toThrow(/could not be deleted/);
     expect(stores.state.lectures.map(l => l.id)).toEqual(["a", "c"]);
     expect(stores.objectives.removeBlock).not.toHaveBeenCalled();
     expect(stores.state.terms[0].blocks).toHaveLength(2);

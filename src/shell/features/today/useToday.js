@@ -10,6 +10,7 @@ import { studyDayDate, studyDayKey, nextStudyDayDelay } from "../../../studyDay.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import * as completionStore from "../../../stores/completion.js";
 import * as learnerEvidenceStore from "../../../stores/learnerEvidence.js";
+import { useLecturePartsInventory } from "../../hooks/useObjectiveParts.js";
 import { getStoreHookUserId } from "../../hooks/currentUser.js";
 import { useCompletion } from "../../hooks/useCompletion.js";
 import { useExamDates } from "../../hooks/useExamDates.js";
@@ -106,6 +107,8 @@ export function useToday(blockId, userId, { now } = {}) {
   const examDates = useExamDates(userId);
   const weakConcepts = useWeakConcepts(null, userId);
   const learnerEvidence = useStoreResource(learnerEvidenceStore, userId);
+  const partLectureIds = useMemo(() => (lectures.data || []).filter((lecture) => lecture?.blockId === blockId).map((lecture) => lecture.id), [lectures.data, blockId]);
+  const parts = useLecturePartsInventory(userId, partLectureIds);
 
   const context = useMemo(
     () =>
@@ -119,9 +122,10 @@ export function useToday(blockId, userId, { now } = {}) {
         examDates: examDates.data,
         weakConcepts: weakConcepts.data,
         learnerEvidence: learnerEvidence.data,
+        parts: parts.data,
         now: nowValue,
       }),
-    [blockId, terms.data, lectures.data, objectives.data, performance.data, completion.data, examDates.data, weakConcepts.data, learnerEvidence.data, nowValue]
+    [blockId, terms.data, lectures.data, objectives.data, performance.data, completion.data, examDates.data, weakConcepts.data, learnerEvidence.data, parts.data, nowValue]
   );
 
   const daily = useMemo(() => buildTodaySchedule(context, resolvedUserId), [context, resolvedUserId]);

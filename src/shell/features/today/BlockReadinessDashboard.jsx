@@ -10,6 +10,9 @@ import { retrievalStore } from "../../../stores/modelRetrieval.js";
 import { useLectures } from "../../hooks/useLectures.js";
 import { useLectureQuestionStats } from "../../hooks/useLectureQuestionStats.js";
 import { useObjectives } from "../../hooks/useObjectives.js";
+import { useObjectivesWithParts } from "../../hooks/useObjectiveParts.js";
+
+const NO_OBJECTIVES = [];
 import { useStoreResource } from "../../hooks/useStoreResource.js";
 import { useWeakConcepts } from "../../hooks/useWeakConcepts.js";
 import { blockReadinessSummary } from "./blockReadiness.js";
@@ -35,6 +38,8 @@ export function BlockReadinessDashboard({ blockId, userId, onStudyLecture, compa
   const calibration = useStoreResource(calibrationStore, userId);
   const ratings = useStoreResource(questionRatingsStore, userId);
   const learnerEvidence = useStoreResource(learnerEvidenceStore, userId);
+  // Objective parts: readiness uses the same every-part rule as the lecture and exam pages.
+  const objectivesWithParts = useObjectivesWithParts(userId, objectives.data || NO_OBJECTIVES, learnerEvidence.data?.learningJournal);
   const [sessionState, setSessionState] = useState({ key: null, sessions: [], error: false });
   const [refresh, setRefresh] = useState(0);
 
@@ -63,7 +68,7 @@ export function BlockReadinessDashboard({ blockId, userId, onStudyLecture, compa
   const result = useMemo(() => blockReadinessSummary({
     blockId,
     lectures: lectures.data || [],
-    objectives: objectives.data || [],
+    objectives: objectivesWithParts,
     questionStats: reconcileLectureStats(questionStats.data || {}, questionHistory.sessions || [], lectures.data || [], blockId, questionHistory.studyAnswers || []),
     sessions,
     confidenceRecords,
@@ -73,7 +78,7 @@ export function BlockReadinessDashboard({ blockId, userId, onStudyLecture, compa
     ratings: ratings.data?.ratings || {},
     practiceSummary,
     studyAnswers: questionHistory.studyAnswers,
-  }), [blockId, lectures.data, objectives.data, questionStats.data, sessions, confidenceRecords, retrieval.data, weakConcepts.data, learnerEvidence.data, ratings.data, practiceSummary, questionHistory.studyAnswers, questionHistory.sessions]);
+  }), [blockId, lectures.data, objectivesWithParts, questionStats.data, sessions, confidenceRecords, retrieval.data, weakConcepts.data, learnerEvidence.data, ratings.data, practiceSummary, questionHistory.studyAnswers, questionHistory.sessions]);
 
   const loading = questionHistory.loading || lectures.loading || objectives.loading || questionStats.loading || weakConcepts.loading || retrieval.loading || calibration.loading || learnerEvidence.loading || ratings.loading || sessionState.key !== requestKey;
   const partial = questionHistory.error || lectures.error || objectives.error || questionStats.error || weakConcepts.error || retrieval.error || calibration.error || learnerEvidence.error || ratings.error || sessionState.error;

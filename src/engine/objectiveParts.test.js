@@ -183,3 +183,13 @@ describe("parts across lectures (exam and CBSE dashboards)", () => {
     expect(result.questions[0]?.objectivePartId).toBe(duration.id);
   });
 });
+
+describe("Today's schedule context", () => {
+  it("attaches parts so the planner sees an objective with untested parts as not ready", async () => {
+    const { buildScheduleContext } = await import("../shell/features/today/scheduleContext.js");
+    const lecture = { id: "L67", blockId: "b", lectureTitle: "Psychotic disorders" };
+    const context = buildScheduleContext({ blockId: "b", terms: [{ id: "t", blocks: [{ id: "b", name: "B" }] }], lectures: [lecture], objectives: { b: [{ ...objective, linkedLecId: "L67" }] }, learnerEvidence: { learningJournal: [] }, parts: inventory });
+    expect(context.objectives[0]._parts).toHaveLength(3);
+    expect(objectivePracticePlan(context.objectives, {}).rows[0].missingRequirements.join(" ")).toMatch(/untested parts/);
+  });
+});

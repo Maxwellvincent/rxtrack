@@ -154,7 +154,9 @@ export const __test = { stateRef, readDoc, writeDoc, mergeDoc, commitInChunks, e
 export function readLectureTombstoneIds() {
   try {
     const list = JSON.parse(localStorage.getItem("rxt-id-tombstones") || "[]");
-    return new Set((Array.isArray(list) ? list : []).map((t) => t?.oldId).filter(Boolean));
+    // App wrote { oldId } records; addLectureTombstoneId writes plain ids.
+    // Reading only `oldId` silently ignored every tombstone written since.
+    return new Set((Array.isArray(list) ? list : []).map((t) => (typeof t === "string" ? t : t?.oldId)).filter(Boolean));
   } catch {
     return new Set();
   }

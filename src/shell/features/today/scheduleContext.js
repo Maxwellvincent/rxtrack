@@ -10,6 +10,7 @@ import { multipartHistory } from "../../logic/multipartLectures.js";
 import { dedupeByText, selectBlockObjectives, selectLectureObjectives } from "../../logic/objectives.js";
 import { detectStudyMode } from "../../logic/studyMode.js";
 import { objectivesForLecture } from "../../logic/schedule.js";
+import { withPartTargets } from "../../../engine/objectiveParts.js";
 
 /** Block record from the terms tree — the resolved `blockMeta`. */
 export function resolveBlockMeta(terms, blockId) {
@@ -50,6 +51,7 @@ export function buildScheduleContext({
   reviewedLectures = {},
   weakConcepts = {},
   learnerEvidence = {},
+  parts = null,
   now = new Date(),
 }) {
   const blockLectures = (lectures || []).filter((l) => l?.blockId === blockId);
@@ -59,10 +61,13 @@ export function buildScheduleContext({
   // Same de-dupe the objectives UI applies, so Today counts what the tracker shows.
   const rawObjectives = selectBlockObjectives(objectives, blockId);
   const lectureIds = new Set(blockLectures.flatMap(l => [l.id, ...(l.mergedFrom || []).map(m => m?.id)]));
-  const blockObjectives = [
+  const selectedObjectives = [
     ...blockLectures.flatMap(lecture => selectLectureObjectives(rawObjectives, lecture, learnerEvidence)),
     ...dedupeByText(rawObjectives.filter(o => !lectureIds.has(o.linkedLecId)), learnerEvidence),
   ];
+  // Objective parts: Today's plan, readiness and reviews use the same
+  // every-part rule as the lecture flow, exam page and CBSE dashboard.
+  const blockObjectives = parts ? withPartTargets(selectedObjectives, parts, learnerEvidence?.learningJournal || []) : selectedObjectives;
 
   const studyModeByLecture = {};
   const lecturePerformance = {};

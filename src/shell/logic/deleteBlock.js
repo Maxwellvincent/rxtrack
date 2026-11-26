@@ -4,7 +4,7 @@
 import * as termsStore from "../../stores/terms.js";
 import * as lecturesStore from "../../stores/lectures.js";
 import * as objectivesStore from "../../stores/blockObjectives.js";
-import { deleteLectureFromCloud, fetchLectureContent } from "../../firebaseData.js";
+import { addLectureTombstoneId, deleteLectureFromCloud, fetchLectureContent } from "../../firebaseData.js";
 import { flattenEntry, readEntry } from "./objectives.js";
 
 /** What deleting `blockId` would remove, without touching anything. */
@@ -60,6 +60,7 @@ export async function deleteBlock({ userId, blockId }, deps = {}) {
   const lectures = deps.lectures || lecturesStore;
   const objectives = deps.objectives || objectivesStore;
   const deleteLecture = deps.deleteLecture || deleteLectureFromCloud;
+  const tombstone = deps.tombstone || addLectureTombstoneId;
   if (!userId || !blockId) throw new Error("Sign in and choose a block first.");
   const currentLectures = lectures.read(userId) || [];
   const plan = planBlockDeletion({ blockId, terms: terms.read(userId) || [], lectures: currentLectures, objectives: objectives.read(userId) || {} });
@@ -67,7 +68,7 @@ export async function deleteBlock({ userId, blockId }, deps = {}) {
 
   const failed = [];
   for (const lectureId of plan.lectureIds) {
-    try { await deleteLecture(userId, lectureId); } catch (error) { failed.push(`${lectureId}: ${error?.message || error}`); }
+    try { await deleteLecture(userId, lectureId); tombstone(lectureId); } catch (error) { failed.push(`${lectureId}: ${error?.message || error}`); }
   }
   const gone = new Set(plan.lectureIds.filter((id) => !failed.some((line) => line.startsWith(`${id}:`))));
   lectures.write(userId, currentLectures.filter((lecture) => !gone.has(lecture?.id)));

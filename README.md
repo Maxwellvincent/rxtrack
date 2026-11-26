@@ -185,8 +185,9 @@ Mastered on the ladder, nor `ready` in the practice plan, until every part has o
 correct answer. The lecture's ladder panel lists the parts with ✓ tested / ○ untested. The
 inventory is rebuilt when the lecture text changes; parts stay stable while it does not (the source
 version hashes the lecture's words, so chunk pages and joined exam text agree). The exam page
-(`ExamContainer` via `useObjectivesWithParts`) and the CBSE dashboard (`useLecturePartsInventory`)
-attach the stored parts to every block objective, so their readiness, high-yield ladder and the
+(`ExamContainer` via `useObjectivesWithParts`), the CBSE dashboard (`useLecturePartsInventory`), Today
+(`buildScheduleContext` gets `parts` from `useToday`, so the plan, week calendar and lecture rows
+see them) and the block readiness dashboard attach the stored parts to every block objective, so their readiness, high-yield ladder and the
 objective chart ("Parts x/y") apply the same rule; exam generation (`generation.js`) builds a
 lecture's inventory when it is missing, steers each lecture batch to untested parts and tags
 accepted questions.
@@ -205,7 +206,8 @@ blocks and objectives come back.
 have practice on record), downloads a JSON backup (lectures with their text, facts and images, plus
 the objectives), and deletes only after the block name is typed. Lectures and objectives
 (`blockObjectives.removeBlock`, base doc and shards) are removed first and the term entry last, so a
-failure leaves the block in place to retry. Exam sessions and answer evidence are kept.
+failure leaves the block in place to retry. Exam sessions and answer evidence are kept. Deleted lectures are tombstoned (`rxt-id-tombstones`;
+`readLectureTombstoneIds` reads both the legacy `{ oldId }` records and the plain ids written now).
 
 **Reasoning depth and connections**
 
