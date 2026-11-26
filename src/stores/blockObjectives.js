@@ -15,6 +15,7 @@ export {
   key,
   read,
   write,
+  removeBlock,
   merge,
   subscribe,
   isHydrated,

@@ -3,6 +3,7 @@ import { blockCoverage } from "./data.js";
 import { useBlocks } from "./hooks/useBlocks.js";
 import { useObjectives } from "./hooks/useObjectives.js";
 import * as termsStore from "../stores/terms.js";
+import { DeleteBlockDialog } from "./DeleteBlockDialog.jsx";
 import { StatusGlyph } from "../ui/Badge.jsx";
 import {
   readCollapsedTerms,
@@ -35,6 +36,7 @@ export function Sidebar({ activeBlockId, onSelectBlock, onOpenPalette, userId = 
   const [childNames, setChildNames] = useState(["NB 1", "NB 2", "NB 3"]);
   const [savingGroup, setSavingGroup] = useState(false);
   const [groupError, setGroupError] = useState("");
+  const [deletingBlockId, setDeletingBlockId] = useState(null);
 
   const byTerm = useMemo(() => {
     const m = new Map();
@@ -270,6 +272,10 @@ export function Sidebar({ activeBlockId, onSelectBlock, onOpenPalette, userId = 
         setChildNames(["NB 1", "NB 2", "NB 3"]);
         setGroupError("");
       }} className="border-t border-border px-5 py-2 text-left text-xs text-text-3 hover:bg-bg-elevated hover:text-text-1">＋ Set up sub-blocks</button>}
+      {userId && activeBlockId && blocks.some((b) => b.id === activeBlockId) && <button type="button" onClick={() => setDeletingBlockId(activeBlockId)}
+        className="border-t border-border px-5 py-2 text-left text-xs text-text-3 hover:bg-bg-elevated hover:text-bad">✕ Delete this block…</button>}
+      {deletingBlockId && <DeleteBlockDialog userId={userId} blockId={deletingBlockId} onClose={() => setDeletingBlockId(null)}
+        onDeleted={(id) => { setDeletingBlockId(null); const next = blocks.find((b) => b.id !== id); if (next) onSelectBlock(next.id); }} />}
       {organizeTerm && <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget && !savingGroup) setOrganizeTerm(null); }}>
         <section role="dialog" aria-modal="true" aria-labelledby="subblock-title" className="w-full max-w-lg rounded-lg border border-border bg-panel p-5 shadow-xl">
           <h2 id="subblock-title" className="text-lg font-semibold text-text-1">Set up sub-blocks</h2>

@@ -200,6 +200,13 @@ another block and skip it unless the learner explicitly includes it. The legacy 
 lectures from the local shadow copy; the cloud is authoritative for them, which is what let deleted
 blocks and objectives come back.
 
+**Delete a block** (sidebar → "✕ Delete this block…", `DeleteBlockDialog.jsx` +
+`shell/logic/deleteBlock.js`): shows how many lectures and objectives go (and how many objectives
+have practice on record), downloads a JSON backup (lectures with their text, facts and images, plus
+the objectives), and deletes only after the block name is typed. Lectures and objectives
+(`blockObjectives.removeBlock`, base doc and shards) are removed first and the term entry last, so a
+failure leaves the block in place to retry. Exam sessions and answer evidence are kept.
+
 **Reasoning depth and connections**
 
 - First/second/third order are internal labels. An independent review checks
@@ -331,6 +338,7 @@ is superseded.
 | Objective connection maps + third-order construction (within a lecture) | **Done** (2026-11-23) |
 | Objective parts: objectives that span several lecture elements are split into source-quoted parts; quizzes target untested parts and Mastered requires every part | **Done** (2026-11-26; lecture flow, exam page and CBSE dashboard) |
 | Duplicate prevention: objective writes drop new copies, uploads flag lectures already in another block, legacy sync no longer resurrects deletions | **Done** (2026-11-26) |
+| Delete a block from the sidebar, with a backup download and typed-name confirmation | **Done** (2026-11-26) |
 | Requested quiz length is filled: objectives whose lecture cannot support a verified third-order or connection item fall back to reviewed second-order items after 2 depth rejections; refill continues while rounds still yield questions (bounded by the time budget and 3 empty rounds) | **Done** (2026-11-25) |
 | Lecture checkpoints, school alignment on exam results | **Done** (2026-11-23/24) |
 | Learned question links (headings + precedents), manual linking, score-report upload, high-yield panel | **Done** (2026-11-24) |

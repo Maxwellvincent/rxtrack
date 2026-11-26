@@ -232,6 +232,24 @@ export function read(userId) {
   const entries=[...state.blocks],value=Object.fromEntries(entries);snapshots.set(state.blocks,{entries,value});return value;
 }
 
+/**
+ * Remove a whole block's objectives: the base document and every shard. Stale
+ * shards from older writes are swept by probing past the known shard count.
+ */
+export async function removeBlock(userId, blockId) {
+  if (!userId || !blockId) return;
+  ensureSubscribed(userId);
+  const { doc: docFn, deleteDoc: del } = api();
+  const shards = Math.max(4, (state.shardCounts.get(blockId) ?? 1) + 2);
+  await Promise.all([
+    del(docFn(db, "users", userId, "objectives", encodeDocId(blockId))),
+    ...Array.from({ length: shards }, (_, index) => del(docFn(db, "users", userId, "objectives", encodeDocId(`${blockId}${SHARD_SUFFIX}${index + 1}`)))),
+  ]);
+  state.blocks.delete(blockId);
+  state.shardCounts.delete(blockId);
+  notifyStoreChanged(key, { userId, blockId, source: "firestore-delete-complete" });
+}
+
 /** Authoritative per-block write: only the blocks that actually changed. */
 export function write(userId, value) {
   if (!userId) return value;
