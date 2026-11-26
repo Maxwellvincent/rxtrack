@@ -74,7 +74,21 @@ or NB main exam) are uploaded from CBSE Prep or Exam → Results (`ScoreReportUp
 `scoreReportImport.js`). The overall score goes to `rxt-school-results`; categories
 below the class average — or, for NB reports that have no average, below the 80%
 goal on ≥3 questions — become exam-report weak concepts that weight exam allocation
-and CBSE "weak" practice.
+and CBSE "weak" practice. Entry ids include the report name, so an ESoft quiz and the NB
+main exam in one block keep separate rows; entries carry `reportName`/`reportDate`.
+After import, `mapReportTargets.js` maps each weak category with one AI call per block
+(`reportTargets.js`): broad competency/discipline/system labels (Patient Care: Diagnosis,
+Neuroscience) are marked `broad`; topic categories get search keywords and the block
+lectures that teach them, plus any block lecture naming a keyword in its title or using
+3+ keywords in its text, and the objectives in those lectures that mention a keyword. The
+result is saved as `reportTarget` and mirrored to `linkedLecIds`/`objectiveIds` for the
+older readers. CBSE Prep → **Report targets** (`ReportTargets.jsx`) ranks topic categories
+by gap × √questions and shows each one's lectures, objectives, matching school questions
+by format (homework · IMCQ · ESoft: linked to the category's lectures/objectives or naming
+2+ keywords in the stem), practice since the report, and **Practice this category** (up
+to 20, missed and unseen first). A category is ✓ improved after 10+ answers on its
+material at ≥ 80% over 2+ days since the report; improved categories stop steering "weak"
+CBSE sets. Reports imported before mapping get a "Map report categories" button.
 
 Other feature dir: `features/cbse` (CBSE prep dashboard). Deep Learn and Patient Recognition
 were removed on 2026-11-24 (unused since July; their Firestore data was left in place). Admin screens (`QuestionDiagnosticsAdmin`, `SourceUseAdmin`,

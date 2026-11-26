@@ -17,15 +17,23 @@ export async function importScoreReport({ file, text = null, userId, blockId, bl
   const results = await loadDefaults(deps);
   if (summary) await results.writeResults(userId, { ...(results.readResults(userId) || {}), [summary.id]: summary });
   const { entries, categories, error } = await analyzeExamReportWeakConcepts(
-    { text: reportText, lectures, objectives, blockId, blockName },
+    { text: reportText, lectures, objectives, blockId, blockName, report: summary },
     { callAIJSON: deps.callAIJSON || (await import("../../aiClient.js")).callAIJSON },
   );
   if (entries.length) {
     const store = results.readWeak(userId) || {};
     await results.writeWeak(userId, { ...store, [blockId]: mergeExamReportConcepts(store[blockId] || [], entries) });
   }
+  // Link each weak category to its lectures, objectives and school questions.
+  // A mapping failure keeps the import: the CBSE plan offers to map again.
+  let targetError = null;
+  if (entries.length) {
+    const mapTargets = deps.mapReportTargets || (await import("./mapReportTargets.js")).mapReportTargets;
+    try { await mapTargets({ userId, blockId }, { lectures, objectives, report: summary, ...(deps.mapDeps || {}) }); }
+    catch (problem) { targetError = problem?.message || String(problem); }
+  }
   const weakNames = new Set(entries.map(entry => entry.concept));
-  return { summary, weakCategories: categories.filter(category => weakNames.has(category.category)), categoryCount: categories.length, ...(error ? { categoryError: error } : {}) };
+  return { summary, ...(targetError ? { targetError } : {}), weakCategories: categories.filter(category => weakNames.has(category.category)), categoryCount: categories.length, ...(error ? { categoryError: error } : {}) };
 }
 
 async function loadDefaults(deps) {

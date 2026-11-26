@@ -186,14 +186,18 @@ export function buildWeakConceptEntriesFromReport({
   now = new Date().toISOString(),
   gapThreshold = 10,
   matchThreshold = 0.3,
+  report = null,
 } = {}) {
   const entries = [];
+  // Two reports in one block (an ESoft quiz and the NB main exam) score the
+  // same outline categories; the report name keeps their entries apart.
+  const reportSlug = report?.name ? `${slug(report.name)}-` : "";
   for (const c of categories) {
     if (!isWeakCategory(c, { gapThreshold })) continue;
     const match = matchCategoryToLecture(c.category, lectures, matchThreshold);
     const objectiveMatches = matchCategoryToObjectives(c.category, objectives, lectures, match);
     entries.push({
-      id: `examcat-${blockId}-${slug(c.category)}`,
+      id: `examcat-${blockId}-${reportSlug}${slug(c.category)}`,
       concept: c.category,
       description: Number.isFinite(c.average)
         ? `Exam report: scored ${Math.round(c.myScore)}% vs class average ${Math.round(c.average)}% (${c.correct}/${c.total} correct).`
@@ -220,6 +224,7 @@ export function buildWeakConceptEntriesFromReport({
       questionHistory: [],
       sourceQuestions: [],
       dateFirstSeen: now,
+      ...(report?.name ? { reportName: report.name, reportDate: report.date, reportKind: report.kind } : {}),
       tags: ["exam-report"],
     });
   }
@@ -240,7 +245,7 @@ export function mergeExamReportConcepts(existing, newEntries) {
 
 /** Full pipeline: raw report text + this block's lectures -> weak-concept entries. */
 export async function analyzeExamReportWeakConcepts(
-  { text, lectures = [], objectives = [], blockId, blockName = "", now, gapThreshold, matchThreshold } = {},
+  { text, lectures = [], objectives = [], blockId, blockName = "", now, gapThreshold, matchThreshold, report = null } = {},
   deps = {}
 ) {
   const { callAIJSON } = deps;
@@ -253,7 +258,7 @@ export async function analyzeExamReportWeakConcepts(
       3000
     );
     const categories = normalizeCategoryScores(raw);
-    const entries = buildWeakConceptEntriesFromReport({ categories, lectures, objectives, blockId, blockName, now, gapThreshold, matchThreshold });
+    const entries = buildWeakConceptEntriesFromReport({ categories, lectures, objectives, blockId, blockName, now, gapThreshold, matchThreshold, report });
     return { entries, categories, skipped: false };
   } catch (e) {
     return { entries: [], categories: [], error: e?.message || String(e), skipped: false };
