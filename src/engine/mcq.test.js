@@ -356,6 +356,15 @@ describe("selectStyleExemplars", () => {
     expect(blueprint.order.targets["third-order"]).toBe(1);
   });
 
+  it("ranks school questions linked to the target lecture ahead of unrelated ones", () => {
+    const other = q("Unrelated school item", 4, { correct: "A", sourceFile: "BPM2_ESOFT_Quiz.pdf", lectureId: "L9" });
+    const same = q("Same-lecture homework item", 4, { correct: "A", sourceFile: "Faculty quiz.pdf", lectureId: "L1" });
+    const objectives = [{ id: "o1", objective: "Explain anxiety disorder treatment", linkedLecId: "L1" }];
+    expect(selectStyleExemplars([other, same], 1, "medium", { objectives, atoms: [] })[0].stem).toBe("Same-lecture homework item");
+    expect(selectStyleExemplars([other, same], 1, "medium", { lectureIds: ["L1"] })[0].stem).toBe("Same-lecture homework item");
+    expect(selectStyleExemplars([other, same], 1, "medium", {})[0].stem).toBe("Unrelated school item");
+  });
+
   it("keeps ExamSoft first and admits verified IMCQ as a style reference", () => {
     const examsoft = q("ExamSoft quiz", 5, { correct: "A", sourceFile: "BPM2_ESOFT_Quiz.pdf" });
     const school = q("School quiz", 4, { correct: "A", sourceFile: "Faculty quiz.pdf" });

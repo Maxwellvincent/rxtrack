@@ -141,6 +141,14 @@ Core: `src/engine/mcq.js` (prompt assembly, review, repair). Routing:
   (`rxt-question-style-profile-v1`). ExamSoft, IMCQ and unlabelled school items
   are pooled into one `officialStyle`; homework and clicker are profiled
   separately.
+- Which school examples a prompt shows (`selectStyleExemplars`, `mcq.js`):
+  objective-linked items first (school code 100, stored link 50, word overlap ≤ 20),
+  then items linked to the lecture being written for (+15; target lectures come
+  from `targets.lectureIds` or the objectives' `linkedLecId`), then the rest of the
+  block's bank for variety. Block scoping (`selectClinicalExamplesForBlock`) keeps
+  items filed in the block plus items whose bank linking found it was taught there
+  (`linkedBlockId` from `mappingProgress.scope.homeBlockId`), so CBSE-filed IMCQs
+  that taught NB 3 are NB 3 examples.
 - `SCHOOL_DIFFICULTY_CONTRACT` (default policy `school`) matches the inferential
   burden of relevant school examples; IMCQs are a task pattern, not a difficulty
   floor. Excess inference is rejected as `school_style_mismatch`. The

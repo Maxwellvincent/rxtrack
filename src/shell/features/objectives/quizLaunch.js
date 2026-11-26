@@ -268,6 +268,9 @@ export function selectExemplarsForBlock(banks = {}, _meta = {}, _blockId = null,
           sourceFile: question.sourceFile || filename,
           sourceKind: question.sourceKind || upload?.sourceKind || null,
           ...(upload?.blockId && !question.blockId ? { blockId: upload.blockId } : {}),
+          // Where bank linking found it was taught (a CBSE-filed IMCQ that
+          // taught NB 3 is an NB 3 example too).
+          ...(upload?.mappingProgress?.scope?.homeBlockId ? { linkedBlockId: upload.mappingProgress.scope.homeBlockId } : {}),
         };
       })
   );
@@ -280,7 +283,7 @@ export function selectExemplarsForBlock(banks = {}, _meta = {}, _blockId = null,
  */
 export function selectClinicalExamplesForBlock(examples = [], blockId = null) {
   if (!blockId) return examples || [];
-  return (examples || []).filter((question) => question?.blockId === blockId);
+  return (examples || []).filter((question) => question?.blockId === blockId || question?.linkedBlockId === blockId);
 }
 
 /**

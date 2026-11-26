@@ -222,6 +222,15 @@ describe("curriculum-wide exemplars", () => {
     ];
     expect(selectClinicalExamplesForBlock(examples, "dm").map((q) => q.stem)).toEqual(["DM question"]);
   });
+
+  it("includes banks filed elsewhere that linking found were taught in the block", () => {
+    const [row] = selectExemplarsForBlock({ "IMCQ 7": [{ stem: "IMCQ?", choices: { A: "a" }, blockId: "cbse-prep" }] }, {
+      m: { filename: "IMCQ 7", blockId: "cbse-prep", mappingProgress: { scope: { homeBlockId: "nb3" } } },
+    });
+    expect(row).toMatchObject({ blockId: "cbse-prep", linkedBlockId: "nb3" });
+    expect(selectClinicalExamplesForBlock([row], "nb3")).toHaveLength(1);
+    expect(selectClinicalExamplesForBlock([row], "nb2")).toHaveLength(0);
+  });
 });
 
 describe("startObjectiveQuiz", () => {

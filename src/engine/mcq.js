@@ -808,11 +808,18 @@ function renderChoices(choices) {
  * across the remaining bank. Image-dependent exemplars are excluded because their image is not
  * sent with the text prompt and would teach the model to reference a figure it cannot provide.
  */
+const SAME_LECTURE_BONUS = 15;
+
 export function selectStyleExemplars(examples = [], limit = 5, _difficulty = "medium", targets = {}) {
   examples=examples.map(cleanSchoolExemplar);
   if (limit <= 0) return [];
   const aligned = alignSchoolQuestions(examples, targets.objectives, targets.atoms);
-  const relevance = new Map(aligned.map(x => [x.question,x.score]));
+  // A school question linked to the lecture being written for is a closer
+  // wording reference than one from elsewhere in the block: it ranks above
+  // unrelated items, below objective-linked ones.
+  const targetLectures = new Set([...(targets.lectureIds || []), ...(targets.objectives || []).map(o => o?.linkedLecId)].filter(Boolean).map(String));
+  const lectureBonus = q => targetLectures.size && [q.lectureId, ...(q.secondaryLectureIds || [])].some(id => id && targetLectures.has(String(id))) ? SAME_LECTURE_BONUS : 0;
+  const relevance = new Map(aligned.map(x => [x.question, x.score + lectureBonus(x.question)]));
   const links = new Map(aligned.map(x => [x.question, x.links]));
   // Homework is an explicit practice-style reference alongside school exams.
   // Rank relevant lecture/objective examples before broader style references.
