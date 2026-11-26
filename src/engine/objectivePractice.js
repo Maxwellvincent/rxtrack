@@ -64,7 +64,9 @@ export function objectivePracticePlan(objectives = [], evidenceModel = {}) {
     const remaining = minimumQuestionsToObjectiveReadiness(progress);
     const accuracy = progress.attempts ? progress.correct / progress.attempts : null;
     const recovery=objectiveRecovery(progress.recentFreshAnswers,progress.latestCorrect);
-    const ready = remaining === 0;
+    // When the objective's lecture parts are known (objective._parts), each needs a correct answer.
+    const partsMissing = (objective._parts || []).filter(part => !part.covered);
+    const ready = remaining === 0 && !partsMissing.length;
     const worked = progress.attempts > 0;
     const profile = objectiveOrderProfile(objective);
     const demonstrated = Object.entries(progress.orderLevels).filter(([, stats]) => stats.correct > 0).map(([order]) => order);
@@ -81,6 +83,7 @@ export function objectivePracticePlan(objectives = [], evidenceModel = {}) {
       ...(!progress.latestCorrect && progress.attempts ? ["a correct fresh retest"] : []),
       ...(progress.sessionCount < OBJECTIVE_MIN_SESSIONS ? ["another session"] : []),
       ...(progress.taskTypeCount < OBJECTIVE_MIN_TASK_TYPES ? ["a different question type"] : []),
+      ...(partsMissing.length ? [`untested parts: ${partsMissing.map(part => part.label).join("; ")}`] : []),
     ];
     const struggling = progress.attempts > 0 && (progress.latestMiss || (progress.attempts >= 2 && accuracy < 0.6 && !(progress.recentAccuracy >= OBJECTIVE_MIN_ACCURACY)));
     return {

@@ -14,6 +14,9 @@ import {LectureProgressOverview} from './LectureProgressOverview.jsx';
 import {StudyGuidePanel} from './StudyGuidePanel.jsx';
 import {useLectureStats} from '../../hooks/useLectureQuestionStats.js';
 import * as relationshipsStore from '../../../stores/sourceRelationships.js';
+import * as objectivePartsStore from '../../../stores/objectiveParts.js';
+import { withPartTargets } from '../../../engine/objectiveParts.js';
+import { ensureObjectiveParts } from '../objectives/objectivePartsLoader.js';
 import {relationshipPages,relationshipCoverage} from '../../../engine/sourceRelationships.js';
 import {useLectureWorkspace} from "./useLectureWorkspace.js";
 import {LectureWorkspaceNav,LecturePanel} from './LectureWorkspaceNav.jsx';
@@ -153,9 +156,18 @@ export function LectureStudyFlow({
   const learnerEvidence = useStoreResource(learnerEvidenceStore, userId);
   const weakConceptResource = useStoreResource(weakConceptsStore, userId);
   const recentLearningRecords = useMemo(()=>latestLearningRecords(learnerEvidence.data || {}, lecture?.id, blockId, true),[learnerEvidence.data,lecture?.id,blockId]);
-  const lectureObjectives = useMemo(() => selectLectureObjectives(
+  // Objective parts (lecture elements each objective covers): attached as _parts so
+  // the ladder, readiness and quiz targeting all see the same coverage.
+  const partsAdapter = useMemo(() => ({
+    read: id => lecture?.id ? objectivePartsStore.read(id, lecture.id) : null,
+    isHydrated: id => !lecture?.id || objectivePartsStore.isHydrated(id, lecture.id),
+    readError: () => null,
+    subscribe: callback => lecture?.id ? objectivePartsStore.subscribe(lecture.id, callback) : () => {},
+  }), [lecture?.id]);
+  const partsResource = useStoreResource(partsAdapter, userId);
+  const lectureObjectives = useMemo(() => withPartTargets(selectLectureObjectives(
     selectBlockObjectives(objectiveResource.data, blockId), lecture, learnerEvidence.data
-  ), [objectiveResource.data, blockId, lecture, learnerEvidence.data]);
+  ), partsResource.data, learnerEvidence.data?.learningJournal || []), [objectiveResource.data, blockId, lecture, learnerEvidence.data, partsResource.data]);
   const lectureWeakConcepts = useMemo(() => weakConceptsForLectureView(weakConceptResource.data || {}, {
     blockId,
     lectureId: lecture?.id,
@@ -810,6 +822,7 @@ export function LectureStudyFlow({
       },
       {
         ...preparationDeps,
+        ensureObjectiveParts,
         // Leave time to return the detailed engine result before the outer guard.
         maxPreparationMs: preparationBudget - 5000,
         signal,
@@ -953,7 +966,7 @@ export function LectureStudyFlow({
       avoidStems: [...history, ...questions].map(question => question.stem).filter(Boolean),
       avoidQuestions: [...history, ...questions],
     }, {
-      ...await questionPreparationDeps(callAIJSON), maxPrepareAttempts: 1, maxPreparationMs: 90000, prepareConcurrency: 1,
+      ...await questionPreparationDeps(callAIJSON), ensureObjectiveParts, maxPrepareAttempts: 1, maxPreparationMs: 90000, prepareConcurrency: 1,
       onAccepted: batch => generatedQuestionsStore.addQuestions(userId, lecture.id, batch),
     }))().catch(() => {}).finally(() => { prefetchInFlightRef.current = false; });
   }, [quizPreparation, busy, questions, activeRequestedCount, pendingQuiz, lecture?.id, userId, quizSessionId, schoolExamplesLoading, orderedObjectives,

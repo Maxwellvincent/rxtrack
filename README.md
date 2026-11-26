@@ -5,7 +5,7 @@
 > updates this file in the same commit as the code. If it disagrees with the
 > tree, this file is the bug.
 >
-> Last verified against the tree: 2026-11-25
+> Last verified against the tree: 2026-11-26
 
 RXTrack is a personal medical-school study app: lectures and their learning
 objectives go in, and the app drives the study loop around them — pre-reads,
@@ -173,6 +173,18 @@ other depth targets) and `ladderStepPrompt` tells the writer how to build that s
 objective in the lecture workspace (`MasteryLadderPanel`) and as school-weighted readiness on the
 Exam high-yield panel.
 
+**Objective parts** (`objectiveParts.js`, store `rxt-objective-parts-v1:{lectureId}`): an
+objective such as "Clinically differentiate the psychotic disorders" covers several lecture
+elements that its wording does not name. Before a lecture quiz, `ensureObjectiveParts`
+(`objectivePartsLoader.js`) asks the question route once per lecture to split each objective into
+up to 8 parts, each kept only when its quote is supported by the lecture text (`quoteSupported`
+tolerates interleaved slide columns), and maps already-answered questions to parts so past
+practice keeps its credit. Quizzes steer the writer to untested parts first (`objectivePartsPrompt`)
+and tag each accepted question with `objectivePartId`; answer events carry it. An objective is not
+Mastered on the ladder, nor `ready` in the practice plan, until every part has one independent
+correct answer. The lecture's ladder panel lists the parts with ✓ tested / ○ untested. The
+inventory is rebuilt when the lecture text changes; parts stay stable while it does not.
+
 **Reasoning depth and connections**
 
 - First/second/third order are internal labels. An independent review checks
@@ -302,6 +314,7 @@ is superseded.
 | Integrated exam tab: prepared sets, reserve refill, timed 72 s/question, tutor mode, persisted choice elimination | **Done** |
 | Weak-concept repair loop, focused drills, delayed retests | **Done** |
 | Objective connection maps + third-order construction (within a lecture) | **Done** (2026-11-23) |
+| Objective parts: objectives that span several lecture elements are split into source-quoted parts; quizzes target untested parts and Mastered requires every part | **Done** (2026-11-26) |
 | Requested quiz length is filled: objectives whose lecture cannot support a verified third-order or connection item fall back to reviewed second-order items after 2 depth rejections; refill continues while rounds still yield questions (bounded by the time budget and 3 empty rounds) | **Done** (2026-11-25) |
 | Lecture checkpoints, school alignment on exam results | **Done** (2026-11-23/24) |
 | Learned question links (headings + precedents), manual linking, score-report upload, high-yield panel | **Done** (2026-11-24) |

@@ -33,7 +33,7 @@ export function retentionDelay(now, examDate) {
   return examDate && Number(examDate) - Number(now) <= 7 * DAY ? DAY : 2 * DAY;
 }
 
-export function ladderForObjective(entry, { now = Date.now(), examDate = null } = {}) {
+export function ladderForObjective(entry, { now = Date.now(), examDate = null, parts: parts_ = null } = {}) {
   const answers = (entry?.recentFreshAnswers || [])
     .filter(a => a && a.reasoningVerified === true && a.assisted !== true)
     .sort((a, b) => (a.at || 0) - (b.at || 0));
@@ -55,14 +55,23 @@ export function ladderForObjective(entry, { now = Date.now(), examDate = null } 
       if (rung === 4) reachedIntegrationAt = a.at;
     }
   }
+  // Every lecture element the objective covers needs one independent correct
+  // answer before the objective counts as mastered (engine/objectiveParts.js).
+  const parts = Array.isArray(parts_) ? parts_ : [];
+  const partsMissing = parts.filter(part => !part.covered);
+  const heldForParts = rung === 5 && partsMissing.length > 0;
+  if (heldForParts) rung = 4;
   const need = REQUIREMENTS[rung];
   const retestDueAt = rung === 4 && reachedIntegrationAt ? reachedIntegrationAt + retentionDelay(reachedIntegrationAt, examDate) : null;
   return {
     rung, label: LADDER_RUNGS[rung].label,
     progress: need && need.needed > 1 ? `${Math.floor(credit)}/${need.needed}` : null,
     repairDue,
-    retestDueAt, retestDue: retestDueAt != null && now >= retestDueAt,
-    next: need ? { step: need.step, targetOrder: need.targetOrder, ...(need.taskType ? { taskType: need.taskType } : {}), ...(repairDue ? { repair: true } : {}) } : null,
+    retestDueAt: heldForParts ? null : retestDueAt, retestDue: !heldForParts && retestDueAt != null && now >= retestDueAt,
+    next: heldForParts
+      ? { step: "parts", targetOrder: "second-order", partIds: partsMissing.map(part => part.id) }
+      : need ? { step: need.step, targetOrder: need.targetOrder, ...(need.taskType ? { taskType: need.taskType } : {}), ...(repairDue ? { repair: true } : {}) } : null,
+    ...(parts.length ? { parts: { total: parts.length, covered: parts.length - partsMissing.length, missing: partsMissing.map(part => ({ id: part.id, label: part.label })) } } : {}),
   };
 }
 
@@ -71,7 +80,7 @@ export function blockLadderSummary(objectives = [], evidence = {}, options = {})
   const counts = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
   let weight = 0, ready = 0;
   const rows = objectives.map(objective => {
-    const ladder = ladderForObjective(evidence?.objectives?.[objective.id], options);
+    const ladder = ladderForObjective(evidence?.objectives?.[objective.id], { ...options, parts: options.partsByObjective?.[objective.id] || objective._parts || null });
     counts[ladder.rung] += 1;
     const w = 1 + (Number(objective._schoolEmphasis) || 0);
     weight += w; if (ladder.rung >= 4) ready += w;
@@ -88,7 +97,7 @@ const ORDERS = ["first-order", "second-order", "third-order"];
  */
 export function withLadderTargets(objectives = [], evidence = {}, options = {}, allowedOrders = () => ORDERS) {
   return objectives.map(objective => {
-    const ladder = ladderForObjective(evidence?.objectives?.[objective.id], options);
+    const ladder = ladderForObjective(evidence?.objectives?.[objective.id], { ...options, parts: options.partsByObjective?.[objective.id] || objective._parts || null });
     if (!ladder.next) return { ...objective, _ladderRung: ladder.rung, _ladderLabel: ladder.label };
     const base = { ...objective, _ladderRung: ladder.rung, _ladderLabel: ladder.label, _ladderStep: ladder.next.step, ...(ladder.next.repair ? { _ladderRepair: true } : {}) };
     if (objective._transferOrder) return base;
@@ -107,6 +116,7 @@ const STEP_GUIDE = {
   application: 'APPLICATION: a school-style case that applies one taught relationship to new findings.',
   discrimination: 'DISCRIMINATION: the key and the closest distractor must be two conditions, structures or mechanisms that THIS lecture explicitly contrasts (e.g. bipolar I vs II, grief vs major depression). The stem must contain the one finding that separates them (duration, impairment, laterality, timing, a lab value). Set taskType "discrimination".',
   integration: 'INTEGRATION: require two taught relationships joined through an unstated intermediate (third-order where the objective allows it).',
+  parts: 'PARTS: the objective is otherwise secure; write an application item on one of its untested parts (see OBJECTIVE PARTS testNext).',
   retention: 'RETENTION: a fresh case on an already-learned relationship with a different presentation and requested endpoint than before; set taskType "fresh-retest".',
 };
 /** Writer instructions for the ladder steps present in this batch. */

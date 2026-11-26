@@ -15,7 +15,7 @@ export function recoverQuizHistory(records,journal,{blockId,lectures=[],objectiv
   if(matches.length)continue;
   const event={eventId:r.eventId||`quiz-history:${blockId}:${r.sessionKey}:${key}:${r.ts}`,source:'quiz',blockId,lectureId:r.lectureId,sessionKey:r.sessionKey,questionKey:key,correct:r.correct,at:r.ts,historyReconciled:true,
    objectiveIds:isExcluded(r,objectiveExcluded)?[]:(r.objectiveIds||[]).filter(id=>{const o=objectiveMap.get(id);return o&&(o.linkedLecId||o.lectureId)===r.lectureId&&(!o.blockId||o.blockId===blockId);})};
-  for(const field of ['confidence','difficulty','responseMs','taskType','orderLevel','reasoningVerified','learningContext','atomKey','objectiveFacetId','sourceRelationshipIds','relationshipSourceVersion'])if(r[field]!==undefined)event[field]=r[field];
+  for(const field of ['confidence','difficulty','responseMs','taskType','orderLevel','reasoningVerified','learningContext','atomKey','objectiveFacetId','objectivePartId','sourceRelationshipIds','relationshipSourceVersion'])if(r[field]!==undefined)event[field]=r[field];
   indexEvent(event);events.push(event);
  }return events;
 }

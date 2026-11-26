@@ -71,7 +71,7 @@ function reviewItem(q,role,objectives=[],sourceUse={}) {
   sourcePage:q.sourcePage || null, sourceQuestionNumber:q.sourceQuestionNumber || q.num || null,
   objectiveIds:q.objectiveIds || [], objectiveText:assigned?.text || q.objectiveText || null,
   objectiveLinks,
-  objectiveFacetId:q.objectiveFacetId || null,sourceRelationshipIds:q.sourceRelationshipIds || [],relationshipSourceVersion:q.relationshipSourceVersion || null,
+  objectiveFacetId:q.objectiveFacetId || null,objectivePartId:q.objectivePartId || null,sourceRelationshipIds:q.sourceRelationshipIds || [],relationshipSourceVersion:q.relationshipSourceVersion || null,
   objectiveFacet:q.objectiveFacet || null, topic:q.topic || null,
   stem:q.stem, choices:q.choices, correct:q.correct || null,
   explanation:q.explanation || null, whyWrong:q.whyWrong || {},

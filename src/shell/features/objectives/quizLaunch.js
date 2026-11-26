@@ -2,6 +2,7 @@ import {integrationConnectionTargets,planThirdOrderQuestions} from '../../../eng
 import {objectivesWithConnectionGaps} from '../../../engine/objectiveConnections.js';
 import { withSchoolEmphasis } from "../../../engine/schoolEmphasis.js";
 import { withLadderTargets } from "../../../engine/masteryLadder.js";
+import { withPartTargets, validatedPartId, objectivePartsPrompt } from "../../../engine/objectiveParts.js";
 import { objectiveOrderProfile as ladderOrderProfile } from "../../../engine/questionOrder.js";
 import {repairTransferPlan} from "../../../engine/repairTransfer.js";
 import { prepareLectureQuestionContext } from '../../../engine/lectureQuestionContext.js';
@@ -452,6 +453,7 @@ export function buildQuizConfig({
       focusNotes: [
         String(focusNotes || "").trim(),
         relationshipPrompt(relationshipPlan),
+        objectivePartsPrompt(selected),
         learningFocus({objectives:selected,evidence:learnerModel,blockId,lectureId:lecture?.id || lectureIdHint,tutorProfile:getLearnerProfile(userId)}),
         selected.length
           ? `ADAPTIVE OBJECTIVE ALLOCATION — follow these item counts before broad coverage:\n${selected.map((objective) => `- [${objective.id || objective.code}] ${objective._adaptiveStatus}: ${objective._targetQuestionCount} question${objective._targetQuestionCount === 1 ? "" : "s"}; required ${objective._targetOrder || "second-order"}; ${objective._neededTaskTypes?.length ? `use a different task from ${objective._neededTaskTypes.join(", ")}` : "vary the final ask"}`).join("\n")}`
@@ -765,6 +767,14 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
     reviewAIJSON: boundCall(deps.reviewAIJSON, "review"),
     repairAIJSON: boundCall(deps.repairAIJSON, "repair"),
   };
+  // Objective parts: the lecture elements each objective covers. Built once per
+  // lecture (opt-in through deps), then every quiz targets untested parts first.
+  let partsInventory = null;
+  if (typeof deps.ensureObjectiveParts === "function" && contextConfig?.lectureId && (args.objectives || []).length) {
+    partsInventory = await deps.ensureObjectiveParts({ userId: args.userId, lectureId: contextConfig.lectureId, objectives: args.objectives, pages: contextConfig.sourcePages || [], history: args.avoidQuestions || [] }, { callAIJSON: deps.callAIJSON, signal: deps.signal, timeoutMs: Math.min(120000, Math.max(30000, (Number(deps.maxPreparationMs) || 240000) / 4)) });
+    const journal = (args.evidenceModel || readLearnerEvidence(args.userId))?.learningJournal || [];
+    args = { ...args, objectives: withPartTargets(args.objectives, partsInventory, journal) };
+  }
   const requested = resolveQuestionCount(args.questionCount, Math.max((args.objectives || []).length, 1));
   const plannedEvidence = args.evidenceModel || readLearnerEvidence(args.userId);
   const plannedObjectives = connectionAwareObjectives(objectivesWithConceptGaps(objectivesWithPracticeEvidence(args.objectives || [], plannedEvidence), args.atoms || [], plannedEvidence),args,plannedEvidence);
@@ -956,7 +966,7 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
         }
       }
       const newlyAccepted = [];
-      for (const question of result.questions || []) {
+      for (let question of result.questions || []) {
         if (accepted.length >= requested) break;
         const key = normalizeStem(question?.stem);
         if (enforceAllocation) {
@@ -976,6 +986,7 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
         if (!key || seen.has(key) || avoidedStemKeys.has(key) || repeatsPriorQuestion || accepted.some((other) => areNearDuplicateQuestions(question, other))) { reject("duplicate_or_recognizable_question"); continue; }
         if (exceedsAnswerConcentration(question, [...(args.initialQuestions || []), ...accepted], args.plannedCount || requested)) { reject("repeated_answer_concept"); continue; }
         seen.add(key);
+        if (partsInventory) question = { ...question, objectivePartId: validatedPartId(question, partsInventory) };
         accepted.push(question);
         newlyAccepted.push(question);
         if (accepted.length >= requested) break;
