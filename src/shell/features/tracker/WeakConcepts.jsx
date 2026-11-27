@@ -13,6 +13,9 @@ import { Button } from "../../../ui/Button.jsx";
 import * as learnerEvidenceStore from "../../../stores/learnerEvidence.js";
 import * as weakConceptsStore from "../../../stores/weakConcepts.js";
 import { reconcileWeakConceptRecovery } from "../../../engine/weakConceptRecovery.js";
+import { linkWeakConceptObjectives } from "../../../engine/weakConceptObjectiveLinks.js";
+import * as blockObjectivesStore from "../../../stores/blockObjectives.js";
+import { selectBlockObjectives } from "../../logic/objectives.js";
 
 const MASTERY_STYLE = {
   struggling: "text-bad",
@@ -93,6 +96,19 @@ export function WeakConcepts({ blockId, userId, onBack, embedded = false, onStar
     weakConceptsStore.reconcileEvidenceAwait(userId, evidence.data?.learningJournal || [])
       .catch((error) => console.warn("Weak-concept recovery sync failed", error?.message || error));
   }, [userId, store.data, store.loading, evidence.data, evidence.loading, reconciledStore]);
+
+  // Concepts saved with a lecture but no objective get one when the wording clearly matches.
+  const catalog = useStoreResource(blockObjectivesStore, userId);
+  const objectivesForBlock = useMemo(() => {
+    const byBlock = Object.fromEntries(Object.keys(catalog.data || {}).map(id => [id, selectBlockObjectives(catalog.data, id)]));
+    return id => byBlock[id] || [];
+  }, [catalog.data]);
+  useEffect(() => {
+    if (store.loading || catalog.loading || !store.data) return;
+    if (linkWeakConceptObjectives(store.data, objectivesForBlock) === store.data) return;
+    weakConceptsStore.linkObjectivesAwait(userId, objectivesForBlock)
+      .catch((error) => console.warn("Weak-concept objective linking failed", error?.message || error));
+  }, [userId, store.data, store.loading, catalog.loading, objectivesForBlock]);
 
   const view = useMemo(
     () => weakConceptView(reconciledStore, { blockId: scope === "block" ? blockId : null, includeMastered }),

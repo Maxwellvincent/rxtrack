@@ -22,6 +22,7 @@ import {
 import { readJson } from "./base.js";
 import { mergeWeakConcepts } from "./merge.js";
 import { reconcileWeakConceptRecovery } from "../engine/weakConceptRecovery.js";
+import { linkWeakConceptObjectives } from "../engine/weakConceptObjectiveLinks.js";
 
 export const key = "rxt-weak-concepts";
 const fallback = {};
@@ -73,4 +74,17 @@ export function isHydrated(userId) {
 
 export function readError(userId) {
   return cloudReadError(userId, key);
+}
+
+/** Atomically attach objectives to concepts saved with a lecture but no objective (additive only). */
+export async function linkObjectivesAwait(userId, objectivesForBlock, options = {}) {
+  if (!userId) {
+    const current = read(userId) || fallback;
+    const next = linkWeakConceptObjectives(current, objectivesForBlock, options);
+    if (next !== current) write(userId, next);
+    return next;
+  }
+  return updateCloudAwait(userId, key, (current) =>
+    linkWeakConceptObjectives(current || fallback, objectivesForBlock, options)
+  );
 }
