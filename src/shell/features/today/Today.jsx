@@ -1,5 +1,8 @@
 import { studyDayDate, studyDayKey, studyDayMinutes } from "../../../studyDay.js";
 import { readPreference, writePreference } from "../../../browserStorage.js";
+import * as todayQueueStore from "../../../stores/todayQueue.js";
+import { useStoreResource } from "../../hooks/useStoreResource.js";
+import { resolveTodayQueue, sharedQueueFor, withSharedQueue } from "./todayQueueSync.js";
 import { useCallback, useState, useMemo, useEffect } from "react";
 import { Button } from "../../../ui/Button.jsx";
 import { useToday } from "./useToday.js";
@@ -1046,12 +1049,21 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
   const freshQueue = useMemo(() => dayQueue(todayDay), [todayDay]);
   // Freeze the first non-empty queue of the day (render-time state adjustment).
   // The cap is kept with it, so only raising the daily limit adds lectures.
-  if (!storedQueue && freshQueue.length) setStoredQueue({ cap: dailyLimit, items: freshQueue.map((item) => ({ id: item.row.id, kind: item.kind })) });
+  // Signed in, the frozen queue is shared across devices through Firestore.
+  const sharedResource = useStoreResource(todayQueueStore, userId);
+  const sharedQueue = useMemo(() => sharedQueueFor(sharedResource.data, blockId, todayKey), [sharedResource.data, blockId, todayKey]);
+  const queuePlan = resolveTodayQueue({ signedIn: !!userId, cloudLoaded: !sharedResource.loading, shared: sharedQueue, local: storedQueue });
+  if (queuePlan.canFreeze && freshQueue.length) setStoredQueue({ cap: dailyLimit, items: freshQueue.map((item) => ({ id: item.row.id, kind: item.kind })) });
+  const activeQueue = queuePlan.queue;
   useEffect(() => {
-    if (storedQueue) writePreference(todayQueueKey(blockId, todayKey), JSON.stringify(storedQueue));
-  }, [storedQueue, blockId, todayKey]);
-  const todayQueue = useMemo(() => frozenDayQueue({ stored: storedQueue, fresh: freshQueue, rows: todayCal?.rows || [], limit: dailyLimit }),
-    [storedQueue, freshQueue, todayCal, dailyLimit]);
+    if (activeQueue) writePreference(todayQueueKey(blockId, todayKey), JSON.stringify(activeQueue));
+  }, [activeQueue, blockId, todayKey]);
+  useEffect(() => {
+    if (!queuePlan.upload || !storedQueue) return;
+    todayQueueStore.write(userId, withSharedQueue(todayQueueStore.read(userId), blockId, todayKey, storedQueue)).catch(() => {});
+  }, [queuePlan.upload, storedQueue, userId, blockId, todayKey]);
+  const todayQueue = useMemo(() => frozenDayQueue({ stored: activeQueue, fresh: freshQueue, rows: todayCal?.rows || [], limit: dailyLimit }),
+    [activeQueue, freshQueue, todayCal, dailyLimit]);
   // A review is a short quiz aimed at the lecture's weakest objectives.
   const onReview = useCallback((row) => {
     onQuiz({ lec: row.lec, matchReason: "review", questionCount: 10, focusObjectiveIds: weakFocusObjectiveIds(objectivesForTask(row.id), evidenceForPlan || {}) });
