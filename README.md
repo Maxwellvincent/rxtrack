@@ -323,7 +323,14 @@ still needs the quoted two-pass review. After the AI pass, **week rescue**
 (`weekRescueMatch`) links still-unlinked questions to a focus-week lecture when one
 lecture's distinctive content clearly wins (score ≥ 60, ≥ 20 ahead and ≥ 1.6× the
 runner-up): lecture only, `content-matched`, `lectureLinkBasis: "bank-week-content"`,
-no objective credit. Exam → Question banks → **Re-link all banks**
+no objective credit. **Cross-block routing** (`routeUnlinkedQuestions`): cumulative
+quizzes test several blocks, so before the AI pass each unlinked keyed question whose
+top lexical lecture (≥ 2 body-evidence terms) is in another same-term teaching block is
+checked against that block instead (`onlyKeys` + `crossBlock` on the resume, which keeps
+the bank's recorded home scope); the home pass takes the rest. The mapping save compares
+choices by key (`sameChoices.js`) because Firestore does not keep map key order; an
+order-sensitive compare used to drop most results after the first save. Exam → Question
+banks → **Re-link all banks**
 (`RelinkQuestionBanks.jsx` / `relinkQuestionBanks.js`) runs this for every keyed bank one
 at a time (a failure pauses that bank and moves on); each bank's status shows its home
 block, focus weeks and week-rescued count, and its Resume/Recheck button uses the same path.

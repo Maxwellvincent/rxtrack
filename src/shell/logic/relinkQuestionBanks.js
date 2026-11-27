@@ -9,7 +9,8 @@ import * as metaStore from "../../stores/questionBankMeta.js";
 import * as lecturesStore from "../../stores/lectures.js";
 import * as objectivesStore from "../../stores/blockObjectives.js";
 import { bankMappingScope } from "./bankMappingScope.js";
-import { resumeQuestionBankMapping } from "./resumeQuestionBankMapping.js";
+import { resumeQuestionBankMapping, questionKey } from "./resumeQuestionBankMapping.js";
+import { rankLectureContent } from "./lectureContentMatch.js";
 
 const NON_TEACHING_BLOCKS = new Set(["cbse-prep"]);
 
@@ -30,6 +31,26 @@ export function candidateBlocks(lectures = [], bankBlockId) {
     .sort((a, b) => String(b.lectureDate || b.date).localeCompare(String(a.lectureDate || a.date)))[0];
   const term = termOf[bankBlockId] || latest?.termId;
   return term ? teaching.filter(id => termOf[id] === term) : teaching;
+}
+
+/**
+ * Cumulative quizzes (ESoft, IMCQ) test several blocks, but a bank has one
+ * home block. Route each unlinked, keyed question to the block whose lecture
+ * text matches it best, so it is checked there first instead of spending AI
+ * calls in a block that never taught it. Questions with no clear match stay
+ * with the home block. Returns Map(blockId -> Set(questionKey)).
+ */
+export function routeUnlinkedQuestions({ questions = [], lectures = [], homeBlockId, filename = "" }) {
+  const routes = new Map();
+  questions.forEach((question, index) => {
+    if (!question?.stem || !question.correct || question.lectureId) return;
+    if (["user-confirmed", "evidence-verified"].includes(question.curriculumLinkStatus)) return;
+    const [top] = rankLectureContent({ ...question, sourceTitle: filename }, lectures, null).filter(row => row.contentScore > 0);
+    const blockId = top && top.bodyEvidence.length >= 2 ? top.lecture.blockId : homeBlockId;
+    if (!routes.has(blockId)) routes.set(blockId, new Set());
+    routes.get(blockId).add(questionKey(question, index));
+  });
+  return routes;
 }
 
 export async function relinkAllQuestionBanks({ userId, filenames = null, aiMapping = true, onProgress = () => {} } = {}, deps = {}) {
@@ -66,13 +87,33 @@ export async function relinkAllQuestionBanks({ userId, filenames = null, aiMappi
     const scope = bankMappingScope({ filename: job.filename, sourceKind: job.sourceKind, bankBlockId: job.blockId, questions: job.questions, lectures, candidateBlockIds: blocks });
     if (!scope.homeBlockId) { results.push({ filename: job.filename, status: "skipped", reason: "No teaching block matched" }); continue; }
     try {
+      // Questions whose text clearly belongs to another teaching block are
+      // checked there; the home pass takes the rest (and the week rescue).
+      const pool = lectures.filter(lecture => lecture.blockId && !NON_TEACHING_BLOCKS.has(lecture.blockId));
+      const routes = aiMapping ? routeUnlinkedQuestions({ questions: readBanks(userId)?.[job.filename] || job.questions, lectures: pool, homeBlockId: scope.homeBlockId, filename: job.filename }) : new Map();
+      const away = new Set([...routes].filter(([blockId]) => blockId !== scope.homeBlockId).flatMap(([, keys]) => [...keys]));
       const state = await resume({
         userId, blockId: job.blockId, filename: job.filename, recheck: true, aiMapping, scope,
+        ...(away.size ? { onlyKeys: new Set((readBanks(userId)?.[job.filename] || job.questions).map((question, i) => questionKey(question, i)).filter(key => !away.has(key))) } : {}),
         lectures: lectures.filter(lecture => lecture.blockId === scope.homeBlockId),
         objectives: objectivesByBlock[scope.homeBlockId] || [],
         onProgress: status => onProgress({ phase: "mapping", index, total: jobs.length, filename: job.filename, evaluated: status.evaluated || 0, of: status.total || 0 }),
       });
-      results.push({ filename: job.filename, scope, status: state.status, linked: state.linked, lectureLinked: state.lectureLinked, weekRescued: state.weekRescued || 0, error: state.error || null });
+      let final = state;
+      const crossBlock = {};
+      for (const [routedBlockId, keys] of routes) {
+        if (routedBlockId === scope.homeBlockId || final.status !== "complete") continue;
+        const before = final.lectureLinked || 0;
+        final = await resume({
+          userId, blockId: job.blockId, filename: job.filename, recheck: true, aiMapping, onlyKeys: keys, crossBlock: true,
+          scope: { homeBlockId: routedBlockId, focusLectureIds: [], focusWeeks: [] },
+          lectures: lectures.filter(lecture => lecture.blockId === routedBlockId),
+          objectives: objectivesByBlock[routedBlockId] || [],
+          onProgress: status => onProgress({ phase: "mapping", index, total: jobs.length, filename: job.filename, blockId: routedBlockId, evaluated: status.evaluated || 0, of: keys.size }),
+        });
+        crossBlock[routedBlockId] = { tried: keys.size, linked: Math.max(0, (final.lectureLinked || 0) - before) };
+      }
+      results.push({ filename: job.filename, scope, status: final.status, linked: final.linked, lectureLinked: final.lectureLinked, weekRescued: state.weekRescued || 0, crossBlock, error: final.error || null });
     } catch (error) {
       results.push({ filename: job.filename, scope, status: "paused", error: error.message });
     }

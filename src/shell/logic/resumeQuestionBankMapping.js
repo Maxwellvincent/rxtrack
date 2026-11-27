@@ -10,7 +10,8 @@ import {blockProgressProjection} from './blockProgress.js';
 import {applyLearnedHeadings,learnedHeadingMap,similarPrecedents} from '../../engine/learnedLinks.js';
 const active=new Map();
 export const mappingFailureReason=error=>String(error?.message || error || 'Unknown mapping failure').replace(/\bsk-[A-Za-z0-9_-]+/g,'[redacted]').slice(0,2000);
-const identity=(q,i)=>String(q.id || q.questionId || `${i}:${q.stem}`);
+export const questionKey=(q,i)=>String(q.id || q.questionId || `${i}:${q.stem}`);
+const identity=questionKey;
 /** Stable fingerprint of the lectures and linked objectives a verdict was judged against. */
 export function catalogSignature(lectures=[],objectives=[]){
  const parts=[...lectures.map(l=>`L:${l.id}`),...objectives.map(o=>`O:${o.id}:${o.linkedLecId||''}`)].sort().join('|');
@@ -22,7 +23,9 @@ export function resumeQuestionBankMapping(args,deps={}){
  if(active.has(lock))return active.get(lock);
  const job=run(args,deps).finally(()=>active.delete(lock));active.set(lock,job);return job;
 }
-async function run({userId,blockId,filename,lectures=[],objectives=[],recheck=false,scope=null,aiMapping=true,onProgress=()=>{}},deps){
+// `onlyKeys` limits a run to those questions. `crossBlock` marks a pass
+// against another block: it leaves the bank's recorded home-block scope alone.
+async function run({userId,blockId,filename,lectures=[],objectives=[],recheck=false,scope=null,aiMapping=true,onlyKeys=null,crossBlock=false,onProgress=()=>{}},deps){
  // The bank stays filed under blockId; linking searches its home block
  // (bankMappingScope.js) and looks at its focus week(s) first.
  const mapBlock=scope?.homeBlockId||blockId;
@@ -49,7 +52,7 @@ async function run({userId,blockId,filename,lectures=[],objectives=[],recheck=fa
   if(learned.applied){const all=readBanks(userId)||{};await writeBanks(userId,{...all,[filename]:learned.questions});source=learned.questions;state.learnedHeadingLinks=(state.learnedHeadingLinks||0)+learned.applied;}
   const precedentPool=blockQuestions().filter(item=>item?.curriculumLinkStatus==='user-confirmed');
   state.total=source.length;await save();
-  if(scope)state.scope={homeBlockId:mapBlock,focusWeeks:scope.focusWeeks||[],format:scope.format||null,filedBlockId:blockId};
+  if(scope&&!crossBlock)state.scope={homeBlockId:mapBlock,focusWeeks:scope.focusWeeks||[],format:scope.format||null,filedBlockId:blockId};
   const catalog=blockProgressProjection({blockId:mapBlock,lectures,catalog:objectives,evidence:{}}).linked;
   // An unresolved verdict is only final for the curriculum it was judged
   // against. When lectures or objectives change (for example objectives
@@ -57,7 +60,7 @@ async function run({userId,blockId,filename,lectures=[],objectives=[],recheck=fa
   const signature=catalogSignature(lectures.filter(l=>l.blockId===mapBlock),catalog)+(focusIds.size?`:f${[...focusIds].sort().join(',').length}`:'');
   if(state.catalogSignature!==signature)source.forEach((q,i)=>{if(eligible(q))completed.delete(identity(q,i));});
   state.catalogSignature=signature;
-  const pending=aiMapping?source.map((q,i)=>({q,key:identity(q,i)})).filter(({q,key})=>eligible(q)&&!completed.has(key)):[];
+  const pending=aiMapping?source.map((q,i)=>({q,key:identity(q,i)})).filter(({q,key})=>eligible(q)&&!completed.has(key)&&(!onlyKeys||onlyKeys.has(key))):[];
   let enriched=null;
   const loadLectures=async()=>{
    if(enriched)return enriched;

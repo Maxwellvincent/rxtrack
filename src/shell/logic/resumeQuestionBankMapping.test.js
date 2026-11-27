@@ -115,3 +115,14 @@ it('saves every result when the saved bank comes back with choice keys reordered
  expect(bank.f.map(q=>q.objectiveIds)).toEqual([['o-q1'],['o-q2'],['o-q3']]);
  expect(result).toMatchObject({status:'complete',linked:3});
 });
+it('limits a second pass to the given questions and keeps the recorded home scope',async()=>{
+ let bank={f:[{id:'q1',stem:'One',correct:'A',choices:{A:'a',B:'b'}},{id:'q2',stem:'Two',correct:'A',choices:{A:'a',B:'b'}}]};
+ let metadata={m:{filename:'f',blockId:'b',mappingProgress:{scope:{homeBlockId:'home'}}}};
+ const classify=vi.fn(async()=>({lectureId:'g1',lectureLabel:'GI 1',objectiveIds:['o'],curriculumLinkStatus:'evidence-verified'}));
+ const deps={readBanks:()=>bank,writeBanks:async(_,v)=>{bank=v},readMeta:()=>metadata,writeMeta:async(_,v)=>{metadata=v},classify,bridgeAvailable:async()=>true,fetchLectureContent:async()=>({}),review:vi.fn()};
+ await resumeQuestionBankMapping({userId:'u',blockId:'b',filename:'f',recheck:true,onlyKeys:new Set(['q2']),crossBlock:true,scope:{homeBlockId:'gi',focusLectureIds:[]},lectures:[],objectives:[]},deps);
+ expect(classify).toHaveBeenCalledTimes(1);
+ expect(classify.mock.calls[0][0].id).toBe('q2');
+ expect(classify.mock.calls[0][1].blockId).toBe('gi');
+ expect(metadata.m.mappingProgress.scope).toEqual({homeBlockId:'home'});
+});
