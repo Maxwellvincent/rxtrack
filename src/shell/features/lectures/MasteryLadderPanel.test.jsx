@@ -17,3 +17,13 @@ it("shows each objective's rung with symbols and the next step", async () => {
   expect(host.textContent).toContain("○ Unseen");
   root.unmount();
 });
+
+it("labels a confident miss as a misconception repair", async () => {
+  const at = Date.UTC(2026, 10, 20);
+  const a = (n, extra) => ({ questionKey: `q${n}`, correct: true, at: at + n, reasoningVerified: true, orderLevel: "second-order", taskType: "clinical-application", ...extra });
+  const evidence = { objectives: { o1: { recentFreshAnswers: [a(1, { orderLevel: "first-order" }), a(2), a(3), a(4, { correct: false, confidence: 5, taskType: "discrimination" })] } } };
+  const host = document.createElement("div"), root = createRoot(host);
+  await act(async () => root.render(<MasteryLadderPanel objectives={[{ id: "o1", objective: "Differentiate bipolar I from bipolar II" }]} evidence={evidence} now={at + 10} />));
+  expect(host.textContent).toContain("⚠ Confident miss — misconception repair: ");
+  root.unmount();
+});

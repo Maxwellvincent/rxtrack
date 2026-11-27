@@ -36,7 +36,7 @@ export function MasteryLadderPanel({ objectives = [], evidence = {}, examDate = 
       {due > 0 && <span className="ml-2 text-xs">⏰ {due} retest{due === 1 ? "" : "s"} due</span>}
       <span className="sr-only"> — {mastered} of {objectives.length} mastered</span>
     </summary>
-    <p className="my-2 text-sm text-text-2">Recall → Application (2 in a row) → Discrimination (2, one confident) → Integration → Mastered after a correct retest on a later day. An objective that covers several lecture parts (✓ tested · ○ untested) also needs one correct answer on each part. Only independent answers count; a miss drops one rung and the next quiz repairs it.</p>
+    <p className="my-2 text-sm text-text-2">Recall → Application (2 in a row) → Discrimination (2, one confident) → Integration → Mastered after a correct retest on a later day. An objective that covers several lecture parts (✓ tested · ○ untested) also needs one correct answer on each part. Only independent answers count; a miss drops one rung and the next quiz repairs it; a confident miss (4–5) drops two rungs and the next quiz targets the wrong belief.</p>
     <ul className="space-y-2 text-sm">{summary.rows.sort((a, b) => a.ladder.rung - b.ladder.rung).map(({ objective, ladder }) => <li key={objective.id} className="border-t border-border pt-2">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <span>{objective.code ? <strong>{String(objective.code).split(".").slice(-2).join(".")} </strong> : null}{objective.objective || objective.text}</span>
@@ -47,7 +47,7 @@ export function MasteryLadderPanel({ objectives = [], evidence = {}, examDate = 
         Parts {objective._parts.filter(part => part.covered).length}/{objective._parts.length}: {objective._parts.map(part => `${part.covered ? "✓" : "○"} ${part.label}`).join(" · ")}
       </p>}
       {ladder.next && <p className="mt-1 text-text-2">
-        {ladder.repairDue ? "⚠ Repair: " : "Next: "}{STEP_LABEL[ladder.next.step] || ladder.next.step}
+        {ladder.misconceptionDue ? "⚠ Confident miss — misconception repair: " : ladder.repairDue ? "⚠ Repair: " : "Next: "}{STEP_LABEL[ladder.next.step] || ladder.next.step}
         {ladder.next.step === "retention" && ladder.retestDueAt ? (ladder.retestDue ? " · due now" : ` · due ${new Date(ladder.retestDueAt).toLocaleDateString()}`) : ""}
       </p>}
     </li>)}</ul>

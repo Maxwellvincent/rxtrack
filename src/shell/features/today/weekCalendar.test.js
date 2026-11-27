@@ -146,3 +146,18 @@ describe("frozenDayQueue", () => {
     expect(frozenDayQueue({ stored: null, fresh: fresh([["a", "first"]]), rows: [row("a")], limit: 3 }).map(item => item.row.id)).toEqual(["a"]);
   });
 });
+
+import { setStudyDayUser } from "../../../studyDay.js";
+describe("buildWeekCalendar study day", () => {
+  it("keeps the previous day as today until the 4 a.m. rollover", () => {
+    setStudyDayUser("KX9K9IK4DgU0dBoAD6pj6Q4CEgr1");
+    try {
+      const lateNight = new Date(2026, 10, 27, 0, 15).getTime();
+      expect(buildWeekCalendar({ now: lateNight }).days.find(day => day.isToday).key).toBe("2026-11-26");
+      const morning = new Date(2026, 10, 27, 4, 5).getTime();
+      expect(buildWeekCalendar({ now: morning }).days.find(day => day.isToday).key).toBe("2026-11-27");
+      const mondayNight = new Date(2026, 10, 30, 1, 0).getTime();
+      expect(buildWeekCalendar({ now: mondayNight }).days[0].key).toBe("2026-11-23");
+    } finally { setStudyDayUser(null); }
+  });
+});

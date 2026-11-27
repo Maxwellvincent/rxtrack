@@ -560,7 +560,7 @@ function fmtDaysAgo(n) {
 }
 function fmtDaysUntil(dateStr) {
   if (!dateStr) return null;
-  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const today = studyDayDate(); today.setHours(0, 0, 0, 0);
   const d = new Date(dateStr); d.setHours(0, 0, 0, 0);
   const diff = Math.round((d - today) / 86400000);
   if (diff <= 0) return "today";

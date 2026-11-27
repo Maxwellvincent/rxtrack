@@ -1,4 +1,5 @@
 import { computeReviewDates } from "../../logic/completionLog.js";
+import { studyDayDate } from "../../../studyDay.js";
 import { lectureCompletion } from "../../../engine/lectureCompletion.js";
 import { objectivePracticePlan, OBJECTIVE_MIN_ACCURACY } from "../../../engine/objectivePractice.js";
 
@@ -121,8 +122,10 @@ export function planStudyLoad(rows, { todayKey, examKey = null, horizonDays = 14
  * lecScores rows come from generateDailySchedule (lec, availableDate, nextReview).
  */
 export function buildWeekCalendar({ lecScores = [], completion = {}, blockId, now = Date.now(), weekOffset = 0, examDate = null, objectivesFor = () => [], evidence = {}, limit = DAILY_LIMIT }) {
-  const start = weekStart(now, weekOffset);
-  const todayKey = dateKey(now);
+  // Late-night study counts toward the previous day until the personal rollover hour.
+  const studyNow = studyDayDate(now);
+  const start = weekStart(studyNow, weekOffset);
+  const todayKey = dateKey(studyNow);
   const examKey = examDate ? dateKey(keyToDate(String(examDate).slice(0, 10))) : null;
   const rows = lecScores.map((row) => {
     const lec = row.lec;
