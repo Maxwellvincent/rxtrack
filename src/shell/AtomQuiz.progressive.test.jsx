@@ -96,3 +96,12 @@ it('persists help before opening and keeps a resumed assisted correct answer out
  act(()=>resumed.render(<AtomQuiz questions={[question]} lectureId="help-l" blockId="help-b" initialState={checkpoint}/>));
  expect(host.textContent).toContain('Assisted answer');act(()=>resumed.unmount());
 });
+it('records the writer\'s task type so discrimination answers can climb the ladder',async()=>{
+ const storage=new Map();Object.defineProperty(globalThis,'localStorage',{value:{getItem:k=>storage.get(k)??null,setItem:(k,v)=>storage.set(k,String(v)),removeItem:k=>storage.delete(k)},configurable:true});
+ const {read}=await import('../stores/learnerEvidence.js');const host=document.createElement('div');const root=createRoot(host);
+ const question={id:'disc-q',stem:'A 30-year-old man has a 3-week history of elevated mood. Which diagnosis is most likely?',choices:{A:'Bipolar I',B:'Bipolar II',C:'Cyclothymia'},correct:'A',objectiveIds:['disc-o'],taskType:'discrimination',discriminationSet:['A','B','C'],explanation:'Mania lasts at least a week.'};
+ act(()=>root.render(<AtomQuiz questions={[question]} sessionKey="disc-session" lectureId="disc-l" blockId="disc-b"/>));
+ act(()=>host.querySelector('.quiz-choice').click());act(()=>[...host.querySelectorAll('button')].find(b=>b.textContent.includes('Confident')).click());
+ expect(read(null).objectives['disc-o'].recentFreshAnswers.at(-1).taskType).toBe('discrimination');
+ act(()=>root.unmount());
+});

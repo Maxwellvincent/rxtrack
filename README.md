@@ -205,7 +205,7 @@ misconception repair (the belief behind the wrong pick becomes the main distract
 explanation names it); a correct answer with confidence < 3 counts half. Discrimination items are
 two-way when the lecture contrasts a pair and 3–4-way when it teaches 3+ competing options (each
 non-key member ruled out by its own stem finding); the writer lists the set in `discriminationSet`
-(the question JSON formats list `discrimination` as a task type; `discriminationSetField` keeps it only with 3+ real letters including the key, and `shuffleChoices`
+(the question JSON formats and the base writing rule list `discrimination` as a task type, and lecture-quiz evidence records the writer's `taskType`, falling back to the wording-based `classifyLeadIn` only when the question has none — before 2026-11-27 it always used the wording guess, so no answer could ever count as discrimination; `discriminationSetField` keeps it only with 3+ real letters including the key, and `shuffleChoices`
 moves it with the choices), and the discrimination reviewer checks every member. `withLadderTargets`
 points lecture quizzes and exam practice at each objective's next step (raising, never lowering,
 other depth targets) and `ladderStepPrompt` tells the writer how to build that step. Shown per
