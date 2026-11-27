@@ -24,3 +24,24 @@ it("lists the week's lectures by day, opens one, and pages to last week", () => 
   expect(host.textContent).toContain("This week");
   act(() => root.unmount());
 });
+
+it("shows today's frozen plan with done items checked and a done/planned count", () => {
+  const host = document.createElement("div"), root = createRoot(host), onStudy = vi.fn(), onReview = vi.fn();
+  const row = (id, title, number, extra = {}) => ({ id, title, type: "LEC", number, firstPass: { complete: false, covered: 1, total: 4 }, ...extra });
+  const todayQueue = [
+    { row: row("a", "Sleep", 61), kind: "first" },
+    { row: row("b", "Consciousness", 63, { firstPass: { complete: true, covered: 4, total: 4 } }), kind: "first" },
+    { row: row("c", "Obsessive", 57), kind: "review" },
+  ];
+  const render = (doneIds) => act(() => root.render(<WeekCalendar lecScores={[]} blockId="b" examDate="2026-12-01" objectivesFor={() => []} onStudy={onStudy} onReview={onReview} now={local("2026-11-25").getTime() + 9 * 3600000} todayQueue={todayQueue} doneIds={doneIds} />));
+  render(new Set());
+  const today = () => host.querySelector('[aria-current="date"]');
+  expect(today().textContent).toContain("1/3 done");
+  expect(today().textContent).toContain("First pass complete · done today");
+  act(() => [...today().querySelectorAll("button")].find((b) => b.textContent.includes("Continue")).click());
+  expect(onStudy).toHaveBeenCalledWith("a");
+  render(new Set(["a", "c"]));
+  expect(today().textContent).toContain("✓ 3/3 done");
+  expect(today().textContent).toContain("Today's plan is done");
+  act(() => root.unmount());
+});

@@ -1,3 +1,4 @@
+import { queueItemDone } from "./weekCalendar.js";
 const label = (row) => `${row.type}${row.number != null ? ` ${row.number}` : ""}`;
 const shortTitle = (row) => String(row.title || "").replace(/^(NB\s+)?(DLA\s+)?\d+\s*[-–:]?\s*/i, "") || row.title;
 
@@ -8,7 +9,7 @@ const shortTitle = (row) => String(row.title || "").replace(/^(NB\s+)?(DLA\s+)?\
  */
 export function TodayPlan({ queue = [], cap, unscheduled = [], doneIds, onStudy, onReview, onSkim, busy = null }) {
   // A first pass finished earlier today counts as done even without a check.
-  const isDone = (item) => doneIds.has(item.row.id) || (item.kind === "first" && item.row.firstPass?.complete);
+  const isDone = (item) => queueItemDone(item, doneIds);
   const done = queue.filter(isDone).length;
   const next = queue.find((item) => !isDone(item));
   const run = (item) => item.kind === "review" ? onReview(item.row) : onStudy(item.row.id);

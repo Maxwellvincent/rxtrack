@@ -1113,7 +1113,7 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
       </div>
       {modePickerOpen && <div><DayModePicker mode={effectiveMode} onChange={handleDayMode} suggested={suggestedMode} />{dayMode && <button className="today-text-button mt-2" onClick={()=>handleDayMode(null)}>Use automatic day type</button>}</div>}
 
-      <WeekCalendar lecScores={daily?.lecScores || []} completion={context?.completion || {}} blockId={blockId} examDate={examDate} objectivesFor={objectivesForTask} evidence={context?.learnerEvidence || {}} onStudy={onStudy} onReview={onReview} limit={dailyLimit} onLimitChange={changeDailyLimit} />
+      <WeekCalendar lecScores={daily?.lecScores || []} completion={context?.completion || {}} blockId={blockId} examDate={examDate} objectivesFor={objectivesForTask} evidence={context?.learnerEvidence || {}} onStudy={onStudy} onReview={onReview} limit={dailyLimit} onLimitChange={changeDailyLimit} todayQueue={todayQueue} doneIds={checkedForToday} />
 
       <section aria-label="Today" className="flex flex-col gap-3 rounded-2xl border border-border bg-bg-elevated p-4 shadow-sm sm:p-5">
         <PracticeModeTabs ariaLabel="Today views" value={todayView} onChange={setTodayView} modes={[

@@ -183,6 +183,11 @@ export function dayQueue(day) {
  * new lecture. Newly planned items join only when the daily limit was raised
  * above the frozen cap.
  */
+/** A queue item counts as done when checked today, or a first pass that is now complete. */
+export function queueItemDone(item, doneIds = new Set()) {
+  return Boolean(doneIds?.has?.(item.row.id) || (item.kind === "first" && item.row.firstPass?.complete));
+}
+
 export function frozenDayQueue({ stored, fresh = [], rows = [], limit = DAILY_LIMIT }) {
   if (!stored) return fresh;
   const items = Array.isArray(stored) ? stored : Array.isArray(stored.items) ? stored.items : [];
