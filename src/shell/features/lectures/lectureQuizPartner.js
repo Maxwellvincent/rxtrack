@@ -64,3 +64,19 @@ export async function lectureQuizPartner({ userId, lecture, lectures = [], block
     return null;
   }
 }
+
+/**
+ * Hold back the quiz's cross-lecture slots from already-prepared questions.
+ * Prepared questions are single-lecture, so a full reserve used to start the
+ * quiz before any cross-lecture item could be written. Returns the reserve to
+ * use and how many cross-lecture items to write. Seed questions (a resumed or
+ * handed-in starting set) are never dropped.
+ */
+export function reserveWithCrossSlots(reserve = [], { count = 0, crossSlots = 0, seedCount = 0 } = {}) {
+  const have = reserve.filter(question => question?.crossLecture).length;
+  const needed = Math.max(0, crossSlots - have);
+  if (!needed) return { reserve, crossNeeded: 0 };
+  const limit = Math.max(seedCount, count - needed);
+  const kept = reserve.length > limit ? reserve.slice(0, limit) : reserve;
+  return { reserve: kept, crossNeeded: Math.min(needed, Math.max(0, count - kept.length)) };
+}

@@ -71,7 +71,8 @@ import * as questionBanksStore from "../../../stores/questionBanks.js";
 import * as questionBankMetaStore from "../../../stores/questionBankMeta.js";
 import { launchLectureSchoolQuestions, schoolQuestionsByLecture, schoolQuestionSummary } from "./lectureSchoolQuestions.js";
 import { lectureCompletion } from "../../../engine/lectureCompletion.js";
-import { LECTURE_QUIZ_CROSS_SHARE, lectureQuizPartner } from "./lectureQuizPartner.js";
+import { LECTURE_QUIZ_CROSS_SHARE, lectureQuizPartner, reserveWithCrossSlots } from "./lectureQuizPartner.js";
+import { crossLectureCount } from "../exam/crossLecture.js";
 import { normAtomKey, partitionAtomsForRound } from "../../../engine/atomNorm.js";
 import { AtomQuiz } from "../../AtomQuiz.jsx";
 import { markTodayLectureComplete } from "../today/todayProgress.js";
@@ -761,6 +762,11 @@ export function LectureStudyFlow({
         return true;
       })]
       .slice(0, count);
+    // After the first pass, keep the cross-lecture share free for newly written
+    // items; prepared questions are single-lecture and would otherwise fill it.
+    const crossEligible = !continuing && !retestObjectives?.length && Boolean(lecture?.id) && lectureCompletion(lectureObjectives, learnerEvidence.data || {}).complete;
+    const crossPlan = reserveWithCrossSlots(reserve, { count, crossSlots: crossEligible ? crossLectureCount(count, LECTURE_QUIZ_CROSS_SHARE) : 0, seedCount: seedQuestions.length });
+    reserve.length = crossPlan.reserve.length;
     const originalSchoolItems = continuing ? schoolContinuationQuestions({
       banks: questionBanksRes.data || {}, metadata: questionBankMetaRes.data || {}, lecture, blockId,
       missing: Math.max(0, count - reserve.length), difficulty,
@@ -864,7 +870,7 @@ export function LectureStudyFlow({
         avoidStems: generatedHistory.map((q) => q.stem).filter(Boolean),
         avoidQuestions: generatedHistory,
         focusNotes: [reasoningGuidance(learnerEvidence.data?.testTaking?.missTypes, missing),transferFocus].filter(Boolean).join("\n\n"),
-        ...(crossLecturePartner ? { crossLecturePartner, crossLectureShare: LECTURE_QUIZ_CROSS_SHARE } : {}),
+        ...(crossLecturePartner ? { crossLecturePartner, crossLectureShare: LECTURE_QUIZ_CROSS_SHARE, ...(crossPlan.crossNeeded ? { crossLectureNeeded: crossPlan.crossNeeded } : {}) } : {}),
       },
       {
         ...preparationDeps,

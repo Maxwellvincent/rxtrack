@@ -799,7 +799,10 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
   // Cross-lecture items (after the lecture's first pass): a share of slots is
   // written with an earlier lecture's text and must quote both lectures.
   const crossPartner = args.crossLecturePartner?.text && args.crossLecturePartner?.id ? args.crossLecturePartner : null;
-  const crossNeeded = crossPartner ? crossLectureCount(requested, Number(args.crossLectureShare) || 0.2) : 0;
+  // A lecture quiz that held back slots for cross-lecture items asks for exactly that many.
+  const crossNeeded = !crossPartner ? 0 : Number(args.crossLectureNeeded) > 0
+    ? Math.min(Number(args.crossLectureNeeded), requested)
+    : crossLectureCount(requested, Number(args.crossLectureShare) || 0.2);
   let crossObtained = 0, crossReserved = 0, crossAttempts = 0;
   const accepted = [];
   const seen = new Set();

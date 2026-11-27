@@ -279,7 +279,10 @@ failure leaves the block in place to retry. Exam sessions and answer evidence ar
     repair target. Start, Prepare for later and Start-with-saved share one payload.
   - **Lecture quizzes** add ~20% cross items once every objective of the lecture
     has had a first pass, pairing it with an earlier lecture of the same block
-    (`lectureQuizPartner.js`). Targeted retests stay single-lecture.
+    (`lectureQuizPartner.js`). Targeted retests stay single-lecture. Prepared questions are
+    single-lecture, so `reserveWithCrossSlots` holds that share back from the prepared reserve and
+    the generator is asked for exactly that many (`crossLectureNeeded`); before 2026-11-27 a full
+    reserve started the quiz first and 0 of 211 answers from Nov 24–27 were cross-lecture.
   - **Partner choice** ranks candidates by school questions already linked to
     both lectures, then shared key terms (`atomTermIndex`, terms in more than six
     lectures ignored), then the partner's weak or untested objectives.
@@ -453,7 +456,7 @@ is superseded.
 | Learned question links (headings + precedents), manual linking, score-report upload, high-yield panel | **Done** (2026-11-24) |
 | Mastery ladder (per-objective rungs, discrimination step, delayed retest, readiness) | **Done** (2026-11-24); live behaviour still to be observed |
 | NB Exam 2 scope + subject weighting, pre-test 80% validation | **Done**; live accuracy still being measured |
-| Cross-lecture integration questions: exam practice by school format (Homework 0% / IMCQ 40% / ESoft 50% / Custom 25%), lecture quizzes 20% after the first pass, ranked partners, partner-objective credit | **Done** (2026-11-24, formats and lecture quizzes 2026-11-26); live yield not yet measured |
+| Cross-lecture integration questions: exam practice by school format (Homework 0% / IMCQ 40% / ESoft 50% / Custom 25%), lecture quizzes 20% after the first pass, ranked partners, partner-objective credit | **Done** (2026-11-24, formats and lecture quizzes 2026-11-26; lecture-quiz reserve fix 2026-11-27 after measuring 0 cross-lecture answers) |
 | Write my reasoning first (opt-in switch in quizzes and exams): commit an answer and reason before the choices show, then self-check ✓/✕ against the question's reasoning | **Done** (2026-11-26); self-checks recorded, not yet shown on dashboards |
 | Capacity-planned Today (daily limit, need-ranked reviews, Today's plan queue, projected score, mixed timed exam, CBSE daily set) | **Done** (2026-11-25) |
 | Shared access for another user | **Not started** (needs a rules/auth design) |
