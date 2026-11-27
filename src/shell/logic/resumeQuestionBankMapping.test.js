@@ -102,3 +102,16 @@ it('week rescue runs without AI when aiMapping is off',async()=>{
  expect(bank.f[0]).toMatchObject({lectureId:'l1',lectureLinkBasis:'bank-week-content',curriculumLinkStatus:'content-matched'});
  expect(result.weekRescued).toBe(1);
 });
+it('saves every result when the saved bank comes back with choice keys reordered',async()=>{
+ // Firestore does not preserve map key order: after each write the bank
+ // snapshot can list a question's choices as {B,A} instead of {A,B}.
+ const reorder=list=>list.map(q=>q.choices?{...q,choices:Object.fromEntries(Object.entries(q.choices).reverse())}:q);
+ let bank={f:[1,2,3].map(n=>({id:`q${n}`,stem:`Stem ${n}`,correct:'A',choices:{A:'One',B:'Two',C:'Three'}}))};
+ let metadata={m:{filename:'f',blockId:'b'}};
+ const classify=vi.fn(async q=>({lectureId:'l1',lectureLabel:'L1',objectiveIds:[`o-${q.id}`],curriculumLinkStatus:'evidence-verified'}));
+ const deps={readBanks:()=>bank,writeBanks:async(_,v)=>{bank=Object.fromEntries(Object.entries(v).map(([k,list])=>[k,reorder(list)]));},readMeta:()=>metadata,writeMeta:async(_,v)=>{metadata=v},classify,bridgeAvailable:async()=>true,fetchLectureContent:async()=>({}),review:vi.fn()};
+ const result=await resumeQuestionBankMapping({userId:'u',blockId:'b',filename:'f',recheck:true,lectures:[],objectives:[]},deps);
+ expect(classify).toHaveBeenCalledTimes(3);
+ expect(bank.f.map(q=>q.objectiveIds)).toEqual([['o-q1'],['o-q2'],['o-q3']]);
+ expect(result).toMatchObject({status:'complete',linked:3});
+});

@@ -1,4 +1,5 @@
 import * as banks from '../../stores/questionBanks.js';
+import {sameChoices} from './sameChoices.js';
 import * as meta from '../../stores/questionBankMeta.js';
 import {classifyObjectiveMapping,createCurriculumReviewer,MAPPING_VERSION} from '../../engine/semanticObjectiveMapping.js';
 import {linkSourceLecture} from '../features/exam/questionBankLinks.js';
@@ -88,7 +89,7 @@ async function run({userId,blockId,filename,lectures=[],objectives=[],recheck=fa
     }
     state.lastSearch=patch?.curriculumMapping?.retrieval||evaluation?.retrieval||state.lastSearch;
     const current=readBanks(userId),list=current[filename];if(!Array.isArray(list))throw Error('Saved bank changed during mapping. Resume after it finishes saving.');
-    const next=list.map((item,i)=>identity(item,i)===key&&JSON.stringify(item.choices)===JSON.stringify(q.choices)&&item.correct===q.correct&&item.stem===q.stem&&eligible(item)?{...item,...(attributed.lectureId?{lectureId:attributed.lectureId,lectureLabel:attributed.lectureLabel,lectureLinkBasis:attributed.lectureLinkBasis,curriculumLinkStatus:attributed.curriculumLinkStatus,curriculumMapping:attributed.curriculumMapping}:{}),...(evaluation?{curriculumMappingReview:evaluation}:{}),...(patch||{})}:item);
+    const next=list.map((item,i)=>identity(item,i)===key&&sameChoices(item.choices,q.choices)&&item.correct===q.correct&&item.stem===q.stem&&eligible(item)?{...item,...(attributed.lectureId?{lectureId:attributed.lectureId,lectureLabel:attributed.lectureLabel,lectureLinkBasis:attributed.lectureLinkBasis,curriculumLinkStatus:attributed.curriculumLinkStatus,curriculumMapping:attributed.curriculumMapping}:{}),...(evaluation?{curriculumMappingReview:evaluation}:{}),...(patch||{})}:item);
     await writeBanks(userId,{...current,[filename]:next});completed.add(key);await save();
    }
   }

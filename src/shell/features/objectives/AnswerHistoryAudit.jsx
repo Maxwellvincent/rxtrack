@@ -1,4 +1,5 @@
 import {classifyObjectiveMapping,createCurriculumReviewer} from '../../../engine/semanticObjectiveMapping.js';
+import { sameChoices } from "../../logic/sameChoices.js";
 import {mapAnsweredLectureQuestions,applyAnsweredLectureMappings} from '../../../engine/answerLectureMapping.js';
 import {blockProgressProjection} from '../../logic/blockProgress.js';
 import * as generatedStore from '../../../stores/generatedQuestions.js';
@@ -64,7 +65,7 @@ export function AnswerHistoryAudit({userId,blockId,objectives=[],lectures=[],loa
     let changed=false;
     const updated=questions.map(q=>{
      if(q.curriculumLinkStatus==='user-confirmed' || (q.blockId && q.blockId!==blockId) || (q.sourceBlockId && q.sourceBlockId!==blockId))return q;
-     const matches=savedQuestions.filter(saved=>(q.blockId===blockId || q.sourceBlockId===blockId || normalized(saved.sourceFile)===normalized(filename)) && normalized(saved.stem).length>=80 && normalized(saved.stem)===normalized(q.stem) && saved.correct===q.correct && JSON.stringify(saved.choices)===JSON.stringify(q.choices));
+     const matches=savedQuestions.filter(saved=>(q.blockId===blockId || q.sourceBlockId===blockId || normalized(saved.sourceFile)===normalized(filename)) && normalized(saved.stem).length>=80 && normalized(saved.stem)===normalized(q.stem) && saved.correct===q.correct && sameChoices(saved.choices,q.choices));
      if(!matches.length || new Set(matches.map(q=>JSON.stringify([q.lectureId,[...(q.objectiveIds || [])].sort()]))).size!==1)return q;
      const match=matches[0];changed=true;
      return {...q,lectureId:match.lectureId,lectureLabel:match.lectureLabel || '',curriculumLinkStatus:match.curriculumLinkStatus,lectureLinkBasis:match.lectureLinkBasis || match.curriculumMapping?.basis || '',lectureLinkEvidence:match.lectureLinkEvidence || [],...(match.curriculumMapping?{curriculumMapping:match.curriculumMapping}:{}),...(match.curriculumLinkStatus==='evidence-verified'?{objectiveIds:match.objectiveIds}: {})};
