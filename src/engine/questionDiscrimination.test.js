@@ -1,4 +1,4 @@
-import {expect,it} from 'vitest';
+import {describe,expect,it} from 'vitest';
 import {discriminationIssue,verifiedDiscrimination} from './questionDiscrimination.js';
 const q={stem:'The response persists after the upstream input is blocked. Which mechanism applies?',choices:{A:'Local response',B:'Upstream response'},correct:'A'};
 const claim={closestAlternative:'B',stemClue:'persists after the upstream input is blocked',whyAlternativeFails:'The preserved response cannot require the blocked input.',keyUniquelySupported:true,alternativeAlsoCorrect:false};
@@ -21,4 +21,17 @@ it('rejects source silence as a reason an alternative is false',()=>{
 it('rejects an explanation attached to a substituted alternative rather than the actual choice',()=>{
  expect(verifiedDiscrimination({...claim,alternativeText:'A different connection'},q)).toBeNull();
  expect(verifiedDiscrimination({...claim,alternativeText:q.choices.B},q).alternativeText).toBe(q.choices.B);
+});
+
+import { discriminationSetField } from "./questionDiscrimination.js";
+describe("discriminationSetField", () => {
+  const choices = { A: "CBT", B: "SSRI", C: "Benzodiazepine", D: "Propranolol", E: "Haloperidol" };
+  it("keeps a 3+ letter set that includes the key", () => {
+    expect(discriminationSetField({ choices, correct: "B", discriminationSet: ["a", "B", "C", "D"] })).toEqual({ discriminationSet: ["A", "B", "C", "D"] });
+  });
+  it("drops pairs, unknown letters and sets without the key", () => {
+    expect(discriminationSetField({ choices, correct: "B", discriminationSet: ["B", "C"] })).toEqual({});
+    expect(discriminationSetField({ choices, correct: "B", discriminationSet: ["B", "C", "Z"] })).toEqual({});
+    expect(discriminationSetField({ choices, correct: "B", discriminationSet: ["A", "C", "D"] })).toEqual({});
+  });
 });

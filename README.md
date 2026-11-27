@@ -135,7 +135,7 @@ Secrets (`firebase functions:secrets:set`): `ANTHROPIC_API_KEY`,
 
 Objective ownership: on strict reviews the reviewer names the source objective a draft actually tests. If that is another objective in the same quiz, the draft is re-filed there (`refileToReviewedObjective`, `refiledFromObjectiveId`) instead of being rejected; only an owner outside the quiz is still `objective_mismatch`.
 
-Answer reveal (lecture quizzes, practice and exam review): each choice's reasoning shows directly under that choice (`choiceNotes` / `ChoiceNote` in `ui/QuestionExplanation.jsx`) — "✓ Why this is right", "✕ Why your answer is wrong", or "Why not" — and the block below the choices keeps only the general explanation. Distractors named in a source rationale get that sentence; an "Explain the other choices" button (`ui/ExplainOtherChoices.jsx`) asks the AI for one-line "why not" notes for the rest, labelled (AI) and cached per question on the device. Lecture quizzes show "Seen before: N× ✓ ✕ …" from the evidence journal; original school questions are keyed by their stem (`engine/questionHistory.js`), and the quiz fill-in skips school questions already answered.
+Answer reveal (lecture quizzes, practice and exam review): each choice's reasoning shows directly under that choice (`choiceNotes` / `ChoiceNote` in `ui/QuestionExplanation.jsx`) — "✓ Why this is right", "✕ Why your answer is wrong", or "Why not" — and the block below the choices keeps only the general explanation. Distractors named in a source rationale get that sentence; an "Explain the other choices" button (`ui/ExplainOtherChoices.jsx`) asks the AI for one-line "why not" notes for the rest, labelled (AI) and cached per question on the device. Lecture quizzes show "Seen before: N× ✓ ✕ …" from the evidence journal; original school questions are keyed by their stem (`engine/questionHistory.js`), and the quiz fill-in skips school questions already answered. During a lecture quiz, **← Prev** opens read-only review of earlier answers (`AtomQuizReview.jsx`: ✓ correct answer, ✕ your answer, confidence, explanation, Prev/Next, back to the current question).
 
 Answer-choice terminology (`QUESTION_CHOICE_CONTRACT` in `engine/questionContract.js`): the keyed answer and its comparable distractors use the term the lecture uses most often for a concept, not a once-mentioned synonym, so difficulty comes from reasoning rather than unfamiliar wording.
 
@@ -198,7 +198,13 @@ extracted facts already exist.
 row) → Discrimination (2 look-alike items, one confident) → Integration (two-step or cross-lecture)
 → Mastered (a correct retest on a later day: 1 day apart within a week of the exam, else 2).
 Only independent answers with verified reasoning depth count; a miss drops one rung and the next
-item is a repair variant; a correct answer with confidence < 3 counts half. `withLadderTargets`
+item is a repair variant; a confident miss (confidence 4–5) drops two rungs and the next item is a
+misconception repair (the belief behind the wrong pick becomes the main distractor and the
+explanation names it); a correct answer with confidence < 3 counts half. Discrimination items are
+two-way when the lecture contrasts a pair and 3–4-way when it teaches 3+ competing options (each
+non-key member ruled out by its own stem finding); the writer lists the set in `discriminationSet`
+(`discriminationSetField` keeps it only with 3+ real letters including the key, and `shuffleChoices`
+moves it with the choices), and the discrimination reviewer checks every member. `withLadderTargets`
 points lecture quizzes and exam practice at each objective's next step (raising, never lowering,
 other depth targets) and `ladderStepPrompt` tells the writer how to build that step. Shown per
 objective in the lecture workspace (`MasteryLadderPanel`) and as school-weighted readiness on the

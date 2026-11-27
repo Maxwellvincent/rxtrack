@@ -1,7 +1,8 @@
 // Mastery ladder: each objective climbs Recall -> Application -> Discrimination ->
 // Integration -> Mastered (delayed retest). Only independent answers whose
 // reasoning depth was independently verified count; a miss drops one rung and
-// asks for a repair variant; a low-confidence correct counts as half a step.
+// asks for a repair variant (a confident miss, confidence 4-5, drops two rungs
+// and asks for a misconception repair); a low-confidence correct counts as half a step.
 
 const DAY = 86_400_000;
 export const CONFIDENT = 4;
@@ -37,19 +38,21 @@ export function ladderForObjective(entry, { now = Date.now(), examDate = null, p
   const answers = (entry?.recentFreshAnswers || [])
     .filter(a => a && a.reasoningVerified === true && a.assisted !== true)
     .sort((a, b) => (a.at || 0) - (b.at || 0));
-  let rung = 0, credit = 0, confident = false, repairDue = false, reachedIntegrationAt = null;
+  let rung = 0, credit = 0, confident = false, repairDue = false, misconceptionDue = false, reachedIntegrationAt = null;
   for (const a of answers) {
     const need = REQUIREMENTS[rung];
     if (!need) break;
     if (!a.correct) {
-      rung = Math.max(0, rung - 1); credit = 0; confident = false; repairDue = true; reachedIntegrationAt = rung >= 4 ? reachedIntegrationAt : null;
+      // Being sure and wrong means a wrong belief, not a gap, so it costs more.
+      misconceptionDue = isConfident(a);
+      rung = Math.max(0, rung - (misconceptionDue ? 2 : 1)); credit = 0; confident = false; repairDue = true; reachedIntegrationAt = rung >= 4 ? reachedIntegrationAt : null;
       continue;
     }
     if (!need.qualifies(a)) continue;
     if (need.delayed && (!reachedIntegrationAt || dayOf(a.at) <= dayOf(reachedIntegrationAt) || a.at < reachedIntegrationAt + retentionDelay(reachedIntegrationAt, examDate) - DAY / 2)) continue;
     credit += confidenceWeight(a);
     confident = confident || isConfident(a) || !Number.isFinite(Number(a.confidence));
-    repairDue = false;
+    repairDue = false; misconceptionDue = false;
     if (credit >= need.needed && (!need.needsConfident || confident)) {
       rung += 1; credit = 0; confident = false;
       if (rung === 4) reachedIntegrationAt = a.at;
@@ -66,11 +69,11 @@ export function ladderForObjective(entry, { now = Date.now(), examDate = null, p
   return {
     rung, label: LADDER_RUNGS[rung].label,
     progress: need && need.needed > 1 ? `${Math.floor(credit)}/${need.needed}` : null,
-    repairDue,
+    repairDue, misconceptionDue,
     retestDueAt: heldForParts ? null : retestDueAt, retestDue: !heldForParts && retestDueAt != null && now >= retestDueAt,
     next: heldForParts
       ? { step: "parts", targetOrder: "second-order", partIds: partsMissing.map(part => part.id) }
-      : need ? { step: need.step, targetOrder: need.targetOrder, ...(need.taskType ? { taskType: need.taskType } : {}), ...(repairDue ? { repair: true } : {}) } : null,
+      : need ? { step: need.step, targetOrder: need.targetOrder, ...(need.taskType ? { taskType: need.taskType } : {}), ...(repairDue ? { repair: true } : {}), ...(misconceptionDue ? { misconception: true } : {}) } : null,
     ...(parts.length ? { parts: { total: parts.length, covered: parts.length - partsMissing.length, missing: partsMissing.map(part => ({ id: part.id, label: part.label })) } } : {}),
   };
 }
@@ -99,7 +102,7 @@ export function withLadderTargets(objectives = [], evidence = {}, options = {}, 
   return objectives.map(objective => {
     const ladder = ladderForObjective(evidence?.objectives?.[objective.id], { ...options, parts: options.partsByObjective?.[objective.id] || objective._parts || null });
     if (!ladder.next) return { ...objective, _ladderRung: ladder.rung, _ladderLabel: ladder.label };
-    const base = { ...objective, _ladderRung: ladder.rung, _ladderLabel: ladder.label, _ladderStep: ladder.next.step, ...(ladder.next.repair ? { _ladderRepair: true } : {}) };
+    const base = { ...objective, _ladderRung: ladder.rung, _ladderLabel: ladder.label, _ladderStep: ladder.next.step, ...(ladder.next.repair ? { _ladderRepair: true } : {}), ...(ladder.next.misconception ? { _ladderMisconception: true } : {}) };
     if (objective._transferOrder) return base;
     const allowed = allowedOrders(objective) || ORDERS;
     const wanted = ladder.next.targetOrder;
@@ -114,15 +117,15 @@ export function withLadderTargets(objectives = [], evidence = {}, options = {}, 
 const STEP_GUIDE = {
   recall: 'RECALL: a direct, school-level question on one taught fact or criterion (first-order is correct here; do not dress it up).',
   application: 'APPLICATION: a school-style case that applies one taught relationship to new findings.',
-  discrimination: 'DISCRIMINATION: the key and the closest distractor must be two conditions, structures or mechanisms that THIS lecture explicitly contrasts (e.g. bipolar I vs II, grief vs major depression). The stem must contain the one finding that separates them (duration, impairment, laterality, timing, a lab value). Set taskType "discrimination".',
+  discrimination: 'DISCRIMINATION: choose the contrast set from what THIS lecture teaches for the objective\'s decision. Two-way when the lecture contrasts a pair (e.g. bipolar I vs II, grief vs major depression): the key and the closest distractor are that pair, and the stem contains the one finding that separates them (duration, impairment, laterality, timing, a lab value). Multi-way when the lecture (or the objective\'s parts) teaches 3 or more options that compete for the same decision (e.g. CBT vs SSRI vs benzodiazepine vs beta blocker for an anxiety disorder; several disorders sharing a presentation): make 3-4 choices real members of that set, each plausible on first read, and put in the stem a distinct finding that rules out each non-key member (onset timing, dependence risk, comorbidity, performance-only symptoms). Never pad a multi-way set with options the lecture does not teach. Set taskType "discrimination" and list the contrasted letters (key included) in "discriminationSet".',
   integration: 'INTEGRATION: require two taught relationships joined through an unstated intermediate (third-order where the objective allows it).',
   parts: 'PARTS: the objective is otherwise secure; write an application item on one of its untested parts (see OBJECTIVE PARTS testNext).',
   retention: 'RETENTION: a fresh case on an already-learned relationship with a different presentation and requested endpoint than before; set taskType "fresh-retest".',
 };
 /** Writer instructions for the ladder steps present in this batch. */
 export function ladderStepPrompt(objectives = []) {
-  const rows = objectives.filter(objective => objective._ladderStep).map(objective => ({ objectiveId: objective.id || objective.code, step: objective._ladderStep, ...(objective._ladderRepair ? { repair: true } : {}) }));
+  const rows = objectives.filter(objective => objective._ladderStep).map(objective => ({ objectiveId: objective.id || objective.code, step: objective._ladderStep, ...(objective._ladderRepair ? { repair: true } : {}), ...(objective._ladderMisconception ? { misconception: true } : {}) }));
   if (!rows.length) return "";
   const steps = [...new Set(rows.map(row => row.step))];
-  return `\nMASTERY LADDER STEPS (write each objective's item for its step; a repair item re-tests the same relationship that was just missed, with a different presentation):\n${JSON.stringify(rows)}\n${steps.map(step => STEP_GUIDE[step]).filter(Boolean).join("\n")}\n`;
+  return `\nMASTERY LADDER STEPS (write each objective's item for its step; a repair item re-tests the same relationship that was just missed, with a different presentation; a misconception repair follows a confident wrong answer: make the belief that answer reflects the most tempting distractor, and have the explanation name that belief and the stem finding that rules it out):\n${JSON.stringify(rows)}\n${steps.map(step => STEP_GUIDE[step]).filter(Boolean).join("\n")}\n`;
 }

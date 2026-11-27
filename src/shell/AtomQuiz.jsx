@@ -30,6 +30,7 @@ import { QuestionQualityRating } from "../ui/QuestionQualityRating.jsx";
 import { ChoiceValue, hasTableChoices } from "../ui/ChoiceValue.jsx";
 import { classifyQuestionOrder, hasCurrentReasoningAudit, QUESTION_ORDER_LABELS } from "../engine/questionOrder.js";
 import { orderedChoiceEntries } from "./features/exam/choiceOrder.js";
+import { AtomQuizReview, recordForQuestion } from "./AtomQuizReview.jsx";
 
 const nowMs = () => Date.now();
 
@@ -63,6 +64,8 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
   const [confidence, setConfidence] = useState(() => initialState?.confidence ?? null);
   const [records, setRecords] = useState(() => Array.isArray(initialState?.records) ? initialState.records : []);
   const [done, setDone] = useState(false);
+  // Index of an earlier, answered question being looked at read-only; null = the live question.
+  const [reviewIndex, setReviewIndex] = useState(null);
   const [crossed, setCrossed] = useState(() => new Set(initialState?.crossed || [])); // letters eliminated by user
   const [errorReason, setErrorReason] = useState(() => initialState?.errorReason ?? null);
   // Covered options: predictions keyed by question index, saved with the quiz checkpoint.
@@ -147,6 +150,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
     const answerEventId=`quiz:${evidenceSessionKeyRef.current}:${currentIndex}:${questionEvidenceKey(answerKey)}`;
     const rec = {
       ...helpFields,
+      questionIndex: currentIndex, picked,
       eventId:answerEventId,ts:answerAt,lectureId, blockId, sessionKey: evidenceSessionKeyRef.current,
       questionKey: answerKey,
       learningContext: questionLearningContext(q, picked),
@@ -243,6 +247,23 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
     setI(currentIndex + 1); setPicked(null); setConfidence(null); setCrossed(new Set()); setErrorReason(null);
   };
 
+  // Looking back at an answered question never changes the live one.
+  if (reviewIndex != null && questions[reviewIndex]) {
+    return (
+      <div className="quiz-surface mb-5 space-y-3">
+        <div className="quiz-header">
+          <div className="quiz-context"><span className="quiz-kicker">Active quiz · review</span><span className="quiz-context-title">{lectureTitle}</span></div>
+          <div className="quiz-header-actions"><span className="quiz-count">{reviewIndex + 1}<span>/{displayedTotal}</span></span></div>
+        </div>
+        <AtomQuizReview question={questions[reviewIndex]} record={recordForQuestion(records, reviewIndex)} index={reviewIndex} total={displayedTotal}
+          canPrev={reviewIndex > 0} canNext
+          onPrev={() => setReviewIndex(reviewIndex - 1)}
+          onNext={() => setReviewIndex(reviewIndex + 1 >= currentIndex ? null : reviewIndex + 1)}
+          onBack={() => setReviewIndex(null)} />
+      </div>
+    );
+  }
+
   return (
     <div className="quiz-surface mb-5 space-y-3" onKeyDown={(event) => advanceOnEnter(event, next, revealed)}>
       <div className="quiz-header">
@@ -257,6 +278,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
           </span>
         </div>
         <div className="quiz-header-actions">
+          {currentIndex > 0 && <button type="button" className="quiz-save-button" onClick={() => setReviewIndex(currentIndex - 1)}>← Prev</button>}
           <span className="quiz-count">{currentIndex + 1}<span>/{displayedTotal}</span></span>
           {preparing && <span className="quiz-preparing"> · preparing more</span>}
           {onExit && <button type="button" onClick={() => { onCheckpoint?.(checkpointRef.current); onExit(); }} className="quiz-save-button">Save & leave</button>}

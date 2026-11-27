@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ladderForObjective, LADDER_RUNGS, blockLadderSummary } from "./masteryLadder.js";
+import { ladderForObjective, LADDER_RUNGS, blockLadderSummary, ladderStepPrompt } from "./masteryLadder.js";
 
 const DAY = 86_400_000;
 const t0 = Date.UTC(2026, 10, 20);
@@ -39,6 +39,14 @@ describe("ladderForObjective", () => {
     expect(ladderForObjective(e, { now: t0 })).toMatchObject({ rung: 1, repairDue: true, next: { step: "application", repair: true } });
   });
 
+  it("drops two rungs on a confident miss and asks for a misconception repair", () => {
+    const e = { recentFreshAnswers: [answer(1, true), app(2, true), app(3, true), disc(4, false, { confidence: 5 })] };
+    expect(ladderForObjective(e, { now: t0 })).toMatchObject({ rung: 0, repairDue: true, misconceptionDue: true, next: { step: "recall", repair: true, misconception: true } });
+    const unsure = { recentFreshAnswers: [answer(1, true), app(2, true), app(3, true), disc(4, false, { confidence: 3 })] };
+    expect(ladderForObjective(unsure, { now: t0 })).toMatchObject({ rung: 1, misconceptionDue: false });
+    expect(ladderForObjective({ recentFreshAnswers: [...e.recentFreshAnswers, answer(5, true)] }, { now: t0 })).toMatchObject({ rung: 1, misconceptionDue: false });
+  });
+
   it("requires a delayed retest on a later day to reach Mastered, spaced to the exam date", () => {
     const climbed = [answer(1, true), app(2, true), app(3, true), disc(4, true, { confidence: 5 }), disc(5, true), integ(6, true)];
     const waiting = ladderForObjective({ recentFreshAnswers: climbed }, { now: t0 + DAY / 2, examDate: t0 + 10 * DAY });
@@ -72,7 +80,7 @@ describe("blockLadderSummary", () => {
 });
 
 describe("ladder targeting and prompt", async () => {
-  const { withLadderTargets, ladderStepPrompt } = await import("./masteryLadder.js");
+  const { withLadderTargets } = await import("./masteryLadder.js");
   const objectives = [{ id: "a", objective: "Clinically differentiate the depressive disorders" }, { id: "b", objective: "Describe hypotheses regarding the role of sleep", _transferOrder: "second-order", _targetOrder: "second-order" }];
   const evidence = { objectives: { a: { recentFreshAnswers: [answer(1, true), app(2, true), app(3, true)] } } };
 
@@ -87,5 +95,15 @@ describe("ladder targeting and prompt", async () => {
     expect(prompt).toMatch(/DISCRIMINATION/);
     expect(prompt).toMatch(/"taskType":"discrimination"|taskType "discrimination"/);
     expect(ladderStepPrompt([{ id: "x" }])).toBe("");
+    expect(prompt).toMatch(/discriminationSet/);
+    expect(prompt).toMatch(/3-4|3–4/);
+  });
+});
+
+describe("misconception repair prompt", () => {
+  it("passes the misconception flag to the writer", () => {
+    const prompt = ladderStepPrompt([{ id: "o1", _ladderStep: "recall", _ladderRepair: true, _ladderMisconception: true }]);
+    expect(prompt).toMatch(/"misconception":true/);
+    expect(prompt).toMatch(/most tempting distractor/);
   });
 });

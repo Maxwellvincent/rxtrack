@@ -15,7 +15,7 @@ import * as sourceUseStore from "../stores/sourceUse.js";
 import { allowedGenerationExamples, trustedSchoolEvidence } from "./sourceUse.js";
 import { buildBlindSolvePrompt, blindSolveIssue } from "./blindQuestionSolve.js";
 import { buildLocalMcqPrompt, buildLocalAuditPrompt } from "./localQuestionPrompts.js";
-import { discriminationIssue, verifiedDiscrimination, DISCRIMINATION_REVIEW_CONTRACT } from "./questionDiscrimination.js";
+import { discriminationIssue, verifiedDiscrimination, DISCRIMINATION_REVIEW_CONTRACT, discriminationSetField } from "./questionDiscrimination.js";
 import { QUESTION_REUSE_REVIEW_POLICY } from "./questionReuse.js";
 import { objectiveAlignmentIssue, objectiveOwnershipPrompt, refileToReviewedObjective } from "./objectiveOwnership.js";
 import { usableSchoolExemplar, requiresSchoolFigure } from "./schoolSourceIntegrity.js";
@@ -556,7 +556,7 @@ export async function generateMcqs(cfg = {}, deps = {}) {
  * choices. Skipping that would relabel every per-choice explanation onto the wrong option, which
  * is worse than having none at all.
  */
-function shuffleChoices(q) {
+export function shuffleChoices(q) {
   const keys = Object.keys(q.choices);
   // Fisher-Yates on the values, then remap to original letter slots
   const vals = keys.map((l) => ({ origLetter: l, text: q.choices[l] }));
@@ -573,7 +573,10 @@ function shuffleChoices(q) {
     if (q.whyWrong && q.whyWrong[v.origLetter]) newWhyWrong[newLetter] = q.whyWrong[v.origLetter];
     if (v.origLetter === q.correct) newCorrect = newLetter;
   });
-  return { ...q, choices: newChoices, correct: newCorrect, whyWrong: newWhyWrong };
+  // A multi-way discrimination set names letters, so it moves with its choices.
+  const moved = Object.fromEntries(vals.map((v, i) => [v.origLetter, keys[i]]));
+  const discriminationSet = Array.isArray(q.discriminationSet) ? q.discriminationSet.map(letter => moved[letter]).filter(Boolean) : null;
+  return { ...q, choices: newChoices, correct: newCorrect, whyWrong: newWhyWrong, ...(discriminationSet ? { discriminationSet } : {}) };
 }
 
 /**
@@ -693,6 +696,7 @@ export function normalizeQuestions(raw) {
       objectiveFacet: q.objectiveFacet ? String(q.objectiveFacet).trim().slice(0, 100) : null,
       objectivePartId: q.objectivePartId ? String(q.objectivePartId).slice(0, 80) : null,
       taskType: q.taskType ? String(q.taskType).trim() : null,
+      ...discriminationSetField(q),
       reasoningDepth: ["state-recognition", "pathway-process", "mechanism", "enzyme-structure", "regulation-cofactor", "clinical-consequence"].includes(q.reasoningDepth) ? q.reasoningDepth : null,
       orderLevel: normalizeQuestionOrder(q.orderLevel || q.questionOrder),
       reasoningSteps: Array.isArray(q.reasoningSteps) ? q.reasoningSteps.map(String).slice(0, 6) : [],
@@ -1012,6 +1016,7 @@ function auditQuestionPayload(question, index) {
     objectiveIds: question.objectiveIds,
     objectiveFacet: question.objectiveFacet || null,
     taskType: question.taskType || null,
+    ...(question.discriminationSet ? { discriminationSet: question.discriminationSet } : {}),
     topic: question.topic,
     orderLevel: question.orderLevel,
     reasoningSteps: question.reasoningSteps || [],
